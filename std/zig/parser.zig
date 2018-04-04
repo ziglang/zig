@@ -1571,12 +1571,12 @@ pub const Parser = struct {
     }
 
     fn parseError(self: &Parser, token: &const Token, comptime fmt: []const u8, args: ...) (error{ParseError}) {
-        const loc = self.tokenizer.getTokenLocation(token);
-        warn("{}:{}:{}: error: " ++ fmt ++ "\n", self.source_file_name, token.line + 1, token.column + 1, args);
+        const loc = self.tokenizer.getTokenLocation(0, token);
+        warn("{}:{}:{}: error: " ++ fmt ++ "\n", self.source_file_name, loc.line + 1, loc.column + 1, args);
         warn("{}\n", self.tokenizer.buffer[loc.line_start..loc.line_end]);
         {
             var i: usize = 0;
-            while (i < token.column) : (i += 1) {
+            while (i < loc.column) : (i += 1) {
                 warn(" ");
             }
         }
@@ -1679,9 +1679,8 @@ pub const Parser = struct {
                     try stack.append(RenderState {
                         .Text = blk: {
                             const prev_node = root_node.decls.at(i - 1);
-                            const prev_line_index = prev_node.lastToken().line;
-                            const this_line_index = decl.firstToken().line;
-                            if (this_line_index - prev_line_index >= 2) {
+                            const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, decl.firstToken());
+                            if (loc.line >= 2) {
                                 break :blk "\n\n";
                             }
                             break :blk "\n";
@@ -1858,10 +1857,9 @@ pub const Parser = struct {
                                 try stack.append(RenderState {
                                     .Text = blk: {
                                         if (i != 0) {
-                                            const prev_statement_node = block.statements.items[i - 1];
-                                            const prev_line_index = prev_statement_node.lastToken().line;
-                                            const this_line_index = statement_node.firstToken().line;
-                                            if (this_line_index - prev_line_index >= 2) {
+                                            const prev_node = block.statements.items[i - 1];
+                                            const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, statement_node.firstToken());
+                                            if (loc.line >= 2) {
                                                 break :blk "\n\n";
                                             }
                                         }
@@ -2083,9 +2081,8 @@ pub const Parser = struct {
                                 .Text = blk: {
                                     if (i != 0) {
                                         const prev_node = fields_and_decls[i - 1];
-                                        const prev_line_index = prev_node.lastToken().line;
-                                        const this_line_index = node.firstToken().line;
-                                        if (this_line_index - prev_line_index >= 2) {
+                                        const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, node.firstToken());
+                                        if (loc.line >= 2) {
                                             break :blk "\n\n";
                                         }
                                     }

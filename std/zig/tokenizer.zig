@@ -5,8 +5,6 @@ pub const Token = struct {
     id: Id,
     start: usize,
     end: usize,
-    line: usize,
-    column: usize,
 
     const KeywordId = struct {
         bytes: []const u8,
@@ -180,28 +178,34 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     buffer: []const u8,
     index: usize,
-    line: usize,
-    column: usize,
     pending_invalid_token: ?Token,
 
-    pub const LineLocation = struct {
+    pub const Location = struct {
+        line: usize,
+        column: usize,
         line_start: usize,
         line_end: usize,
     };
 
-    pub fn getTokenLocation(self: &Tokenizer, token: &const Token) LineLocation {
-        var loc = LineLocation {
-            .line_start = 0,
+    pub fn getTokenLocation(self: &Tokenizer, start_index: usize, token: &const Token) Location {
+        var loc = Location {
+            .line = 0,
+            .column = 0,
+            .line_start = start_index,
             .line_end = self.buffer.len,
         };
-        for (self.buffer) |c, i| {
-            if (i == token.start) {
-                loc.line_end = i;
+        for (self.buffer[start_index..]) |c, i| {
+            if (i + start_index == token.start) {
+                loc.line_end = i + start_index;
                 while (loc.line_end < self.buffer.len and self.buffer[loc.line_end] != '\n') : (loc.line_end += 1) {}
                 return loc;
             }
             if (c == '\n') {
+                loc.line += 1;
+                loc.column = 0;
                 loc.line_start = i + 1;
+            } else {
+                loc.column += 1;
             }
         }
         return loc;
@@ -216,8 +220,6 @@ pub const Tokenizer = struct {
         return Tokenizer {
             .buffer = buffer,
             .index = 0,
-            .line = 0,
-            .column = 0,
             .pending_invalid_token = null,
         };
     }
@@ -277,8 +279,6 @@ pub const Tokenizer = struct {
             .id = Token.Id.Eof,
             .start = self.index,
             .end = undefined,
-            .line = self.line,
-            .column = self.column,
         };
         while (self.index < self.buffer.len) : (self.index += 1) {
             const c = self.buffer[self.index];
@@ -286,12 +286,9 @@ pub const Tokenizer = struct {
                 State.Start => switch (c) {
                     ' ' => {
                         result.start = self.index + 1;
-                        result.column += 1;
                     },
                     '\n' => {
                         result.start = self.index + 1;
-                        result.line += 1;
-                        result.column = 0;
                     },
                     'c' => {
                         state = State.C;
@@ -977,15 +974,6 @@ pub const Tokenizer = struct {
             }
         }
 
-        for (self.buffer[start_index..self.index]) |c| {
-            if (c == '\n') {
-                self.line += 1;
-                self.column = 0;
-            } else {
-                self.column += 1;
-            }
-        }
-
         if (result.id == Token.Id.Eof) {
             if (self.pending_invalid_token) |token| {
                 self.pending_invalid_token = null;
@@ -1009,8 +997,6 @@ pub const Tokenizer = struct {
             .id = Token.Id.Invalid,
             .start = self.index,
             .end = self.index + invalid_length,
-            .line = self.line,
-            .column = self.column,
         };
     }
 
