@@ -60,6 +60,7 @@ pub const Parser = struct {
     };
 
     const ContainerExternCtx = struct {
+        dest_ptr: DestPtr,
         ltoken: Token,
         layout: ast.NodeContainerDecl.Layout,
     };
@@ -67,13 +68,18 @@ pub const Parser = struct {
     const DestPtr = union(enum) {
         Field: &&ast.Node,
         NullableField: &?&ast.Node,
-        List: &ArrayList(&ast.Node),
 
-        pub fn store(self: &const DestPtr, value: &ast.Node) !void {
+        pub fn store(self: &const DestPtr, value: &ast.Node) void {
             switch (*self) {
                 DestPtr.Field => |ptr| *ptr = value,
                 DestPtr.NullableField => |ptr| *ptr = value,
-                DestPtr.List => |list| try list.append(value),
+            }
+        }
+
+        pub fn get(self: &const DestPtr) &ast.Node {
+            switch (*self) {
+                DestPtr.Field => |ptr| return *ptr,
+                DestPtr.NullableField => |ptr| return ??*ptr,
             }
         }
     };
@@ -97,19 +103,13 @@ pub const Parser = struct {
         TopLevelDecl: TopLevelDeclCtx,
         ContainerExtern: ContainerExternCtx,
         ContainerDecl: &ast.NodeContainerDecl,
-        Expression: DestPtr,
-        ExpectOperand,
-        Operand: &ast.Node,
-        AfterOperand,
-        InfixOp: &ast.NodeInfixOp,
-        PrefixOp: &ast.NodePrefixOp,
-        SuffixOp: &ast.NodeSuffixOp,
         SliceOrArrayAccess: &ast.NodeSuffixOp,
         AddrOfModifiers: &ast.NodePrefixOp.AddrOfInfo,
-        TypeExpr: DestPtr,
         VarDecl: &ast.NodeVarDecl,
         VarDeclAlign: &ast.NodeVarDecl,
         VarDeclEq: &ast.NodeVarDecl,
+        IfToken: @TagType(Token.Id),
+        IfTokenSave: ExpectTokenSave,
         ExpectToken: @TagType(Token.Id),
         ExpectTokenSave: ExpectTokenSave,
         FnProto: &ast.NodeFnProto,
@@ -125,6 +125,48 @@ pub const Parser = struct {
         FieldInitListItemOrEnd: ListState(&ast.NodeFieldInitializer),
         FieldInitListCommaOrEnd: ListState(&ast.NodeFieldInitializer),
         FieldListCommaOrEnd: &ast.NodeContainerDecl,
+
+        /// A state that can be appended before any other State. If an error occures,
+        /// the parser will first try looking for the closest optional state. If an
+        /// optional state is found, the parser will revert to the state it was in
+        /// when the optional was added. This will polute the arena allocator with
+        /// "leaked" nodes. TODO: Figure out if it's nessesary to handle leaked nodes.
+        Optional: Parser,
+
+        /// Optional can be reverted by adding the Required state to the stack.
+        Required,
+
+        Expression: DestPtr,
+        AssignmentExpressionBegin: DestPtr,
+        AssignmentExpressionEnd: DestPtr,
+        UnwrapExpressionBegin: DestPtr,
+        UnwrapExpressionEnd: DestPtr,
+        BoolOrExpressionBegin: DestPtr,
+        BoolOrExpressionEnd: DestPtr,
+        BoolAndExpressionBegin: DestPtr,
+        BoolAndExpressionEnd: DestPtr,
+        ComparisonExpressionBegin: DestPtr,
+        ComparisonExpressionEnd: DestPtr,
+        BinaryOrExpressionBegin: DestPtr,
+        BinaryOrExpressionEnd: DestPtr,
+        BinaryXorExpressionBegin: DestPtr,
+        BinaryXorExpressionEnd: DestPtr,
+        BinaryAndExpressionBegin: DestPtr,
+        BinaryAndExpressionEnd: DestPtr,
+        BitShiftExpressionBegin: DestPtr,
+        BitShiftExpressionEnd: DestPtr,
+        AdditionExpressionBegin: DestPtr,
+        AdditionExpressionEnd: DestPtr,
+        MultiplyExpressionBegin: DestPtr,
+        MultiplyExpressionEnd: DestPtr,
+        CurlySuffixExpressionBegin: DestPtr,
+        CurlySuffixExpressionEnd: DestPtr,
+        TypeExprBegin: DestPtr,
+        TypeExprEnd: DestPtr,
+        PrefixOpExpression: DestPtr,
+        SuffixOpExpressionBegin: DestPtr,
+        SuffixOpExpressionEnd: DestPtr,
+        PrimaryExpression: DestPtr,
     };
 
     /// Returns an AST tree, allocated with the parser's allocator.
@@ -193,12 +235,16 @@ pub const Parser = struct {
                             stack.append(State.TopLevel) catch unreachable;
 
                             const name_token = self.getNextToken();
-                            if (name_token.id != Token.Id.StringLiteral)
-                                return self.parseError(token, "expected {}, found {}", @tagName(Token.Id.StringLiteral), @tagName(name_token.id));
+                            if (name_token.id != Token.Id.StringLiteral) {
+                                try self.parseError(&stack, token, "expected {}, found {}", @tagName(Token.Id.StringLiteral), @tagName(name_token.id));
+                                continue;
+                            }
 
                             const lbrace = self.getNextToken();
-                            if (lbrace.id != Token.Id.LBrace)
-                                return self.parseError(token, "expected {}, found {}", @tagName(Token.Id.LBrace), @tagName(name_token.id));
+                            if (lbrace.id != Token.Id.LBrace) {
+                                try self.parseError(&stack, token, "expected {}, found {}", @tagName(Token.Id.LBrace), @tagName(name_token.id));
+                                continue;
+                            }
 
                             const name = try self.createStringLiteral(arena, name_token);
                             const block = try self.createBlock(arena, token);
@@ -284,28 +330,35 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
-                            const fn_token = try self.eatToken(Token.Id.Keyword_fn);
                             // TODO shouldn't need this cast
-                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, fn_token,
+                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, undefined,
                                 ctx.extern_token, ctx.lib_name, (?Token)(token), (?Token)(null), (?Token)(null));
                             try stack.append(State { .FnDef = fn_proto });
                             try stack.append(State { .FnProto = fn_proto });
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.Keyword_fn,
+                                    .ptr = &fn_proto.fn_token,
+                                }
+                            });
                             continue;
                         },
-                        else => return self.parseError(token, "expected variable declaration or function, found {}", @tagName(token.id)),
+                        else => {
+                            try self.parseError(&stack, token, "expected variable declaration or function, found {}", @tagName(token.id));
+                            continue;
+                        },
                     }
                 },
                 State.VarDecl => |var_decl| {
-                    var_decl.name_token = try self.eatToken(Token.Id.Identifier);
                     stack.append(State { .VarDeclAlign = var_decl }) catch unreachable;
-
-                    const next_token = self.getNextToken();
-                    if (next_token.id == Token.Id.Colon) {
-                        try stack.append(State { .TypeExpr = DestPtr {.NullableField = &var_decl.type_node} });
-                        continue;
-                    }
-
-                    self.putBackToken(next_token);
+                    try stack.append(State { .TypeExprBegin = DestPtr {.NullableField = &var_decl.type_node} });
+                    try stack.append(State { .IfToken = Token.Id.Colon });
+                    try stack.append(State {
+                        .ExpectTokenSave = ExpectTokenSave {
+                            .id = Token.Id.Identifier,
+                            .ptr = &var_decl.name_token,
+                        }
+                    });
                     continue;
                 },
                 State.VarDeclAlign => |var_decl| {
@@ -313,9 +366,9 @@ pub const Parser = struct {
 
                     const next_token = self.getNextToken();
                     if (next_token.id == Token.Id.Keyword_align) {
-                        _ = try self.eatToken(Token.Id.LParen);
                         try stack.append(State { .ExpectToken = Token.Id.RParen });
                         try stack.append(State { .Expression = DestPtr{.NullableField = &var_decl.align_node} });
+                        try stack.append(State { .ExpectToken = Token.Id.LParen });
                         continue;
                     }
 
@@ -341,7 +394,8 @@ pub const Parser = struct {
                         var_decl.semicolon_token = token;
                         continue;
                     }
-                    return self.parseError(token, "expected '=' or ';', found {}", @tagName(token.id));
+                    try self.parseError(&stack, token, "expected '=' or ';', found {}", @tagName(token.id));
+                    continue;
                 },
 
                 State.ContainerExtern => |ctx| {
@@ -357,20 +411,20 @@ pub const Parser = struct {
                             Token.Id.Keyword_union => ast.NodeContainerDecl.Kind.Union,
                             Token.Id.Keyword_enum => ast.NodeContainerDecl.Kind.Enum,
                             else => {
-                                return self.parseError(token, "expected {}, {} or {}, found {}",
+                                try self.parseError(&stack, token, "expected {}, {} or {}, found {}",
                                     @tagName(Token.Id.Keyword_struct),
                                     @tagName(Token.Id.Keyword_union),
                                     @tagName(Token.Id.Keyword_enum),
                                     @tagName(token.id));
+                                continue;
                             },
                         },
                         .init_arg_expr = undefined,
                         .fields_and_decls = ArrayList(&ast.Node).init(arena),
                         .rbrace_token = undefined,
                     };
+                    ctx.dest_ptr.store(&node.base);
 
-                    try stack.append(State { .Operand = &node.base });
-                    try stack.append(State.AfterOperand);
                     try stack.append(State { .ContainerDecl = node });
                     try stack.append(State { .ExpectToken = Token.Id.LBrace });
 
@@ -496,144 +550,569 @@ pub const Parser = struct {
                 },
 
                 State.ExpectToken => |token_id| {
-                    _ = try self.eatToken(token_id);
+                    _ = (try self.eatToken(&stack, token_id)) ?? continue;
                     continue;
                 },
 
                 State.ExpectTokenSave => |expect_token_save| {
-                    *expect_token_save.ptr = try self.eatToken(expect_token_save.id);
+                    *expect_token_save.ptr = (try self.eatToken(&stack, expect_token_save.id)) ?? continue;
                     continue;
                 },
 
-                State.Expression => |dest_ptr| {
-                    // save the dest_ptr for later
-                    stack.append(state) catch unreachable;
-                    try stack.append(State.ExpectOperand);
+                State.IfToken => |token_id| {
+                    const token = self.getNextToken();
+                    if (@TagType(Token.Id)(token.id) != token_id) {
+                        self.putBackToken(token);
+                        _ = stack.pop();
+                        continue;
+                    }
                     continue;
                 },
-                State.ExpectOperand => {
-                    // we'll either get an operand (like 1 or x),
-                    // or a prefix operator (like ~ or return).
+
+                State.IfTokenSave => |if_token_save| {
+                    const token = self.getNextToken();
+                    if (@TagType(Token.Id)(token.id) != if_token_save.id) {
+                        self.putBackToken(token);
+                        _ = stack.pop();
+                        continue;
+                    }
+
+                    *if_token_save.ptr = token;
+                    continue;
+                },
+
+                State.Optional,
+                State.Required => { },
+
+                State.Expression => |dest_ptr| {
                     const token = self.getNextToken();
                     switch (token.id) {
-                        Token.Id.Keyword_return => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
-                                ast.NodePrefixOp.PrefixOp.Return) });
-                            try stack.append(State.ExpectOperand);
-                            continue;
-                        },
                         Token.Id.Keyword_try => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
-                                ast.NodePrefixOp.PrefixOp.Try) });
-                            try stack.append(State.ExpectOperand);
+                            const node = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp.Try);
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .Expression = DestPtr { .Field = &node.rhs } }) catch unreachable;
                             continue;
                         },
-                        Token.Id.Minus => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
-                                ast.NodePrefixOp.PrefixOp.Negation) });
-                            try stack.append(State.ExpectOperand);
+                        Token.Id.Keyword_return => {
+                            const node = try self.createControlFlowExpr(arena, token, ast.NodeControlFlowExpression.Kind.Return);
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .Optional = *self }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr { .NullableField = &node.rhs } });
                             continue;
                         },
-                        Token.Id.MinusPercent => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
-                                ast.NodePrefixOp.PrefixOp.NegationWrap) });
-                            try stack.append(State.ExpectOperand);
-                            continue;
+                        Token.Id.Keyword_break => {
+                            @panic("TODO: break");
                         },
-                        Token.Id.Tilde => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
-                                ast.NodePrefixOp.PrefixOp.BitNot) });
-                            try stack.append(State.ExpectOperand);
-                            continue;
+                        Token.Id.Keyword_continue => {
+                            @panic("TODO: break");
                         },
-                        Token.Id.QuestionMarkQuestionMark => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
-                                ast.NodePrefixOp.PrefixOp.UnwrapMaybe) });
-                            try stack.append(State.ExpectOperand);
-                            continue;
+                        Token.Id.Keyword_cancel => {
+                            @panic("TODO: cancel");
                         },
-                        Token.Id.Bang => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
-                                ast.NodePrefixOp.PrefixOp.BoolNot) });
-                            try stack.append(State.ExpectOperand);
-                            continue;
+                        Token.Id.Keyword_resume => {
+                            @panic("TODO: resume");
                         },
-                        Token.Id.Asterisk => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
-                                ast.NodePrefixOp.PrefixOp.Deref) });
-                            try stack.append(State.ExpectOperand);
-                            continue;
+                        Token.Id.Keyword_await => {
+                            @panic("TODO: await");
                         },
-                        Token.Id.LBracket => {
-                            const rbracket_token = self.getNextToken();
-                            if (rbracket_token.id == Token.Id.RBracket) {
-                                const prefix_op = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
-                                    .SliceType = ast.NodePrefixOp.AddrOfInfo {
-                                        .align_expr = null,
-                                        .bit_offset_start_token = null,
-                                        .bit_offset_end_token = null,
-                                        .const_token = null,
-                                        .volatile_token = null,
-                                    }
-                                });
-                                try stack.append(State { .PrefixOp = prefix_op });
-                                try stack.append(State.ExpectOperand);
-                                try stack.append(State { .AddrOfModifiers = &prefix_op.op.AddrOf });
+                        Token.Id.Keyword_suspend => {
+                            @panic("TODO: suspend");
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            stack.append(State { .AssignmentExpressionBegin = dest_ptr }) catch unreachable;
+                            continue;
+                        }
+                    }
+                },
+
+                State.AssignmentExpressionBegin => |dest_ptr| {
+                    try stack.append(State { .AssignmentExpressionEnd = dest_ptr });
+                    stack.append(State { .UnwrapExpressionBegin = dest_ptr }) catch unreachable;
+                    continue;
+                },
+
+                State.AssignmentExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (tokenIdToAssignment(token.id)) |ass_id| {
+                        const node = try self.createInfixOp(arena, token, ass_id);
+                        node.lhs = dest_ptr.get();
+                        dest_ptr.store(&node.base);
+
+                        stack.append(State { .AssignmentExpressionEnd = dest_ptr }) catch unreachable;
+                        try stack.append(State { .UnwrapExpressionBegin = DestPtr { .Field = &node.rhs } });
+                        continue;
+                    } else {
+                        self.putBackToken(token);
+                        continue;
+                    }
+                },
+
+                State.UnwrapExpressionBegin => |dest_ptr| {
+                    stack.append(State { .UnwrapExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .BoolOrExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.UnwrapExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Keyword_catch => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp { .Catch = null });
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .UnwrapExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.rhs } });
+
+                            const next = self.getNextToken();
+                            if (next.id != Token.Id.Pipe) {
+                                self.putBackToken(next);
                                 continue;
                             }
 
-                            self.putBackToken(rbracket_token);
-
-                            const prefix_op = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
-                                .ArrayType = undefined,
-                            });
-                            try stack.append(State { .PrefixOp = prefix_op });
-                            try stack.append(State.ExpectOperand);
-                            try stack.append(State { .ExpectToken = Token.Id.RBracket });
-                            try stack.append(State { .Expression = DestPtr { .Field = &prefix_op.op.ArrayType } });
-
-                        },
-                        Token.Id.Ampersand => {
-                            const prefix_op = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
-                                .AddrOf = ast.NodePrefixOp.AddrOfInfo {
-                                    .align_expr = null,
-                                    .bit_offset_start_token = null,
-                                    .bit_offset_end_token = null,
-                                    .const_token = null,
-                                    .volatile_token = null,
+                            node.op.Catch = try self.createIdentifier(arena, undefined);
+                            try stack.append(State { .ExpectToken = Token.Id.Pipe });
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.Identifier,
+                                    .ptr = &(??node.op.Catch).name_token
                                 }
                             });
-                            try stack.append(State { .PrefixOp = prefix_op });
-                            try stack.append(State.ExpectOperand);
-                            try stack.append(State { .AddrOfModifiers = &prefix_op.op.AddrOf });
                             continue;
                         },
-                        Token.Id.Identifier => {
-                            try stack.append(State {
-                                .Operand = &(try self.createIdentifier(arena, token)).base
+                        Token.Id.QuestionMarkQuestionMark => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.UnwrapMaybe);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .UnwrapExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.rhs } });
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            continue;
+                        },
+                    }
+                },
+
+                State.BoolOrExpressionBegin => |dest_ptr| {
+                    stack.append(State { .BoolOrExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .BoolAndExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.BoolOrExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Keyword_or => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.BoolOr);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .BoolOrExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .BoolAndExpressionBegin = DestPtr { .Field = &node.rhs } });
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            continue;
+                        },
+                    }
+                },
+
+                State.BoolAndExpressionBegin => |dest_ptr| {
+                    stack.append(State { .BoolAndExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .ComparisonExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.BoolAndExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Keyword_and => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.BoolAnd);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .BoolAndExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .ComparisonExpressionBegin = DestPtr { .Field = &node.rhs } });
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            continue;
+                        },
+                    }
+                },
+
+                State.ComparisonExpressionBegin => |dest_ptr| {
+                    stack.append(State { .ComparisonExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .BinaryOrExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.ComparisonExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (tokenIdToComparison(token.id)) |comp_id| {
+                        const node = try self.createInfixOp(arena, token, comp_id);
+                        node.lhs = dest_ptr.get();
+                        dest_ptr.store(&node.base);
+
+                        stack.append(State { .ComparisonExpressionEnd = dest_ptr }) catch unreachable;
+                        try stack.append(State { .BinaryOrExpressionBegin = DestPtr { .Field = &node.rhs } });
+                        continue;
+                    } else {
+                        self.putBackToken(token);
+                        continue;
+                    }
+                },
+
+                State.BinaryOrExpressionBegin => |dest_ptr| {
+                    stack.append(State { .BinaryOrExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .BinaryXorExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.BinaryOrExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Pipe => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.BitOr);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .BinaryOrExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .BinaryXorExpressionBegin = DestPtr { .Field = &node.rhs } });
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            continue;
+                        },
+                    }
+                },
+
+                State.BinaryXorExpressionBegin => |dest_ptr| {
+                    stack.append(State { .BinaryXorExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .BinaryAndExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.BinaryXorExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Caret => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.BitXor);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .BinaryXorExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .BinaryAndExpressionBegin = DestPtr { .Field = &node.rhs } });
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            continue;
+                        },
+                    }
+                },
+
+                State.BinaryAndExpressionBegin => |dest_ptr| {
+                    stack.append(State { .BinaryAndExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .BitShiftExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.BinaryAndExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Ampersand => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.BitAnd);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .BinaryAndExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .BitShiftExpressionBegin = DestPtr { .Field = &node.rhs } });
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            continue;
+                        },
+                    }
+                },
+
+                State.BitShiftExpressionBegin => |dest_ptr| {
+                    stack.append(State { .BitShiftExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .AdditionExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.BitShiftExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (tokenIdToBitShift(token.id)) |bitshift_id| {
+                        const node = try self.createInfixOp(arena, token, bitshift_id);
+                        node.lhs = dest_ptr.get();
+                        dest_ptr.store(&node.base);
+
+                        stack.append(State { .BitShiftExpressionEnd = dest_ptr }) catch unreachable;
+                        try stack.append(State { .AdditionExpressionBegin = DestPtr { .Field = &node.rhs } });
+                        continue;
+                    } else {
+                        self.putBackToken(token);
+                        continue;
+                    }
+                },
+
+                State.AdditionExpressionBegin => |dest_ptr| {
+                    stack.append(State { .AdditionExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .MultiplyExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.AdditionExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (tokenIdToAddition(token.id)) |add_id| {
+                        const node = try self.createInfixOp(arena, token, add_id);
+                        node.lhs = dest_ptr.get();
+                        dest_ptr.store(&node.base);
+
+                        stack.append(State { .AdditionExpressionEnd = dest_ptr }) catch unreachable;
+                        try stack.append(State { .MultiplyExpressionBegin = DestPtr { .Field = &node.rhs } });
+                        continue;
+                    } else {
+                        self.putBackToken(token);
+                        continue;
+                    }
+                },
+
+                State.MultiplyExpressionBegin => |dest_ptr| {
+                    stack.append(State { .MultiplyExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .CurlySuffixExpressionBegin = dest_ptr });
+                    continue;
+                },
+
+                State.MultiplyExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (tokenIdToMultiply(token.id)) |mult_id| {
+                        const node = try self.createInfixOp(arena, token, mult_id);
+                        node.lhs = dest_ptr.get();
+                        dest_ptr.store(&node.base);
+
+                        stack.append(State { .MultiplyExpressionEnd = dest_ptr }) catch unreachable;
+                        try stack.append(State { .CurlySuffixExpressionBegin = DestPtr { .Field = &node.rhs } });
+                        continue;
+                    } else {
+                        self.putBackToken(token);
+                        continue;
+                    }
+                },
+
+                State.CurlySuffixExpressionBegin => |dest_ptr| {
+                    stack.append(State { .CurlySuffixExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .TypeExprBegin = dest_ptr });
+                    continue;
+                },
+
+                State.CurlySuffixExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (token.id != Token.Id.LBrace) {
+                        self.putBackToken(token);
+                        continue;
+                    }
+
+                    const next = self.getNextToken();
+                    self.putBackToken(token);
+                    switch (next.id) {
+                        Token.Id.Period => {
+                            const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
+                                .StructInitializer = ArrayList(&ast.NodeFieldInitializer).init(arena),
                             });
-                            try stack.append(State.AfterOperand);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .CurlySuffixExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State {
+                                .FieldInitListItemOrEnd = ListState(&ast.NodeFieldInitializer) {
+                                    .list = &node.op.StructInitializer,
+                                    .end = Token.Id.RBrace,
+                                    .ptr = &node.rtoken,
+                                }
+                            });
                             continue;
                         },
+                        else => {
+                            const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
+                                .ArrayInitializer = ArrayList(&ast.Node).init(arena),
+                            });
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .CurlySuffixExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State {
+                                .ExprListItemOrEnd = ListState(&ast.Node) {
+                                    .list = &node.op.ArrayInitializer,
+                                    .end = Token.Id.RBrace,
+                                    .ptr = &node.rtoken,
+                                }
+                            });
+                            continue;
+                        },
+                    }
+                },
+
+                State.TypeExprBegin => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (token.id == Token.Id.Keyword_var) {
+                        @panic("TODO param with type var");
+                    }
+                    self.putBackToken(token);
+
+                    stack.append(State { .TypeExprEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .PrefixOpExpression = dest_ptr });
+                    continue;
+                },
+
+                State.TypeExprEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Bang => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.ErrorUnion);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .TypeExprEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .PrefixOpExpression = DestPtr { .Field = &node.rhs } });
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            continue;
+                        },
+                    }
+                },
+
+                State.PrefixOpExpression => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (tokenIdToPrefixOp(token.id)) |prefix_id| {
+                        const node = try self.createPrefixOp(arena, token, prefix_id);
+                        dest_ptr.store(&node.base);
+
+                        stack.append(State { .TypeExprBegin = DestPtr { .Field = &node.rhs } }) catch unreachable;
+                        if (node.op == ast.NodePrefixOp.PrefixOp.AddrOf) {
+                            try stack.append(State { .AddrOfModifiers = &node.op.AddrOf });
+                        }
+                        continue;
+                    } else {
+                        self.putBackToken(token);
+                        stack.append(State { .SuffixOpExpressionBegin = dest_ptr }) catch unreachable;
+                        continue;
+                    }
+                },
+
+                State.SuffixOpExpressionBegin => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Keyword_async => {
+                            @panic("TODO: Parse async");
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            stack.append(State { .SuffixOpExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .PrimaryExpression = dest_ptr });
+                            continue;
+                        }
+                    }
+                },
+
+                State.SuffixOpExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.LParen => {
+                            const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
+                                .Call = ast.NodeSuffixOp.CallInfo {
+                                    .params = ArrayList(&ast.Node).init(arena),
+                                    .is_async = false, // TODO: ASYNC
+                                    .allocator = null,
+                                }
+                            });
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .SuffixOpExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State {
+                                .ExprListItemOrEnd = ListState(&ast.Node) {
+                                    .list = &node.op.Call.params,
+                                    .end = Token.Id.RParen,
+                                    .ptr = &node.rtoken,
+                                }
+                            });
+                            continue;
+                        },
+                        Token.Id.LBracket => {
+                            const node = try arena.create(ast.NodeSuffixOp);
+                            *node = ast.NodeSuffixOp {
+                                .base = self.initNode(ast.Node.Id.SuffixOp),
+                                .lhs = undefined,
+                                .op = ast.NodeSuffixOp.SuffixOp {
+                                    .ArrayAccess = undefined,
+                                },
+                                .rtoken = undefined,
+                            };
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .SuffixOpExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .SliceOrArrayAccess = node });
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.op.ArrayAccess }});
+                            continue;
+                        },
+                        Token.Id.Period => {
+                            const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.Period);
+                            node.lhs = dest_ptr.get();
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .SuffixOpExpressionEnd = dest_ptr }) catch unreachable;
+                            try stack.append(State { .SuffixOpExpressionBegin = DestPtr { .Field = &node.rhs }});
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            continue;
+                        },
+                    }
+                },
+
+                State.PrimaryExpression => |dest_ptr| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
                         Token.Id.IntegerLiteral => {
-                            try stack.append(State {
-                                .Operand = &(try self.createIntegerLiteral(arena, token)).base
-                            });
-                            try stack.append(State.AfterOperand);
+                            dest_ptr.store(&(try self.createIntegerLiteral(arena, token)).base);
                             continue;
                         },
                         Token.Id.FloatLiteral => {
-                            try stack.append(State {
-                                .Operand = &(try self.createFloatLiteral(arena, token)).base
-                            });
-                            try stack.append(State.AfterOperand);
+                            dest_ptr.store(&(try self.createFloatLiteral(arena, token)).base);
+                            continue;
+                        },
+                        Token.Id.StringLiteral => {
+                            dest_ptr.store(&(try self.createStringLiteral(arena, token)).base);
+                            continue;
+                        },
+                        Token.Id.CharLiteral => {
+                            const node = try arena.create(ast.NodeCharLiteral);
+                            *node = ast.NodeCharLiteral {
+                                .base = self.initNode(ast.Node.Id.CharLiteral),
+                                .token = token,
+                            };
+                            dest_ptr.store(&node.base);
                             continue;
                         },
                         Token.Id.Keyword_undefined => {
-                            try stack.append(State {
-                                .Operand = &(try self.createUndefined(arena, token)).base
-                            });
-                            try stack.append(State.AfterOperand);
+                            dest_ptr.store(&(try self.createUndefined(arena, token)).base);
                             continue;
                         },
                         Token.Id.Keyword_true, Token.Id.Keyword_false => {
@@ -642,10 +1121,7 @@ pub const Parser = struct {
                                 .base = self.initNode(ast.Node.Id.BoolLiteral),
                                 .token = token,
                             };
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
+                            dest_ptr.store(&node.base);
                             continue;
                         },
                         Token.Id.Keyword_null => {
@@ -654,10 +1130,7 @@ pub const Parser = struct {
                                 .base = self.initNode(ast.Node.Id.NullLiteral),
                                 .token = token,
                             };
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
+                            dest_ptr.store(&node.base);
                             continue;
                         },
                         Token.Id.Keyword_this => {
@@ -666,10 +1139,7 @@ pub const Parser = struct {
                                 .base = self.initNode(ast.Node.Id.ThisLiteral),
                                 .token = token,
                             };
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
+                            dest_ptr.store(&node.base);
                             continue;
                         },
                         Token.Id.Keyword_unreachable => {
@@ -678,11 +1148,96 @@ pub const Parser = struct {
                                 .base = self.initNode(ast.Node.Id.Unreachable),
                                 .token = token,
                             };
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
+                            dest_ptr.store(&node.base);
                             continue;
+                        },
+                        Token.Id.MultilineStringLiteralLine => {
+                            const node = try arena.create(ast.NodeMultilineStringLiteral);
+                            *node = ast.NodeMultilineStringLiteral {
+                                .base = self.initNode(ast.Node.Id.MultilineStringLiteral),
+                                .tokens = ArrayList(Token).init(arena),
+                            };
+                            dest_ptr.store(&node.base);
+                            try node.tokens.append(token);
+
+                            while (true) {
+                                const multiline_str = self.getNextToken();
+                                if (multiline_str.id != Token.Id.MultilineStringLiteralLine) {
+                                    self.putBackToken(multiline_str);
+                                    break;
+                                }
+
+                                try node.tokens.append(multiline_str);
+                            }
+                            continue;
+                        },
+                        Token.Id.LParen => {
+                            const node = try arena.create(ast.NodeGroupedExpression);
+                            *node = ast.NodeGroupedExpression {
+                                .base = self.initNode(ast.Node.Id.GroupedExpression),
+                                .lparen = token,
+                                .expr = undefined,
+                                .rparen = undefined,
+                            };
+                            dest_ptr.store(&node.base);
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.RParen,
+                                    .ptr = &node.rparen,
+                                }
+                            });
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
+                            continue;
+                        },
+                        Token.Id.Identifier => {
+                            dest_ptr.store(&(try self.createIdentifier(arena, token)).base);
+                            continue;
+                        },
+                        Token.Id.Builtin => {
+                            const node = try arena.create(ast.NodeBuiltinCall);
+                            *node = ast.NodeBuiltinCall {
+                                .base = self.initNode(ast.Node.Id.BuiltinCall),
+                                .builtin_token = token,
+                                .params = ArrayList(&ast.Node).init(arena),
+                                .rparen_token = undefined,
+                            };
+                            dest_ptr.store(&node.base);
+                            try stack.append(State {
+                                .ExprListItemOrEnd = ListState(&ast.Node) {
+                                    .list = &node.params,
+                                    .end = Token.Id.RParen,
+                                    .ptr = &node.rparen_token,
+                                }
+                            });
+                            try stack.append(State { .ExpectToken = Token.Id.LParen, });
+                            continue;
+                        },
+                        Token.Id.LBracket => {
+                            const rbracket_token = self.getNextToken();
+                            if (rbracket_token.id == Token.Id.RBracket) {
+                                const node = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
+                                    .SliceType = ast.NodePrefixOp.AddrOfInfo {
+                                        .align_expr = null,
+                                        .bit_offset_start_token = null,
+                                        .bit_offset_end_token = null,
+                                        .const_token = null,
+                                        .volatile_token = null,
+                                    }
+                                });
+                                dest_ptr.store(&node.base);
+                                try stack.append(State { .AddrOfModifiers = &node.op.AddrOf });
+                                continue;
+                            }
+
+                            self.putBackToken(rbracket_token);
+
+                            const node = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
+                                .ArrayType = undefined,
+                            });
+                            dest_ptr.store(&node.base);
+                            try stack.append(State { .ExpectToken = Token.Id.RBracket });
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.op.ArrayType } });
+
                         },
                         Token.Id.Keyword_error => {
                             const next = self.getNextToken();
@@ -694,10 +1249,7 @@ pub const Parser = struct {
                                     .base = self.initNode(ast.Node.Id.ErrorType),
                                     .token = token,
                                 };
-                                try stack.append(State {
-                                    .Operand = &node.base
-                                });
-                                try stack.append(State.AfterOperand);
+                                dest_ptr.store(&node.base);
                                 continue;
                             }
 
@@ -708,6 +1260,7 @@ pub const Parser = struct {
                                 .decls = ArrayList(&ast.NodeIdentifier).init(arena),
                                 .rbrace_token = undefined,
                             };
+                            dest_ptr.store(&node.base);
 
                             while (true) {
                                 const t = self.getNextToken();
@@ -722,10 +1275,11 @@ pub const Parser = struct {
                                         );
                                     },
                                     else => {
-                                        return self.parseError(token, "expected {} or {}, found {}",
+                                        try self.parseError(&stack, token, "expected {} or {}, found {}",
                                             @tagName(Token.Id.RBrace),
                                             @tagName(Token.Id.Identifier),
                                             @tagName(token.id));
+                                        continue;
                                     }
                                 }
 
@@ -737,23 +1291,20 @@ pub const Parser = struct {
                                     },
                                     Token.Id.Comma => continue,
                                     else => {
-                                        return self.parseError(token, "expected {} or {}, found {}",
+                                        try self.parseError(&stack, token, "expected {} or {}, found {}",
                                             @tagName(Token.Id.RBrace),
                                             @tagName(Token.Id.Comma),
                                             @tagName(token.id));
+                                        continue;
                                     }
                                 }
                             }
-
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
                             continue;
                         },
                         Token.Id.Keyword_packed => {
                             try stack.append(State {
                                 .ContainerExtern = ContainerExternCtx {
+                                    .dest_ptr = dest_ptr,
                                     .ltoken = token,
                                     .layout = ast.NodeContainerDecl.Layout.Packed,
                                 },
@@ -762,6 +1313,7 @@ pub const Parser = struct {
                         Token.Id.Keyword_extern => {
                             try stack.append(State {
                                 .ContainerExtern = ContainerExternCtx {
+                                    .dest_ptr = dest_ptr,
                                     .ltoken = token,
                                     .layout = ast.NodeContainerDecl.Layout.Extern,
                                 },
@@ -771,100 +1323,25 @@ pub const Parser = struct {
                             self.putBackToken(token);
                             try stack.append(State {
                                 .ContainerExtern = ContainerExternCtx {
+                                    .dest_ptr = dest_ptr,
                                     .ltoken = token,
                                     .layout = ast.NodeContainerDecl.Layout.Auto,
                                 },
                             });
                         },
-                        Token.Id.Builtin => {
-                            const node = try arena.create(ast.NodeBuiltinCall);
-                            *node = ast.NodeBuiltinCall {
-                                .base = self.initNode(ast.Node.Id.BuiltinCall),
-                                .builtin_token = token,
-                                .params = ArrayList(&ast.Node).init(arena),
-                                .rparen_token = undefined,
-                            };
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
-                            try stack.append(State {
-                                .ExprListItemOrEnd = ListState(&ast.Node) {
-                                    .list = &node.params,
-                                    .end = Token.Id.RParen,
-                                    .ptr = &node.rparen_token,
-                                }
-                            });
-                            try stack.append(State { .ExpectToken = Token.Id.LParen, });
-                            continue;
+                        Token.Id.LBrace => {
+                            @panic("TODO: Block expr");
                         },
-                        Token.Id.StringLiteral => {
-                            const node = try self.createStringLiteral(arena, token);
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
-                            continue;
+                        Token.Id.Keyword_fn => {
+                            @panic("TODO: fn proto");
                         },
-                        Token.Id.CharLiteral => {
-                            const node = try arena.create(ast.NodeCharLiteral);
-                            *node = ast.NodeCharLiteral {
-                                .base = self.initNode(ast.Node.Id.CharLiteral),
-                                .token = token,
-                            };
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
-                            continue;
+                        Token.Id.Keyword_asm => {
+                            @panic("TODO: inline asm");
                         },
-                        Token.Id.MultilineStringLiteralLine => {
-                            const node = try arena.create(ast.NodeMultilineStringLiteral);
-                            *node = ast.NodeMultilineStringLiteral {
-                                .base = self.initNode(ast.Node.Id.MultilineStringLiteral),
-                                .tokens = ArrayList(Token).init(arena),
-                            };
-                            try node.tokens.append(token);
-
-                            while (true) {
-                                const multiline_str = self.getNextToken();
-                                if (multiline_str.id != Token.Id.MultilineStringLiteralLine) {
-                                    self.putBackToken(multiline_str);
-                                    break;
-                                }
-
-                                try node.tokens.append(multiline_str);
-                            }
-
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
+                        else => {
+                            try self.parseError(&stack, token, "expected primary expression, found {}", @tagName(token.id));
                             continue;
-                        },
-                        Token.Id.LParen => {
-                            const node = try arena.create(ast.NodeGroupedExpression);
-                            *node = ast.NodeGroupedExpression {
-                                .base = self.initNode(ast.Node.Id.GroupedExpression),
-                                .lparen = token,
-                                .expr = undefined,
-                                .rparen = undefined,
-                            };
-                            try stack.append(State {
-                                .Operand = &node.base
-                            });
-                            try stack.append(State.AfterOperand);
-                            try stack.append(State {
-                                .ExpectTokenSave = ExpectTokenSave {
-                                    .id = Token.Id.RParen,
-                                    .ptr = &node.rparen,
-                                }
-                            });
-                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
-                            continue;
-                        },
-
-                        else => return self.parseError(token, "expected primary expression, found {}", @tagName(token.id)),
+                        }
                     }
                 },
 
@@ -880,8 +1357,6 @@ pub const Parser = struct {
                                     .end = undefined,
                                 }
                             };
-                            try stack.append(State { .SuffixOp = node });
-                            try stack.append(State.AfterOperand);
 
                             const rbracket_token = self.getNextToken();
                             if (rbracket_token.id != Token.Id.RBracket) {
@@ -900,161 +1375,12 @@ pub const Parser = struct {
                         },
                         Token.Id.RBracket => {
                             node.rtoken = token;
-                            try stack.append(State { .SuffixOp = node });
-                            try stack.append(State.AfterOperand);
                             continue;
                         },
-                        else => return self.parseError(token, "expected ']' or '..', found {}", @tagName(token.id))
-                    }
-                },
-
-                State.AfterOperand => {
-                    // we'll either get an infix operator (like != or ^),
-                    // or a postfix operator (like () or {}),
-                    // otherwise this expression is done (like on a ; or else).
-                    var token = self.getNextToken();
-                    if (tokenIdToInfixOp(token.id)) |infix_id| {
-                            try stack.append(State {
-                                .InfixOp = try self.createInfixOp(arena, token, infix_id)
-                            });
-                            try stack.append(State.ExpectOperand);
+                        else => {
+                            try self.parseError(&stack, token, "expected ']' or '..', found {}", @tagName(token.id));
                             continue;
-
-                    } else if (token.id == Token.Id.LParen) {
-                        const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
-                            .Call = ast.NodeSuffixOp.CallInfo {
-                                .params = ArrayList(&ast.Node).init(arena),
-                                .is_async = false, // TODO: ASYNC
-                            }
-                        });
-                        try stack.append(State { .SuffixOp = node });
-                        try stack.append(State.AfterOperand);
-                        try stack.append(State {
-                            .ExprListItemOrEnd = ListState(&ast.Node) {
-                                .list = &node.op.Call.params,
-                                .end = Token.Id.RParen,
-                                .ptr = &node.rtoken,
-                            }
-                        });
-                        continue;
-
-                    } else if (token.id == Token.Id.LBracket) {
-                        const node = try arena.create(ast.NodeSuffixOp);
-                        *node = ast.NodeSuffixOp {
-                            .base = self.initNode(ast.Node.Id.SuffixOp),
-                            .lhs = undefined,
-                            .op = ast.NodeSuffixOp.SuffixOp {
-                                .ArrayAccess = undefined,
-                            },
-                            .rtoken = undefined,
-                        };
-                        try stack.append(State { .SliceOrArrayAccess = node });
-                        try stack.append(State { .Expression = DestPtr { .Field = &node.op.ArrayAccess }});
-                        continue;
-
-                    // TODO: This is the initializer parsing code. It doesn't work because of
-                    //       the ambiguity between function bodies and initializers:
-                    //       fn main() void {} or fn main() (void {})
-                    } else if (false) { //(token.id == Token.Id.LBrace) {
-                        const next = self.getNextToken();
-
-                        switch (next.id) {
-                            Token.Id.Period => {
-                                self.putBackToken(token);
-
-                                const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
-                                    .StructInitializer = ArrayList(&ast.NodeFieldInitializer).init(arena),
-                                });
-
-                                try stack.append(State {
-                                    .FieldInitListItemOrEnd = ListState(&ast.NodeFieldInitializer) {
-                                        .list = &node.op.StructInitializer,
-                                        .end = Token.Id.RBrace,
-                                        .ptr = &node.rtoken,
-                                    }
-                                });
-                                continue;
-                            },
-                            else => {
-                                self.putBackToken(token);
-
-                                const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
-                                    .ArrayInitializer = ArrayList(&ast.Node).init(arena),
-                                });
-
-                                try stack.append(State {
-                                    .ExprListItemOrEnd = ListState(&ast.Node) {
-                                        .list = &node.op.ArrayInitializer,
-                                        .end = Token.Id.RBrace,
-                                        .ptr = &node.rtoken,
-                                    }
-                                });
-                                continue;
-                            },
                         }
-
-                    // TODO: Parse postfix operator
-                    } else {
-                        // no postfix/infix operator after this operand.
-                        self.putBackToken(token);
-
-                        var expression = popSuffixOp(&stack);
-                        while (true) {
-                            const s = stack.pop();
-                            if (s == State.Expression) {
-                                const dest_ptr = s.Expression;
-                                // we're done
-                                try dest_ptr.store(expression);
-                                break;
-                            }
-
-                            var placement_ptr = &expression;
-                            var rhs : &&ast.Node = undefined;
-                            const node = blk: {
-                                switch (s) {
-                                    State.InfixOp => |infix_op| {
-                                        infix_op.lhs = popSuffixOp(&stack);
-                                        infix_op.rhs = expression;
-                                        rhs = &infix_op.rhs;
-                                        break :blk &infix_op.base;
-                                    },
-                                    State.PrefixOp => |prefix_op| {
-                                        prefix_op.rhs = expression;
-                                        rhs = &prefix_op.rhs;
-                                        break :blk &prefix_op.base;
-                                    },
-                                    else => unreachable,
-                                }
-                            };
-                            const node_perc = precedence(node);
-
-                            while (true) {
-                                const perc = precedence(*placement_ptr);
-
-                                if (node_perc > perc) {
-                                    *placement_ptr = node;
-                                    break;
-                                }
-
-                                switch ((*placement_ptr).id) {
-                                    ast.Node.Id.SuffixOp => {
-                                        const suffix_op = @fieldParentPtr(ast.NodeSuffixOp, "base", *placement_ptr);
-                                        placement_ptr = &suffix_op.lhs;
-                                        *rhs = suffix_op.lhs;
-                                    },
-                                    ast.Node.Id.InfixOp => {
-                                        const infix_op = @fieldParentPtr(ast.NodeInfixOp, "base", *placement_ptr);
-                                        placement_ptr = &infix_op.lhs;
-                                        *rhs = infix_op.lhs;
-                                    },
-                                    else => {
-                                        *placement_ptr = node;
-                                        break;
-                                    },
-                                }
-                            }
-                        }
-                        continue;
                     }
                 },
 
@@ -1069,7 +1395,7 @@ pub const Parser = struct {
 
                     self.putBackToken(token);
                     stack.append(State { .ExprListCommaOrEnd = list_state }) catch unreachable;
-                    try stack.append(State { .Expression = DestPtr{.List = list_state.list} });
+                    try stack.append(State { .Expression = DestPtr{ .Field = try list_state.list.addOne() } });
                 },
 
                 State.FieldInitListItemOrEnd => |list_state| {
@@ -1130,21 +1456,30 @@ pub const Parser = struct {
                     switch (token.id) {
                         Token.Id.Keyword_align => {
                             stack.append(state) catch unreachable;
-                            if (addr_of_info.align_expr != null) return self.parseError(token, "multiple align qualifiers");
-                            _ = try self.eatToken(Token.Id.LParen);
+                            if (addr_of_info.align_expr != null) {
+                                try self.parseError(&stack, token, "multiple align qualifiers");
+                                continue;
+                            }
                             try stack.append(State { .ExpectToken = Token.Id.RParen });
                             try stack.append(State { .Expression = DestPtr{.NullableField = &addr_of_info.align_expr} });
+                            try stack.append(State { .ExpectToken = Token.Id.LParen });
                             continue;
                         },
                         Token.Id.Keyword_const => {
                             stack.append(state) catch unreachable;
-                            if (addr_of_info.const_token != null) return self.parseError(token, "duplicate qualifier: const");
+                            if (addr_of_info.const_token != null) {
+                                try self.parseError(&stack, token, "duplicate qualifier: const");
+                                continue;
+                            }
                             addr_of_info.const_token = token;
                             continue;
                         },
                         Token.Id.Keyword_volatile => {
                             stack.append(state) catch unreachable;
-                            if (addr_of_info.volatile_token != null) return self.parseError(token, "duplicate qualifier: volatile");
+                            if (addr_of_info.volatile_token != null) {
+                                try self.parseError(&stack, token, "duplicate qualifier: volatile");
+                                continue;
+                            }
                             addr_of_info.volatile_token = token;
                             continue;
                         },
@@ -1153,17 +1488,6 @@ pub const Parser = struct {
                             continue;
                         },
                     }
-                },
-
-                State.TypeExpr => |dest_ptr| {
-                    const token = self.getNextToken();
-                    if (token.id == Token.Id.Keyword_var) {
-                        @panic("TODO param with type var");
-                    }
-                    self.putBackToken(token);
-
-                    stack.append(State { .Expression = dest_ptr }) catch unreachable;
-                    continue;
                 },
 
                 State.FnProto => |fn_proto| {
@@ -1201,14 +1525,14 @@ pub const Parser = struct {
                         Token.Id.Bang => {
                             fn_proto.return_type = ast.NodeFnProto.ReturnType { .InferErrorSet = undefined };
                             stack.append(State {
-                                .TypeExpr = DestPtr {.Field = &fn_proto.return_type.InferErrorSet},
+                                .TypeExprBegin = DestPtr {.Field = &fn_proto.return_type.InferErrorSet},
                             }) catch unreachable;
                         },
                         else => {
                             self.putBackToken(token);
                             fn_proto.return_type = ast.NodeFnProto.ReturnType { .Explicit = undefined };
                             stack.append(State {
-                                .TypeExpr = DestPtr {.Field = &fn_proto.return_type.Explicit},
+                                .TypeExprBegin = DestPtr {.Field = &fn_proto.return_type.Explicit},
                             }) catch unreachable;
                         },
                     }
@@ -1251,7 +1575,7 @@ pub const Parser = struct {
                     stack.append(State { .ParamDecl = fn_proto }) catch unreachable;
                     try stack.append(State.ParamDeclComma);
                     try stack.append(State {
-                        .TypeExpr = DestPtr {.Field = &param_decl.type_node}
+                        .TypeExprBegin = DestPtr {.Field = &param_decl.type_node}
                     });
                     continue;
                 },
@@ -1264,7 +1588,10 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Comma => continue,
-                        else => return self.parseError(token, "expected ',' or ')', found {}", @tagName(token.id)),
+                        else => {
+                            try self.parseError(&stack, token, "expected ',' or ')', found {}", @tagName(token.id));
+                            continue;
+                        },
                     }
                 },
 
@@ -1278,7 +1605,10 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Semicolon => continue,
-                        else => return self.parseError(token, "expected ';' or '{{', found {}", @tagName(token.id)),
+                        else => {
+                            try self.parseError(&stack, token, "expected ';' or '{{', found {}", @tagName(token.id));
+                            continue;
+                        },
                     }
                 },
 
@@ -1329,109 +1659,10 @@ pub const Parser = struct {
                     }
 
                     stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
-                    try stack.append(State { .Expression = DestPtr{.List = &block.statements} });
+                    try stack.append(State { .Expression = DestPtr{.Field = try block.statements.addOne() } });
                     continue;
                 },
-
-                // These are data, not control flow.
-                State.InfixOp => unreachable,
-                State.PrefixOp => unreachable,
-                State.SuffixOp => unreachable,
-                State.Operand => unreachable,
             }
-        }
-    }
-
-    fn precedence(node: &ast.Node) u8 {
-        switch (node.id) {
-            ast.Node.Id.PrefixOp => {
-                const prefix_op = @fieldParentPtr(ast.NodePrefixOp, "base", node);
-                switch (prefix_op.op) {
-                    ast.NodePrefixOp.PrefixOp.ArrayType,
-                    ast.NodePrefixOp.PrefixOp.SliceType => return 1,
-
-                    ast.NodePrefixOp.PrefixOp.BoolNot,
-                    ast.NodePrefixOp.PrefixOp.Negation,
-                    ast.NodePrefixOp.PrefixOp.NegationWrap,
-                    ast.NodePrefixOp.PrefixOp.BitNot,
-                    ast.NodePrefixOp.PrefixOp.Deref,
-                    ast.NodePrefixOp.PrefixOp.AddrOf,
-                    ast.NodePrefixOp.PrefixOp.UnwrapMaybe => return 3,
-
-                    ast.NodePrefixOp.PrefixOp.Try,
-                    ast.NodePrefixOp.PrefixOp.Return => return 255,
-                }
-            },
-            ast.Node.Id.SuffixOp => {
-                const suffix_op = @fieldParentPtr(ast.NodeSuffixOp, "base", node);
-                switch (suffix_op.op) {
-                    ast.NodeSuffixOp.SuffixOp.Call,
-                    ast.NodeSuffixOp.SuffixOp.Slice,
-                    ast.NodeSuffixOp.SuffixOp.ArrayAccess => return 2,
-
-                    ast.NodeSuffixOp.SuffixOp.ArrayInitializer,
-                    ast.NodeSuffixOp.SuffixOp.StructInitializer => return 5,
-                }
-            },
-            ast.Node.Id.InfixOp => {
-                const infix_op = @fieldParentPtr(ast.NodeInfixOp, "base", node);
-                switch (infix_op.op) {
-                    ast.NodeInfixOp.InfixOp.Period => return 2,
-
-                    ast.NodeInfixOp.InfixOp.ErrorUnion => return 4,
-
-                    ast.NodeInfixOp.InfixOp.Div,
-                    ast.NodeInfixOp.InfixOp.ArrayMult,
-                    ast.NodeInfixOp.InfixOp.Mod,
-                    ast.NodeInfixOp.InfixOp.Mult,
-                    ast.NodeInfixOp.InfixOp.MultWrap => return 6,
-
-                    ast.NodeInfixOp.InfixOp.Add,
-                    ast.NodeInfixOp.InfixOp.AddWrap,
-                    ast.NodeInfixOp.InfixOp.ArrayCat,
-                    ast.NodeInfixOp.InfixOp.Sub,
-                    ast.NodeInfixOp.InfixOp.SubWrap => return 7,
-
-                    ast.NodeInfixOp.InfixOp.BitShiftLeft,
-                    ast.NodeInfixOp.InfixOp.BitShiftRight => return 8,
-
-                    ast.NodeInfixOp.InfixOp.BitAnd => return 9,
-
-                    ast.NodeInfixOp.InfixOp.BitXor => return 10,
-
-                    ast.NodeInfixOp.InfixOp.BitOr => return 11,
-
-                    ast.NodeInfixOp.InfixOp.EqualEqual,
-                    ast.NodeInfixOp.InfixOp.BangEqual,
-                    ast.NodeInfixOp.InfixOp.GreaterOrEqual,
-                    ast.NodeInfixOp.InfixOp.GreaterThan,
-                    ast.NodeInfixOp.InfixOp.LessOrEqual,
-                    ast.NodeInfixOp.InfixOp.LessThan => return 12,
-
-                    ast.NodeInfixOp.InfixOp.BoolAnd => return 13,
-
-                    ast.NodeInfixOp.InfixOp.BoolOr => return 14,
-
-                    ast.NodeInfixOp.InfixOp.UnwrapMaybe => return 15,
-
-                    ast.NodeInfixOp.InfixOp.Assign,
-                    ast.NodeInfixOp.InfixOp.AssignBitAnd,
-                    ast.NodeInfixOp.InfixOp.AssignBitOr,
-                    ast.NodeInfixOp.InfixOp.AssignBitShiftLeft,
-                    ast.NodeInfixOp.InfixOp.AssignBitShiftRight,
-                    ast.NodeInfixOp.InfixOp.AssignBitXor,
-                    ast.NodeInfixOp.InfixOp.AssignDiv,
-                    ast.NodeInfixOp.InfixOp.AssignMinus,
-                    ast.NodeInfixOp.InfixOp.AssignMinusWrap,
-                    ast.NodeInfixOp.InfixOp.AssignMod,
-                    ast.NodeInfixOp.InfixOp.AssignPlus,
-                    ast.NodeInfixOp.InfixOp.AssignPlusWrap,
-                    ast.NodeInfixOp.InfixOp.AssignTimes,
-                    ast.NodeInfixOp.InfixOp.AssignTimesWarp,
-                    ast.NodeInfixOp.InfixOp.MergeErrorSets => return 16,
-                }
-            },
-            else => return 0,
         }
     }
 
@@ -1448,74 +1679,104 @@ pub const Parser = struct {
                     return;
                 }
 
-                return self.parseError(token, "expected ',' or {}, found {}", @tagName(*end), @tagName(token.id));
+                try self.parseError(stack, token, "expected ',' or {}, found {}", @tagName(*end), @tagName(token.id));
             },
         }
     }
 
-    fn popSuffixOp(stack: &ArrayList(State)) &ast.Node {
-        var expression: &ast.Node = undefined;
-        var left_leaf_ptr: &&ast.Node = &expression;
-        while (true) {
-            switch (stack.pop()) {
-                State.SuffixOp => |suffix_op| {
-                    *left_leaf_ptr = &suffix_op.base;
-                    left_leaf_ptr = &suffix_op.lhs;
-                },
-                State.Operand => |operand| {
-                    *left_leaf_ptr = operand;
-                    break;
-                },
-                else => unreachable,
-            }
-        }
-
-        return expression;
+    fn tokenIdToAssignment(id: &const Token.Id) ?ast.NodeInfixOp.InfixOp {
+        // TODO: We have to cast all cases because of this:
+        // error: expected type '?InfixOp', found '?@TagType(InfixOp)'
+        return switch (*id) {
+            Token.Id.AmpersandEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignBitAnd),
+            Token.Id.AngleBracketAngleBracketLeftEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignBitShiftLeft),
+            Token.Id.AngleBracketAngleBracketRightEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignBitShiftRight),
+            Token.Id.AsteriskEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignTimes),
+            Token.Id.AsteriskPercentEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignTimesWarp),
+            Token.Id.CaretEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignBitXor),
+            Token.Id.Equal => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.Assign),
+            Token.Id.MinusEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignMinus),
+            Token.Id.MinusPercentEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignMinusWrap),
+            Token.Id.PercentEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignMod),
+            Token.Id.PipeEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignBitOr),
+            Token.Id.PlusEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignPlus),
+            Token.Id.PlusPercentEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignPlusWrap),
+            Token.Id.SlashEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AssignDiv),
+            else => null,
+        };
     }
 
-    fn tokenIdToInfixOp(id: &const Token.Id) ?ast.NodeInfixOp.InfixOp {
+    fn tokenIdToComparison(id: &const Token.Id) ?ast.NodeInfixOp.InfixOp {
+        // TODO: We have to cast all cases because of this:
+        // error: expected type '?InfixOp', found '?@TagType(InfixOp)'
         return switch (*id) {
-            Token.Id.Ampersand => ast.NodeInfixOp.InfixOp.BitAnd,
-            Token.Id.AmpersandEqual => ast.NodeInfixOp.InfixOp.AssignBitAnd,
-            Token.Id.AngleBracketAngleBracketLeft => ast.NodeInfixOp.InfixOp.BitShiftLeft,
-            Token.Id.AngleBracketAngleBracketLeftEqual => ast.NodeInfixOp.InfixOp.AssignBitShiftLeft,
-            Token.Id.AngleBracketAngleBracketRight => ast.NodeInfixOp.InfixOp.BitShiftRight,
-            Token.Id.AngleBracketAngleBracketRightEqual => ast.NodeInfixOp.InfixOp.AssignBitShiftRight,
-            Token.Id.AngleBracketLeft => ast.NodeInfixOp.InfixOp.LessThan,
-            Token.Id.AngleBracketLeftEqual => ast.NodeInfixOp.InfixOp.LessOrEqual,
-            Token.Id.AngleBracketRight => ast.NodeInfixOp.InfixOp.GreaterThan,
-            Token.Id.AngleBracketRightEqual => ast.NodeInfixOp.InfixOp.GreaterOrEqual,
-            Token.Id.Asterisk => ast.NodeInfixOp.InfixOp.Mult,
-            Token.Id.AsteriskAsterisk => ast.NodeInfixOp.InfixOp.ArrayMult,
-            Token.Id.AsteriskEqual => ast.NodeInfixOp.InfixOp.AssignTimes,
-            Token.Id.AsteriskPercent => ast.NodeInfixOp.InfixOp.MultWrap,
-            Token.Id.AsteriskPercentEqual => ast.NodeInfixOp.InfixOp.AssignTimesWarp,
-            Token.Id.Bang => ast.NodeInfixOp.InfixOp.ErrorUnion,
-            Token.Id.BangEqual => ast.NodeInfixOp.InfixOp.BangEqual,
-            Token.Id.Caret => ast.NodeInfixOp.InfixOp.BitXor,
-            Token.Id.CaretEqual => ast.NodeInfixOp.InfixOp.AssignBitXor,
-            Token.Id.Equal => ast.NodeInfixOp.InfixOp.Assign,
-            Token.Id.EqualEqual => ast.NodeInfixOp.InfixOp.EqualEqual,
-            Token.Id.Keyword_and => ast.NodeInfixOp.InfixOp.BoolAnd,
-            Token.Id.Keyword_or => ast.NodeInfixOp.InfixOp.BoolOr,
-            Token.Id.Minus => ast.NodeInfixOp.InfixOp.Sub,
-            Token.Id.MinusEqual => ast.NodeInfixOp.InfixOp.AssignMinus,
-            Token.Id.MinusPercent => ast.NodeInfixOp.InfixOp.SubWrap,
-            Token.Id.MinusPercentEqual => ast.NodeInfixOp.InfixOp.AssignMinusWrap,
-            Token.Id.Percent => ast.NodeInfixOp.InfixOp.Mod,
-            Token.Id.PercentEqual => ast.NodeInfixOp.InfixOp.AssignMod,
-            Token.Id.Period => ast.NodeInfixOp.InfixOp.Period,
-            Token.Id.Pipe => ast.NodeInfixOp.InfixOp.BitOr,
-            Token.Id.PipeEqual => ast.NodeInfixOp.InfixOp.AssignBitOr,
-            Token.Id.PipePipe => ast.NodeInfixOp.InfixOp.MergeErrorSets,
-            Token.Id.Plus => ast.NodeInfixOp.InfixOp.Add,
-            Token.Id.PlusEqual => ast.NodeInfixOp.InfixOp.AssignPlus,
-            Token.Id.PlusPercent => ast.NodeInfixOp.InfixOp.AddWrap,
-            Token.Id.PlusPercentEqual => ast.NodeInfixOp.InfixOp.AssignPlusWrap,
-            Token.Id.PlusPlus => ast.NodeInfixOp.InfixOp.ArrayCat,
-            Token.Id.QuestionMarkQuestionMark => ast.NodeInfixOp.InfixOp.UnwrapMaybe,
-            Token.Id.Slash => ast.NodeInfixOp.InfixOp.Div,
-            Token.Id.SlashEqual => ast.NodeInfixOp.InfixOp.AssignDiv,
+            Token.Id.BangEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.BangEqual),
+            Token.Id.EqualEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.EqualEqual),
+            Token.Id.AngleBracketLeft => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.LessThan),
+            Token.Id.AngleBracketLeftEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.LessOrEqual),
+            Token.Id.AngleBracketRight => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.GreaterThan),
+            Token.Id.AngleBracketRightEqual => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.GreaterOrEqual),
+            else => null,
+        };
+    }
+
+    fn tokenIdToBitShift(id: &const Token.Id) ?ast.NodeInfixOp.InfixOp {
+        // TODO: We have to cast all cases because of this:
+        // error: expected type '?InfixOp', found '?@TagType(InfixOp)'
+        return switch (*id) {
+            Token.Id.AngleBracketAngleBracketLeft => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.BitShiftLeft),
+            Token.Id.AngleBracketAngleBracketRight => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.BitShiftRight),
+            else => null,
+        };
+    }
+
+    fn tokenIdToAddition(id: &const Token.Id) ?ast.NodeInfixOp.InfixOp {
+        // TODO: We have to cast all cases because of this:
+        // error: expected type '?InfixOp', found '?@TagType(InfixOp)'
+        return switch (*id) {
+            Token.Id.Minus => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.Sub),
+            Token.Id.MinusPercent => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.SubWrap),
+            Token.Id.Plus => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.Add),
+            Token.Id.PlusPercent => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.AddWrap),
+            Token.Id.PlusPlus => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.ArrayCat),
+            else => null,
+        };
+    }
+
+    fn tokenIdToMultiply(id: &const Token.Id) ?ast.NodeInfixOp.InfixOp {
+        // TODO: We have to cast all cases because of this:
+        // error: expected type '?InfixOp', found '?@TagType(InfixOp)'
+        return switch (*id) {
+            Token.Id.Slash => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.Div),
+            Token.Id.Asterisk => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.Mult),
+            Token.Id.AsteriskAsterisk => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.ArrayMult),
+            Token.Id.AsteriskPercent => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.MultWrap),
+            Token.Id.Percent => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.Mod),
+            Token.Id.PipePipe => (ast.NodeInfixOp.InfixOp)(ast.NodeInfixOp.InfixOp.MergeErrorSets),
+            else => null,
+        };
+    }
+
+    fn tokenIdToPrefixOp(id: &const Token.Id) ?ast.NodePrefixOp.PrefixOp {
+        // TODO: We have to cast all cases because of this:
+        // error: expected type '?InfixOp', found '?@TagType(InfixOp)'
+        return switch (*id) {
+            Token.Id.Bang => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.BoolNot),
+            Token.Id.Tilde => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.BitNot),
+            Token.Id.Minus => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.Negation),
+            Token.Id.MinusPercent => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.NegationWrap),
+            Token.Id.Asterisk => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.Deref),
+            Token.Id.Ampersand => ast.NodePrefixOp.PrefixOp {
+                .AddrOf = ast.NodePrefixOp.AddrOfInfo {
+                    .align_expr = null,
+                    .bit_offset_start_token = null,
+                    .bit_offset_end_token = null,
+                    .const_token = null,
+                    .volatile_token = null,
+                },
+            },
+            Token.Id.QuestionMark => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.MaybeType),
+            Token.Id.QuestionMarkQuestionMark => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.UnwrapMaybe),
             else => null,
         };
     }
@@ -1637,6 +1898,19 @@ pub const Parser = struct {
         return node;
     }
 
+    fn createControlFlowExpr(self: &Parser, arena: &mem.Allocator, ltoken: &const Token,
+        kind: &const ast.NodeControlFlowExpression.Kind) !&ast.NodeControlFlowExpression
+    {
+        const node = try arena.create(ast.NodeControlFlowExpression);
+        *node = ast.NodeControlFlowExpression {
+            .base = self.initNode(ast.Node.Id.ControlFlowExpression),
+            .ltoken = *ltoken,
+            .kind = *kind,
+            .rhs = undefined,
+        };
+        return node;
+    }
+
     fn createInfixOp(self: &Parser, arena: &mem.Allocator, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) !&ast.NodeInfixOp {
         const node = try arena.create(ast.NodeInfixOp);
 
@@ -1752,37 +2026,54 @@ pub const Parser = struct {
         return node;
     }
 
-    fn parseError(self: &Parser, token: &const Token, comptime fmt: []const u8, args: ...) (error{ParseError}) {
-        const loc = self.tokenizer.getTokenLocation(0, token);
-        warn("{}:{}:{}: error: " ++ fmt ++ "\n", self.source_file_name, loc.line + 1, loc.column + 1, args);
-        warn("{}\n", self.tokenizer.buffer[loc.line_start..loc.line_end]);
-        {
-            var i: usize = 0;
-            while (i < loc.column) : (i += 1) {
-                warn(" ");
+    fn parseError(self: &Parser, stack: &ArrayList(State), token: &const Token, comptime fmt: []const u8, args: ...) !void {
+        // Before reporting an error. We pop the stack to see if our state was optional
+        self.revertIfOptional(stack) catch {
+            const loc = self.tokenizer.getTokenLocation(0, token);
+            warn("{}:{}:{}: error: " ++ fmt ++ "\n", self.source_file_name, loc.line + 1, loc.column + 1, args);
+            warn("{}\n", self.tokenizer.buffer[loc.line_start..loc.line_end]);
+            {
+                var i: usize = 0;
+                while (i < loc.column) : (i += 1) {
+                    warn(" ");
+                }
             }
-        }
-        {
-            const caret_count = token.end - token.start;
-            var i: usize = 0;
-            while (i < caret_count) : (i += 1) {
-                warn("~");
+            {
+                const caret_count = token.end - token.start;
+                var i: usize = 0;
+                while (i < caret_count) : (i += 1) {
+                    warn("~");
+                }
             }
-        }
-        warn("\n");
-        return error.ParseError;
+            warn("\n");
+            return error.ParseError;
+        };
     }
 
-    fn expectToken(self: &Parser, token: &const Token, id: @TagType(Token.Id)) !void {
-        if (token.id != id) {
-            return self.parseError(token, "expected {}, found {}", @tagName(id), @tagName(token.id));
-        }
-    }
-
-    fn eatToken(self: &Parser, id: @TagType(Token.Id)) !Token {
+    fn eatToken(self: &Parser, stack: &ArrayList(State), id: @TagType(Token.Id)) !?Token {
         const token = self.getNextToken();
-        try self.expectToken(token, id);
+        if (token.id != id) {
+            try self.parseError(stack, token, "expected {}, found {}", @tagName(id), @tagName(token.id));
+            return null;
+        }
         return token;
+    }
+
+    fn revertIfOptional(self: &Parser, stack: &ArrayList(State)) !void {
+        while (stack.popOrNull()) |state| {
+            switch (state) {
+                State.Optional => |revert| {
+                    *self = state.Optional;
+                    return;
+                },
+                State.Required => {
+                    return error.StateRequired;
+                },
+                else => { }
+            }
+        }
+
+        return error.NoOptionalStateFound;
     }
 
     fn putBackToken(self: &Parser, token: &const Token) void {
@@ -2054,51 +2345,62 @@ pub const Parser = struct {
                     ast.Node.Id.InfixOp => {
                         const prefix_op_node = @fieldParentPtr(ast.NodeInfixOp, "base", base);
                         try stack.append(RenderState { .Expression = prefix_op_node.rhs });
-                        const text = switch (prefix_op_node.op) {
-                            ast.NodeInfixOp.InfixOp.Add => " + ",
-                            ast.NodeInfixOp.InfixOp.AddWrap => " +% ",
-                            ast.NodeInfixOp.InfixOp.ArrayCat => " ++ ",
-                            ast.NodeInfixOp.InfixOp.ArrayMult => " ** ",
-                            ast.NodeInfixOp.InfixOp.Assign => " = ",
-                            ast.NodeInfixOp.InfixOp.AssignBitAnd => " &= ",
-                            ast.NodeInfixOp.InfixOp.AssignBitOr => " |= ",
-                            ast.NodeInfixOp.InfixOp.AssignBitShiftLeft => " <<= ",
-                            ast.NodeInfixOp.InfixOp.AssignBitShiftRight => " >>= ",
-                            ast.NodeInfixOp.InfixOp.AssignBitXor => " ^= ",
-                            ast.NodeInfixOp.InfixOp.AssignDiv => " /= ",
-                            ast.NodeInfixOp.InfixOp.AssignMinus => " -= ",
-                            ast.NodeInfixOp.InfixOp.AssignMinusWrap => " -%= ",
-                            ast.NodeInfixOp.InfixOp.AssignMod => " %= ",
-                            ast.NodeInfixOp.InfixOp.AssignPlus => " += ",
-                            ast.NodeInfixOp.InfixOp.AssignPlusWrap => " +%= ",
-                            ast.NodeInfixOp.InfixOp.AssignTimes => " *= ",
-                            ast.NodeInfixOp.InfixOp.AssignTimesWarp => " *%= ",
-                            ast.NodeInfixOp.InfixOp.BangEqual => " != ",
-                            ast.NodeInfixOp.InfixOp.BitAnd => " & ",
-                            ast.NodeInfixOp.InfixOp.BitOr => " | ",
-                            ast.NodeInfixOp.InfixOp.BitShiftLeft => " << ",
-                            ast.NodeInfixOp.InfixOp.BitShiftRight => " >> ",
-                            ast.NodeInfixOp.InfixOp.BitXor => " ^ ",
-                            ast.NodeInfixOp.InfixOp.BoolAnd => " and ",
-                            ast.NodeInfixOp.InfixOp.BoolOr => " or ",
-                            ast.NodeInfixOp.InfixOp.Div => " / ",
-                            ast.NodeInfixOp.InfixOp.EqualEqual => " == ",
-                            ast.NodeInfixOp.InfixOp.ErrorUnion => "!",
-                            ast.NodeInfixOp.InfixOp.GreaterOrEqual => " >= ",
-                            ast.NodeInfixOp.InfixOp.GreaterThan => " > ",
-                            ast.NodeInfixOp.InfixOp.LessOrEqual => " <= ",
-                            ast.NodeInfixOp.InfixOp.LessThan => " < ",
-                            ast.NodeInfixOp.InfixOp.MergeErrorSets => " || ",
-                            ast.NodeInfixOp.InfixOp.Mod => " % ",
-                            ast.NodeInfixOp.InfixOp.Mult => " * ",
-                            ast.NodeInfixOp.InfixOp.MultWrap => " *% ",
-                            ast.NodeInfixOp.InfixOp.Period => ".",
-                            ast.NodeInfixOp.InfixOp.Sub => " - ",
-                            ast.NodeInfixOp.InfixOp.SubWrap => " -% ",
-                            ast.NodeInfixOp.InfixOp.UnwrapMaybe => " ?? ",
-                        };
 
-                        try stack.append(RenderState { .Text = text });
+                        if (prefix_op_node.op == ast.NodeInfixOp.InfixOp.Catch) {
+                            if (prefix_op_node.op.Catch) |payload| {
+                                try stack.append(RenderState { .Text = "|" });
+                                try stack.append(RenderState { .Expression = &payload.base });
+                                try stack.append(RenderState { .Text = "|" });
+                            }
+                            try stack.append(RenderState { .Text = " catch " });
+                        } else {
+                            const text = switch (prefix_op_node.op) {
+                                ast.NodeInfixOp.InfixOp.Add => " + ",
+                                ast.NodeInfixOp.InfixOp.AddWrap => " +% ",
+                                ast.NodeInfixOp.InfixOp.ArrayCat => " ++ ",
+                                ast.NodeInfixOp.InfixOp.ArrayMult => " ** ",
+                                ast.NodeInfixOp.InfixOp.Assign => " = ",
+                                ast.NodeInfixOp.InfixOp.AssignBitAnd => " &= ",
+                                ast.NodeInfixOp.InfixOp.AssignBitOr => " |= ",
+                                ast.NodeInfixOp.InfixOp.AssignBitShiftLeft => " <<= ",
+                                ast.NodeInfixOp.InfixOp.AssignBitShiftRight => " >>= ",
+                                ast.NodeInfixOp.InfixOp.AssignBitXor => " ^= ",
+                                ast.NodeInfixOp.InfixOp.AssignDiv => " /= ",
+                                ast.NodeInfixOp.InfixOp.AssignMinus => " -= ",
+                                ast.NodeInfixOp.InfixOp.AssignMinusWrap => " -%= ",
+                                ast.NodeInfixOp.InfixOp.AssignMod => " %= ",
+                                ast.NodeInfixOp.InfixOp.AssignPlus => " += ",
+                                ast.NodeInfixOp.InfixOp.AssignPlusWrap => " +%= ",
+                                ast.NodeInfixOp.InfixOp.AssignTimes => " *= ",
+                                ast.NodeInfixOp.InfixOp.AssignTimesWarp => " *%= ",
+                                ast.NodeInfixOp.InfixOp.BangEqual => " != ",
+                                ast.NodeInfixOp.InfixOp.BitAnd => " & ",
+                                ast.NodeInfixOp.InfixOp.BitOr => " | ",
+                                ast.NodeInfixOp.InfixOp.BitShiftLeft => " << ",
+                                ast.NodeInfixOp.InfixOp.BitShiftRight => " >> ",
+                                ast.NodeInfixOp.InfixOp.BitXor => " ^ ",
+                                ast.NodeInfixOp.InfixOp.BoolAnd => " and ",
+                                ast.NodeInfixOp.InfixOp.BoolOr => " or ",
+                                ast.NodeInfixOp.InfixOp.Div => " / ",
+                                ast.NodeInfixOp.InfixOp.EqualEqual => " == ",
+                                ast.NodeInfixOp.InfixOp.ErrorUnion => "!",
+                                ast.NodeInfixOp.InfixOp.GreaterOrEqual => " >= ",
+                                ast.NodeInfixOp.InfixOp.GreaterThan => " > ",
+                                ast.NodeInfixOp.InfixOp.LessOrEqual => " <= ",
+                                ast.NodeInfixOp.InfixOp.LessThan => " < ",
+                                ast.NodeInfixOp.InfixOp.MergeErrorSets => " || ",
+                                ast.NodeInfixOp.InfixOp.Mod => " % ",
+                                ast.NodeInfixOp.InfixOp.Mult => " * ",
+                                ast.NodeInfixOp.InfixOp.MultWrap => " *% ",
+                                ast.NodeInfixOp.InfixOp.Period => ".",
+                                ast.NodeInfixOp.InfixOp.Sub => " - ",
+                                ast.NodeInfixOp.InfixOp.SubWrap => " -% ",
+                                ast.NodeInfixOp.InfixOp.UnwrapMaybe => " ?? ",
+                                else => unreachable,
+                            };
+
+                            try stack.append(RenderState { .Text = text });
+                        }
                         try stack.append(RenderState { .Expression = prefix_op_node.lhs });
                     },
                     ast.Node.Id.PrefixOp => {
@@ -2143,9 +2445,9 @@ pub const Parser = struct {
                             ast.NodePrefixOp.PrefixOp.Deref => try stream.write("*"),
                             ast.NodePrefixOp.PrefixOp.Negation => try stream.write("-"),
                             ast.NodePrefixOp.PrefixOp.NegationWrap => try stream.write("-%"),
-                            ast.NodePrefixOp.PrefixOp.Return => try stream.write("return "),
                             ast.NodePrefixOp.PrefixOp.Try => try stream.write("try "),
                             ast.NodePrefixOp.PrefixOp.UnwrapMaybe => try stream.write("??"),
+                            ast.NodePrefixOp.PrefixOp.MaybeType => try stream.write("?"),
                         }
                     },
                     ast.Node.Id.SuffixOp => {
@@ -2184,6 +2486,32 @@ pub const Parser = struct {
                         }
 
                         try stack.append(RenderState { .Expression = suffix_op.lhs });
+                    },
+                    ast.Node.Id.ControlFlowExpression => {
+                        const flow_expr = @fieldParentPtr(ast.NodeControlFlowExpression, "base", base);
+                        switch (flow_expr.kind) {
+                            ast.NodeControlFlowExpression.Kind.Break => |maybe_blk_token| {
+                                try stream.print("break");
+                                if (maybe_blk_token) |blk_token| {
+                                    try stream.print(" :{}", self.tokenizer.getTokenSlice(blk_token));
+                                }
+                            },
+                            ast.NodeControlFlowExpression.Kind.Continue => |maybe_blk_token| {
+                                try stream.print("continue");
+                                if (maybe_blk_token) |blk_token| {
+                                    try stream.print(" :{}", self.tokenizer.getTokenSlice(blk_token));
+                                }
+                            },
+                            ast.NodeControlFlowExpression.Kind.Return => {
+                                try stream.print("return");
+                            },
+
+                        }
+
+                        if (flow_expr.rhs) |rhs| {
+                            try stream.print(" ");
+                            try stack.append(RenderState { .Expression = rhs });
+                        }
                     },
                     ast.Node.Id.GroupedExpression => {
                         const grouped_expr = @fieldParentPtr(ast.NodeGroupedExpression, "base", base);
@@ -2770,7 +3098,6 @@ test "zig fmt: values" {
         \\    error;
         \\    this;
         \\    unreachable;
-        \\    suspend;
         \\}
         \\
     );
@@ -2902,6 +3229,38 @@ test "zig fmt: error set declaration" {
         \\
         \\    C
         \\};
+        \\
+    );
+}
+
+test "zig fmt: catch" {
+    try testCanonical(
+        \\test "catch" {
+        \\    const a: error!u8 = 0;
+        \\    _ = a catch return;
+        \\    _ = a catch |err| return;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: arrays" {
+    try testCanonical(
+        \\test "test array" {
+        \\    const a: [2]u8 = [2]u8{ 1, 2 };
+        \\    const a: [2]u8 = []u8{ 1, 2 };
+        \\    const a: [0]u8 = []u8{};
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: container initializers" {
+    try testCanonical(
+        \\const a1 = []u8{ };
+        \\const a2 = []u8{ 1, 2, 3, 4 };
+        \\const s1 = S{ };
+        \\const s2 = S{ .a = 1, .b = 2, };
         \\
     );
 }
@@ -3106,17 +3465,6 @@ test "zig fmt: defer" {
     );
 }
 
-test "zig fmt: catch" {
-    try testCanonical(
-        \\test "catch" {
-        \\    const a: error!u8 = 0;
-        \\    _ = a catch return;
-        \\    _ = a catch |err| return;
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: comptime" {
     try testCanonical(
         \\fn a() u8 {
@@ -3197,27 +3545,6 @@ test "zig fmt: coroutines" {
         \\    resume p;
         \\    cancel p;
         \\}
-        \\
-    );
-}
-
-test "zig fmt: arrays" {
-    try testCanonical(
-        \\test "test array" {
-        \\    const a: [2]u8 = [2]u8{ 1, 2 };
-        \\    const a: [2]u8 = []u8{ 1, 2 };
-        \\    const a: [0]u8 = []u8{};
-        \\}
-        \\
-    );
-}
-
-test "zig fmt: container initializers" {
-    try testCanonical(
-        \\const a1 = []u8{ };
-        \\const a2 = []u8{ 1, 2, 3, 4 };
-        \\const s1 = S{ };
-        \\const s2 = S{ .a = 1, .b = 2, };
         \\
     );
 }

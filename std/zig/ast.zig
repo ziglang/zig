@@ -24,6 +24,7 @@ pub const Node = struct {
         PrefixOp,
         SuffixOp,
         GroupedExpression,
+        ControlFlowExpression,
         FieldInitializer,
         IntegerLiteral,
         FloatLiteral,
@@ -58,6 +59,7 @@ pub const Node = struct {
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).iterate(index),
             Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).iterate(index),
+            Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).iterate(index),
             Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).iterate(index),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
@@ -93,6 +95,7 @@ pub const Node = struct {
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).firstToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).firstToken(),
             Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).firstToken(),
+            Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).firstToken(),
             Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).firstToken(),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).firstToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
@@ -128,6 +131,7 @@ pub const Node = struct {
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).lastToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).lastToken(),
             Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).lastToken(),
+            Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).lastToken(),
             Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).lastToken(),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).lastToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
@@ -531,7 +535,7 @@ pub const NodeInfixOp = struct {
     op: InfixOp,
     rhs: &Node,
 
-    const InfixOp = enum {
+    const InfixOp = union(enum) {
         Add,
         AddWrap,
         ArrayCat,
@@ -558,6 +562,7 @@ pub const NodeInfixOp = struct {
         BitXor,
         BoolAnd,
         BoolOr,
+        Catch: ?&NodeIdentifier,
         Div,
         EqualEqual,
         ErrorUnion,
@@ -651,9 +656,9 @@ pub const NodePrefixOp = struct {
         BitNot,
         BoolNot,
         Deref,
+        MaybeType,
         Negation,
         NegationWrap,
-        Return,
         ArrayType: &Node,
         SliceType: AddrOfInfo,
         Try,
@@ -754,6 +759,7 @@ pub const NodeSuffixOp = struct {
     const CallInfo = struct {
         params: ArrayList(&Node),
         is_async: bool,
+        allocator: ?&Node,
     };
 
     const SliceRange = struct {
@@ -828,6 +834,56 @@ pub const NodeGroupedExpression = struct {
 
     pub fn lastToken(self: &NodeGroupedExpression) Token {
         return self.rparen;
+    }
+};
+
+pub const NodeControlFlowExpression = struct {
+    base: Node,
+    ltoken: Token,
+    kind: Kind,
+    rhs: ?&Node,
+
+    const Kind = union(enum) {
+        Break: ?Token,
+        Continue: ?Token,
+        Return,
+    };
+
+    pub fn iterate(self: &NodeControlFlowExpression, index: usize) ?&Node {
+        var i = index;
+
+        if (self.rhs) |rhs| {
+            if (i < 1) return rhs;
+            i -= 1;
+        }
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeControlFlowExpression) Token {
+        return self.ltoken;
+    }
+
+    pub fn lastToken(self: &NodeControlFlowExpression) Token {
+        if (self.rhs) |rhs| {
+            return rhs.lastToken();
+        }
+
+        switch (self.kind) {
+            Kind.Break => |maybe_blk_token| {
+                if (maybe_blk_token) |blk_token| {
+                    return blk_token;
+                }
+            },
+            Kind.Continue => |maybe_blk_token| {
+                if (maybe_blk_token) |blk_token| {
+                    return blk_token;
+                }
+            },
+            Kind.Return => return self.ltoken,
+        }
+
+        return self.ltoken;
     }
 };
 
