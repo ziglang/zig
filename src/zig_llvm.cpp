@@ -37,6 +37,7 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils.h>
 
 #include <lld/Common/Driver.h>
 

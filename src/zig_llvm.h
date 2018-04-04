@@ -376,7 +376,6 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
     ZigLLVM_CoreCLR,
-    ZigLLVM_OpenCL,
     ZigLLVM_Simulator,
 
     ZigLLVM_LastEnvironmentType = ZigLLVM_Simulator

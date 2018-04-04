@@ -162,6 +162,7 @@ static const Os os_list[] = {
     OsZen,
 };
 
+// Coordinate with zig_llvm.h
 static const ZigLLVM_EnvironmentType environ_list[] = {
     ZigLLVM_UnknownEnvironment,
 
@@ -182,7 +183,6 @@ static const ZigLLVM_EnvironmentType environ_list[] = {
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
     ZigLLVM_CoreCLR,
-    ZigLLVM_OpenCL,
     ZigLLVM_Simulator,
 };
 
