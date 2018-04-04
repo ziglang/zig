@@ -1000,24 +1000,58 @@ pub const Parser = struct {
 
                         var expression = popSuffixOp(&stack);
                         while (true) {
-                            switch (stack.pop()) {
-                                State.Expression => |dest_ptr| {
-                                    // we're done
-                                    try dest_ptr.store(expression);
+                            const s = stack.pop();
+                            if (s == State.Expression) {
+                                const dest_ptr = s.Expression;
+                                // we're done
+                                try dest_ptr.store(expression);
+                                break;
+                            }
+
+                            var placement_ptr = &expression;
+                            var rhs : &&ast.Node = undefined;
+                            const node = blk: {
+                                switch (s) {
+                                    State.InfixOp => |infix_op| {
+                                        infix_op.lhs = popSuffixOp(&stack);
+                                        infix_op.rhs = expression;
+                                        rhs = &infix_op.rhs;
+                                        break :blk &infix_op.base;
+                                    },
+                                    State.PrefixOp => |prefix_op| {
+                                        prefix_op.rhs = expression;
+                                        rhs = &prefix_op.rhs;
+                                        break :blk &prefix_op.base;
+                                    },
+                                    else => unreachable,
+                                }
+                            };
+                            const node_perc = precedence(node);
+
+                            while (true) {
+                                const perc = precedence(*placement_ptr);
+
+                                if (node_perc > perc) {
+                                    *placement_ptr = node;
                                     break;
-                                },
-                                State.InfixOp => |infix_op| {
-                                    infix_op.rhs = expression;
-                                    infix_op.lhs = popSuffixOp(&stack);
-                                    expression = &infix_op.base;
-                                    continue;
-                                },
-                                State.PrefixOp => |prefix_op| {
-                                    prefix_op.rhs = expression;
-                                    expression = &prefix_op.base;
-                                    continue;
-                                },
-                                else => unreachable,
+                                }
+
+                                switch ((*placement_ptr).id) {
+                                    ast.Node.Id.SuffixOp => {
+                                        const suffix_op = @fieldParentPtr(ast.NodeSuffixOp, "base", *placement_ptr);
+                                        placement_ptr = &suffix_op.lhs;
+                                        *rhs = suffix_op.lhs;
+                                    },
+                                    ast.Node.Id.InfixOp => {
+                                        const infix_op = @fieldParentPtr(ast.NodeInfixOp, "base", *placement_ptr);
+                                        placement_ptr = &infix_op.lhs;
+                                        *rhs = infix_op.lhs;
+                                    },
+                                    else => {
+                                        *placement_ptr = node;
+                                        break;
+                                    },
+                                }
                             }
                         }
                         continue;
@@ -1305,6 +1339,99 @@ pub const Parser = struct {
                 State.SuffixOp => unreachable,
                 State.Operand => unreachable,
             }
+        }
+    }
+
+    fn precedence(node: &ast.Node) u8 {
+        switch (node.id) {
+            ast.Node.Id.PrefixOp => {
+                const prefix_op = @fieldParentPtr(ast.NodePrefixOp, "base", node);
+                switch (prefix_op.op) {
+                    ast.NodePrefixOp.PrefixOp.ArrayType,
+                    ast.NodePrefixOp.PrefixOp.SliceType => return 1,
+
+                    ast.NodePrefixOp.PrefixOp.BoolNot,
+                    ast.NodePrefixOp.PrefixOp.Negation,
+                    ast.NodePrefixOp.PrefixOp.NegationWrap,
+                    ast.NodePrefixOp.PrefixOp.BitNot,
+                    ast.NodePrefixOp.PrefixOp.Deref,
+                    ast.NodePrefixOp.PrefixOp.AddrOf,
+                    ast.NodePrefixOp.PrefixOp.UnwrapMaybe => return 3,
+
+                    ast.NodePrefixOp.PrefixOp.Try,
+                    ast.NodePrefixOp.PrefixOp.Return => return 255,
+                }
+            },
+            ast.Node.Id.SuffixOp => {
+                const suffix_op = @fieldParentPtr(ast.NodeSuffixOp, "base", node);
+                switch (suffix_op.op) {
+                    ast.NodeSuffixOp.SuffixOp.Call,
+                    ast.NodeSuffixOp.SuffixOp.Slice,
+                    ast.NodeSuffixOp.SuffixOp.ArrayAccess => return 2,
+
+                    ast.NodeSuffixOp.SuffixOp.ArrayInitializer,
+                    ast.NodeSuffixOp.SuffixOp.StructInitializer => return 5,
+                }
+            },
+            ast.Node.Id.InfixOp => {
+                const infix_op = @fieldParentPtr(ast.NodeInfixOp, "base", node);
+                switch (infix_op.op) {
+                    ast.NodeInfixOp.InfixOp.Period => return 2,
+
+                    ast.NodeInfixOp.InfixOp.ErrorUnion => return 4,
+
+                    ast.NodeInfixOp.InfixOp.Div,
+                    ast.NodeInfixOp.InfixOp.ArrayMult,
+                    ast.NodeInfixOp.InfixOp.Mod,
+                    ast.NodeInfixOp.InfixOp.Mult,
+                    ast.NodeInfixOp.InfixOp.MultWrap => return 6,
+
+                    ast.NodeInfixOp.InfixOp.Add,
+                    ast.NodeInfixOp.InfixOp.AddWrap,
+                    ast.NodeInfixOp.InfixOp.ArrayCat,
+                    ast.NodeInfixOp.InfixOp.Sub,
+                    ast.NodeInfixOp.InfixOp.SubWrap => return 7,
+
+                    ast.NodeInfixOp.InfixOp.BitShiftLeft,
+                    ast.NodeInfixOp.InfixOp.BitShiftRight => return 8,
+
+                    ast.NodeInfixOp.InfixOp.BitAnd => return 9,
+
+                    ast.NodeInfixOp.InfixOp.BitXor => return 10,
+
+                    ast.NodeInfixOp.InfixOp.BitOr => return 11,
+
+                    ast.NodeInfixOp.InfixOp.EqualEqual,
+                    ast.NodeInfixOp.InfixOp.BangEqual,
+                    ast.NodeInfixOp.InfixOp.GreaterOrEqual,
+                    ast.NodeInfixOp.InfixOp.GreaterThan,
+                    ast.NodeInfixOp.InfixOp.LessOrEqual,
+                    ast.NodeInfixOp.InfixOp.LessThan => return 12,
+
+                    ast.NodeInfixOp.InfixOp.BoolAnd => return 13,
+
+                    ast.NodeInfixOp.InfixOp.BoolOr => return 14,
+
+                    ast.NodeInfixOp.InfixOp.UnwrapMaybe => return 15,
+
+                    ast.NodeInfixOp.InfixOp.Assign,
+                    ast.NodeInfixOp.InfixOp.AssignBitAnd,
+                    ast.NodeInfixOp.InfixOp.AssignBitOr,
+                    ast.NodeInfixOp.InfixOp.AssignBitShiftLeft,
+                    ast.NodeInfixOp.InfixOp.AssignBitShiftRight,
+                    ast.NodeInfixOp.InfixOp.AssignBitXor,
+                    ast.NodeInfixOp.InfixOp.AssignDiv,
+                    ast.NodeInfixOp.InfixOp.AssignMinus,
+                    ast.NodeInfixOp.InfixOp.AssignMinusWrap,
+                    ast.NodeInfixOp.InfixOp.AssignMod,
+                    ast.NodeInfixOp.InfixOp.AssignPlus,
+                    ast.NodeInfixOp.InfixOp.AssignPlusWrap,
+                    ast.NodeInfixOp.InfixOp.AssignTimes,
+                    ast.NodeInfixOp.InfixOp.AssignTimesWarp,
+                    ast.NodeInfixOp.InfixOp.MergeErrorSets => return 16,
+                }
+            },
+            else => return 0,
         }
     }
 
@@ -2549,6 +2676,39 @@ test "zig fmt: infix operators" {
     );
 }
 
+test "zig fmt: precedence" {
+    try testCanonical(
+        \\test "precedence" {
+        \\    a!b();
+        \\    (a!b)();
+        \\    !a!b;
+        \\    !(a!b);
+        \\    a << b + c;
+        \\    (a << b) + c;
+        \\    a & b << c;
+        \\    (a & b) << c;
+        \\    a ^ b & c;
+        \\    (a ^ b) & c;
+        \\    a | b ^ c;
+        \\    (a | b) ^ c;
+        \\    a == b | c;
+        \\    (a == b) | c;
+        \\    a and b == c;
+        \\    (a and b) == c;
+        \\    a or b and c;
+        \\    (a or b) and c;
+        \\    (a or b) and c;
+        \\    a = b or c;
+        \\    (a = b) or c;
+        \\}
+        \\
+        //\\    !a{};
+        //\\    !(a{});
+        //\\    a + b{};
+        //\\    (a + b){};
+    );
+}
+
 test "zig fmt: prefix operators" {
     try testCanonical(
         \\test "prefix operators" {
@@ -3058,39 +3218,6 @@ test "zig fmt: container initializers" {
         \\const a2 = []u8{ 1, 2, 3, 4 };
         \\const s1 = S{ };
         \\const s2 = S{ .a = 1, .b = 2, };
-        \\
-    );
-}
-
-test "zig fmt: precedence" {
-    try testCanonical(
-        \\test "precedence" {
-        \\    a!b();
-        \\    (a!b)();
-        \\    !a!b;
-        \\    !(a!b);
-        \\    !a{};
-        \\    !(a{});
-        \\    a + b{};
-        \\    (a + b){};
-        \\    a << b + c;
-        \\    (a << b) + c;
-        \\    a & b << c;
-        \\    (a & b) << c;
-        \\    a ^ b & c;
-        \\    (a ^ b) & c;
-        \\    a | b ^ c;
-        \\    (a | b) ^ c;
-        \\    a == b | c;
-        \\    (a == b) | c;
-        \\    a and b == c;
-        \\    (a and b) == c;
-        \\    a or b and c;
-        \\    (a or b) and c;
-        \\    (a or b) and c;
-        \\    a = b or c;
-        \\    (a = b) or c;
-        \\}
         \\
     );
 }
