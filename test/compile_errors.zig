@@ -1,6 +1,15 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("wrong type passed to @panic",
+        \\export fn entry() void {
+        \\    var e = error.Foo;
+        \\    @panic(e);
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: expected type '[]const u8', found 'error{Foo}'");
+
+
     cases.add("@tagName used on union with no associated enum tag",
         \\const FloatInt = extern union {
         \\    Float: f32,

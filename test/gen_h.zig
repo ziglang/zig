@@ -51,6 +51,16 @@ pub fn addCases(cases: &tests.GenHContext) void {
         \\
     );
 
+    cases.add("declare opaque type",
+        \\export const Foo = @OpaqueType();
+        \\
+        \\export fn entry(foo: ?&Foo) void { }
+    ,
+        \\struct Foo;
+        \\
+        \\TEST_EXPORT void entry(struct Foo * foo);
+    );
+
     cases.add("array field-type",
         \\const Foo = extern struct {
         \\    A: [2]i32,
@@ -66,4 +76,5 @@ pub fn addCases(cases: &tests.GenHContext) void {
         \\TEST_EXPORT void entry(struct Foo foo, uint8_t bar[]);
         \\
     );
+
 }

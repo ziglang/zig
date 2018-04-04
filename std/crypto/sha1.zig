@@ -60,7 +60,7 @@ pub const Sha1 = struct {
         }
 
         // Full middle blocks.
-        while (off + 64 < b.len) : (off += 64) {
+        while (off + 64 <= b.len) : (off += 64) {
             d.round(b[off..off + 64]);
         }
 
@@ -283,4 +283,13 @@ test "sha1 streaming" {
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual("a9993e364706816aba3e25717850c26c9cd0d89d", out[0..]);
+}
+
+test "sha1 aligned final" {
+    var block = []u8 {0} ** Sha1.block_size;
+    var out: [Sha1.digest_size]u8 = undefined;
+
+    var h = Sha1.init();
+    h.update(block);
+    h.final(out[0..]);
 }

@@ -45,6 +45,7 @@ typedef SSIZE_T ssize_t;
 #if defined(__MACH__)
 #include <mach/clock.h>
 #include <mach/mach.h>
+#include <mach-o/dyld.h>
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
@@ -56,10 +57,6 @@ static clock_serv_t cclock;
 #include <stdlib.h>
 #include <errno.h>
 #include <time.h>
-
-// these implementations are lazy. But who cares, we'll make a robust
-// implementation in the zig standard library and then this code all gets
-// deleted when we self-host. it works for now.
 
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
@@ -291,13 +288,39 @@ void os_path_resolve(Buf *ref_path, Buf *target_path, Buf *out_abs_path) {
     return;
 }
 
-int os_fetch_file(FILE *f, Buf *out_buf) {
+int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
     static const ssize_t buf_size = 0x2000;
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
+
+    bool first_read = true;
+
     for (;;) {
         size_t amt_read = fread(buf_ptr(out_buf) + actual_buf_len, 1, buf_size, f);
         actual_buf_len += amt_read;
+
+        if (skip_shebang && first_read && buf_starts_with_str(out_buf, "#!")) {
+            size_t i = 0;
+            while (true) {
+                if (i > buf_len(out_buf)) {
+                    zig_panic("shebang line exceeded %zd characters", buf_size);
+                }
+
+                size_t current_pos = i;
+                i += 1;
+
+                if (out_buf->list.at(current_pos) == '\n') {
+                    break;
+                }
+            }
+
+            ZigList<char> *list = &out_buf->list;
+            memmove(list->items, list->items + i, list->length - i);
+            list->length -= i;
+
+            actual_buf_len -= i;
+        }
+
         if (amt_read != buf_size) {
             if (feof(f)) {
                 buf_resize(out_buf, actual_buf_len);
@@ -308,6 +331,7 @@ int os_fetch_file(FILE *f, Buf *out_buf) {
         }
 
         buf_resize(out_buf, actual_buf_len + buf_size);
+        first_read = false;
     }
     zig_unreachable();
 }
@@ -377,8 +401,8 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
         FILE *stdout_f = fdopen(stdout_pipe[0], "rb");
         FILE *stderr_f = fdopen(stderr_pipe[0], "rb");
-        os_fetch_file(stdout_f, out_stdout);
-        os_fetch_file(stderr_f, out_stderr);
+        os_fetch_file(stdout_f, out_stdout, false);
+        os_fetch_file(stderr_f, out_stderr, false);
 
         fclose(stdout_f);
         fclose(stderr_f);
@@ -591,7 +615,7 @@ int os_copy_file(Buf *src_path, Buf *dest_path) {
     }
 }
 
-int os_fetch_file_path(Buf *full_path, Buf *out_contents) {
+int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
     FILE *f = fopen(buf_ptr(full_path), "rb");
     if (!f) {
         switch (errno) {
@@ -610,7 +634,7 @@ int os_fetch_file_path(Buf *full_path, Buf *out_contents) {
                 return ErrorFileSystem;
         }
     }
-    int result = os_fetch_file(f, out_contents);
+    int result = os_fetch_file(f, out_contents, skip_shebang);
     fclose(f);
     return result;
 }
@@ -783,6 +807,44 @@ int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
 #endif
 }
 
+#if defined(ZIG_OS_POSIX)
+int os_get_global_cache_directory(Buf *out_tmp_path) {
+    const char *tmp_dir = getenv("TMPDIR");
+    if (!tmp_dir) {
+        tmp_dir = P_tmpdir;
+    }
+
+    Buf *tmp_dir_buf = buf_create_from_str(tmp_dir);
+    Buf *cache_dirname_buf = buf_create_from_str("zig-cache");
+
+    buf_resize(out_tmp_path, 0);
+    os_path_join(tmp_dir_buf, cache_dirname_buf, out_tmp_path);
+
+    buf_deinit(tmp_dir_buf);
+    buf_deinit(cache_dirname_buf);
+    return 0;
+}
+#endif
+
+#if defined(ZIG_OS_WINDOWS)
+int os_get_global_cache_directory(Buf *out_tmp_path) {
+    char tmp_dir[MAX_PATH + 1];
+    if (GetTempPath(MAX_PATH, tmp_dir) == 0) {
+        zig_panic("GetTempPath failed");
+    }
+
+    Buf *tmp_dir_buf = buf_create_from_str(tmp_dir);
+    Buf *cache_dirname_buf = buf_create_from_str("zig-cache");
+
+    buf_resize(out_tmp_path, 0);
+    os_path_join(tmp_dir_buf, cache_dirname_buf, out_tmp_path);
+
+    buf_deinit(tmp_dir_buf);
+    buf_deinit(cache_dirname_buf);
+    return 0;
+}
+#endif
+
 int os_delete_file(Buf *path) {
     if (remove(buf_ptr(path))) {
         return ErrorFileSystem;
@@ -927,9 +989,26 @@ int os_self_exe_path(Buf *out_path) {
     }
 
 #elif defined(ZIG_OS_DARWIN)
-    return ErrorFileNotFound;
+    uint32_t u32_len = 0;
+    int ret1 = _NSGetExecutablePath(nullptr, &u32_len);
+    assert(ret1 != 0);
+    buf_resize(out_path, u32_len);
+    int ret2 = _NSGetExecutablePath(buf_ptr(out_path), &u32_len);
+    assert(ret2 == 0);
+    return 0;
 #elif defined(ZIG_OS_LINUX)
-    return ErrorFileNotFound;
+    buf_resize(out_path, 256);
+    for (;;) {
+        ssize_t amt = readlink("/proc/self/exe", buf_ptr(out_path), buf_len(out_path));
+        if (amt == -1) {
+            return ErrorUnexpected;
+        }
+        if (amt == (ssize_t)buf_len(out_path)) {
+            buf_resize(out_path, buf_len(out_path) * 2);
+            continue;
+        }
+        return 0;
+    }
 #endif
     return ErrorFileNotFound;
 }

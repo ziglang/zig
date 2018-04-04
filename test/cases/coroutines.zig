@@ -5,6 +5,7 @@ var x: i32 = 1;
 
 test "create a coroutine and cancel it" {
     const p = try async<std.debug.global_allocator> simpleAsyncFn();
+    comptime assert(@typeOf(p) == promise->void);
     cancel p;
     assert(x == 2);
 }
@@ -55,6 +56,7 @@ var result = false;
 
 async fn testSuspendBlock() void {
     suspend |p| {
+        comptime assert(@typeOf(p) == promise->void);
         a_promise = p;
     }
     result = true;
@@ -155,4 +157,35 @@ test "async function with dot syntax" {
     const p = try async<std.debug.global_allocator> S.foo();
     cancel p;
     assert(S.y == 2);
+}
+
+test "async fn pointer in a struct field" {
+    var data: i32 = 1;
+    const Foo = struct {
+        bar: async<&std.mem.Allocator> fn(&i32) void,
+    };
+    var foo = Foo {
+        .bar = simpleAsyncFn2,
+    };
+    const p = (async<std.debug.global_allocator> foo.bar(&data)) catch unreachable;
+    assert(data == 2);
+    cancel p;
+    assert(data == 4);
+}
+
+async<&std.mem.Allocator> fn simpleAsyncFn2(y: &i32) void {
+    defer *y += 2;
+    *y += 1;
+    suspend;
+}
+
+test "async fn with inferred error set" {
+    const p = (async<std.debug.global_allocator> failing()) catch unreachable;
+    resume p;
+    cancel p;
+}
+
+async fn failing() !void {
+    suspend;
+    return error.Fail;
 }

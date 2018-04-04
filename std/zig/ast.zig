@@ -20,8 +20,11 @@ pub const Node = struct {
         IntegerLiteral,
         FloatLiteral,
         StringLiteral,
+        UndefinedLiteral,
         BuiltinCall,
+        Call,
         LineComment,
+        TestDecl,
     };
 
     pub fn iterate(base: &Node, index: usize) ?&Node {
@@ -37,8 +40,11 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
+            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
+            Id.Call => @fieldParentPtr(NodeCall, "base", base).iterate(index),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).iterate(index),
+            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).iterate(index),
         };
     }
 
@@ -55,8 +61,11 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).firstToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).firstToken(),
+            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
+            Id.Call => @fieldParentPtr(NodeCall, "base", base).firstToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
+            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).firstToken(),
         };
     }
 
@@ -73,8 +82,11 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).lastToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).lastToken(),
+            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
+            Id.Call => @fieldParentPtr(NodeCall, "base", base).lastToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).lastToken(),
+            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).lastToken(),
         };
     }
 };
@@ -305,9 +317,47 @@ pub const NodeInfixOp = struct {
     rhs: &Node,
 
     const InfixOp = enum {
-        EqualEqual,
+        Add,
+        AddWrap,
+        ArrayCat,
+        ArrayMult,
+        Assign,
+        AssignBitAnd,
+        AssignBitOr,
+        AssignBitShiftLeft,
+        AssignBitShiftRight,
+        AssignBitXor,
+        AssignDiv,
+        AssignMinus,
+        AssignMinusWrap,
+        AssignMod,
+        AssignPlus,
+        AssignPlusWrap,
+        AssignTimes,
+        AssignTimesWarp,
         BangEqual,
+        BitAnd,
+        BitOr,
+        BitShiftLeft,
+        BitShiftRight,
+        BitXor,
+        BoolAnd,
+        BoolOr,
+        Div,
+        EqualEqual,
+        ErrorUnion,
+        GreaterOrEqual,
+        GreaterThan,
+        LessOrEqual,
+        LessThan,
+        MergeErrorSets,
+        Mod,
+        Mult,
+        MultWrap,
         Period,
+        Sub,
+        SubWrap,
+        UnwrapMaybe,
     };
 
     pub fn iterate(self: &NodeInfixOp, index: usize) ?&Node {
@@ -317,9 +367,47 @@ pub const NodeInfixOp = struct {
         i -= 1;
 
         switch (self.op) {
-            InfixOp.EqualEqual,
+            InfixOp.Add,
+            InfixOp.AddWrap,
+            InfixOp.ArrayCat,
+            InfixOp.ArrayMult,
+            InfixOp.Assign,
+            InfixOp.AssignBitAnd,
+            InfixOp.AssignBitOr,
+            InfixOp.AssignBitShiftLeft,
+            InfixOp.AssignBitShiftRight,
+            InfixOp.AssignBitXor,
+            InfixOp.AssignDiv,
+            InfixOp.AssignMinus,
+            InfixOp.AssignMinusWrap,
+            InfixOp.AssignMod,
+            InfixOp.AssignPlus,
+            InfixOp.AssignPlusWrap,
+            InfixOp.AssignTimes,
+            InfixOp.AssignTimesWarp,
             InfixOp.BangEqual,
-            InfixOp.Period => {},
+            InfixOp.BitAnd,
+            InfixOp.BitOr,
+            InfixOp.BitShiftLeft,
+            InfixOp.BitShiftRight,
+            InfixOp.BitXor,
+            InfixOp.BoolAnd,
+            InfixOp.BoolOr,
+            InfixOp.Div,
+            InfixOp.EqualEqual,
+            InfixOp.ErrorUnion,
+            InfixOp.GreaterOrEqual,
+            InfixOp.GreaterThan,
+            InfixOp.LessOrEqual,
+            InfixOp.LessThan,
+            InfixOp.MergeErrorSets,
+            InfixOp.Mod,
+            InfixOp.Mult,
+            InfixOp.MultWrap,
+            InfixOp.Period,
+            InfixOp.Sub,
+            InfixOp.SubWrap,
+            InfixOp.UnwrapMaybe => {},
         }
 
         if (i < 1) return self.rhs;
@@ -344,9 +432,15 @@ pub const NodePrefixOp = struct {
     rhs: &Node,
 
     const PrefixOp = union(enum) {
+        AddrOf: AddrOfInfo,
+        BitNot,
+        BoolNot,
+        Deref,
+        Negation,
+        NegationWrap,
         Return,
         Try,
-        AddrOf: AddrOfInfo,
+        UnwrapMaybe,
     };
     const AddrOfInfo = struct {
         align_expr: ?&Node,
@@ -360,14 +454,20 @@ pub const NodePrefixOp = struct {
         var i = index;
 
         switch (self.op) {
-            PrefixOp.Return,
-            PrefixOp.Try => {},
             PrefixOp.AddrOf => |addr_of_info| {
                 if (addr_of_info.align_expr) |align_expr| {
                     if (i < 1) return align_expr;
                     i -= 1;
                 }
             },
+            PrefixOp.BitNot,
+            PrefixOp.BoolNot,
+            PrefixOp.Deref,
+            PrefixOp.Negation,
+            PrefixOp.NegationWrap,
+            PrefixOp.Return,
+            PrefixOp.Try,
+            PrefixOp.UnwrapMaybe => {},
         }
 
         if (i < 1) return self.rhs;
@@ -443,6 +543,33 @@ pub const NodeBuiltinCall = struct {
     }
 };
 
+pub const NodeCall = struct {
+    base: Node,
+    callee: &Node,
+    params: ArrayList(&Node),
+    rparen_token: Token,
+
+    pub fn iterate(self: &NodeCall, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.callee;
+        i -= 1;
+
+        if (i < self.params.len) return self.params.at(i);
+        i -= self.params.len;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeCall) Token {
+        return self.callee.firstToken();
+    }
+
+    pub fn lastToken(self: &NodeCall) Token {
+        return self.rparen_token;
+    }
+};
+
 pub const NodeStringLiteral = struct {
     base: Node,
     token: Token,
@@ -456,6 +583,23 @@ pub const NodeStringLiteral = struct {
     }
 
     pub fn lastToken(self: &NodeStringLiteral) Token {
+        return self.token;
+    }
+};
+
+pub const NodeUndefinedLiteral = struct {
+    base: Node,
+    token: Token,
+
+    pub fn iterate(self: &NodeUndefinedLiteral, index: usize) ?&Node {
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeUndefinedLiteral) Token {
+        return self.token;
+    }
+
+    pub fn lastToken(self: &NodeUndefinedLiteral) Token {
         return self.token;
     }
 };
@@ -476,3 +620,28 @@ pub const NodeLineComment = struct {
         return self.lines.at(self.lines.len - 1);
     }
 };
+
+pub const NodeTestDecl = struct {
+    base: Node,
+    test_token: Token,
+    name_token: Token,
+    body_node: &Node,
+
+    pub fn iterate(self: &NodeTestDecl, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.body_node;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeTestDecl) Token {
+        return self.test_token;
+    }
+
+    pub fn lastToken(self: &NodeTestDecl) Token {
+        return self.body_node.lastToken();
+    }
+};
+

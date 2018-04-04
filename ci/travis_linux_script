@@ -8,25 +8,16 @@ export CXX=clang++-7.0
 echo $PATH
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $($CC -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=$(echo -n | $CC -E -x c - -v 2>&1 | grep -B1 "End of search list." | head -n1 | cut -c 2- | sed "s/ .*//") -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $($CC -print-file-name=crtbegin.o))
-make VERBOSE=1
-make install
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
+make -j2 install
 ./zig build --build-file ../build.zig test
 
-./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc
-wine zig-cache/test.exe
-
-./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc --release-fast
-wine zig-cache/test.exe
-
-./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc --release-safe
-wine zig-cache/test.exe
-
-./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc
-wine64 zig-cache/test.exe
-
-#./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-fast
-#wine64 test.exe
-#
-#./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-safe
-#wine64 test.exe
+if [ "${TRAVIS_PULL_REQUEST}" = "false" ]; then
+  mkdir $TRAVIS_BUILD_DIR/artifacts
+  docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR/artifacts",target=/z ziglang/static-base:llvm6-1 -j2 $TRAVIS_COMMIT
+  echo "access_key = $AWS_ACCESS_KEY_ID" >> ~/.s3cfg
+  echo "secret_key = $AWS_SECRET_ACCESS_KEY" >> ~/.s3cfg
+  s3cmd put -P $TRAVIS_BUILD_DIR/artifacts/* s3://ziglang.org/builds/
+  touch empty
+  s3cmd put -P empty s3://ziglang.org/builds/zig-linux-x86_64-$TRAVIS_BRANCH.tar.xz --add-header=x-amz-website-redirect-location:/builds/$(ls $TRAVIS_BUILD_DIR/artifacts)
+fi

@@ -2864,18 +2864,18 @@ const err = (error {FileNotFound}).FileNotFound;
       assert to make sure the error value is in fact in the destination error set.
       </p>
       <p>
-      The global error set should generally be avoided when possible, because it prevents
-      the compiler from knowing what errors are possible at compile-time. Knowing
-      the error set at compile-time is better for generated documentationt and for
-      helpful error messages such as forgetting a possible error value in a {#link|switch#}.
+      The global error set should generally be avoided because it prevents the
+      compiler from knowing what errors are possible at compile-time. Knowing
+      the error set at compile-time is better for generated documentation and
+      helpful error messages, such as forgetting a possible error value in a {#link|switch#}.
       </p>
       {#header_close#}
       {#header_close#}
       {#header_open|Error Union Type#}
       <p>
-      Most of the time you will not find yourself using an error set type. Instead,
-      likely you will be using the error union type. This is when you take an error set
-      and a normal type, and create an error union with the <code>!</code> binary operator.
+      An error set type and normal type can be combined with the <code>!</code>
+      binary operator to form an error union type. You are likely to use an
+      error union type more often than an error set type by itself.
       </p>
       <p>
       Here is a function to parse a string into a 64-bit integer:
@@ -5739,7 +5739,7 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("nakedcc" | "stdcallcc" | "extern" | ("async" option("(" Expression ")"))) "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") (TypeExpr | "var")
+FnProto = option("nakedcc" | "stdcallcc" | "extern" | ("async" option("&lt;" Expression "&gt;"))) "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") (TypeExpr | "var")
 
 FnDef = option("inline" | "export") FnProto Block
 
@@ -5863,7 +5863,9 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
 
-PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
+
+PromiseType = "promise" option("-&gt;" TypeExpr)
 
 ArrayType : "[" option(Expression) "]" option("align" "(" Expression option(":" Integer ":" Integer) ")")) option("const") option("volatile") TypeExpr
 
@@ -6031,4 +6033,3 @@ hljs.registerLanguage("zig", function(t) {
     </script>
   </body>
 </html>
-

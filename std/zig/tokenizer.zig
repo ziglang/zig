@@ -77,6 +77,7 @@ pub const Token = struct {
         Builtin,
         Bang,
         Pipe,
+        PipePipe,
         PipeEqual,
         Equal,
         EqualEqual,
@@ -85,18 +86,46 @@ pub const Token = struct {
         RParen,
         Semicolon,
         Percent,
+        PercentEqual,
         LBrace,
         RBrace,
         Period,
         Ellipsis2,
         Ellipsis3,
+        Caret,
+        CaretEqual,
+        Plus,
+        PlusPlus,
+        PlusEqual,
+        PlusPercent,
+        PlusPercentEqual,
         Minus,
+        MinusEqual,
+        MinusPercent,
+        MinusPercentEqual,
+        Asterisk,
+        AsteriskEqual,
+        AsteriskAsterisk,
+        AsteriskPercent,
+        AsteriskPercentEqual,
         Arrow,
         Colon,
         Slash,
+        SlashEqual,
         Comma,
         Ampersand,
         AmpersandEqual,
+        QuestionMark,
+        QuestionMarkQuestionMark,
+        AngleBracketLeft,
+        AngleBracketLeftEqual,
+        AngleBracketAngleBracketLeft,
+        AngleBracketAngleBracketLeftEqual,
+        AngleBracketRight,
+        AngleBracketRightEqual,
+        AngleBracketAngleBracketRight,
+        AngleBracketAngleBracketRightEqual,
+        Tilde,
         IntegerLiteral,
         FloatLiteral,
         LineComment,
@@ -200,6 +229,9 @@ pub const Tokenizer = struct {
         Bang,
         Pipe,
         Minus,
+        MinusPercent,
+        Asterisk,
+        AsteriskPercent,
         Slash,
         LineComment,
         Zero,
@@ -210,6 +242,15 @@ pub const Tokenizer = struct {
         FloatExponentUnsigned,
         FloatExponentNumber,
         Ampersand,
+        Caret,
+        Percent,
+        QuestionMark,
+        Plus,
+        PlusPercent,
+        AngleBracketLeft,
+        AngleBracketAngleBracketLeft,
+        AngleBracketRight,
+        AngleBracketAngleBracketRight,
         Period,
         Period2,
         SawAtSign,
@@ -291,9 +332,25 @@ pub const Tokenizer = struct {
                         break;
                     },
                     '%' => {
-                        result.id = Token.Id.Percent;
-                        self.index += 1;
-                        break;
+                        state = State.Percent;
+                    },
+                    '*' => {
+                        state = State.Asterisk;
+                    },
+                    '+' => {
+                        state = State.Plus;
+                    },
+                    '?' => {
+                        state = State.QuestionMark;
+                    },
+                    '<' => {
+                        state = State.AngleBracketLeft;
+                    },
+                    '>' => {
+                        state = State.AngleBracketRight;
+                    },
+                    '^' => {
+                        state = State.Caret;
                     },
                     '{' => {
                         result.id = Token.Id.LBrace;
@@ -302,6 +359,11 @@ pub const Tokenizer = struct {
                     },
                     '}' => {
                         result.id = Token.Id.RBrace;
+                        self.index += 1;
+                        break;
+                    },
+                    '~' => {
+                        result.id = Token.Id.Tilde;
                         self.index += 1;
                         break;
                     },
@@ -356,6 +418,107 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+
+                State.Asterisk => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.AsteriskEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    '*' => {
+                        result.id = Token.Id.AsteriskAsterisk;
+                        self.index += 1;
+                        break;
+                    },
+                    '%' => {
+                        state = State.AsteriskPercent;
+                    },
+                    else => {
+                        result.id = Token.Id.Asterisk;
+                        break;
+                    }
+                },
+
+                State.AsteriskPercent => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.AsteriskPercentEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.AsteriskPercent;
+                        break;
+                    }
+                },
+
+                State.QuestionMark => switch (c) {
+                    '?' => {
+                        result.id = Token.Id.QuestionMarkQuestionMark;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.QuestionMark;
+                        break;
+                    },
+                },
+
+                State.Percent => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.PercentEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Percent;
+                        break;
+                    },
+                },
+
+                State.Plus => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.PlusEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    '+' => {
+                        result.id = Token.Id.PlusPlus;
+                        self.index += 1;
+                        break;
+                    },
+                    '%' => {
+                        state = State.PlusPercent;
+                    },
+                    else => {
+                        result.id = Token.Id.Plus;
+                        break;
+                    },
+                },
+
+                State.PlusPercent => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.PlusPercentEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.PlusPercent;
+                        break;
+                    },
+                },
+
+                State.Caret => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.CaretEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Caret;
+                        break;
+                    }
+                },
+
                 State.Identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
@@ -417,6 +580,11 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+                    '|' => {
+                        result.id = Token.Id.PipePipe;
+                        self.index += 1;
+                        break;
+                    },
                     else => {
                         result.id = Token.Id.Pipe;
                         break;
@@ -441,8 +609,82 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+                    '=' => {
+                        result.id = Token.Id.MinusEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    '%' => {
+                        state = State.MinusPercent;
+                    },
                     else => {
                         result.id = Token.Id.Minus;
+                        break;
+                    },
+                },
+
+                State.MinusPercent => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.MinusPercentEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.MinusPercent;
+                        break;
+                    }
+                },
+
+                State.AngleBracketLeft => switch (c) {
+                    '<' => {
+                        state = State.AngleBracketAngleBracketLeft;
+                    },
+                    '=' => {
+                        result.id = Token.Id.AngleBracketLeftEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.AngleBracketLeft;
+                        break;
+                    },
+                },
+
+                State.AngleBracketAngleBracketLeft => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.AngleBracketAngleBracketLeftEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.AngleBracketAngleBracketLeft;
+                        break;
+                    },
+                },
+
+                State.AngleBracketRight => switch (c) {
+                    '>' => {
+                        state = State.AngleBracketAngleBracketRight;
+                    },
+                    '=' => {
+                        result.id = Token.Id.AngleBracketRightEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.AngleBracketRight;
+                        break;
+                    },
+                },
+
+                State.AngleBracketAngleBracketRight => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.AngleBracketAngleBracketRightEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.AngleBracketAngleBracketRight;
                         break;
                     },
                 },
@@ -473,6 +715,11 @@ pub const Tokenizer = struct {
                     '/' => {
                         result.id = Token.Id.LineComment;
                         state = State.LineComment;
+                    },
+                    '=' => {
+                        result.id = Token.Id.SlashEqual;
+                        self.index += 1;
+                        break;
                     },
                     else => {
                         result.id = Token.Id.Slash;
@@ -608,6 +855,42 @@ pub const Tokenizer = struct {
                 },
                 State.Pipe => {
                     result.id = Token.Id.Pipe;
+                },
+                State.AngleBracketAngleBracketRight => {
+                    result.id = Token.Id.AngleBracketAngleBracketRight;
+                },
+                State.AngleBracketRight => {
+                    result.id = Token.Id.AngleBracketRight;
+                },
+                State.AngleBracketAngleBracketLeft => {
+                    result.id = Token.Id.AngleBracketAngleBracketLeft;
+                },
+                State.AngleBracketLeft => {
+                    result.id = Token.Id.AngleBracketLeft;
+                },
+                State.PlusPercent => {
+                    result.id = Token.Id.PlusPercent;
+                },
+                State.Plus => {
+                    result.id = Token.Id.Plus;
+                },
+                State.QuestionMark => {
+                    result.id = Token.Id.QuestionMark;
+                },
+                State.Percent => {
+                    result.id = Token.Id.Percent;
+                },
+                State.Caret => {
+                    result.id = Token.Id.Caret;
+                },
+                State.AsteriskPercent => {
+                    result.id = Token.Id.AsteriskPercent;
+                },
+                State.Asterisk => {
+                    result.id = Token.Id.Asterisk;
+                },
+                State.MinusPercent => {
+                    result.id = Token.Id.MinusPercent;
                 },
             }
         }
@@ -752,8 +1035,8 @@ test "tokenizer - string identifier and builtin fns" {
 
 test "tokenizer - pipe and then invalid" {
     testTokenize("||=", []Token.Id{
-        Token.Id.Pipe,
-        Token.Id.PipeEqual,
+        Token.Id.PipePipe,
+        Token.Id.Equal,
     });
 }
 

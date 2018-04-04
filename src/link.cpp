@@ -164,6 +164,47 @@ static void add_rpath(LinkJob *lj, Buf *rpath) {
     lj->rpath_table.put(rpath, true);
 }
 
+static Buf *try_dynamic_linker_path(const char *ld_name) {
+    const char *cc_exe = getenv("CC");
+    cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
+    ZigList<const char *> args = {};
+    args.append(buf_ptr(buf_sprintf("-print-file-name=%s", ld_name)));
+    Termination term;
+    Buf *out_stderr = buf_alloc();
+    Buf *out_stdout = buf_alloc();
+    int err;
+    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
+        return nullptr;
+    }
+    if (term.how != TerminationIdClean || term.code != 0) {
+        return nullptr;
+    }
+    if (buf_ends_with_str(out_stdout, "\n")) {
+        buf_resize(out_stdout, buf_len(out_stdout) - 1);
+    }
+    if (buf_len(out_stdout) == 0 || buf_eql_str(out_stdout, ld_name)) {
+        return nullptr;
+    }
+    return out_stdout;
+}
+
+static Buf *get_dynamic_linker_path(CodeGen *g) {
+    if (g->is_native_target && g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        static const char *ld_names[] = {
+            "ld-linux-x86-64.so.2",
+            "ld-musl-x86_64.so.1",
+        };
+        for (size_t i = 0; i < array_length(ld_names); i += 1) {
+            const char *ld_name = ld_names[i];
+            Buf *result = try_dynamic_linker_path(ld_name);
+            if (result != nullptr) {
+                return result;
+            }
+        }
+    }
+    return target_dynamic_linker(&g->zig_target);
+}
+
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
@@ -259,12 +300,16 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(buf_ptr(g->libc_static_lib_dir));
     }
 
-    if (g->dynamic_linker && buf_len(g->dynamic_linker) > 0) {
-        lj->args.append("-dynamic-linker");
-        lj->args.append(buf_ptr(g->dynamic_linker));
-    } else {
-        lj->args.append("-dynamic-linker");
-        lj->args.append(buf_ptr(target_dynamic_linker(&g->zig_target)));
+    if (!g->is_static) {
+        if (g->dynamic_linker != nullptr) {
+            assert(buf_len(g->dynamic_linker) != 0);
+            lj->args.append("-dynamic-linker");
+            lj->args.append(buf_ptr(g->dynamic_linker));
+        } else {
+            Buf *resolved_dynamic_linker = get_dynamic_linker_path(g);
+            lj->args.append("-dynamic-linker");
+            lj->args.append(buf_ptr(resolved_dynamic_linker));
+        }
     }
 
     if (shared) {
@@ -423,7 +468,9 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->kernel32_lib_dir))));
 
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dir))));
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
+        if (g->libc_static_lib_dir != nullptr) {
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
+        }
     }
 
     if (lj->link_in_crt) {

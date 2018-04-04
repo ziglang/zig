@@ -138,22 +138,16 @@ libc. Create demo games using Zig.
 
 ##### POSIX
 
-If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR`,
-`ZIG_LIBC_STATIC_LIB_DIR`, and `ZIG_LIBC_INCLUDE_DIR` should be set to
-(example below).
-
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $(cc -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=$(echo -n | cc -E -x c - -v 2>&1 | grep -B1 "End of search list." | head -n1 | cut -c 2- | sed "s/ .*//") -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $(cc -print-file-name=crtbegin.o))
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
 make
 make install
 ./zig build --build-file ../build.zig test
 ```
 
 ##### MacOS
-
-`ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
 
 ```
 brew install cmake llvm@7

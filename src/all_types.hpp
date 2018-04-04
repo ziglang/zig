@@ -409,6 +409,7 @@ enum NodeType {
     NodeTypeResume,
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
+    NodeTypePromiseType,
 };
 
 struct AstNodeRoot {
@@ -879,6 +880,10 @@ struct AstNodeSuspend {
     AstNode *promise_symbol;
 };
 
+struct AstNodePromiseType {
+    AstNode *payload_type; // can be NULL
+};
+
 struct AstNode {
     enum NodeType type;
     size_t line;
@@ -939,6 +944,7 @@ struct AstNode {
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
+        AstNodePromiseType promise_type;
     } data;
 };
 
@@ -1251,7 +1257,10 @@ struct FnTableEntry {
     ScopeBlock *def_scope; // parent is child_scope
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
-    TypeTableEntry *implicit_return_type;
+    // in the case of normal functions this is the implicit return type
+    // in the case of async functions this is the implicit return type according to the
+    // zig source code, not according to zig ir
+    TypeTableEntry *src_implicit_return_type;
     bool is_test;
     FnInline fn_inline;
     FnAnalState anal_state;
@@ -1612,7 +1621,8 @@ struct CodeGen {
     FnTableEntry *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
-    LLVMValueRef cur_err_ret_trace_val;
+    LLVMValueRef cur_err_ret_trace_val_arg;
+    LLVMValueRef cur_err_ret_trace_val_stack;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
@@ -1749,6 +1759,7 @@ enum ScopeId {
     ScopeIdLoop,
     ScopeIdFnDef,
     ScopeIdCompTime,
+    ScopeIdCoroPrelude,
 };
 
 struct Scope {
@@ -1856,6 +1867,12 @@ struct ScopeFnDef {
     FnTableEntry *fn_entry;
 };
 
+// This scope is created to indicate that the code in the scope
+// is auto-generated coroutine prelude stuff.
+struct ScopeCoroPrelude {
+    Scope base;
+};
+
 // synchronized with code in define_builtin_compile_vars
 enum AtomicOrder {
     AtomicOrderUnordered,
@@ -1942,6 +1959,7 @@ enum IrInstructionId {
     IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
+    IrInstructionIdPromiseType,
     IrInstructionIdSliceType,
     IrInstructionIdAsm,
     IrInstructionIdSizeOf,
@@ -2032,6 +2050,8 @@ enum IrInstructionId {
     IrInstructionIdAtomicRmw,
     IrInstructionIdPromiseResultType,
     IrInstructionIdAwaitBookkeeping,
+    IrInstructionIdSaveErrRetAddr,
+    IrInstructionIdAddImplicitReturnType,
 };
 
 struct IrInstruction {
@@ -2358,6 +2378,12 @@ struct IrInstructionArrayType {
     IrInstruction *child_type;
 };
 
+struct IrInstructionPromiseType {
+    IrInstruction base;
+
+    IrInstruction *payload_type;
+};
+
 struct IrInstructionSliceType {
     IrInstruction base;
 
@@ -2671,6 +2697,7 @@ struct IrInstructionFnProto {
     IrInstruction **param_types;
     IrInstruction *align_value;
     IrInstruction *return_type;
+    IrInstruction *async_allocator_type_value;
     bool is_var_args;
 };
 
@@ -2983,6 +3010,16 @@ struct IrInstructionAwaitBookkeeping {
     IrInstruction base;
 
     IrInstruction *promise_result_type;
+};
+
+struct IrInstructionSaveErrRetAddr {
+    IrInstruction base;
+};
+
+struct IrInstructionAddImplicitReturnType {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 static const size_t slice_ptr_index = 0;

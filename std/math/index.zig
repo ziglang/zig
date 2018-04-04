@@ -515,13 +515,26 @@ test "math.negateCast" {
 
 /// Cast an integer to a different integer type. If the value doesn't fit, 
 /// return an error.
-pub fn cast(comptime T: type, x: var) !T {
+pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
-    if (x > @maxValue(T)) {
+    comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Int); // must pass an integer
+    if (@maxValue(@typeOf(x)) > @maxValue(T) and x > @maxValue(T)) {
+        return error.Overflow;
+    } else if (@minValue(@typeOf(x)) < @minValue(T) and x < @minValue(T)) {
         return error.Overflow;
     } else {
         return T(x);
     }
+}
+
+test "math.cast" {
+    if (cast(u8, u32(300))) |_| @panic("fail") else |err| assert(err == error.Overflow);
+    if (cast(i8, i32(-200))) |_| @panic("fail") else |err| assert(err == error.Overflow);
+    if (cast(u8, i8(-1))) |_| @panic("fail") else |err| assert(err == error.Overflow);
+    if (cast(u64, i8(-1))) |_| @panic("fail") else |err| assert(err == error.Overflow);
+
+    assert((try cast(u8, u32(255))) == u8(255));
+    assert(@typeOf(try cast(u8, u32(255))) == u8);
 }
 
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {

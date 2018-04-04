@@ -26,7 +26,7 @@ pub const math = @import("math/index.zig");
 pub const mem = @import("mem.zig");
 pub const net = @import("net.zig");
 pub const os = @import("os/index.zig");
-pub const rand = @import("rand.zig");
+pub const rand = @import("rand/index.zig");
 pub const sort = @import("sort.zig");
 pub const unicode = @import("unicode.zig");
 pub const zig = @import("zig/index.zig");
@@ -58,7 +58,7 @@ test "std" {
     _ = @import("heap.zig");
     _ = @import("net.zig");
     _ = @import("os/index.zig");
-    _ = @import("rand.zig");
+    _ = @import("rand/index.zig");
     _ = @import("sort.zig");
     _ = @import("unicode.zig");
     _ = @import("zig/index.zig");

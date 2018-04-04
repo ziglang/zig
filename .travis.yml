@@ -1,9 +1,11 @@
+sudo: required
+services:
+  - docker
 os:
   - linux
   - osx
 dist: trusty
 osx_image: xcode8.3
-sudo: required
 language: cpp
 before_install:
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_before_install; fi

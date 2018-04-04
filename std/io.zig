@@ -144,7 +144,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and the contents
         /// read from the stream so far are lost.
         pub fn readUntilDelimiterBuffer(self: &Self, buffer: &Buffer, delimiter: u8, max_size: usize) !void {
-            try buf.resize(0);
+            try buffer.resize(0);
 
             while (true) {
                 var byte: u8 = try self.readByte();
@@ -153,11 +153,11 @@ pub fn InStream(comptime ReadError: type) type {
                     return;
                 }
 
-                if (buf.len() == max_size) {
+                if (buffer.len() == max_size) {
                     return error.StreamTooLong;
                 }
 
-                try buf.appendByte(byte);
+                try buffer.appendByte(byte);
             }
         }
 
@@ -171,7 +171,7 @@ pub fn InStream(comptime ReadError: type) type {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
-            try self.readUntilDelimiterBuffer(self, &buf, delimiter, max_size);
+            try self.readUntilDelimiterBuffer(&buf, delimiter, max_size);
             return buf.toOwnedSlice();
         }
 
@@ -478,3 +478,20 @@ test "import io tests" {
     }
 }
 
+pub fn readLine(buf: []u8) !usize {
+    var stdin = getStdIn() catch return error.StdInUnavailable;
+    var adapter = FileInStream.init(&stdin);
+    var stream = &adapter.stream;
+    var index: usize = 0;
+    while (true) {
+        const byte = stream.readByte() catch return error.EndOfFile;
+        switch (byte) {
+            '\n' => return index,
+            else => {
+                if (index == buf.len) return error.InputTooLong;
+                buf[index] = byte;
+                index += 1;
+            },
+        }
+    }
+}
