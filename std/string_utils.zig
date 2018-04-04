@@ -171,18 +171,18 @@ pub fn to_upper(byte: u8) u8 {
 }
 
 pub fn to_lower(byte: u8) u8 {
-    return if(is_ascii_higher(byte)) byte + 32 else byte;
+    return if(is_ascii_upper(byte)) byte + 32 else byte;
 }
 
 pub fn is_ascii_letter(byte: u8) bool {
-    return is_ascii_lower(byte) or is_ascii_higher(byte);
+    return is_ascii_lower(byte) or is_ascii_upper(byte);
 }
 
 pub fn is_ascii_lower(byte: u8) bool {
     return byte >= 'a' and byte <= 'z';
 }
 
-pub fn is_ascii_higher(byte: u8) bool {
+pub fn is_ascii_upper(byte: u8) bool {
     return byte >= 'A' and byte <= 'Z';
 }
 
@@ -190,9 +190,9 @@ test "String_Utils" {
     assert(is_ascii_letter('C'));
     assert(is_ascii_letter('e'));
     assert(!is_ascii_letter('2'));
-    assert(!is_ascii_higher('a'));
-    assert(is_ascii_higher('B'));
-    assert(!is_ascii_higher('5'));
+    assert(!is_ascii_upper('a'));
+    assert(is_ascii_upper('B'));
+    assert(!is_ascii_upper('5'));
     assert(is_ascii_lower('a'));
     assert(!is_ascii_lower('K'));
     assert(!is_ascii_lower('-'));
