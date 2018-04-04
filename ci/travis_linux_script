@@ -8,9 +8,9 @@ export CXX=clang++-6.0
 echo $PATH
 mkdir build
 cd build
-# cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
-# make -j2 install
-# ./zig build --build-file ../build.zig test
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
+make -j2 install
+./zig build --build-file ../build.zig test
 
 if [ "${TRAVIS_PULL_REQUEST}" = "false" ]; then
   mkdir $TRAVIS_BUILD_DIR/artifacts
