@@ -214,11 +214,18 @@ pub const NodeVarDecl = struct {
 
 pub const NodeContainerDecl = struct {
     base: Node,
-    kind_token: Token,
+    ltoken: Token,
+    layout: Layout,
     kind: Kind,
     init_arg_expr: InitArg,
     fields_and_decls: ArrayList(&Node),
     rbrace_token: Token,
+
+    const Layout = enum {
+        Auto,
+        Extern,
+        Packed,
+    };
 
     const Kind = enum {
         Struct,
@@ -266,7 +273,7 @@ pub const NodeContainerDecl = struct {
     }
 
     pub fn firstToken(self: &NodeContainerDecl) Token {
-        return self.kind_token;
+        return self.ltoken;
     }
 
     pub fn lastToken(self: &NodeContainerDecl) Token {

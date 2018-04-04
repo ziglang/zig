@@ -59,6 +59,11 @@ pub const Parser = struct {
         lib_name: ?&ast.Node,
     };
 
+    const ContainerExternCtx = struct {
+        ltoken: Token,
+        layout: ast.NodeContainerDecl.Layout,
+    };
+
     const DestPtr = union(enum) {
         Field: &&ast.Node,
         NullableField: &?&ast.Node,
@@ -90,6 +95,7 @@ pub const Parser = struct {
         TopLevel,
         TopLevelExtern: TopLevelDeclCtx,
         TopLevelDecl: TopLevelDeclCtx,
+        ContainerExtern: ContainerExternCtx,
         ContainerDecl: &ast.NodeContainerDecl,
         Expression: DestPtr,
         ExpectOperand,
@@ -336,6 +342,63 @@ pub const Parser = struct {
                         continue;
                     }
                     return self.parseError(token, "expected '=' or ';', found {}", @tagName(token.id));
+                },
+
+                State.ContainerExtern => |ctx| {
+                    const token = self.getNextToken();
+
+                    const node = try arena.create(ast.NodeContainerDecl);
+                    *node = ast.NodeContainerDecl {
+                        .base = self.initNode(ast.Node.Id.ContainerDecl),
+                        .ltoken = ctx.ltoken,
+                        .layout = ctx.layout,
+                        .kind = switch (token.id) {
+                            Token.Id.Keyword_struct => ast.NodeContainerDecl.Kind.Struct,
+                            Token.Id.Keyword_union => ast.NodeContainerDecl.Kind.Union,
+                            Token.Id.Keyword_enum => ast.NodeContainerDecl.Kind.Enum,
+                            else => {
+                                return self.parseError(token, "expected {}, {} or {}, found {}",
+                                    @tagName(Token.Id.Keyword_struct),
+                                    @tagName(Token.Id.Keyword_union),
+                                    @tagName(Token.Id.Keyword_enum),
+                                    @tagName(token.id));
+                            },
+                        },
+                        .init_arg_expr = undefined,
+                        .fields_and_decls = ArrayList(&ast.Node).init(arena),
+                        .rbrace_token = undefined,
+                    };
+
+                    try stack.append(State { .Operand = &node.base });
+                    try stack.append(State.AfterOperand);
+                    try stack.append(State { .ContainerDecl = node });
+                    try stack.append(State { .ExpectToken = Token.Id.LBrace });
+
+                    const lparen = self.getNextToken();
+                    if (lparen.id != Token.Id.LParen) {
+                        self.putBackToken(lparen);
+                        node.init_arg_expr = ast.NodeContainerDecl.InitArg.None;
+                        continue;
+                    }
+
+                    try stack.append(State { .ExpectToken = Token.Id.RParen });
+
+                    const init_arg_token = self.getNextToken();
+                    switch (init_arg_token.id) {
+                        Token.Id.Keyword_enum => {
+                            node.init_arg_expr = ast.NodeContainerDecl.InitArg.Enum;
+                        },
+                        else => {
+                            self.putBackToken(init_arg_token);
+                            node.init_arg_expr = ast.NodeContainerDecl.InitArg { .Type = undefined };
+                            try stack.append(State {
+                                .Expression = DestPtr {
+                                    .Field = &node.init_arg_expr.Type
+                                }
+                            });
+                        },
+                    }
+                    continue;
                 },
 
                 State.ContainerDecl => |container_decl| {
@@ -633,52 +696,30 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+                        Token.Id.Keyword_packed => {
+                            try stack.append(State {
+                                .ContainerExtern = ContainerExternCtx {
+                                    .ltoken = token,
+                                    .layout = ast.NodeContainerDecl.Layout.Packed,
+                                },
+                            });
+                        },
+                        Token.Id.Keyword_extern => {
+                            try stack.append(State {
+                                .ContainerExtern = ContainerExternCtx {
+                                    .ltoken = token,
+                                    .layout = ast.NodeContainerDecl.Layout.Extern,
+                                },
+                            });
+                        },
                         Token.Id.Keyword_struct, Token.Id.Keyword_union, Token.Id.Keyword_enum => {
-                            const node = try arena.create(ast.NodeContainerDecl);
-                            *node = ast.NodeContainerDecl {
-                                .base = self.initNode(ast.Node.Id.ContainerDecl),
-                                .kind_token = token,
-                                .kind = switch (token.id) {
-                                    Token.Id.Keyword_struct => ast.NodeContainerDecl.Kind.Struct,
-                                    Token.Id.Keyword_union => ast.NodeContainerDecl.Kind.Union,
-                                    Token.Id.Keyword_enum => ast.NodeContainerDecl.Kind.Enum,
-                                    else => unreachable,
+                            self.putBackToken(token);
+                            try stack.append(State {
+                                .ContainerExtern = ContainerExternCtx {
+                                    .ltoken = token,
+                                    .layout = ast.NodeContainerDecl.Layout.Auto,
                                 },
-                                .init_arg_expr = undefined,
-                                .fields_and_decls = ArrayList(&ast.Node).init(arena),
-                                .rbrace_token = undefined,
-                            };
-
-                            try stack.append(State { .Operand = &node.base });
-                            try stack.append(State.AfterOperand);
-                            try stack.append(State { .ContainerDecl = node });
-                            try stack.append(State { .ExpectToken = Token.Id.LBrace });
-
-                            const lparen = self.getNextToken();
-                            if (lparen.id != Token.Id.LParen) {
-                                self.putBackToken(lparen);
-                                node.init_arg_expr = ast.NodeContainerDecl.InitArg.None;
-                                continue;
-                            }
-
-                            try stack.append(State { .ExpectToken = Token.Id.RParen });
-
-                            const init_arg_token = self.getNextToken();
-                            switch (init_arg_token.id) {
-                                Token.Id.Keyword_enum => {
-                                    node.init_arg_expr = ast.NodeContainerDecl.InitArg.Enum;
-                                },
-                                else => {
-                                    self.putBackToken(lparen);
-                                    node.init_arg_expr = ast.NodeContainerDecl.InitArg { .Type = undefined };
-                                    try stack.append(State {
-                                        .Expression = DestPtr {
-                                            .Field = &node.init_arg_expr.Type
-                                        }
-                                    });
-                                },
-                            }
-                            continue;
+                            });
                         },
                         Token.Id.Builtin => {
                             const node = try arena.create(ast.NodeBuiltinCall);
@@ -1706,6 +1747,29 @@ pub const Parser = struct {
                             try stack.append(RenderState { .Text = " " });
                             try stack.append(RenderState { .Expression = test_decl.name });
                         },
+                        ast.Node.Id.StructField => {
+                            const field = @fieldParentPtr(ast.NodeStructField, "base", decl);
+                            try stream.print("{}: ", self.tokenizer.getTokenSlice(field.name_token));
+                            try stack.append(RenderState { .Expression = field.type_expr});
+                        },
+                        ast.Node.Id.UnionTag => {
+                            const tag = @fieldParentPtr(ast.NodeUnionTag, "base", decl);
+                            try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
+
+                            if (tag.type_expr) |type_expr| {
+                                try stream.print(": ");
+                                try stack.append(RenderState { .Expression = type_expr});
+                            }
+                        },
+                        ast.Node.Id.EnumTag => {
+                            const tag = @fieldParentPtr(ast.NodeEnumTag, "base", decl);
+                            try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
+
+                            if (tag.value) |value| {
+                                try stream.print(" = ");
+                                try stack.append(RenderState { .Expression = value});
+                            }
+                        },
                         else => unreachable,
                     }
                 },
@@ -1990,27 +2054,30 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.ContainerDecl => {
                         const container_decl = @fieldParentPtr(ast.NodeContainerDecl, "base", base);
-                        try stream.print("{} {{", self.tokenizer.getTokenSlice(container_decl.kind_token));
+
+                        switch (container_decl.layout) {
+                            ast.NodeContainerDecl.Layout.Packed => try stream.print("packed "),
+                            ast.NodeContainerDecl.Layout.Extern => try stream.print("extern "),
+                            ast.NodeContainerDecl.Layout.Auto => { },
+                        }
+
+                        switch (container_decl.kind) {
+                            ast.NodeContainerDecl.Kind.Struct => try stream.print("struct"),
+                            ast.NodeContainerDecl.Kind.Enum => try stream.print("enum"),
+                            ast.NodeContainerDecl.Kind.Union => try stream.print("union"),
+                        }
+
                         try stack.append(RenderState { .Text = "}"});
                         try stack.append(RenderState.PrintIndent);
                         try stack.append(RenderState { .Indent = indent });
+                        try stack.append(RenderState { .Text = "\n"});
 
                         const fields_and_decls = container_decl.fields_and_decls.toSliceConst();
                         var i = fields_and_decls.len;
                         while (i != 0) {
                             i -= 1;
                             const node = fields_and_decls[i];
-                            if (i != 0) {
-                                switch (node.id) {
-                                    ast.Node.Id.StructField,
-                                    ast.Node.Id.UnionTag,
-                                    ast.Node.Id.EnumTag => {
-                                        try stack.append(RenderState { .Text = "," });
-                                    },
-                                    else => { }
-                                }
-                            }
-                            try stack.append(RenderState { .Expression = node});
+                            try stack.append(RenderState { .TopLevelDecl = node});
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
                                 .Text = blk: {
@@ -2025,22 +2092,43 @@ pub const Parser = struct {
                                     break :blk "\n";
                                 },
                             });
+
+                            if (i != 0) {
+                                const prev_node = fields_and_decls[i - 1];
+                                switch (prev_node.id) {
+                                    ast.Node.Id.StructField,
+                                    ast.Node.Id.UnionTag,
+                                    ast.Node.Id.EnumTag => {
+                                        try stack.append(RenderState { .Text = "," });
+                                    },
+                                    else => { }
+                                }
+                            }
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
+                        try stack.append(RenderState { .Text = "{"});
+
+                        switch (container_decl.init_arg_expr) {
+                            ast.NodeContainerDecl.InitArg.None => try stack.append(RenderState { .Text = " "}),
+                            ast.NodeContainerDecl.InitArg.Enum => try stack.append(RenderState { .Text = "(enum) "}),
+                            ast.NodeContainerDecl.InitArg.Type => |type_expr| {
+                                try stack.append(RenderState { .Text = ") "});
+                                try stack.append(RenderState { .Expression = type_expr});
+                                try stack.append(RenderState { .Text = "("});
+                            },
+                        }
                     },
                     ast.Node.Id.MultilineStringLiteral => {
                         const multiline_str_literal = @fieldParentPtr(ast.NodeMultilineStringLiteral, "base", base);
                         try stream.print("\n");
 
                         var i : usize = 0;
-                        indent += 4;
                         while (i < multiline_str_literal.tokens.len) : (i += 1) {
                             const t = multiline_str_literal.tokens.at(i);
-                            try stream.writeByteNTimes(' ', indent);
+                            try stream.writeByteNTimes(' ', indent + indent_delta);
                             try stream.print("{}", self.tokenizer.getTokenSlice(t));
                         }
-                        try stream.writeByteNTimes(' ', indent);
-                        indent -= 4;
+                        try stream.writeByteNTimes(' ', indent + indent_delta);
                     },
                     ast.Node.Id.UndefinedLiteral => {
                         const undefined_literal = @fieldParentPtr(ast.NodeUndefinedLiteral, "base", base);
@@ -2060,31 +2148,12 @@ pub const Parser = struct {
                             }
                         }
                     },
-                    ast.Node.Id.StructField => {
-                        const field = @fieldParentPtr(ast.NodeStructField, "base", base);
-                        try stream.print("{}:", self.tokenizer.getTokenSlice(field.name_token));
-                    },
-                    ast.Node.Id.UnionTag => {
-                        const tag = @fieldParentPtr(ast.NodeUnionTag, "base", base);
-                        try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
-
-                        if (tag.type_expr) |type_expr| {
-                            try stream.print(": ");
-                            try stack.append(RenderState { .Expression = type_expr});
-                        }
-                    },
-                    ast.Node.Id.EnumTag => {
-                        const tag = @fieldParentPtr(ast.NodeEnumTag, "base", base);
-                        try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
-
-                        if (tag.value) |value| {
-                            try stream.print(" = ");
-                            try stack.append(RenderState { .Expression = value});
-                        }
-                    },
                     ast.Node.Id.FnProto => @panic("TODO fn proto in an expression"),
                     ast.Node.Id.LineComment => @panic("TODO render line comment in an expression"),
 
+                    ast.Node.Id.StructField,
+                    ast.Node.Id.UnionTag,
+                    ast.Node.Id.EnumTag,
                     ast.Node.Id.Root,
                     ast.Node.Id.VarDecl,
                     ast.Node.Id.TestDecl,
@@ -2489,21 +2558,21 @@ test "zig fmt: struct declaration" {
         \\        return *self;
         \\    }
         \\
-        \\    f2: u8,
+        \\    f2: u8
         \\};
         \\
         \\const Ps = packed struct {
         \\    a: u8,
         \\    b: u8,
         \\
-        \\    c: u8,
+        \\    c: u8
         \\};
         \\
         \\const Es = extern struct {
         \\    a: u8,
         \\    b: u8,
         \\
-        \\    c: u8,
+        \\    c: u8
         \\};
         \\
     );
@@ -2513,25 +2582,25 @@ test "zig fmt: enum declaration" {
       try testCanonical(
         \\const E = enum {
         \\    Ok,
-        \\    SomethingElse = 0,
+        \\    SomethingElse = 0
         \\};
         \\
         \\const E2 = enum(u8) {
         \\    Ok,
         \\    SomethingElse = 255,
-        \\    SomethingThird,
+        \\    SomethingThird
         \\};
         \\
         \\const Ee = extern enum {
         \\    Ok,
         \\    SomethingElse,
-        \\    SomethingThird,
+        \\    SomethingThird
         \\};
         \\
         \\const Ep = packed enum {
         \\    Ok,
         \\    SomethingElse,
-        \\    SomethingThird,
+        \\    SomethingThird
         \\};
         \\
     );
@@ -2542,31 +2611,36 @@ test "zig fmt: union declaration" {
         \\const U = union {
         \\    Int: u8,
         \\    Float: f32,
-        \\    Bool: bool,
+        \\    None,
+        \\    Bool: bool
         \\};
         \\
         \\const Ue = union(enum) {
         \\    Int: u8,
         \\    Float: f32,
-        \\    Bool: bool,
+        \\    None,
+        \\    Bool: bool
         \\};
         \\
         \\const E = enum {
         \\    Int,
         \\    Float,
-        \\    Bool,
+        \\    None,
+        \\    Bool
         \\};
         \\
         \\const Ue2 = union(E) {
         \\    Int: u8,
         \\    Float: f32,
-        \\    Bool: bool,
+        \\    None,
+        \\    Bool: bool
         \\};
         \\
         \\const Eu = extern union {
         \\    Int: u8,
         \\    Float: f32,
-        \\    Bool: bool,
+        \\    None,
+        \\    Bool: bool
         \\};
         \\
     );
