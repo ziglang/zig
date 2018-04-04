@@ -1055,10 +1055,11 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
             return;
         } else |err| switch (err) {
             error.FileNotFound => return,
+
+            error.AccessDenied,
             error.IsDir => {},
 
             error.OutOfMemory,
-            error.AccessDenied,
             error.SymLinkLoop,
             error.NameTooLong,
             error.SystemResources,
@@ -1109,18 +1110,16 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
 }
 
 pub const Dir = struct {
-    // See man getdents
     fd: i32,
+    darwin_seek: darwin_seek_t,
     allocator: &Allocator,
     buf: []u8,
     index: usize,
     end_index: usize,
 
-    const LinuxEntry = extern struct {
-        d_ino: usize,
-        d_off: usize,
-        d_reclen: u16,
-        d_name: u8, // field address is the address of first byte of name
+    const darwin_seek_t = switch (builtin.os) {
+        Os.macosx, Os.ios => i64,
+        else => void,
     };
 
     pub const Entry = struct {
@@ -1135,15 +1134,26 @@ pub const Dir = struct {
             SymLink,
             File,
             UnixDomainSocket,
+            Whiteout,
             Unknown,
         };
     };
 
     pub fn open(allocator: &Allocator, dir_path: []const u8) !Dir {
-        const fd = try posixOpen(allocator, dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0);
+        const fd = switch (builtin.os) {
+            Os.windows => @compileError("TODO support Dir.open for windows"),
+            Os.linux => try posixOpen(allocator, dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0),
+            Os.macosx, Os.ios => try posixOpen(allocator, dir_path, posix.O_RDONLY|posix.O_NONBLOCK|posix.O_DIRECTORY|posix.O_CLOEXEC, 0),
+            else => @compileError("Dir.open is not supported for this platform"),
+        };
+        const darwin_seek_init = switch (builtin.os) {
+            Os.macosx, Os.ios => 0,
+            else => {},
+        };
         return Dir {
             .allocator = allocator,
             .fd = fd,
+            .darwin_seek = darwin_seek_init,
             .index = 0,
             .end_index = 0,
             .buf = []u8{},
@@ -1158,6 +1168,15 @@ pub const Dir = struct {
     /// Memory such as file names referenced in this returned entry becomes invalid
     /// with subsequent calls to next, as well as when this ::Dir is deinitialized.
     pub fn next(self: &Dir) !?Entry {
+        switch (builtin.os) {
+            Os.linux => return self.nextLinux(),
+            Os.macosx, Os.ios => return self.nextDarwin(),
+            Os.windows => return self.nextWindows(),
+            else => @compileError("Dir.next not supported on " ++ @tagName(builtin.os)),
+        }
+    }
+
+    fn nextDarwin(self: &Dir) !?Entry {
         start_over: while (true) {
             if (self.index >= self.end_index) {
                 if (self.buf.len == 0) {
@@ -1165,8 +1184,9 @@ pub const Dir = struct {
                 }
 
                 while (true) {
-                    const result = posix.getdents(self.fd, self.buf.ptr, self.buf.len);
-                    const err = linux.getErrno(result);
+                    const result = posix.getdirentries64(self.fd, self.buf.ptr, self.buf.len,
+                        &self.darwin_seek);
+                    const err = posix.getErrno(result);
                     if (err > 0) {
                         switch (err) {
                             posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
@@ -1184,7 +1204,67 @@ pub const Dir = struct {
                     break;
                 }
             }
-            const linux_entry = @ptrCast(& align(1) LinuxEntry, &self.buf[self.index]);
+            const darwin_entry = @ptrCast(& align(1) posix.dirent, &self.buf[self.index]);
+            const next_index = self.index + darwin_entry.d_reclen;
+            self.index = next_index;
+
+            const name = (&darwin_entry.d_name)[0..darwin_entry.d_namlen];
+
+            // skip . and .. entries
+            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                continue :start_over;
+            }
+
+            const entry_kind = switch (darwin_entry.d_type) {
+                posix.DT_BLK => Entry.Kind.BlockDevice,
+                posix.DT_CHR => Entry.Kind.CharacterDevice,
+                posix.DT_DIR => Entry.Kind.Directory,
+                posix.DT_FIFO => Entry.Kind.NamedPipe,
+                posix.DT_LNK => Entry.Kind.SymLink,
+                posix.DT_REG => Entry.Kind.File,
+                posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                posix.DT_WHT => Entry.Kind.Whiteout,
+                else => Entry.Kind.Unknown,
+            };
+            return Entry {
+                .name = name,
+                .kind = entry_kind,
+            };
+        }
+    }
+
+    fn nextWindows(self: &Dir) !?Entry {
+        @compileError("TODO support Dir.next for windows");
+    }
+
+    fn nextLinux(self: &Dir) !?Entry {
+        start_over: while (true) {
+            if (self.index >= self.end_index) {
+                if (self.buf.len == 0) {
+                    self.buf = try self.allocator.alloc(u8, page_size);
+                }
+
+                while (true) {
+                    const result = posix.getdents(self.fd, self.buf.ptr, self.buf.len);
+                    const err = posix.getErrno(result);
+                    if (err > 0) {
+                        switch (err) {
+                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                            posix.EINVAL => {
+                                self.buf = try self.allocator.realloc(u8, self.buf, self.buf.len * 2);
+                                continue;
+                            },
+                            else => return unexpectedErrorPosix(err),
+                        }
+                    }
+                    if (result == 0)
+                        return null;
+                    self.index = 0;
+                    self.end_index = result;
+                    break;
+                }
+            }
+            const linux_entry = @ptrCast(& align(1) posix.dirent, &self.buf[self.index]);
             const next_index = self.index + linux_entry.d_reclen;
             self.index = next_index;
 
@@ -1679,6 +1759,7 @@ test "std.os" {
     _ = @import("linux/index.zig");
     _ = @import("path.zig");
     _ = @import("windows/index.zig");
+    _ = @import("test.zig");
 }
 
 
