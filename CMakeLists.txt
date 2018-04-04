@@ -425,6 +425,7 @@ set(ZIG_STD_FILES
     "crypto/sha2.zig"
     "crypto/sha3.zig"
     "crypto/blake2.zig"
+    "crypto/hmac.zig"
     "cstr.zig"
     "debug/failing_allocator.zig"
     "debug/index.zig"
