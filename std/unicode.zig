@@ -12,6 +12,47 @@ pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
     return error.Utf8InvalidStartByte;
 }
 
+pub fn utf8Encode(c: u32, out: &[]const u8) !void {
+    if (c < 0x80) {
+        // Is made up of one byte
+        // Can just add a '0' and then the code point
+        // Thus can just output 'c'
+        var result: [1]u8 = undefined;
+        // This won't cause weird issues
+        result[0] = u8(c);
+        *out = result;
+    } else if (c < 0x0800) {
+        // Two bytes
+        var result: [2]u8 = undefined;
+        // 64 to convert the characters into their segments
+        result[0] = u8(0b11000000 + c / 64);
+        result[1] = u8(0b10000000 + c % 64);
+        *out = result;
+    } else if (c - 0xd800 < 0x800) {
+        return error.InvalidCodepoint;
+    } else if (c < 0x10000) {
+        // Three code points
+        var result: [3]u8 = undefined;
+        // Again using 64 as a conversion into their segments
+        // But using C / 4096 (64 * 64) as the first, (C/64) % 64 as the second, and just C % 64 as the last
+        result[0] = u8(0b11100000 + c / 4096);
+        result[1] = u8(0b10000000 + (c / 64) % 64);
+        result[2] = u8(0b10000000 + c % 64);
+        *out = result;
+    } else if (c < 0x110000) {
+        // Four code points
+        var result: [4]u8 = undefined;
+        // Same as previously but now its C / 64^3 (262144), (C / 4096) % 64, (C / 64) % 64 and C % 64
+        result[0] = u8(0b11110000 + c / 262144);
+        result[1] = u8(0b10000000 + (c / 4096) % 64);
+        result[2] = u8(0b10000000 + (c / 64) % 64);
+        result[3] = u8(0b10000000 + c % 64);
+        *out = result;
+    } else {
+        return error.InvalidCodepoint;
+    }
+}
+
 /// Decodes the UTF-8 codepoint encoded in the given slice of bytes.
 /// bytes.len must be equal to utf8ByteSequenceLength(bytes[0]) catch unreachable.
 /// If you already know the length at comptime, you can call one of
@@ -25,6 +66,7 @@ pub fn utf8Decode(bytes: []const u8) !u32 {
         else => unreachable,
     };
 }
+
 pub fn utf8Decode2(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 2);
     debug.assert(bytes[0] & 0b11100000 == 0b11000000);
@@ -38,6 +80,7 @@ pub fn utf8Decode2(bytes: []const u8) !u32 {
 
     return value;
 }
+
 pub fn utf8Decode3(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 3);
     debug.assert(bytes[0] & 0b11110000 == 0b11100000);
@@ -56,6 +99,7 @@ pub fn utf8Decode3(bytes: []const u8) !u32 {
 
     return value;
 }
+
 pub fn utf8Decode4(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 4);
     debug.assert(bytes[0] & 0b11111000 == 0b11110000);
@@ -169,6 +213,41 @@ const Utf8Iterator = struct {
         return r catch unreachable;
     }
 };
+
+test "utf8 encode" {
+    // A few taken from wikipedia a few taken elsewhere
+    var array: []const u8 = undefined;
+    try utf8Encode(try utf8Decode("$"), &array);
+    debug.assert(array.len == 1);
+    debug.assert(array[0] == 0b00100100);
+
+    try utf8Encode(try utf8Decode("¢", &array);
+    debug.assert(array.len == 2);
+    debug.assert(array[0] == 0b11000010);
+    debug.assert(array[1] == 0b10100010);
+
+    try utf8Encode(try utf8Decode("€", &array));
+    debug.assert(array.len == 3);
+    debug.assert(array[0] == 0b11100010);
+    debug.assert(array[1] == 0b10000010);
+    debug.assert(array[2] == 0b10101100);
+
+    try utf8Encode(try utf8Decode("𐍈", &array));
+    debug.assert(array.len == 4);
+    debug.assert(array[0] == 0b11110000);
+    debug.assert(array[1] == 0b10010000);
+    debug.assert(array[2] == 0b10001101);
+    debug.assert(array[3] == 0b10001000);
+}
+
+test "uf8 encode error" {
+    // Fit errors here
+    // if (testDecode(bytes)) |_| {
+    //     unreachable;
+    // } else |err| {
+    //     debug.assert(err == expected_err);
+    // }
+}
 
 test "utf8 iterator on ascii" {
     const s = Utf8View.initComptime("abc");
