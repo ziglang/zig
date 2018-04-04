@@ -685,11 +685,66 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_error => {
-                            const node = try arena.create(ast.NodeErrorType);
-                            *node = ast.NodeErrorType {
-                                .base = self.initNode(ast.Node.Id.ErrorType),
-                                .token = token,
+                            const next = self.getNextToken();
+
+                            if (next.id != Token.Id.LBrace) {
+                                self.putBackToken(next);
+                                const node = try arena.create(ast.NodeErrorType);
+                                *node = ast.NodeErrorType {
+                                    .base = self.initNode(ast.Node.Id.ErrorType),
+                                    .token = token,
+                                };
+                                try stack.append(State {
+                                    .Operand = &node.base
+                                });
+                                try stack.append(State.AfterOperand);
+                                continue;
+                            }
+
+                            const node = try arena.create(ast.NodeErrorSetDecl);
+                            *node = ast.NodeErrorSetDecl {
+                                .base = self.initNode(ast.Node.Id.ErrorSetDecl),
+                                .error_token = token,
+                                .decls = ArrayList(&ast.NodeIdentifier).init(arena),
+                                .rbrace_token = undefined,
                             };
+
+                            while (true) {
+                                const t = self.getNextToken();
+                                switch (t.id) {
+                                    Token.Id.RBrace => {
+                                        node.rbrace_token = t;
+                                        break;
+                                    },
+                                    Token.Id.Identifier => {
+                                        try node.decls.append(
+                                            try self.createIdentifier(arena, t)
+                                        );
+                                    },
+                                    else => {
+                                        return self.parseError(token, "expected {} or {}, found {}",
+                                            @tagName(Token.Id.RBrace),
+                                            @tagName(Token.Id.Identifier),
+                                            @tagName(token.id));
+                                    }
+                                }
+
+                                const t2 = self.getNextToken();
+                                switch (t2.id) {
+                                    Token.Id.RBrace => {
+                                        node.rbrace_token = t;
+                                        break;
+                                    },
+                                    Token.Id.Comma => continue,
+                                    else => {
+                                        return self.parseError(token, "expected {} or {}, found {}",
+                                            @tagName(Token.Id.RBrace),
+                                            @tagName(Token.Id.Comma),
+                                            @tagName(token.id));
+                                    }
+                                }
+                            }
+
                             try stack.append(State {
                                 .Operand = &node.base
                             });
@@ -2115,6 +2170,42 @@ pub const Parser = struct {
                             },
                         }
                     },
+                    ast.Node.Id.ErrorSetDecl => {
+                        const err_set_decl = @fieldParentPtr(ast.NodeErrorSetDecl, "base", base);
+                        try stream.print("error ");
+
+                        try stack.append(RenderState { .Text = "}"});
+                        try stack.append(RenderState.PrintIndent);
+                        try stack.append(RenderState { .Indent = indent });
+                        try stack.append(RenderState { .Text = "\n"});
+
+                        const decls = err_set_decl.decls.toSliceConst();
+                        var i = decls.len;
+                        while (i != 0) {
+                            i -= 1;
+                            const node = decls[i];
+                            try stack.append(RenderState { .Expression = &node.base});
+                            try stack.append(RenderState.PrintIndent);
+                            try stack.append(RenderState {
+                                .Text = blk: {
+                                    if (i != 0) {
+                                        const prev_node = decls[i - 1];
+                                        const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, node.firstToken());
+                                        if (loc.line >= 2) {
+                                            break :blk "\n\n";
+                                        }
+                                    }
+                                    break :blk "\n";
+                                },
+                            });
+
+                            if (i != 0) {
+                                try stack.append(RenderState { .Text = "," });
+                            }
+                        }
+                        try stack.append(RenderState { .Indent = indent + indent_delta});
+                        try stack.append(RenderState { .Text = "{"});
+                    },
                     ast.Node.Id.MultilineStringLiteral => {
                         const multiline_str_literal = @fieldParentPtr(ast.NodeMultilineStringLiteral, "base", base);
                         try stream.print("\n");
@@ -2638,6 +2729,18 @@ test "zig fmt: union declaration" {
         \\    Float: f32,
         \\    None,
         \\    Bool: bool
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: error set declaration" {
+      try testCanonical(
+        \\const E = error {
+        \\    A,
+        \\    B,
+        \\
+        \\    C
         \\};
         \\
     );
