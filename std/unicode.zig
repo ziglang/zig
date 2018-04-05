@@ -12,8 +12,8 @@ pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
     return error.Utf8InvalidStartByte;
 }
 
-pub fn utf8Encode(c: u32, out: []const u8) !int {
-    debug.assert(out.len >= 4)
+pub fn utf8Encode(c: u32, out: []u8) usize {
+    debug.assert(out.len >= 4);
     if (c < 0x80) {
         // Is made up of one byte
         // Can just add a '0' and then the code point
@@ -27,10 +27,9 @@ pub fn utf8Encode(c: u32, out: []const u8) !int {
         out[1] = u8(0b10000000 + c % 64);
         return 2;
     } else if (c -% 0xd800 < 0x800) {
-        return error.InvalidCodepoint;
+        return 0;
     } else if (c < 0x10000) {
         // Three code points
-        var result: [3]u8 = undefined;
         // Again using 64 as a conversion into their segments
         // But using C / 4096 (64 * 64) as the first, (C/64) % 64 as the second, and just C % 64 as the last
         out[0] = u8(0b11100000 + c / 4096);
@@ -46,7 +45,7 @@ pub fn utf8Encode(c: u32, out: []const u8) !int {
         out[3] = u8(0b10000000 + c % 64);
         return 4;
     } else {
-        return error.InvalidCodepoint;
+        return 0;
     }
 }
 
@@ -221,20 +220,20 @@ const Utf8Iterator = struct {
 
 test "utf8 encode" {
     // A few taken from wikipedia a few taken elsewhere
-    var array: [4]const u8 = undefined;
-    debug.assert(try utf8Encode(try utf8Decode("€"), &array) == 3);
+    var array: [4]u8 = undefined;
+    debug.assert(utf8Encode(try utf8Decode("€"), array[0..]) == 3);
     debug.assert(array[0] == 0b11100010);
     debug.assert(array[1] == 0b10000010);
     debug.assert(array[2] == 0b10101100);
 
-    debug.assert(try utf8Encode(try utf8Decode("$"), &array) == 1);
+    debug.assert(utf8Encode(try utf8Decode("$"), array[0..]) == 1);
     debug.assert(array[0] == 0b00100100);
 
-    debug.assert(try utf8Encode(try utf8Decode("¢"), &array) == 2);
+    debug.assert(utf8Encode(try utf8Decode("¢"), array[0..]) == 2);
     debug.assert(array[0] == 0b11000010);
     debug.assert(array[1] == 0b10100010);
 
-    debug.assert(try utf8Encode(try utf8Decode("𐍈"), &array) == 4);
+    debug.assert(utf8Encode(try utf8Decode("𐍈"), array[0..]) == 4);
     debug.assert(array[0] == 0b11110000);
     debug.assert(array[1] == 0b10010000);
     debug.assert(array[2] == 0b10001101);
