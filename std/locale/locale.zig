@@ -5,13 +5,11 @@ const math = std.math;
 const Set = std.BufSet;
 const assert = std.debug.assert;
 const warn = std.debug.warn;
-const allocator = std.debug.debug_allocator;
+const DebugAllocator = std.debug.global_allocator;
 
-fn StringFormatter(t_locale: type, locale: t_locale) type {
-    return struct {
-
-    };
-}
+const FormatterErrors = error {
+    InvalidCodePoint, InvalidView, OutOfMemory
+};
 
 fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) type {
     return struct {
@@ -22,21 +20,33 @@ fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) 
         uppercaseLetters: View,
         // Whitespace
         whitespaceLetters: View,
+        // Numbers
+        numbers: View,
+
+        formatter: FormatterType,
+
+        const FormatterType = struct {
+            toUpper: fn(&View, &mem.Allocator) FormatterErrors!View,
+            toLower: fn(&View, &mem.Allocator) FormatterErrors!View,
+            isNum: fn(T)bool,
+            isUpper: fn(T)bool,
+            isLower: fn(T)bool,
+        };
 
         const Self = this;
 
-        const LetterIterator = struct {
+        const ViewIterator = struct {
             i: usize,
             locale: &const Self,
             views: []View,
             iterator: Iterator,
 
-            pub fn reset(it: &LetterIterator)void {
+            pub fn reset(it: &ViewIterator)void {
                 it.i = 0;
                 it.iterator = it.views[0].iterator();
             }
 
-            pub fn nextBytes(it: &LetterIterator) ?[]const T {
+            pub fn nextBytes(it: &ViewIterator) ?[]const T {
                 var x : ?[]T = it.iterator.nextBytes();
                 if (x == null) {
                     if (it.i > it.views.len) {
@@ -49,7 +59,7 @@ fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) 
                 }
             }
 
-            pub fn nextCodePoint(it: &LetterIterator) ?T {
+            pub fn nextCodePoint(it: &ViewIterator) ?T {
                 var x : ?T = it.iterator.nextCodePoint();
                 if (x == null) {
                     if (it.i > it.views.len) {
@@ -65,19 +75,15 @@ fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) 
             }
         };
 
-        fn iterator(self: &const Self, views: []View) LetterIterator {
+        fn iterator(self: &const Self, views: []View) ViewIterator {
             assert(views.len > 0);
-            return LetterIterator { .i = 0, .locale = self, .views = views, .iterator = views[0].iterator() };
+            return ViewIterator { .i = 0, .locale = self, .views = views, .iterator = views[0].iterator() };
         }
     };
 }
 
-const ascii_lower : []const u8 = "abcdefghijklmnopqrstuvwxyz";
-const ascii_higher : []const u8 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const ascii_whitespace : []const u8 = " \t\r\n"; // Add all of them
-
 pub const AsciiIterator = struct {
-    characters: []const u8,
+    view: &const AsciiView,
     i: usize,
 
     pub fn reset(it: &AsciiIterator) void {
@@ -85,10 +91,10 @@ pub const AsciiIterator = struct {
     }
 
     pub fn nextBytes(it: &AsciiIterator)?[]const u8 {
-        if (it.i >= it.characters.len) return null;
+        if (it.i >= it.view.characters.len) return null;
 
         // It wants an array not a singular character
-        var x = it.characters[it.i..it.i+1];
+        var x = it.view.characters[it.i..it.i+1];
         it.i += 1;
         return x;
     }
@@ -109,29 +115,96 @@ pub const AsciiView = struct {
     }
 
     pub fn iterator(self: &const AsciiView) AsciiIterator {
-        return AsciiIterator { .i = 0, .characters = self.characters };
+        return AsciiIterator { .i = 0, .view = self };
     }
 };
 
+fn Ascii_toLower(view: &AsciiView, allocator: &mem.Allocator)FormatterErrors!AsciiView {
+    if (view.characters.len == 0) return error.InvalidView;
+    // Ascii so no need to do it 'right'
+    var newArray : []u8 = try allocator.alloc(u8, @sizeOf(u8) * view.characters.len);
+    var it = view.iterator();
+    var i: usize = 0;
+    while (i < newArray.len) {
+        var char = it.nextCodePoint();
+        if (char) |v| {
+            if (Ascii_isUpper(v)) {
+                newArray[i] = v + ('a' - 'A');
+            } else {
+                newArray[i] = v;
+            }
+        } else {
+            return error.InvalidCodePoint;
+        }
+        i += 1;
+    }
+    return AsciiView.init(newArray);
+}
+
+fn Ascii_toUpper(view: &AsciiView, allocator: &mem.Allocator)FormatterErrors!AsciiView {
+    if (view.characters.len == 0) return error.InvalidView;
+    // Ascii so no need to do it 'right'
+    var newArray : []u8 = try allocator.alloc(u8, @sizeOf(u8) * view.characters.len);
+    var it = view.iterator();
+    var i: usize = 0;
+    while (i < newArray.len) {
+        var char = it.nextCodePoint();
+        if (char) |v| {
+            if (Ascii_isLower(v)) {
+                newArray[i] = v - ('a' - 'A');
+            } else {
+                newArray[i] = v;
+            }
+        } else {
+            return error.InvalidCodePoint;
+        }
+        i += 1;
+    }
+    return AsciiView.init(newArray);
+}
+
+fn Ascii_isLower(char: u8)bool {
+    return char >= 'a' and char <= 'z';
+}
+
+fn Ascii_isUpper(char: u8)bool {
+    return char >= 'A' and char <= 'Z';
+}
+
+fn Ascii_isNum(char: u8)bool {
+    return char >= '0' and char <= '9';
+}
+
 pub const Ascii_Locale_Type = CreateLocale(u8, AsciiView, AsciiIterator);
-pub const Ascii_Locale = Ascii_Locale_Type { .lowercaseLetters = AsciiView.init(ascii_lower), .uppercaseLetters = AsciiView.init(ascii_higher), 
-                                             .whitespaceLetters = AsciiView.init(ascii_whitespace) 
+pub const Ascii_Locale = Ascii_Locale_Type { .lowercaseLetters = AsciiView.init("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = AsciiView.init("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+                                             .whitespaceLetters = AsciiView.init(" \t\r\n"), .numbers = AsciiView.init("0123456789"), 
+                                             .formatter = Ascii_Locale_Type.FormatterType {
+                                                    .isNum = Ascii_isNum, .isUpper = Ascii_isUpper, .isLower = Ascii_isLower,
+                                                    .toLower = Ascii_toLower, .toUpper = Ascii_toUpper
+                                             }
                                            };
-pub const Ascii_Formatter = StringFormatter(Ascii_Locale_Type, Ascii_Locale);
 
 test "Ascii Locale" {
     // To be split up later
     var views = [] AsciiView { Ascii_Locale.lowercaseLetters, Ascii_Locale.uppercaseLetters };
     var it = Ascii_Locale.iterator(views[0..]);
     var i: usize = 0;
-    while (i < ascii_lower.len) {
-        assert(?? it.nextCodePoint() == ascii_lower[i]);
+    var lower = "abcdefghijklmnopqrstuvwxyz";
+    var higher = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+    while (i < lower.len) {
+        assert(?? it.nextCodePoint() == lower[i]);
         i += 1;
     }
 
     i = 0;
-    while (i < ascii_higher.len) {
-        assert(?? it.nextCodePoint() == ascii_higher[i]);
+    while (i < higher.len) {
+        assert(?? it.nextCodePoint() == higher[i]);
         i += 1;
     }
+    
+    var view = AsciiView.init("A");
+    view = try Ascii_Locale.formatter.toLower(&view, DebugAllocator);
+    assert(view.characters[0] == 'a');
+    DebugAllocator.free(view.characters);
 }
