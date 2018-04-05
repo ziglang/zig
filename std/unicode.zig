@@ -12,22 +12,19 @@ pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
     return error.Utf8InvalidStartByte;
 }
 
-pub fn utf8Encode(c: u32, out: &[]const u8) !void {
+pub fn utf8Encode(c: u32, out: [4]const u8) !int {
     if (c < 0x80) {
         // Is made up of one byte
         // Can just add a '0' and then the code point
         // Thus can just output 'c'
-        var result: [1]u8 = undefined;
-        // This won't cause weird issues
-        result[0] = u8(c);
-        *out = result;
+        out[0] = u8(c);
+        return 1;
     } else if (c < 0x800) {
         // Two bytes
-        var result: [2]u8 = undefined;
         // 64 to convert the characters into their segments
-        result[0] = u8(0b11000000 + c / 64);
-        result[1] = u8(0b10000000 + c % 64);
-        *out = result;
+        out[0] = u8(0b11000000 + c / 64);
+        out[1] = u8(0b10000000 + c % 64);
+        return 2;
     } else if (c -% 0xd800 < 0x800) {
         return error.InvalidCodepoint;
     } else if (c < 0x10000) {
@@ -35,19 +32,18 @@ pub fn utf8Encode(c: u32, out: &[]const u8) !void {
         var result: [3]u8 = undefined;
         // Again using 64 as a conversion into their segments
         // But using C / 4096 (64 * 64) as the first, (C/64) % 64 as the second, and just C % 64 as the last
-        result[0] = u8(0b11100000 + c / 4096);
-        result[1] = u8(0b10000000 + (c / 64) % 64);
-        result[2] = u8(0b10000000 + c % 64);
-        *out = result;
+        out[0] = u8(0b11100000 + c / 4096);
+        out[1] = u8(0b10000000 + (c / 64) % 64);
+        out[2] = u8(0b10000000 + c % 64);
+        return 3;
     } else if (c < 0x110000) {
         // Four code points
-        var result: [4]u8 = undefined;
         // Same as previously but now its C / 64^3 (262144), (C / 4096) % 64, (C / 64) % 64 and C % 64
-        result[0] = u8(0b11110000 + c / 262144);
-        result[1] = u8(0b10000000 + (c / 4096) % 64);
-        result[2] = u8(0b10000000 + (c / 64) % 64);
-        result[3] = u8(0b10000000 + c % 64);
-        *out = result;
+        out[0] = u8(0b11110000 + c / 262144);
+        out[1] = u8(0b10000000 + (c / 4096) % 64);
+        out[2] = u8(0b10000000 + (c / 64) % 64);
+        out[3] = u8(0b10000000 + c % 64);
+        return 4;
     } else {
         return error.InvalidCodepoint;
     }
@@ -224,24 +220,20 @@ const Utf8Iterator = struct {
 
 test "utf8 encode" {
     // A few taken from wikipedia a few taken elsewhere
-    var array: []const u8 = undefined;
-    try utf8Encode(try utf8Decode("€"), &array);
-    debug.assert(array.len == 3);
+    var array: [4]const u8 = undefined;
+    debug.assert(try utf8Encode(try utf8Decode("€"), &array) == 3);
     debug.assert(array[0] == 0b11100010);
     debug.assert(array[1] == 0b10000010);
     debug.assert(array[2] == 0b10101100);
 
-    try utf8Encode(try utf8Decode("$"), &array);
-    debug.assert(array.len == 1);
+    debug.assert(try utf8Encode(try utf8Decode("$"), &array) == 1);
     debug.assert(array[0] == 0b00100100);
 
-    try utf8Encode(try utf8Decode("¢"), &array);
-    debug.assert(array.len == 2);
+    debug.assert(try utf8Encode(try utf8Decode("¢"), &array) == 2);
     debug.assert(array[0] == 0b11000010);
     debug.assert(array[1] == 0b10100010);
 
-    try utf8Encode(try utf8Decode("𐍈"), &array);
-    debug.assert(array.len == 4);
+    debug.assert(try utf8Encode(try utf8Decode("𐍈"), &array) == 4);
     debug.assert(array[0] == 0b11110000);
     debug.assert(array[1] == 0b10010000);
     debug.assert(array[2] == 0b10001101);
