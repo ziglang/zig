@@ -6207,7 +6207,9 @@ static void init(CodeGen *g) {
     g->builder = LLVMCreateBuilder();
     g->dbuilder = ZigLLVMCreateDIBuilder(g->module, true);
 
-    Buf *producer = buf_sprintf("zig %s", ZIG_VERSION_STRING);
+    // Don't use ZIG_VERSION_STRING here, llvm misparses it when it includes
+    // the git revision.
+    Buf *producer = buf_sprintf("zig %d.%d.%d", ZIG_VERSION_MAJOR, ZIG_VERSION_MINOR, ZIG_VERSION_PATCH);
     const char *flags = "";
     unsigned runtime_version = 0;
     ZigLLVMDIFile *compile_unit_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(g->root_out_name),
