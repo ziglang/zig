@@ -12,7 +12,8 @@ pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
     return error.Utf8InvalidStartByte;
 }
 
-pub fn utf8Encode(c: u32, out: [4]const u8) !int {
+pub fn utf8Encode(c: u32, out: []const u8) !int {
+    debug.assert(out.len >= 4)
     if (c < 0x80) {
         // Is made up of one byte
         // Can just add a '0' and then the code point
