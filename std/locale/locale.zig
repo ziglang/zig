@@ -8,7 +8,7 @@ const warn = std.debug.warn;
 const DebugAllocator = std.debug.global_allocator;
 
 const FormatterErrors = error {
-    InvalidCodePoint, InvalidView, OutOfMemory
+    InvalidCodePoint, InvalidView, OutOfMemory, InvalidCharacter
 };
 
 fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) type {
@@ -108,7 +108,15 @@ pub const AsciiIterator = struct {
 pub const AsciiView = struct {
     characters: []const u8,
 
-    pub fn init(s: []const u8) AsciiView {
+    pub fn init(s: []const u8) !AsciiView {
+        for (s) |char| {
+            if (char > 127) return error.InvalidCharacter;
+        }
+
+        return initUnchecked(s);
+    }
+
+    pub fn initUnchecked(s: []const u8) AsciiView {
         return AsciiView {
             .characters = s
         };
@@ -176,8 +184,8 @@ fn Ascii_isNum(char: u8)bool {
 }
 
 pub const Ascii_Locale_Type = CreateLocale(u8, AsciiView, AsciiIterator);
-pub const Ascii_Locale = Ascii_Locale_Type { .lowercaseLetters = AsciiView.init("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = AsciiView.init("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-                                             .whitespaceLetters = AsciiView.init(" \t\r\n"), .numbers = AsciiView.init("0123456789"), 
+pub const Ascii_Locale = Ascii_Locale_Type { .lowercaseLetters = AsciiView.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = AsciiView.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+                                             .whitespaceLetters = AsciiView.initUnchecked(" \t\r\n"), .numbers = AsciiView.initUnchecked("0123456789"), 
                                              .formatter = Ascii_Locale_Type.FormatterType {
                                                     .isNum = Ascii_isNum, .isUpper = Ascii_isUpper, .isLower = Ascii_isLower,
                                                     .toLower = Ascii_toLower, .toUpper = Ascii_toUpper
@@ -203,7 +211,7 @@ test "Ascii Locale" {
         i += 1;
     }
     
-    var view = AsciiView.init("A");
+    var view = try AsciiView.init("A");
     view = try Ascii_Locale.formatter.toLower(&view, DebugAllocator);
     assert(view.characters[0] == 'a');
     DebugAllocator.free(view.characters);
