@@ -19,6 +19,7 @@ pub const elf = @import("elf.zig");
 pub const empty_import = @import("empty.zig");
 pub const endian = @import("endian.zig");
 pub const fmt = @import("fmt/index.zig");
+pub const hash = @import("hash/index.zig");
 pub const heap = @import("heap.zig");
 pub const io = @import("io.zig");
 pub const macho = @import("macho.zig");
@@ -51,6 +52,7 @@ test "std" {
     _ = @import("empty.zig");
     _ = @import("endian.zig");
     _ = @import("fmt/index.zig");
+    _ = @import("hash/index.zig");
     _ = @import("io.zig");
     _ = @import("macho.zig");
     _ = @import("math/index.zig");
