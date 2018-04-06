@@ -98,10 +98,15 @@ pub const Parser = struct {
         ptr: &?&ast.Node,
     };
 
-    fn ListState(comptime T: type) type {
+    const ExprListCtx = struct {
+        list: &ArrayList(&ast.Node),
+        end: Token.Id,
+        ptr: &Token,
+    };
+
+    fn ListSave(comptime T: type) type {
         return struct {
             list: &ArrayList(T),
-            end: Token.Id,
             ptr: &Token,
         };
     }
@@ -129,11 +134,16 @@ pub const Parser = struct {
         FnDef: &ast.NodeFnProto,
         Block: &ast.NodeBlock,
         Statement: &ast.NodeBlock,
-        ExprListItemOrEnd: ListState(&ast.Node),
-        ExprListCommaOrEnd: ListState(&ast.Node),
-        FieldInitListItemOrEnd: ListState(&ast.NodeFieldInitializer),
-        FieldInitListCommaOrEnd: ListState(&ast.NodeFieldInitializer),
+        ExprListItemOrEnd: ExprListCtx,
+        ExprListCommaOrEnd: ExprListCtx,
+        FieldInitListItemOrEnd: ListSave(&ast.NodeFieldInitializer),
+        FieldInitListCommaOrEnd: ListSave(&ast.NodeFieldInitializer),
         FieldListCommaOrEnd: &ast.NodeContainerDecl,
+        SwitchCaseOrEnd: ListSave(&ast.NodeSwitchCase),
+        SwitchCaseCapture: &?ast.NodeSwitchCase.Capture,
+        SwitchCaseCommaOrEnd: ListSave(&ast.NodeSwitchCase),
+        SwitchCaseItem: &ArrayList(&ast.Node),
+        SwitchCaseItemCommaOrEnd: &ArrayList(&ast.Node),
 
         /// A state that can be appended before any other State. If an error occures,
         /// the parser will first try looking for the closest optional state. If an
@@ -245,17 +255,8 @@ pub const Parser = struct {
                         Token.Id.Keyword_test => {
                             stack.append(State.TopLevel) catch unreachable;
 
-                            const name_token = self.getNextToken();
-                            if (name_token.id != Token.Id.StringLiteral) {
-                                try self.parseError(&stack, token, "expected {}, found {}", @tagName(Token.Id.StringLiteral), @tagName(name_token.id));
-                                continue;
-                            }
-
-                            const lbrace = self.getNextToken();
-                            if (lbrace.id != Token.Id.LBrace) {
-                                try self.parseError(&stack, token, "expected {}, found {}", @tagName(Token.Id.LBrace), @tagName(name_token.id));
-                                continue;
-                            }
+                            const name_token = (try self.eatToken(&stack, Token.Id.StringLiteral)) ?? continue;
+                            const lbrace = (try self.eatToken(&stack, Token.Id.LBrace)) ?? continue;
 
                             const name = try self.createStringLiteral(arena, name_token);
                             const block = try self.createBlock(arena, (?Token)(null), token);
@@ -974,9 +975,8 @@ pub const Parser = struct {
 
                             stack.append(State { .CurlySuffixExpressionEnd = dest_ptr }) catch unreachable;
                             try stack.append(State {
-                                .FieldInitListItemOrEnd = ListState(&ast.NodeFieldInitializer) {
+                                .FieldInitListItemOrEnd = ListSave(&ast.NodeFieldInitializer) {
                                     .list = &node.op.StructInitializer,
-                                    .end = Token.Id.RBrace,
                                     .ptr = &node.rtoken,
                                 }
                             });
@@ -992,7 +992,7 @@ pub const Parser = struct {
 
                             stack.append(State { .CurlySuffixExpressionEnd = dest_ptr }) catch unreachable;
                             try stack.append(State {
-                                .ExprListItemOrEnd = ListState(&ast.Node) {
+                                .ExprListItemOrEnd = ExprListCtx {
                                     .list = &node.op.ArrayInitializer,
                                     .end = Token.Id.RBrace,
                                     .ptr = &node.rtoken,
@@ -1084,7 +1084,7 @@ pub const Parser = struct {
 
                             stack.append(State { .SuffixOpExpressionEnd = dest_ptr }) catch unreachable;
                             try stack.append(State {
-                                .ExprListItemOrEnd = ListState(&ast.Node) {
+                                .ExprListItemOrEnd = ExprListCtx {
                                     .list = &node.op.Call.params,
                                     .end = Token.Id.RParen,
                                     .ptr = &node.rtoken,
@@ -1238,7 +1238,7 @@ pub const Parser = struct {
                             };
                             dest_ptr.store(&node.base);
                             stack.append(State {
-                                .ExprListItemOrEnd = ListState(&ast.Node) {
+                                .ExprListItemOrEnd = ExprListCtx {
                                     .list = &node.params,
                                     .end = Token.Id.RParen,
                                     .ptr = &node.rparen_token,
@@ -1400,6 +1400,43 @@ pub const Parser = struct {
                         Token.Id.Keyword_asm => {
                             @panic("TODO: inline asm");
                         },
+                        Token.Id.Keyword_if => {
+                            @panic("TODO: inline if");
+                        },
+                        Token.Id.Keyword_while => {
+                            @panic("TODO: inline while");
+                        },
+                        Token.Id.Keyword_for => {
+                            @panic("TODO: inline for");
+                        },
+                        Token.Id.Keyword_switch => {
+                            const node = try arena.create(ast.NodeSwitch);
+                            *node = ast.NodeSwitch {
+                                .base = self.initNode(ast.Node.Id.Switch),
+                                .switch_token = token,
+                                .expr = undefined,
+                                .cases = ArrayList(&ast.NodeSwitchCase).init(arena),
+                                .rbrace = undefined,
+                            };
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State {
+                                .SwitchCaseOrEnd = ListSave(&ast.NodeSwitchCase) {
+                                    .list = &node.cases,
+                                    .ptr = &node.rbrace,
+                                },
+                            }) catch unreachable;
+                            try stack.append(State { .ExpectToken = Token.Id.LBrace });
+                            try stack.append(State { .ExpectToken = Token.Id.RParen });
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
+                            try stack.append(State { .ExpectToken = Token.Id.LParen });
+                        },
+                        Token.Id.Keyword_comptime => {
+                            @panic("TODO: inline comptime");
+                        },
+                        Token.Id.Keyword_suspend => {
+                            @panic("TODO: inline suspend");
+                        },
                         else => {
                             try self.parseError(&stack, token, "expected primary expression, found {}", @tagName(token.id));
                             continue;
@@ -1463,8 +1500,7 @@ pub const Parser = struct {
                 State.FieldInitListItemOrEnd => |list_state| {
                     var token = self.getNextToken();
 
-                    const IdTag = @TagType(Token.Id);
-                    if (IdTag(list_state.end) == token.id){
+                    if (token.id == Token.Id.RBrace){
                         *list_state.ptr = token;
                         continue;
                     }
@@ -1497,19 +1533,98 @@ pub const Parser = struct {
                     });
                 },
 
+                State.SwitchCaseOrEnd => |list_state| {
+                    var token = self.getNextToken();
+
+                    if (token.id == Token.Id.RBrace){
+                        *list_state.ptr = token;
+                        continue;
+                    }
+
+                    self.putBackToken(token);
+
+                    const node = try arena.create(ast.NodeSwitchCase);
+                    *node = ast.NodeSwitchCase {
+                        .base = self.initNode(ast.Node.Id.SwitchCase),
+                        .items = ArrayList(&ast.Node).init(arena),
+                        .capture = null,
+                        .expr = undefined,
+                    };
+                    try list_state.list.append(node);
+                    stack.append(State { .SwitchCaseCommaOrEnd = list_state }) catch unreachable;
+                    try stack.append(State { .Expression = DestPtr{ .Field = &node.expr  } });
+                    try stack.append(State { .SwitchCaseCapture = &node.capture });
+
+                    const maybe_else = self.getNextToken();
+                    if (maybe_else.id == Token.Id.Keyword_else) {
+                        const else_node = try arena.create(ast.NodeSwitchElse);
+                        *else_node = ast.NodeSwitchElse {
+                            .base = self.initNode(ast.Node.Id.SwitchElse),
+                            .token = maybe_else,
+                        };
+                        try node.items.append(&else_node.base);
+                        try stack.append(State { .ExpectToken = Token.Id.EqualAngleBracketRight });
+                        continue;
+                    } else {
+                        self.putBackToken(maybe_else);
+                        try stack.append(State { .SwitchCaseItem = &node.items });
+                        continue;
+                    }
+                },
+
+                State.SwitchCaseCapture => |capture| {
+                    const token = self.getNextToken();
+                    if (token.id != Token.Id.Pipe) {
+                        self.putBackToken(token);
+                        continue;
+                    }
+
+                    const is_ptr = blk: {
+                        const asterik = self.getNextToken();
+                        if (asterik.id == Token.Id.Asterisk) {
+                            break :blk true;
+                        } else {
+                            self.putBackToken(asterik);
+                            break :blk false;
+                        }
+                    };
+
+                    const ident = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
+                    _ = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
+                    *capture = ast.NodeSwitchCase.Capture {
+                        .symbol = try self.createIdentifier(arena, ident),
+                        .is_ptr = is_ptr
+                    };
+                },
+
+                State.SwitchCaseItem => |case_items| {
+                    stack.append(State { .SwitchCaseItemCommaOrEnd = case_items }) catch unreachable;
+                    try stack.append(State { .RangeExpressionBegin = DestPtr{ .Field = try case_items.addOne() } });
+                },
+
                 State.ExprListCommaOrEnd => |list_state| {
                     try self.commaOrEnd(&stack, list_state.end, list_state.ptr, State { .ExprListItemOrEnd = list_state });
                     continue;
                 },
 
                 State.FieldInitListCommaOrEnd => |list_state| {
-                    try self.commaOrEnd(&stack, list_state.end, list_state.ptr, State { .FieldInitListItemOrEnd = list_state });
+                    try self.commaOrEnd(&stack, Token.Id.RBrace, list_state.ptr, State { .FieldInitListItemOrEnd = list_state });
                     continue;
                 },
 
                 State.FieldListCommaOrEnd => |container_decl| {
                     try self.commaOrEnd(&stack, Token.Id.RBrace, &container_decl.rbrace_token,
                         State { .ContainerDecl = container_decl });
+                    continue;
+                },
+
+                State.SwitchCaseCommaOrEnd => |list_state| {
+                    try self.commaOrEnd(&stack, Token.Id.RBrace, list_state.ptr, State { .SwitchCaseOrEnd = list_state });
+                    continue;
+                },
+
+                State.SwitchCaseItemCommaOrEnd => |case_items| {
+                    try self.commaOrEnd(&stack, Token.Id.EqualAngleBracketRight, null, State { .SwitchCaseItem = case_items });
                     continue;
                 },
 
@@ -1741,6 +1856,11 @@ pub const Parser = struct {
                             stack.append(State { .Block = inner_block }) catch unreachable;
                             continue;
                         },
+                        Token.Id.Keyword_switch => {
+                            self.putBackToken(next);
+                            stack.append(State { .Expression = DestPtr{.Field = try block.statements.addOne() } }) catch unreachable;
+                            continue;
+                        },
                         else => {
                             self.putBackToken(next);
                             stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
@@ -1754,7 +1874,7 @@ pub const Parser = struct {
         }
     }
 
-    fn commaOrEnd(self: &Parser, stack: &ArrayList(State), end: &const Token.Id, ptr: &Token, state_after_comma: &const State) !void {
+    fn commaOrEnd(self: &Parser, stack: &ArrayList(State), end: &const Token.Id, maybe_ptr: ?&Token, state_after_comma: &const State) !void {
         var token = self.getNextToken();
         switch (token.id) {
             Token.Id.Comma => {
@@ -1763,7 +1883,9 @@ pub const Parser = struct {
             else => {
                 const IdTag = @TagType(Token.Id);
                 if (IdTag(*end) == token.id) {
-                    *ptr = token;
+                    if (maybe_ptr) |ptr| {
+                        *ptr = token;
+                    }
                     return;
                 }
 
@@ -2498,7 +2620,8 @@ pub const Parser = struct {
                                 ast.NodeInfixOp.InfixOp.Sub => " - ",
                                 ast.NodeInfixOp.InfixOp.SubWrap => " -% ",
                                 ast.NodeInfixOp.InfixOp.UnwrapMaybe => " ?? ",
-                                else => unreachable,
+                                ast.NodeInfixOp.InfixOp.Range => " ... ",
+                                ast.NodeInfixOp.InfixOp.Catch => unreachable,
                             };
 
                             try stack.append(RenderState { .Text = text });
@@ -2821,8 +2944,73 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.FnProto => @panic("TODO fn proto in an expression"),
                     ast.Node.Id.LineComment => @panic("TODO render line comment in an expression"),
-                    ast.Node.Id.Switch => @panic("TODO switch"),
-                    ast.Node.Id.SwitchCase => @panic("TODO switch case"),
+                    ast.Node.Id.Switch => {
+                        const switch_node = @fieldParentPtr(ast.NodeSwitch, "base", base);
+                        try stream.print("{} (", self.tokenizer.getTokenSlice(switch_node.switch_token));
+
+                        try stack.append(RenderState { .Text = "}"});
+                        try stack.append(RenderState.PrintIndent);
+                        try stack.append(RenderState { .Indent = indent });
+                        try stack.append(RenderState { .Text = "\n"});
+
+                        const cases = switch_node.cases.toSliceConst();
+                        var i = cases.len;
+                        while (i != 0) {
+                            i -= 1;
+                            const node = cases[i];
+                            try stack.append(RenderState { .Expression = &node.base});
+                            try stack.append(RenderState.PrintIndent);
+                            try stack.append(RenderState {
+                                .Text = blk: {
+                                    if (i != 0) {
+                                        const prev_node = cases[i - 1];
+                                        const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, node.firstToken());
+                                        if (loc.line >= 2) {
+                                            break :blk "\n\n";
+                                        }
+                                    }
+                                    break :blk "\n";
+                                },
+                            });
+
+                            if (i != 0) {
+                                try stack.append(RenderState { .Text = "," });
+                            }
+                        }
+                        try stack.append(RenderState { .Indent = indent + indent_delta});
+                        try stack.append(RenderState { .Text = ") {"});
+                        try stack.append(RenderState { .Expression = switch_node.expr });
+                    },
+                    ast.Node.Id.SwitchCase => {
+                        const switch_case = @fieldParentPtr(ast.NodeSwitchCase, "base", base);
+
+                        try stack.append(RenderState { .Expression = switch_case.expr });
+                        if (switch_case.capture) |capture| {
+                            try stack.append(RenderState { .Text = "| "});
+                            try stack.append(RenderState { .Expression = &capture.symbol.base });
+
+                            if (capture.is_ptr) {
+                                try stack.append(RenderState { .Text = "*"});
+                            }
+                            try stack.append(RenderState { .Text = "|"});
+                        }
+                        try stack.append(RenderState { .Text = " => "});
+
+                        const items = switch_case.items.toSliceConst();
+                        var i = items.len;
+                        while (i != 0) {
+                            i -= 1;
+                            try stack.append(RenderState { .Expression = items[i] });
+
+                            if (i != 0) {
+                                try stack.append(RenderState { .Text = ", " });
+                            }
+                        }
+                    },
+                    ast.Node.Id.SwitchElse => {
+                        const switch_else = @fieldParentPtr(ast.NodeSwitchElse, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(switch_else.token));
+                    },
 
                     ast.Node.Id.StructField,
                     ast.Node.Id.UnionTag,
@@ -2867,7 +3055,7 @@ pub const Parser = struct {
                             const var_decl = @fieldParentPtr(ast.NodeVarDecl, "base", base);
                             try stack.append(RenderState { .VarDecl = var_decl});
                         },
-                        ast.Node.Id.Block => {
+                        ast.Node.Id.Block, ast.Node.Id.Switch => {
                             try stack.append(RenderState { .Expression = base});
                         },
                         else => {
@@ -3436,24 +3624,24 @@ test "zig fmt: switch" {
         \\        else => {
         \\            const a = 1;
         \\            const b = a;
-        \\        },
+        \\        }
         \\    }
         \\
         \\    const res = switch (0) {
         \\        0 => 0,
         \\        1 => 2,
-        \\        else => 4,
+        \\        else => 4
         \\    };
         \\
         \\    const Union = union(enum) {
         \\        Int: i64,
-        \\        Float: f64,
+        \\        Float: f64
         \\    };
         \\
-        \\    const u = Union { .Int = 0 };
+        \\    const u = Union{ .Int = 0 };
         \\    switch (u) {
         \\        Union.Int => |int| {},
-        \\        Union.Float => |*float| unreachable,
+        \\        Union.Float => |*float| unreachable
         \\    }
         \\}
         \\

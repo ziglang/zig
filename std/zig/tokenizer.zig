@@ -86,6 +86,7 @@ pub const Token = struct {
         PipeEqual,
         Equal,
         EqualEqual,
+        EqualAngleBracketRight,
         BangEqual,
         LParen,
         RParen,
@@ -685,6 +686,11 @@ pub const Tokenizer = struct {
                 State.Equal => switch (c) {
                     '=' => {
                         result.id = Token.Id.EqualEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    '>' => {
+                        result.id = Token.Id.EqualAngleBracketRight;
                         self.index += 1;
                         break;
                     },

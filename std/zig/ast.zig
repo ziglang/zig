@@ -22,6 +22,7 @@ pub const Node = struct {
         Block,
         Switch,
         SwitchCase,
+        SwitchElse,
         InfixOp,
         PrefixOp,
         SuffixOp,
@@ -59,6 +60,7 @@ pub const Node = struct {
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).iterate(index),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).iterate(index),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).iterate(index),
+            Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).iterate(index),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).iterate(index),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).iterate(index),
@@ -97,6 +99,7 @@ pub const Node = struct {
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).firstToken(),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).firstToken(),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).firstToken(),
+            Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).firstToken(),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).firstToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).firstToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).firstToken(),
@@ -135,6 +138,7 @@ pub const Node = struct {
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).lastToken(),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).lastToken(),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).lastToken(),
+            Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).firstToken(),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).lastToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).lastToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).lastToken(),
@@ -603,6 +607,23 @@ pub const NodeSwitchCase = struct {
 
     pub fn lastToken(self: &NodeSwitchCase) Token {
         return self.expr.lastToken();
+    }
+};
+
+pub const NodeSwitchElse = struct {
+    base: Node,
+    token: Token,
+
+    pub fn iterate(self: &NodeSwitchElse, index: usize) ?&Node {
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeSwitchElse) Token {
+        return self.token;
+    }
+
+    pub fn lastToken(self: &NodeSwitchElse) Token {
+        return self.token;
     }
 };
 
