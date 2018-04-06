@@ -20,6 +20,8 @@ pub const Node = struct {
         FnProto,
         ParamDecl,
         Block,
+        Switch,
+        SwitchCase,
         InfixOp,
         PrefixOp,
         SuffixOp,
@@ -55,6 +57,8 @@ pub const Node = struct {
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).iterate(index),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).iterate(index),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).iterate(index),
+            Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).iterate(index),
+            Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).iterate(index),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).iterate(index),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).iterate(index),
@@ -91,6 +95,8 @@ pub const Node = struct {
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).firstToken(),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).firstToken(),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).firstToken(),
+            Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).firstToken(),
+            Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).firstToken(),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).firstToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).firstToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).firstToken(),
@@ -127,6 +133,8 @@ pub const Node = struct {
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).lastToken(),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).lastToken(),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).lastToken(),
+            Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).lastToken(),
+            Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).lastToken(),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).lastToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).lastToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).lastToken(),
@@ -506,9 +514,10 @@ pub const NodeParamDecl = struct {
 
 pub const NodeBlock = struct {
     base: Node,
-    begin_token: Token,
-    end_token: Token,
+    label: ?Token,
+    lbrace: Token,
     statements: ArrayList(&Node),
+    rbrace: Token,
 
     pub fn iterate(self: &NodeBlock, index: usize) ?&Node {
         var i = index;
@@ -520,11 +529,80 @@ pub const NodeBlock = struct {
     }
 
     pub fn firstToken(self: &NodeBlock) Token {
-        return self.begin_token;
+        if (self.label) |label| {
+            return label;
+        }
+
+        return self.lbrace;
     }
 
     pub fn lastToken(self: &NodeBlock) Token {
-        return self.end_token;
+        return self.rbrace;
+    }
+};
+
+pub const NodeSwitch = struct {
+    base: Node,
+    switch_token: Token,
+    expr: &Node,
+    cases: ArrayList(&NodeSwitchCase),
+    rbrace: Token,
+
+    pub fn iterate(self: &NodeSwitch, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.expr;
+        i -= 1;
+
+        if (i < self.cases.len) return self.cases.at(i);
+        i -= self.cases.len;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeSwitch) Token {
+        return self.switch_token;
+    }
+
+    pub fn lastToken(self: &NodeSwitch) Token {
+        return self.rbrace;
+    }
+};
+
+pub const NodeSwitchCase = struct {
+    base: Node,
+    items: ArrayList(&Node),
+    capture: ?Capture,
+    expr: &Node,
+
+    const Capture = struct {
+        symbol: &NodeIdentifier,
+        is_ptr: bool,
+    };
+
+    pub fn iterate(self: &NodeSwitchCase, index: usize) ?&Node {
+        var i = index;
+
+        if (i < self.items.len) return self.items.at(i);
+        i -= self.items.len;
+
+        if (self.capture) |capture| {
+            if (i < 1) return &capture.base;
+            i -= 1;
+        }
+
+        if (i < 1) return self.expr;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeSwitchCase) Token {
+        return self.items.at(0).firstToken();
+    }
+
+    pub fn lastToken(self: &NodeSwitchCase) Token {
+        return self.expr.lastToken();
     }
 };
 
@@ -575,6 +653,7 @@ pub const NodeInfixOp = struct {
         Mult,
         MultWrap,
         Period,
+        Range,
         Sub,
         SubWrap,
         UnwrapMaybe,
@@ -625,6 +704,7 @@ pub const NodeInfixOp = struct {
             InfixOp.Mult,
             InfixOp.MultWrap,
             InfixOp.Period,
+            InfixOp.Range,
             InfixOp.Sub,
             InfixOp.SubWrap,
             InfixOp.UnwrapMaybe => {},

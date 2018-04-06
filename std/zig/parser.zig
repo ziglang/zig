@@ -146,6 +146,8 @@ pub const Parser = struct {
         Required,
 
         Expression: DestPtr,
+        RangeExpressionBegin: DestPtr,
+        RangeExpressionEnd: DestPtr,
         AssignmentExpressionBegin: DestPtr,
         AssignmentExpressionEnd: DestPtr,
         UnwrapExpressionBegin: DestPtr,
@@ -256,7 +258,7 @@ pub const Parser = struct {
                             }
 
                             const name = try self.createStringLiteral(arena, name_token);
-                            const block = try self.createBlock(arena, token);
+                            const block = try self.createBlock(arena, (?Token)(null), token);
                             const test_decl = try self.createAttachTestDecl(arena, &root_node.decls, token, &name.base, block);
                             stack.append(State { .Block = block }) catch unreachable;
                             continue;
@@ -640,6 +642,27 @@ pub const Parser = struct {
                             stack.append(State { .AssignmentExpressionBegin = dest_ptr }) catch unreachable;
                             continue;
                         }
+                    }
+                },
+
+                State.RangeExpressionBegin => |dest_ptr| {
+                    stack.append(State { .RangeExpressionEnd = dest_ptr }) catch unreachable;
+                    try stack.append(State { .Expression = dest_ptr });
+                    continue;
+                },
+
+                State.RangeExpressionEnd => |dest_ptr| {
+                    const token = self.getNextToken();
+                    if (token.id == Token.Id.Ellipsis3) {
+                        const node = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.Range);
+                        node.lhs = dest_ptr.get();
+                        dest_ptr.store(&node.base);
+
+                        stack.append(State { .Expression = DestPtr { .Field = &node.rhs } }) catch unreachable;
+                        continue;
+                    } else {
+                        self.putBackToken(token);
+                        continue;
                     }
                 },
 
@@ -1205,10 +1228,6 @@ pub const Parser = struct {
                             try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
                             continue;
                         },
-                        Token.Id.Identifier => {
-                            dest_ptr.store(&(try self.createIdentifier(arena, token)).base);
-                            continue;
-                        },
                         Token.Id.Builtin => {
                             const node = try arena.create(ast.NodeBuiltinCall);
                             *node = ast.NodeBuiltinCall {
@@ -1348,8 +1367,32 @@ pub const Parser = struct {
                                 },
                             }) catch unreachable;
                         },
+                        Token.Id.Identifier => {
+                            const next = self.getNextToken();
+                            if (next.id != Token.Id.Colon) {
+                                self.putBackToken(next);
+                                dest_ptr.store(&(try self.createIdentifier(arena, token)).base);
+                                continue;
+                            }
+
+                            const block = try self.createBlock(arena, (?Token)(token), Token(undefined));
+                            dest_ptr.store(&block.base);
+
+                            stack.append(State { .Block = block }) catch unreachable;
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.LBrace,
+                                    .ptr = &block.lbrace,
+                                }
+                            });
+                            continue;
+                        },
                         Token.Id.LBrace => {
-                            @panic("TODO: Block expr");
+                            const block = try self.createBlock(arena, (?Token)(null), token);
+                            dest_ptr.store(&block.base);
+
+                            stack.append(State { .Block = block }) catch unreachable;
+                            continue;
                         },
                         Token.Id.Keyword_fn => {
                             @panic("TODO: fn proto");
@@ -1618,7 +1661,7 @@ pub const Parser = struct {
                     const token = self.getNextToken();
                     switch(token.id) {
                         Token.Id.LBrace => {
-                            const block = try self.createBlock(arena, token);
+                            const block = try self.createBlock(arena, (?Token)(null), token);
                             fn_proto.body_node = &block.base;
                             stack.append(State { .Block = block }) catch unreachable;
                             continue;
@@ -1635,7 +1678,7 @@ pub const Parser = struct {
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.RBrace => {
-                            block.end_token = token;
+                            block.rbrace = token;
                             continue;
                         },
                         else => {
@@ -1648,38 +1691,64 @@ pub const Parser = struct {
                 },
 
                 State.Statement => |block| {
-                    {
-                        // Look for comptime var, comptime const
-                        const comptime_token = self.getNextToken();
-                        if (comptime_token.id == Token.Id.Keyword_comptime) {
+                    const next = self.getNextToken();
+                    switch (next.id) {
+                        Token.Id.Keyword_comptime => {
                             const mut_token = self.getNextToken();
                             if (mut_token.id == Token.Id.Keyword_var or mut_token.id == Token.Id.Keyword_const) {
                                 // TODO shouldn't need these casts
                                 const var_decl = try self.createAttachVarDecl(arena, &block.statements, (?Token)(null),
-                                    mut_token, (?Token)(comptime_token), (?Token)(null), null);
+                                    mut_token, (?Token)(next), (?Token)(null), null);
                                 stack.append(State { .VarDecl = var_decl }) catch unreachable;
                                 continue;
+                            } else {
+                                self.putBackToken(mut_token);
+                                @panic("TODO: comptime block");
                             }
-                            self.putBackToken(mut_token);
-                        }
-                        self.putBackToken(comptime_token);
-                    }
-                    {
-                        // Look for const, var
-                        const mut_token = self.getNextToken();
-                        if (mut_token.id == Token.Id.Keyword_var or mut_token.id == Token.Id.Keyword_const) {
-                            // TODO shouldn't need these casts
+                        },
+                        Token.Id.Keyword_var, Token.Id.Keyword_const => {
                             const var_decl = try self.createAttachVarDecl(arena, &block.statements, (?Token)(null),
-                                mut_token, (?Token)(null), (?Token)(null), null);
+                                next, (?Token)(null), (?Token)(null), null);
                             stack.append(State { .VarDecl = var_decl }) catch unreachable;
                             continue;
+                        },
+                        Token.Id.Identifier => {
+                            const maybe_colon = self.getNextToken();
+                            if (maybe_colon.id != Token.Id.Colon) {
+                                self.putBackToken(maybe_colon);
+                                self.putBackToken(next);
+                                stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
+                                try stack.append(State { .Expression = DestPtr{.Field = try block.statements.addOne() } });
+                                continue;
+                            }
+
+                            const inner_block = try self.createBlock(arena, (?Token)(next), Token(undefined));
+                            try block.statements.append(&inner_block.base);
+
+                            stack.append(State { .Block = inner_block }) catch unreachable;
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.LBrace,
+                                    .ptr = &inner_block.lbrace,
+                                }
+                            });
+                            continue;
+                        },
+                        Token.Id.LBrace => {
+                            const inner_block = try self.createBlock(arena, (?Token)(null), next);
+                            try block.statements.append(&inner_block.base);
+
+                            stack.append(State { .Block = inner_block }) catch unreachable;
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(next);
+                            stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr{.Field = try block.statements.addOne() } });
+                            continue;
                         }
-                        self.putBackToken(mut_token);
                     }
 
-                    stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
-                    try stack.append(State { .Expression = DestPtr{.Field = try block.statements.addOne() } });
-                    continue;
                 },
             }
         }
@@ -1905,14 +1974,15 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createBlock(self: &Parser, arena: &mem.Allocator, begin_token: &const Token) !&ast.NodeBlock {
+    fn createBlock(self: &Parser, arena: &mem.Allocator, label: &const ?Token, lbrace: &const Token) !&ast.NodeBlock {
         const node = try arena.create(ast.NodeBlock);
 
         *node = ast.NodeBlock {
             .base = self.initNode(ast.Node.Id.Block),
-            .begin_token = *begin_token,
-            .end_token = undefined,
+            .label = *label,
+            .lbrace = *lbrace,
             .statements = ArrayList(&ast.Node).init(arena),
+            .rbrace = undefined,
         };
         return node;
     }
@@ -2340,6 +2410,10 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.Block => {
                         const block = @fieldParentPtr(ast.NodeBlock, "base", base);
+                        if (block.label) |label| {
+                            try stream.print("{}: ", self.tokenizer.getTokenSlice(label));
+                        }
+
                         if (block.statements.len == 0) {
                             try stream.write("{}");
                         } else {
@@ -2747,6 +2821,8 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.FnProto => @panic("TODO fn proto in an expression"),
                     ast.Node.Id.LineComment => @panic("TODO render line comment in an expression"),
+                    ast.Node.Id.Switch => @panic("TODO switch"),
+                    ast.Node.Id.SwitchCase => @panic("TODO switch case"),
 
                     ast.Node.Id.StructField,
                     ast.Node.Id.UnionTag,
@@ -2790,6 +2866,9 @@ pub const Parser = struct {
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.NodeVarDecl, "base", base);
                             try stack.append(RenderState { .VarDecl = var_decl});
+                        },
+                        ast.Node.Id.Block => {
+                            try stack.append(RenderState { .Expression = base});
                         },
                         else => {
                             try stack.append(RenderState { .Text = ";"});
@@ -3318,6 +3397,28 @@ test "zig fmt: catch" {
         \\    const a: error!u8 = 0;
         \\    _ = a catch return;
         \\    _ = a catch |err| return;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: blocks" {
+    try testCanonical(
+        \\test "blocks" {
+        \\    {
+        \\        const a = 0;
+        \\        const b = 0;
+        \\    }
+        \\
+        \\    blk: {
+        \\        const a = 0;
+        \\        const b = 0;
+        \\    }
+        \\
+        \\    const r = blk: {
+        \\        const a = 0;
+        \\        const b = 0;
+        \\    };
         \\}
         \\
     );
