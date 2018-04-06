@@ -1,5 +1,6 @@
 const std = @import("./index.zig");
 const debug = std.debug;
+const mem = std.mem;
 
 /// Given the first byte of a UTF-8 codepoint,
 /// returns a number 1-4 indicating the total length of the codepoint in bytes.
@@ -155,6 +156,18 @@ pub const Utf8View = struct {
         return initUnchecked(s);
     }
 
+    pub fn eql(self: &const Utf8View, other: &const Utf8View) bool {
+        return mem.eql(u8, self.bytes, other.bytes);
+    }
+
+    pub fn slice(self: &const Utf8View, start: usize, end: usize) !Utf8View {
+        return Utf8View.init(self.bytes[start..end]);
+    }
+
+    pub fn sliceToEndFrom(self: &const Utf8View, start: usize) !Utf8View {
+        return Utf8View.init(self.bytes[start..]);
+    }
+
     pub fn initUnchecked(s: []const u8) Utf8View {
         return Utf8View {
             .bytes = s,
@@ -175,36 +188,36 @@ pub const Utf8View = struct {
     pub fn iterator(s: &const Utf8View) Utf8Iterator {
         return Utf8Iterator {
             .bytes = s.bytes,
-            .i = 0,
+            .index = 0,
         };
     }
 };
 
-const Utf8Iterator = struct {
+pub const Utf8Iterator = struct {
     bytes: []const u8,
-    i: usize,
+    index: usize,
 
     pub fn reset(it: &Utf8Iterator) void {
-        it.i = 0;
+        it.index = 0;
     }
 
     pub fn next(it: &Utf8Iterator) ?[]const u {
         return it.nextCodepointSlice();
     }
 
-    pub fn nextCodepointSlice(it: &Utf8Iterator) ?[]const u8 {
-        if (it.i >= it.bytes.len) {
+    pub fn nextBytes(it: &Utf8Iterator) ?[]const u8 {
+        if (it.index >= it.bytes.len) {
             return null;
         }
 
-        const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
+        const cp_len = utf8ByteSequenceLength(it.bytes[it.index]) catch unreachable;
 
-        it.i += cp_len;
-        return it.bytes[it.i-cp_len..it.i];
+        it.index+= cp_len;
+        return it.bytes[it.index-cp_len..it.index];
     }
 
     pub fn nextCodepoint(it: &Utf8Iterator) ?u32 {
-        const slice = it.nextCodepointSlice() ?? return null;
+        const slice = it.nextBytes() ?? return null;
 
         const r = switch (slice.len) {
             1 => u32(slice[0]),
@@ -253,10 +266,10 @@ test "utf8 iterator on ascii" {
     const s = Utf8View.initComptime("abc");
 
     var it1 = s.iterator();
-    debug.assert(std.mem.eql(u8, "a", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "b", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "c", ??it1.nextCodepointSlice()));
-    debug.assert(it1.nextCodepointSlice() == null);
+    debug.assert(std.mem.eql(u8, "a", ??it1.nextBytes()));
+    debug.assert(std.mem.eql(u8, "b", ??it1.nextBytes()));
+    debug.assert(std.mem.eql(u8, "c", ??it1.nextBytes()));
+    debug.assert(it1.nextBytes() == null);
 
     var it2 = s.iterator();
     debug.assert(??it2.nextCodepoint() == 'a');
@@ -277,10 +290,10 @@ test "utf8 view ok" {
     const s = Utf8View.initComptime("東京市");
 
     var it1 = s.iterator();
-    debug.assert(std.mem.eql(u8, "東", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "京", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "市", ??it1.nextCodepointSlice()));
-    debug.assert(it1.nextCodepointSlice() == null);
+    debug.assert(std.mem.eql(u8, "東", ??it1.nextBytes()));
+    debug.assert(std.mem.eql(u8, "京", ??it1.nextBytes()));
+    debug.assert(std.mem.eql(u8, "市", ??it1.nextBytes()));
+    debug.assert(it1.nextBytes() == null);
 
     var it2 = s.iterator();
     debug.assert(??it2.nextCodepoint() == 0x6771);

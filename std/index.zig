@@ -31,6 +31,7 @@ pub const sort = @import("sort.zig");
 pub const unicode = @import("unicode.zig");
 pub const zig = @import("zig/index.zig");
 pub const stringUtils = @import("string_utils.zig");
+pub const locale = @import("locale/locale.zig");
 
 test "std" {
     // run tests from these

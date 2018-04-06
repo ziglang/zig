@@ -83,19 +83,21 @@ fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) 
 }
 
 pub const AsciiIterator = struct {
-    view: &const AsciiView,
-    i: usize,
+    characters: []const u8,
+    index: usize,
 
     pub fn reset(it: &AsciiIterator) void {
-        it.i = 0;
+        it.index = 0;
     }
 
     pub fn nextBytes(it: &AsciiIterator)?[]const u8 {
-        if (it.i >= it.view.characters.len) return null;
+        if (it.index >= it.characters.len) {
+            return null;
+        }
 
         // It wants an array not a singular character
-        var x = it.view.characters[it.i..it.i+1];
-        it.i += 1;
+        var x = it.characters[it.index..it.index+1];
+        it.index += 1;
         return x;
     }
 
@@ -116,6 +118,18 @@ pub const AsciiView = struct {
         return initUnchecked(s);
     }
 
+    pub fn eql(self: &const AsciiView, other: &const AsciiView) bool {
+        return mem.eql(u8, self.characters, other.characters);
+    }
+
+    pub fn slice(self: &const AsciiView, start: usize, end: usize) !AsciiView {
+        return AsciiView.init(self.characters[start..end]);
+    }
+
+    pub fn sliceToEndFrom(self: &const AsciiView, start: usize) !AsciiView {
+        return AsciiView.init(self.characters[start..]);
+    }
+
     pub fn initUnchecked(s: []const u8) AsciiView {
         return AsciiView {
             .characters = s
@@ -123,7 +137,7 @@ pub const AsciiView = struct {
     }
 
     pub fn iterator(self: &const AsciiView) AsciiIterator {
-        return AsciiIterator { .i = 0, .view = self };
+        return AsciiIterator { .index = 0, .characters = self.characters };
     }
 };
 
@@ -184,13 +198,14 @@ fn Ascii_isNum(char: u8)bool {
 }
 
 pub const Ascii_Locale_Type = CreateLocale(u8, AsciiView, AsciiIterator);
-pub const Ascii_Locale = Ascii_Locale_Type { .lowercaseLetters = AsciiView.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = AsciiView.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-                                             .whitespaceLetters = AsciiView.initUnchecked(" \t\r\n"), .numbers = AsciiView.initUnchecked("0123456789"), 
-                                             .formatter = Ascii_Locale_Type.FormatterType {
-                                                    .isNum = Ascii_isNum, .isUpper = Ascii_isUpper, .isLower = Ascii_isLower,
-                                                    .toLower = Ascii_toLower, .toUpper = Ascii_toUpper
-                                             }
-                                           };
+pub const Ascii_Locale = Ascii_Locale_Type { 
+    .lowercaseLetters = AsciiView.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = AsciiView.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+    .whitespaceLetters = AsciiView.initUnchecked(" \t\r\n"), .numbers = AsciiView.initUnchecked("0123456789"), 
+    .formatter = Ascii_Locale_Type.FormatterType {
+        .isNum = Ascii_isNum, .isUpper = Ascii_isUpper, .isLower = Ascii_isLower,
+        .toLower = Ascii_toLower, .toUpper = Ascii_toUpper
+    }
+};
 
 test "Ascii Locale" {
     // To be split up later
