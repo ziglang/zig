@@ -1947,8 +1947,24 @@ const Foo = extern enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       {#header_close#}
-      <p>TODO packed enum</p>
-      {#see_also|@memberName|@memberCount|@tagName#}
+      {#header_open|packed enum#}
+      <p>By default, the size of enums is not guaranteed.</p>
+      <p><code>packed enum</code> causes the size of the enum to be the same as the size of the integer tag type
+      of the enum:</p>
+      {#code_begin|test#}
+const std = @import("std");
+
+test "packed enum" {
+    const Number = packed enum(u8) {
+        One,
+        Two,
+        Three,
+    };
+    std.debug.assert(@sizeOf(Number) == @sizeOf(u8));
+}
+      {#code_end#}
+      {#header_close#}
+      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
       {#header_close#}
       {#header_open|union#}
       {#code_begin|test|union#}
