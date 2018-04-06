@@ -89,6 +89,15 @@ pub const Parser = struct {
         ptr: &Token,
     };
 
+    const RevertState = struct {
+        parser: Parser,
+        tokenizer: Tokenizer,
+
+        // We expect, that if something is optional, then there is a field,
+        // that needs to be set to null, when we revert.
+        ptr: &?&ast.Node,
+    };
+
     fn ListState(comptime T: type) type {
         return struct {
             list: &ArrayList(T),
@@ -131,7 +140,7 @@ pub const Parser = struct {
         /// optional state is found, the parser will revert to the state it was in
         /// when the optional was added. This will polute the arena allocator with
         /// "leaked" nodes. TODO: Figure out if it's nessesary to handle leaked nodes.
-        Optional: Parser,
+        Optional: RevertState,
 
         /// Optional can be reverted by adding the Required state to the stack.
         Required,
@@ -598,7 +607,13 @@ pub const Parser = struct {
                             const node = try self.createControlFlowExpr(arena, token, ast.NodeControlFlowExpression.Kind.Return);
                             dest_ptr.store(&node.base);
 
-                            stack.append(State { .Optional = *self }) catch unreachable;
+                            stack.append(State {
+                                .Optional = RevertState {
+                                    .parser = *self,
+                                    .tokenizer = *self.tokenizer,
+                                    .ptr = &node.rhs,
+                                }
+                            }) catch unreachable;
                             try stack.append(State { .Expression = DestPtr { .NullableField = &node.rhs } });
                             continue;
                         },
@@ -673,7 +688,7 @@ pub const Parser = struct {
                                 continue;
                             }
 
-                            node.op.Catch = try self.createIdentifier(arena, undefined);
+                            node.op.Catch = try self.createIdentifier(arena, Token(undefined));
                             try stack.append(State { .ExpectToken = Token.Id.Pipe });
                             try stack.append(State {
                                 .ExpectTokenSave = ExpectTokenSave {
@@ -1910,7 +1925,7 @@ pub const Parser = struct {
             .base = self.initNode(ast.Node.Id.ControlFlowExpression),
             .ltoken = *ltoken,
             .kind = *kind,
-            .rhs = undefined,
+            .rhs = null,
         };
         return node;
     }
@@ -2067,7 +2082,9 @@ pub const Parser = struct {
         while (stack.popOrNull()) |state| {
             switch (state) {
                 State.Optional => |revert| {
-                    *self = state.Optional;
+                    *self = revert.parser;
+                    *self.tokenizer = revert.tokenizer;
+                    *revert.ptr = null;
                     return;
                 },
                 State.Required => {
@@ -2359,7 +2376,7 @@ pub const Parser = struct {
 
                         if (prefix_op_node.op == ast.NodeInfixOp.InfixOp.Catch) {
                             if (prefix_op_node.op.Catch) |payload| {
-                                try stack.append(RenderState { .Text = "|" });
+                                try stack.append(RenderState { .Text = "| " });
                                 try stack.append(RenderState { .Expression = &payload.base });
                                 try stack.append(RenderState { .Text = "|" });
                             }
@@ -2954,6 +2971,10 @@ test "zig fmt: return" {
     try testCanonical(
         \\fn foo(argc: c_int, argv: &&u8) c_int {
         \\    return 0;
+        \\}
+        \\
+        \\fn bar() void {
+        \\    return;
         \\}
         \\
     );
