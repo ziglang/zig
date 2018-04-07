@@ -72,6 +72,10 @@ pub const AsciiView = struct {
         return self.characters[index];
     }
 
+    pub fn codePointFromEndAt(self: &const AsciiView, index: usize) u8 {
+        return self.characters[self.characters.len - 1 - index];
+    }
+
     pub fn initUnchecked(s: []const u8) AsciiView {
         return AsciiView {
             .characters = s
@@ -83,63 +87,77 @@ pub const AsciiView = struct {
     }
 };
 
-fn Ascii_toLower(view: &AsciiView, allocator: &mem.Allocator)FormatterErrors!AsciiView {
-    if (view.characters.len == 0) return error.InvalidView;
+fn changeCase(view: &AsciiView, allocator: &mem.Allocator, positive: bool) AsciiView {
+    assert(view.characters.len > 0);
     // Ascii so no need to do it 'right'
     var newArray : []u8 = try allocator.alloc(u8, @sizeOf(u8) * view.characters.len);
     var it = view.iterator();
-    var i: usize = 0;
-    while (i < newArray.len) {
-        var char = it.nextCodePoint();
-        if (char) |v| {
-            if (Ascii_isUpper(v)) {
-                newArray[i] = v + ('a' - 'A');
-            } else {
-                newArray[i] = v;
-            }
+    var char = it.nextCodePoint();
+    var i : usize = 0;
+
+    while (char) |next| {
+        if (isLower(v)) {
+            newArray[i] = if (positive) v + ('a' - 'A') else v - ('a' - 'A');
         } else {
-            return error.InvalidCodePoint;
+            newArray[i] = v;
         }
+        char = it.nextCodePoint();
+        i += 1;
+    }
+
+    return AsciiView.init(newArray);
+}
+
+fn changeCaseBuffer(view: &AsciiView, buffer: []u8, positive: bool) AsciiView {
+    assert(view.characters.len > 0 and view.characters.len <= buffer.len);
+    // Ascii so we can just write into the array directly without translating it back into bytes
+    // For unicode you would have to run an encode.
+    var it = view.iterator();
+    var char = it.nextCodePoint();
+    var i : usize = 0;
+
+    while (char) |next| {
+        if (isLower(v)) {
+            buffer[i] = if (positive) v + ('a' - 'A') else v - ('a' - 'A');
+        } else {
+            buffer[i] = v;
+        }
+        char = it.nextCodePoint();
         i += 1;
     }
     return AsciiView.init(newArray);
 }
 
-fn Ascii_toUpper(view: &AsciiView, allocator: &mem.Allocator)FormatterErrors!AsciiView {
-    if (view.characters.len == 0) return error.InvalidView;
-    // Ascii so no need to do it 'right'
-    var newArray : []u8 = try allocator.alloc(u8, @sizeOf(u8) * view.characters.len);
-    var it = view.iterator();
-    var i: usize = 0;
-    while (i < newArray.len) {
-        var char = it.nextCodePoint();
-        if (char) |v| {
-            if (Ascii_isLower(v)) {
-                newArray[i] = v - ('a' - 'A');
-            } else {
-                newArray[i] = v;
-            }
-        } else {
-            return error.InvalidCodePoint;
-        }
-        i += 1;
-    }
-    return AsciiView.init(newArray);
+fn toLower(view: &AsciiView, allocator: &mem.Allocator) AsciiView {
+    return try changeCase(view, allocator, true);
 }
 
-pub const Ascii_Locale_Type = CreateLocale(u8, AsciiView, AsciiIterator);
-pub const Ascii_Locale = Ascii_Locale_Type { 
+fn toUpper(view: &AsciiView, allocator: &mem.Allocator) AsciiView {
+    return try changeCase(view, allocator, false);
+}
+
+fn toUpperBuffer(view: &AsciiView, buffer: []u8) AsciiView {
+    return try changeCaseBuffer(view, buffer, false);
+}
+
+fn toLowerBuffer(view: &AsciiView, buffer: []u8) AsciiView {
+    return try changeCaseBuffer(view, buffer, true);
+}
+
+pub const Locale_Type = locale.CreateLocale(u8, AsciiView, AsciiIterator);
+pub const Locale = Locale_Type { 
     .lowercaseLetters = AsciiView.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = AsciiView.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
     .whitespaceLetters = AsciiView.initUnchecked(" \t\r\n"), .numbers = AsciiView.initUnchecked("0123456789"), 
-    .formatter = Ascii_Locale_Type.FormatterType {
-        .toLower = Ascii_toLower, .toUpper = Ascii_toUpper
+    .formatter = Locale_Type.FormatterType {
+        .toLower = toLower, .toUpper = toUpper,
+        .toLowerBuffer = toLowerBuffer, .toUpperBuffer = toUpperBuffer,
     }
 };
 
 test "Ascii Locale" {
     // To be split up later
-    var views = [] AsciiView { Ascii_Locale.lowercaseLetters, Ascii_Locale.uppercaseLetters };
-    var it = Ascii_Locale.iterator(views[0..]);
+    var views = [] AsciiView { Locale.lowercaseLetters, Locale.uppercaseLetters };
+    var it = Locale.iterator(views[0..]);
     var i: usize = 0;
     var lower = "abcdefghijklmnopqrstuvwxyz";
     var higher = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -156,7 +174,7 @@ test "Ascii Locale" {
     }
     
     var view = try AsciiView.init("A");
-    view = try Ascii_Locale.formatter.toLower(&view, DebugAllocator);
+    view = Locale.formatter.toLower(&view, DebugAllocator);
     assert(view.characters[0] == 'a');
     DebugAllocator.free(view.characters);
 }

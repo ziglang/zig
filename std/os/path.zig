@@ -292,7 +292,7 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
             // OOOOH full Ascii support is here, someone just needs to implement this :)
             // TODO: Come back here later and use the proper split
-            return asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.nextBytes()) and asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.next());
+            return asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.nextBytes()) and asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.nextBytes());
         },
     }
 }
@@ -435,12 +435,12 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) ![]u8 {
                 result_index += 1;
                 result[result_index] = '\\';
                 result_index += 1;
-                mem.copy(u8, result[result_index..], server_name.characters);
-                result_index += server_name.characters.len;
+                mem.copy(u8, result[result_index..], server_name);
+                result_index += server_name.len;
                 result[result_index] = '\\';
                 result_index += 1;
-                mem.copy(u8, result[result_index..], other_name.characters);
-                result_index += other_name.characters.len;
+                mem.copy(u8, result[result_index..], other_name);
+                result_index += other_name.len;
                 
                 result_disk_designator = result[0..result_index];
             },
@@ -955,7 +955,7 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
         }
 
         const up_index_end = up_count * "..\\".len;
-        const result = try allocator.alloc(u8, up_index_end + to_rest_char.len);
+        const result = try allocator.alloc(u8, up_index_end + to_rest.len);
         errdefer allocator.free(result);
 
         var result_index: usize = 0;
@@ -970,8 +970,8 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
         // shave off the trailing slash
         result_index -= 1;
 
-        var rest_it = try string.asciiSplit(to_rest_char, "/\\");
-        while (try rest_it.next()) |to_component| {
+        var rest_it = try string.asciiSplit(to_rest, "/\\");
+        while (rest_it.nextBytes()) |to_component| {
             result[result_index] = '\\';
             result_index += 1;
             mem.copy(u8, result[result_index..], to_component);

@@ -258,12 +258,12 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
 }
 
 test "mem.indexOf" {
-    assert(??indexOf(u8, "one two three four", "four", false) == 14);
-    assert(indexOf(u8, "one two three four", "gour", false) == null);
-    assert(??indexOf(u8, "foo", "foo", false) == 0);
-    assert(indexOf(u8, "foo", "fool", false) == null);
-    assert(??indexOf(u8, "foo foo", "foo", false) == 0);
-    assert(??indexOf(u8, "foo foo", "foo", true) == 4);
+    assert(??indexOf(u8, "one two three four", "four") == 14);
+    assert(indexOf(u8, "one two three four", "gour") == null);
+    assert(??indexOf(u8, "foo", "foo") == 0);
+    assert(indexOf(u8, "foo", "fool") == null);
+    assert(??indexOf(u8, "foo foo", "foo") == 0);
+    assert(??indexOfPos(u8, "foo foo", 0, "foo", true) == 4);
 }
 
 /// Reads an integer from memory with size equal to bytes.len.

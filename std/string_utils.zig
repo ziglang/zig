@@ -85,7 +85,7 @@ pub fn t_SplitIt(comptime viewType: type, comptime iterator_type: type, comptime
         // Returns the next thing as a view
         // You can obtain the data through the '.bytes' item.
         pub fn next(self: &Self) ?viewType {
-            return viewType.initUnchecked(self.nextBytes());
+            return if (self.nextBytes()) |bytes| viewType.initUnchecked(bytes) else null;
         }
 
         // This shouldn't be like this :)
@@ -167,10 +167,10 @@ pub fn t_SplitIt(comptime viewType: type, comptime iterator_type: type, comptime
 
 test "string_utils.split" {
     var it = try asciiSplit("   abc def   ghi  ", " ");
-    assert(eql(u8, ?? it.nextBytes(), "abc"));
-    assert(eql(u8, ?? it.nextBytes(), "def"));
-    assert(eql(u8, ?? it.restBytes(), "ghi  "));
-    assert(eql(u8, ?? it.nextBytes(), "ghi"));
+    assert(mem.eql(u8, ?? it.nextBytes(), "abc"));
+    assert(mem.eql(u8, ?? it.nextBytes(), "def"));
+    assert(mem.eql(u8, ?? it.restBytes(), "ghi  "));
+    assert(mem.eql(u8, ?? it.nextBytes(), "ghi"));
     assert(it.nextBytes() == null);
 }
               

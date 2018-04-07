@@ -7,11 +7,7 @@ const assert = std.debug.assert;
 const warn = std.debug.warn;
 const DebugAllocator = std.debug.global_allocator;
 
-const FormatterErrors = error {
-    InvalidCodePoint, InvalidView, OutOfMemory, InvalidCharacter
-};
-
-fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) type {
+pub fn CreateLocale(comptime CodePoint: type, comptime View: type, comptime Iterator: type) type {
     return struct {
         // Represents all the characters counted as lowercase letters
         // Stored as uf8, convertible through the various functions
@@ -25,15 +21,35 @@ fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) 
 
         formatter: FormatterType,
 
-        pub fn isNum(self: &const Self, view: &View) bool {
-            return numbers
+        pub fn isInView(iew: &View, codePoint: CodePoint) bool {
+            return codePoint >= view.codePointAt(0) and codePoint <= view.codePointFromEndAt(0);
+        }
+
+        pub fn isNum(self: &const Self, codePoint: CodePoint) bool {
+            return isInView(self.numbers, codePoint);
+        }
+
+        pub fn isLowercaseLetter(self: &const Self, codePoint: CodePoint) bool {
+            return isInView(self.lowercaseLetters, codePoint);
+        }
+
+        pub fn isUppercaseLetter(self: &const Self, codePoint: CodePoint) bool {
+            return isInView(self.uppercaseLetters, codePoint);
+        }
+
+        pub fn isLetter(self: &const Self, codePoint: CodePoint) bool {
+            return self.isUppercaseLetter(codePoint) or self.isLowercaseLetter(codePoint);
+        }
+
+        pub fn isWhitespace(self: &const Self, codePoint: CodePoint) bool {
+            return isInView(self.whitespaceLetters, codePoint);
         }
 
         const FormatterType = struct {
-            toUpper: fn(&View, &mem.Allocator) FormatterErrors!View,
-            toLower: fn(&View, &mem.Allocator) FormatterErrors!View,
-            toUpperImplact: fn(&View) FormatterErrors!View,
-            toUpperImplact: fn(&View) FormatterErrors!View,
+            toUpper: fn(&View, &mem.Allocator) View,
+            toLower: fn(&View, &mem.Allocator) View,
+            toUpperImplace: fn(&View) View,
+            toLowerImplace: fn(&View) View,
         };
 
         const Self = this;
@@ -49,8 +65,8 @@ fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) 
                 it.iterator = it.views[0].iterator();
             }
 
-            pub fn nextBytes(it: &ViewIterator) ?[]const T {
-                var x : ?[]T = it.iterator.nextBytes();
+            pub fn nextBytes(it: &ViewIterator) ?[]const CodePoint {
+                var x : ?[]CodePoint = it.iterator.nextBytes();
                 if (x == null) {
                     if (it.i > it.views.len) {
                         return null;
@@ -62,8 +78,8 @@ fn CreateLocale(comptime T: type, comptime View: type, comptime Iterator: type) 
                 }
             }
 
-            pub fn nextCodePoint(it: &ViewIterator) ?T {
-                var x : ?T = it.iterator.nextCodePoint();
+            pub fn nextCodePoint(it: &ViewIterator) ?CodePoint {
+                var x : ?CodePoint = it.iterator.nextCodePoint();
                 if (x == null) {
                     if (it.i > it.views.len) {
                         return null;
