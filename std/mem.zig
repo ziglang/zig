@@ -198,56 +198,72 @@ test "mem.trim" {
 
 /// Linear search for the index of a scalar value inside a slice.
 pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
-    return indexOfScalarPos(T, slice, 0, value);
+    return indexOfScalarPos(T, slice, 0, value, false);
 }
 
-pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
+pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T, highest: bool) ?usize {
     var i: usize = start_index;
+    var out: ?usize = null;
+
     while (i < slice.len) : (i += 1) {
-        if (slice[i] == value)
-            return i;
+        if (slice[i] == value) {
+            out = i;
+            if (!highest) break;
+        }
     }
-    return null;
+
+    return out;
 }
 
 pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
-    return indexOfAnyPos(T, slice, 0, values);
+    return indexOfAnyPos(T, slice, 0, values, false);
 }
 
-pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
+pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T, highest: bool) ?usize {
     var i: usize = start_index;
+    var out: ?usize = null;
+
     while (i < slice.len) : (i += 1) {
         for (values) |value| {
-            if (slice[i] == value)
-                return i;
+            if (slice[i] == value) {
+                out = i;
+                if (!highest) break;
+            }
         }
     }
-    return null;
+
+    return out;
 }
 
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
-    return indexOfPos(T, haystack, 0, needle);
+    return indexOfPos(T, haystack, 0, needle, false);
 }
 
 // TODO boyer-moore algorithm
-pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T, highest: bool) ?usize {
     if (needle.len > haystack.len)
         return null;
 
+    var out : ?usize = null;
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle))
-            return i;
+        if (eql(T, haystack[i .. i + needle.len], needle)) {
+            out = i;
+            if (!highest) break;
+        }
     }
-    return null;
+
+    return out;
 }
 
 test "mem.indexOf" {
-    assert(??indexOf(u8, "one two three four", "four") == 14);
-    assert(indexOf(u8, "one two three four", "gour") == null);
-    assert(??indexOf(u8, "foo", "foo") == 0);
-    assert(indexOf(u8, "foo", "fool") == null);
+    assert(??indexOf(u8, "one two three four", "four", false) == 14);
+    assert(indexOf(u8, "one two three four", "gour", false) == null);
+    assert(??indexOf(u8, "foo", "foo", false) == 0);
+    assert(indexOf(u8, "foo", "fool", false) == null);
+    assert(??indexOf(u8, "foo foo", "foo", false) == 0);
+    assert(??indexOf(u8, "foo foo", "foo", true) == 4);
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -333,97 +349,67 @@ pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) void {
 /// any of the bytes in `split_bytes`.
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
-pub fn split(comptime viewType: type, comptime iterator_type: type, comptime baseType: type) type {
-    return struct {
-        buffer: viewType,
-        buffer_it: iterator_type,
-        split_bytes_it: iterator_type,
-
-        const Self = this;
-
-        // Note: variable names leave a lil to be desired
-        // But due to no shadowing in zig it gets a little hard
-        // I'll come back to it later
-
-        pub fn next(self: &Self) !?viewType {
-            // move to beginning of token
-            var nextSlice = self.buffer_it.nextBytes();
-
-            while (nextSlice) |curSlice| {
-                if (!self.isSplitByte(&(try viewType.init(curSlice)))) break;
-                nextSlice = self.buffer_it.nextBytes();
-            }
-
-            if (nextSlice) |_| {
-                // Go till we find another split
-                const start = self.buffer_it.index - 1;
-                nextSlice = self.buffer_it.nextBytes();
-                while (nextSlice) |cSlice| {
-                    if (self.isSplitByte(&(try viewType.init(cSlice)))) break;
-                    nextSlice = self.buffer_it.nextBytes();
-                }
-                const end = if (nextSlice != null) self.buffer_it.index - 1 else self.buffer_it.index;
-                return try self.buffer.slice(start, end);
-            } else {
-                return null;
-            }
-        }
-
-        /// Returns a slice of the remaining bytes. Does not affect iterator state.
-        pub fn rest(self: &Self) !?viewType {
-            // move to beginning of token
-            var index = self.buffer_it.index;
-            defer self.buffer_it.index = index;
-            var nextSlice = self.buffer_it.nextBytes();
-
-            while (nextSlice) |curSlice| {
-                if (!self.isSplitByte(&(try viewType.init(curSlice)))) break;
-                nextSlice = self.buffer_it.nextBytes();
-            }
-
-            if (nextSlice != null) {
-                const iterator = self.buffer_it.index - 1;
-                return try self.buffer.sliceToEndFrom(iterator);
-            } else {
-                return null;
-            }
-        }
-
-        fn isSplitByte(self: &Self, toCheck: &viewType) bool {
-            self.split_bytes_it.reset();
-            var byte = self.split_bytes_it.nextBytes();
-            
-            while (byte) |split_byte| {
-                var viewByte = viewType.initUnchecked(split_byte);
-                if (toCheck.eql(viewByte)) {
-                    return true;
-                }
-                byte = self.split_bytes_it.nextBytes();
-            }
-            return false;
-        }
-
-        fn init(view: baseType, split_bytes: baseType) !Self {
-            return Self { .buffer = try viewType.init(view), .split_bytes_it = (try viewType.init(split_bytes)).iterator(), .buffer_it = (try viewType.init(view)).iterator() };
-        }
+/// DON'T USE THIS FOR UNICODE OR CODE POINT STRINGS, USE `std.string.Split` instead!
+pub fn split(buffer: []const u8, split_bytes: []const u8) SplitIterator {
+    return SplitIterator {
+        .index = 0,
+        .buffer = buffer,
+        .split_bytes = split_bytes,
     };
 }
 
 test "mem.split" {
-    const unicode = std.unicode;
-    const string = std.stringUtils;
-
-    var it = try string.split_it.init("   abc def   ghi  ", " ");
-    assert(eql(u8, (?? try it.next()).characters, "abc"));
-    assert(eql(u8, (?? try it.next()).characters, "def"));
-    debug.warn("{}k", (?? try it.rest()).characters);
-    assert(eql(u8, (?? try it.rest()).characters, "ghi  "));
-    assert(eql(u8, (?? try it.next()).characters, "ghi"));
-    assert((try it.next()) == null);
+    var it = split("   abc def   ghi  ", " ");
+    assert(eql(u8, ??it.next(), "abc"));
+    assert(eql(u8, ??it.next(), "def"));
+    assert(eql(u8, ??it.next(), "ghi"));
+    assert(it.next() == null);
 }
+
+pub const SplitIterator = struct {
+    buffer: []const u8,
+    split_bytes: []const u8, 
+    index: usize,
+
+    pub fn next(self: &SplitIterator) ?[]const u8 {
+        // move to beginning of token
+        while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
+        const start = self.index;
+        if (start == self.buffer.len) {
+            return null;
+        }
+
+        // move to end of token
+        while (self.index < self.buffer.len and !self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
+        const end = self.index;
+
+        return self.buffer[start..end];
+    }
+
+    /// Returns a slice of the remaining bytes. Does not affect iterator state.
+    pub fn rest(self: &const SplitIterator) []const u8 {
+        // move to beginning of token
+        var index: usize = self.index;
+        while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
+        return self.buffer[index..];
+    }
+
+    fn isSplitByte(self: &const SplitIterator, byte: u8) bool {
+        for (self.split_bytes) |split_byte| {
+            if (byte == split_byte) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[0 .. needle.len], needle);
+}
+
+pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
+    return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len - 1..], needle);
 }
 
 /// Naively combines a series of strings with a separator.

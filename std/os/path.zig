@@ -11,7 +11,7 @@ const math = std.math;
 const posix = os.posix;
 const windows = os.windows;
 const cstr = std.cstr;
-const stringUtils = std.stringUtils;
+const string = std.string;
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';
@@ -185,9 +185,9 @@ pub fn windowsParsePath(path: []const u8) !WindowsPath {
                 return relative_path;
             }
 
-            var it = try stringUtils.split_it.init(path, []u8{this_sep});
-            _ = ((try it.next()) ?? return relative_path);
-            _ = ((try it.next()) ?? return relative_path);
+            var it = try string.asciiSplit(path, []u8{this_sep});
+            _ = ((it.nextBytes()) ?? return relative_path);
+            _ = ((it.nextBytes()) ?? return relative_path);
             return WindowsPath {
                 .is_abs = isAbsoluteWindows(path),
                 .kind = WindowsPath.Kind.NetworkShare,
@@ -203,9 +203,9 @@ pub fn windowsParsePath(path: []const u8) !WindowsPath {
                 return relative_path;
             }
 
-            var it = try stringUtils.split_it.init(path, []u8{this_sep});
-            _ = ((try it.next()) ?? return relative_path);
-            _ = ((try it.next()) ?? return relative_path);
+            var it = try string.asciiSplit(path, []u8{this_sep});
+            _ = ((it.nextBytes()) ?? return relative_path);
+            _ = ((it.nextBytes()) ?? return relative_path);
             return WindowsPath {
                 .is_abs = isAbsoluteWindows(path),
                 .kind = WindowsPath.Kind.NetworkShare,
@@ -265,11 +265,11 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) !bool {
     const sep1 = ns1[0];
     const sep2 = ns2[0];
 
-    var it1 = try stringUtils.split_it.init(ns1, []u8{sep1});
-    var it2 = try stringUtils.split_it.init(ns2, []u8{sep2});
+    var it1 = try string.asciiSplit(ns1, []u8{sep1});
+    var it2 = try string.asciiSplit(ns2, []u8{sep2});
 
     // TODO ASCII is wrong, we actually need full unicode support to compare paths.
-    return asciiEqlIgnoreCase((?? try it1.next()).characters, (?? try it2.next()).characters);
+    return asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.nextBytes());
 }
 
 fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8) !bool {
@@ -286,13 +286,13 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             const sep1 = p1[0];
             const sep2 = p2[0];
 
-            var it1 = try stringUtils.split_it.init(p1, []const u8{sep1});
-            var it2 = try stringUtils.split_it.init(p2, []const u8{sep2});
+            var it1 = try string.asciiSplit(p1, []const u8{sep1});
+            var it2 = try string.asciiSplit(p2, []const u8{sep2});
 
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
             // OOOOH full Ascii support is here, someone just needs to implement this :)
             // TODO: Come back here later and use the proper split
-            return asciiEqlIgnoreCase((?? try it1.next()).characters, (?? try it2.next()).characters) and asciiEqlIgnoreCase((?? try it1.next()).characters, (?? try it2.next()).characters);
+            return asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.nextBytes()) and asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.next());
         },
     }
 }
@@ -427,9 +427,9 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) ![]u8 {
             },
             WindowsPath.Kind.NetworkShare => {
                 result = try allocator.alloc(u8, max_size);
-                var it = try stringUtils.split_it.init(paths[first_index], "/\\");
-                const server_name = ?? try it.next();
-                const other_name = ?? try it.next();
+                var it = try string.asciiSplit(paths[first_index], "/\\");
+                const server_name = ?? it.nextBytes();
+                const other_name = ?? it.nextBytes();
 
                 result[result_index] = '\\';
                 result_index += 1;
@@ -496,11 +496,11 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) ![]u8 {
             continue;
         }
 
-        var it = try stringUtils.split_it.init(p[parsed.disk_designator.len..], "/\\");
-        while (try it.next()) |component| {
-            if (mem.eql(u8, component.characters, ".")) {
+        var it = try string.asciiSplit(p[parsed.disk_designator.len..], "/\\");
+        while (it.nextBytes()) |component| {
+            if (mem.eql(u8, component, ".")) {
                 continue;
-            } else if (mem.eql(u8, component.characters, "..")) {
+            } else if (mem.eql(u8, component, "..")) {
                 while (true) {
                     if (result_index == 0 or result_index == result_disk_designator.len)
                         break;
@@ -512,8 +512,8 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) ![]u8 {
             } else {
                 result[result_index] = sep_windows;
                 result_index += 1;
-                mem.copy(u8, result[result_index..], component.characters);
-                result_index += component.characters.len;
+                mem.copy(u8, result[result_index..], component);
+                result_index += component.len;
             }
         }
     }
@@ -564,11 +564,11 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) ![]u8 {
     errdefer allocator.free(result);
 
     for (paths[first_index..]) |p, i| {
-        var it = try stringUtils.split_it.init(p, "/");
-        while (try it.next()) |component| {
-            if (mem.eql(u8, component.characters, ".")) {
+        var it = try string.asciiSplit(p, "/");
+        while (it.nextBytes()) |component| {
+            if (mem.eql(u8, component, ".")) {
                 continue;
-            } else if (mem.eql(u8, component.characters, "..")) {
+            } else if (mem.eql(u8, component, "..")) {
                 while (true) {
                     if (result_index == 0)
                         break;
@@ -579,8 +579,8 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) ![]u8 {
             } else {
                 result[result_index] = '/';
                 result_index += 1;
-                mem.copy(u8, result[result_index..], component.characters);
-                result_index += component.characters.len;
+                mem.copy(u8, result[result_index..], component);
+                result_index += component.len;
             }
         }
     }
@@ -666,19 +666,19 @@ fn testResolvePosix(paths: []const []const u8) []u8 {
     return resolvePosix(debug.global_allocator, paths) catch unreachable;
 }
 
-pub fn dirname(path: []const u8) ![]const u8 {
+pub fn dirname(path: []const u8) []const u8 {
     if (is_windows) {
-        return try dirnameWindows(path);
+        return dirnameWindows(path);
     } else {
         return dirnamePosix(path);
     }
 }
 
-pub fn dirnameWindows(path: []const u8) ![]const u8 {
+pub fn dirnameWindows(path: []const u8) []const u8 {
     if (path.len == 0)
         return path[0..0];
 
-    const root_slice = try diskDesignatorWindows(path);
+    const root_slice = diskDesignatorWindows(path) catch unreachable;
     if (path.len == root_slice.len)
         return path;
 
@@ -781,7 +781,7 @@ fn testDirnamePosix(input: []const u8, expected_output: []const u8) void {
 }
 
 fn testDirnameWindows(input: []const u8, expected_output: []const u8) void {
-    assert(mem.eql(u8, dirnameWindows(input) catch unreachable, expected_output));
+    assert(mem.eql(u8, dirnameWindows(input), expected_output));
 }
 
 pub fn basename(path: []const u8) []const u8 {
@@ -937,21 +937,20 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
         return resolved_to;
     }
 
-    var from_it = try stringUtils.split_it.init(resolved_from, "/\\");
-    var to_it = try stringUtils.split_it.init(resolved_to, "/\\");
+    var from_it = try string.asciiSplit(resolved_from, "/\\");
+    var to_it = try string.asciiSplit(resolved_to, "/\\");
     while (true) {
-        const from_component = (try from_it.next()) ?? return mem.dupe(allocator, u8, "");
-        const to_rest = (try to_it.rest());
-        const to_rest_char = if (to_rest) |char| char.characters else "";
+        const from_component = from_it.nextBytes() ?? return mem.dupe(allocator, u8, "");
+        const to_rest = to_it.restBytes() ?? "";
 
-        if (try to_it.next()) |to_component| {
+        if (to_it.nextBytes()) |to_component| {
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
-            if (asciiEqlIgnoreCase(from_component.characters, to_component.characters))
+            if (asciiEqlIgnoreCase(from_component, to_component))
                 continue;
         }
 
         var up_count: usize = 1;
-        while (try from_it.next()) |_| {
+        while (from_it.nextBytes()) |_| {
             up_count += 1;
         }
 
@@ -971,12 +970,12 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
         // shave off the trailing slash
         result_index -= 1;
 
-        var rest_it = try stringUtils.split_it.init(to_rest_char, "/\\");
+        var rest_it = try string.asciiSplit(to_rest_char, "/\\");
         while (try rest_it.next()) |to_component| {
             result[result_index] = '\\';
             result_index += 1;
-            mem.copy(u8, result[result_index..], to_component.characters);
-            result_index += to_component.characters.len;
+            mem.copy(u8, result[result_index..], to_component);
+            result_index += to_component.len;
         }
 
         return result[0..result_index];
@@ -992,21 +991,21 @@ pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) ![
     const resolved_to = try resolvePosix(allocator, [][]const u8{to});
     defer allocator.free(resolved_to);
 
-    var from_it = try stringUtils.split_it.init(resolved_from, "/");
-    var to_it = try stringUtils.split_it.init(resolved_to, "/");
+    var from_it = try string.asciiSplit(resolved_from, "/");
+    var to_it = try string.asciiSplit(resolved_to, "/");
     while (true) {
-        const from_component = (try from_it.next()) ?? return mem.dupe(allocator, u8, (?? try to_it.rest()).characters);
-        const to_rest = ?? try to_it.rest();
-        if (try to_it.next()) |to_component| {
-            if (from_component.eql(&to_component))
+        const from_component = from_it.nextBytes() ?? return mem.dupe(allocator, u8, ?? to_it.restBytes());
+        const to_rest = ?? to_it.restBytes();
+        if (to_it.nextBytes()) |to_component| {
+            if (mem.eql(u8, from_component, to_component))
                 continue;
         }
         var up_count: usize = 1;
-        while (try from_it.next()) |_| {
+        while (from_it.nextBytes()) |_| {
             up_count += 1;
         }
         const up_index_end = up_count * "../".len;
-        const result = try allocator.alloc(u8, up_index_end + to_rest.characters.len);
+        const result = try allocator.alloc(u8, up_index_end + to_rest.len);
         errdefer allocator.free(result);
 
         var result_index: usize = 0;
@@ -1018,12 +1017,12 @@ pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) ![
             result[result_index] = '/';
             result_index += 1;
         }
-        if (to_rest.characters.len == 0) {
+        if (to_rest.len == 0) {
             // shave off the trailing slash
             return result[0..result_index - 1];
         }
 
-        mem.copy(u8, result[result_index..], to_rest.characters);
+        mem.copy(u8, result[result_index..], to_rest);
         return result;
     }
 

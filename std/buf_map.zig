@@ -8,7 +8,7 @@ const string = @import("string_utils.zig");
 pub const BufMap = struct {
     hash_map: BufMapHashMap,
 
-    const BufMapHashMap = HashMap([]const u8, []const u8, string.hash_str, string.str_eql);
+    const BufMapHashMap = HashMap([]const u8, []const u8, string.hashStr, string.strEql);
 
     pub fn init(allocator: &Allocator) BufMap {
         var self = BufMap {

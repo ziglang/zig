@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
 const os = this;
+const string = std.string;
 
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
@@ -405,10 +406,10 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     // +1 for the null terminating byte
     const path_buf = try allocator.alloc(u8, PATH.len + exe_path.len + 2);
     defer allocator.free(path_buf);
-    var it = mem.split(PATH, ":");
+    var it = try string.asciiSplit(PATH, ":");
     var seen_eacces = false;
     var err: usize = undefined;
-    while (it.next()) |search_path| {
+    while (it.nextBytes()) |search_path| {
         mem.copy(u8, path_buf, search_path);
         path_buf[search_path.len] = '/';
         mem.copy(u8, path_buf[search_path.len + 1 ..], exe_path);

@@ -13,6 +13,7 @@ const Emit = Module.Emit;
 const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
 const c = @import("c.zig");
+const string = std.string;
 
 const default_zig_cache_name = "zig-cache";
 
@@ -349,8 +350,9 @@ pub fn main() !void {
                         break :x out_name;
                     } else if (in_file_arg) |in_file_path| {
                         const basename = os.path.basename(in_file_path);
-                        var it = mem.split(basename, ".");
-                        break :x it.next() ?? badArgs("file name cannot be empty");
+                        var it = try string.asciiSplit(basename, ".");
+                        var next = it.nextBytes();
+                        break :x next ?? badArgs("file name cannot be empty");
                     } else {
                         badArgs("--name [name] not provided and unable to infer");
                     }

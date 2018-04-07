@@ -28,9 +28,10 @@ pub const net = @import("net.zig");
 pub const os = @import("os/index.zig");
 pub const rand = @import("rand/index.zig");
 pub const sort = @import("sort.zig");
-pub const unicode = @import("unicode.zig");
+pub const unicode = @import("locale/unicode.zig");
+pub const ascii = @import("locale/ascii.zig");
 pub const zig = @import("zig/index.zig");
-pub const stringUtils = @import("string_utils.zig");
+pub const string = @import("string_utils.zig");
 pub const locale = @import("locale/locale.zig");
 
 test "std" {
@@ -62,7 +63,9 @@ test "std" {
     _ = @import("os/index.zig");
     _ = @import("rand/index.zig");
     _ = @import("sort.zig");
-    _ = @import("unicode.zig");
+    _ = @import("locale/unicode.zig");
+    _ = @import("locale/locale.zig");
+    _ = @import("locale/ascii.zig");
     _ = @import("zig/index.zig");
     _ = @import("string_utils.zig");
 }

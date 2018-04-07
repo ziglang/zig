@@ -1,4 +1,4 @@
-const std = @import("./index.zig");
+const std = @import("../index.zig");
 const debug = std.debug;
 const mem = std.mem;
 
@@ -160,12 +160,12 @@ pub const Utf8View = struct {
         return mem.eql(u8, self.bytes, other.bytes);
     }
 
-    pub fn slice(self: &const Utf8View, start: usize, end: usize) !Utf8View {
-        return Utf8View.init(self.bytes[start..end]);
+    pub fn sliceRaw(self: &const Utf8View, start: usize, end: usize) []const u8 {
+        return self.bytes[start..end];
     }
 
-    pub fn sliceToEndFrom(self: &const Utf8View, start: usize) !Utf8View {
-        return Utf8View.init(self.bytes[start..]);
+    pub fn sliceRawToEndFrom(self: &const Utf8View, start: usize) []const u8 {
+        return self.bytes[start..];
     }
 
     pub fn initUnchecked(s: []const u8) Utf8View {
@@ -187,14 +187,14 @@ pub const Utf8View = struct {
 
     pub fn iterator(s: &const Utf8View) Utf8Iterator {
         return Utf8Iterator {
-            .bytes = s.bytes,
+            .raw = s.bytes,
             .index = 0,
         };
     }
 };
 
 pub const Utf8Iterator = struct {
-    bytes: []const u8,
+    raw: []const u8,
     index: usize,
 
     pub fn reset(it: &Utf8Iterator) void {
@@ -206,14 +206,14 @@ pub const Utf8Iterator = struct {
     }
 
     pub fn nextBytes(it: &Utf8Iterator) ?[]const u8 {
-        if (it.index >= it.bytes.len) {
+        if (it.index >= it.raw.len) {
             return null;
         }
 
-        const cp_len = utf8ByteSequenceLength(it.bytes[it.index]) catch unreachable;
+        const cp_len = utf8ByteSequenceLength(it.raw[it.index]) catch unreachable;
 
         it.index+= cp_len;
-        return it.bytes[it.index-cp_len..it.index];
+        return it.raw[it.index-cp_len..it.index];
     }
 
     pub fn nextCodepoint(it: &Utf8Iterator) ?u32 {

@@ -5,7 +5,7 @@ const os = std.os;
 const warn = std.debug.warn;
 const mem = std.mem;
 const assert = std.debug.assert;
-const string = std.stringUtils;
+const string = std.string;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -310,7 +310,7 @@ const Node = union(enum) {
 const Toc = struct {
     nodes: []Node,
     toc: []u8,
-    urls: std.HashMap([]const u8, Token, string.hash_str, string.str_eql),
+    urls: std.HashMap([]const u8, Token, string.hashStr, string.strEql),
 };
 
 const Action = enum {
@@ -319,7 +319,7 @@ const Action = enum {
 };
 
 fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) !Toc {
-    var urls = std.HashMap([]const u8, Token, string.hash_str, string.str_eql).init(allocator);
+    var urls = std.HashMap([]const u8, Token, string.hashStr, string.strEql).init(allocator);
     errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
@@ -719,7 +719,7 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var
                 warn("docgen example code {}/{}...", code_progress_index, tokenizer.code_node_count);
 
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
-                const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
+                const trimmed_raw_source = mem.trim(u8, raw_source, " \n", mem.Side.BOTH);
                 const escaped_source = try escapeHtml(allocator, trimmed_raw_source);
                 if (!code.is_inline) {
                     try out.print("<p class=\"file\">{}.zig</p>", code.name);

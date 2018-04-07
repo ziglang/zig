@@ -6,7 +6,7 @@ const string = @import("string_utils.zig");
 pub const BufSet = struct {
     hash_map: BufSetHashMap,
 
-    const BufSetHashMap = HashMap([]const u8, void, string.hash_str, string.str_eql);
+    const BufSetHashMap = HashMap([]const u8, void, string.hashStr, string.strEql);
 
     pub fn init(a: &Allocator) BufSet {
         var self = BufSet {
