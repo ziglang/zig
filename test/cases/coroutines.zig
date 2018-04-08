@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 var x: i32 = 1;
@@ -188,4 +189,31 @@ test "async fn with inferred error set" {
 async fn failing() !void {
     suspend;
     return error.Fail;
+}
+
+test "error return trace across suspend points" {
+    const p = nonFailing();
+    resume p;
+    const p2 = try async<std.debug.global_allocator> printTrace(p);
+    cancel p2;
+}
+
+fn nonFailing() promise->error!void {
+    return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
+}
+
+async fn suspendThenFail() error!void {
+    suspend;
+    return error.Fail;
+}
+
+async fn printTrace(p: promise->error!void) void {
+    (await p) catch |e| {
+        std.debug.assert(e == error.Fail);
+        if (@errorReturnTrace()) |trace| {
+            assert(trace.index == 1);
+        } else if (builtin.mode != builtin.Mode.ReleaseFast) {
+            @panic("expected return trace");
+        }
+    };
 }
