@@ -1192,7 +1192,9 @@ static void ir_print_merge_err_ret_traces(IrPrint *irp, IrInstructionMergeErrRet
     fprintf(irp->f, "@mergeErrRetTraces(");
     ir_print_other_instruction(irp, instruction->coro_promise_ptr);
     fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->err_ret_trace_ptr);
+    ir_print_other_instruction(irp, instruction->src_err_ret_trace_ptr);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->dest_err_ret_trace_ptr);
     fprintf(irp->f, ")");
 }
 

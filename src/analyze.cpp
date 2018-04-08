@@ -474,6 +474,7 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     field_names.append(RESULT_FIELD_NAME);
     field_names.append(RESULT_PTR_FIELD_NAME);
     if (g->have_err_ret_tracing) {
+        field_names.append(ERR_RET_TRACE_PTR_FIELD_NAME);
         field_names.append(ERR_RET_TRACE_FIELD_NAME);
         field_names.append(RETURN_ADDRESSES_FIELD_NAME);
     }
@@ -483,7 +484,7 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     field_types.append(return_type);
     field_types.append(result_ptr_type);
     if (g->have_err_ret_tracing) {
-        get_ptr_to_stack_trace_type(g);
+        field_types.append(get_ptr_to_stack_trace_type(g));
         field_types.append(g->stack_trace_type);
         field_types.append(get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count));
     }

@@ -4383,8 +4383,8 @@ static LLVMValueRef ir_render_merge_err_ret_traces(CodeGen *g, IrExecutable *exe
 {
     assert(g->have_err_ret_tracing);
 
-    LLVMValueRef src_trace_ptr = ir_llvm_value(g, instruction->err_ret_trace_ptr);
-    LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, instruction->base.scope);
+    LLVMValueRef src_trace_ptr = ir_llvm_value(g, instruction->src_err_ret_trace_ptr);
+    LLVMValueRef dest_trace_ptr = ir_llvm_value(g, instruction->dest_err_ret_trace_ptr);
 
     LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
     ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");

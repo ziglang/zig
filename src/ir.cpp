@@ -2708,14 +2708,16 @@ static IrInstruction *ir_build_add_implicit_return_type(IrBuilder *irb, Scope *s
 }
 
 static IrInstruction *ir_build_merge_err_ret_traces(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *coro_promise_ptr, IrInstruction *err_ret_trace_ptr)
+        IrInstruction *coro_promise_ptr, IrInstruction *src_err_ret_trace_ptr, IrInstruction *dest_err_ret_trace_ptr)
 {
     IrInstructionMergeErrRetTraces *instruction = ir_build_instruction<IrInstructionMergeErrRetTraces>(irb, scope, source_node);
     instruction->coro_promise_ptr = coro_promise_ptr;
-    instruction->err_ret_trace_ptr = err_ret_trace_ptr;
+    instruction->src_err_ret_trace_ptr = src_err_ret_trace_ptr;
+    instruction->dest_err_ret_trace_ptr = dest_err_ret_trace_ptr;
 
     ir_ref_instruction(coro_promise_ptr, irb->current_basic_block);
-    ir_ref_instruction(err_ret_trace_ptr, irb->current_basic_block);
+    ir_ref_instruction(src_err_ret_trace_ptr, irb->current_basic_block);
+    ir_ref_instruction(dest_err_ret_trace_ptr, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -6115,6 +6117,13 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
     Buf *result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
     IrInstruction *result_ptr_field_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, result_ptr_field_name);
 
+    if (irb->codegen->have_err_ret_tracing) {
+        IrInstruction *err_ret_trace_ptr = ir_build_error_return_trace(irb, parent_scope, node, IrInstructionErrorReturnTrace::NonNull);
+        Buf *err_ret_trace_ptr_field_name = buf_create_from_str(ERR_RET_TRACE_PTR_FIELD_NAME);
+        IrInstruction *err_ret_trace_ptr_field_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, err_ret_trace_ptr_field_name);
+        ir_build_store_ptr(irb, parent_scope, node, err_ret_trace_ptr_field_ptr, err_ret_trace_ptr);
+    }
+
     Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
     IrInstruction *awaiter_field_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr,
             awaiter_handle_field_name);
@@ -6144,8 +6153,9 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
     ir_set_cursor_at_end_and_append_block(irb, no_suspend_block);
     if (irb->codegen->have_err_ret_tracing) {
         Buf *err_ret_trace_field_name = buf_create_from_str(ERR_RET_TRACE_FIELD_NAME);
-        IrInstruction *err_ret_trace_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, err_ret_trace_field_name);
-        ir_build_merge_err_ret_traces(irb, parent_scope, node, coro_promise_ptr, err_ret_trace_ptr);
+        IrInstruction *src_err_ret_trace_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, err_ret_trace_field_name);
+        IrInstruction *dest_err_ret_trace_ptr = ir_build_error_return_trace(irb, parent_scope, node, IrInstructionErrorReturnTrace::NonNull);
+        ir_build_merge_err_ret_traces(irb, parent_scope, node, coro_promise_ptr, src_err_ret_trace_ptr, dest_err_ret_trace_ptr);
     }
     Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
     IrInstruction *promise_result_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, result_field_name);
@@ -6402,6 +6412,8 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     IrInstruction *coro_id;
     IrInstruction *u8_ptr_type;
     IrInstruction *const_bool_false;
+    IrInstruction *coro_promise_ptr;
+    IrInstruction *err_ret_trace_ptr;
     TypeTableEntry *return_type;
     Buf *result_ptr_field_name;
     VariableTableEntry *coro_size_var;
@@ -6417,7 +6429,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *coro_frame_type_value = ir_build_const_type(irb, coro_scope, node, coro_frame_type);
         // TODO mark this var decl as "no safety" e.g. disable initializing the undef value to 0xaa
         ir_build_var_decl(irb, coro_scope, node, promise_var, coro_frame_type_value, nullptr, undef);
-        IrInstruction *coro_promise_ptr = ir_build_var_ptr(irb, coro_scope, node, promise_var, false, false);
+        coro_promise_ptr = ir_build_var_ptr(irb, coro_scope, node, promise_var, false, false);
 
         VariableTableEntry *await_handle_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
         IrInstruction *null_value = ir_build_const_null(irb, coro_scope, node);
@@ -6471,7 +6483,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
             IrInstruction *return_addresses_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, return_addresses_field_name);
 
             Buf *err_ret_trace_field_name = buf_create_from_str(ERR_RET_TRACE_FIELD_NAME);
-            IrInstruction *err_ret_trace_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, err_ret_trace_field_name);
+            err_ret_trace_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, err_ret_trace_field_name);
             ir_build_mark_err_ret_trace_ptr(irb, scope, node, err_ret_trace_ptr);
 
             // coordinate with builtin.zig
@@ -6535,6 +6547,12 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
                     fn_entry->type_entry->data.fn.fn_type_id.return_type);
             IrInstruction *size_of_ret_val = ir_build_size_of(irb, scope, node, return_type_inst);
             ir_build_memcpy(irb, scope, node, result_ptr_as_u8_ptr, return_value_ptr_as_u8_ptr, size_of_ret_val);
+        }
+        if (irb->codegen->have_err_ret_tracing) {
+            Buf *err_ret_trace_ptr_field_name = buf_create_from_str(ERR_RET_TRACE_PTR_FIELD_NAME);
+            IrInstruction *err_ret_trace_ptr_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, err_ret_trace_ptr_field_name);
+            IrInstruction *dest_err_ret_trace_ptr = ir_build_load_ptr(irb, scope, node, err_ret_trace_ptr_field_ptr);
+            ir_build_merge_err_ret_traces(irb, scope, node, coro_promise_ptr, err_ret_trace_ptr, dest_err_ret_trace_ptr);
         }
         ir_build_br(irb, scope, node, check_free_block, const_bool_false);
 
@@ -13098,6 +13116,7 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
 {
     if (!is_slice(bare_struct_type)) {
         ScopeDecls *container_scope = get_container_scope(bare_struct_type);
+        assert(container_scope != nullptr);
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
         if (tld && tld->id == TldIdFn) {
@@ -17948,12 +17967,16 @@ static TypeTableEntry *ir_analyze_instruction_merge_err_ret_traces(IrAnalyze *ir
         return out_val->type;
     }
 
-    IrInstruction *err_ret_trace_ptr = instruction->err_ret_trace_ptr->other;
-    if (type_is_invalid(err_ret_trace_ptr->value.type))
+    IrInstruction *src_err_ret_trace_ptr = instruction->src_err_ret_trace_ptr->other;
+    if (type_is_invalid(src_err_ret_trace_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *dest_err_ret_trace_ptr = instruction->dest_err_ret_trace_ptr->other;
+    if (type_is_invalid(dest_err_ret_trace_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *result = ir_build_merge_err_ret_traces(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, coro_promise_ptr, err_ret_trace_ptr);
+            instruction->base.source_node, coro_promise_ptr, src_err_ret_trace_ptr, dest_err_ret_trace_ptr);
     ir_link_new_instruction(result, &instruction->base);
     result->value.type = ira->codegen->builtin_types.entry_void;
     return result->value.type;

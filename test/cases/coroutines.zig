@@ -191,10 +191,17 @@ async fn failing() !void {
     return error.Fail;
 }
 
-test "error return trace across suspend points" {
+test "error return trace across suspend points - early return" {
     const p = nonFailing();
     resume p;
     const p2 = try async<std.debug.global_allocator> printTrace(p);
+    cancel p2;
+}
+
+test "error return trace across suspend points - async return" {
+    const p = nonFailing();
+    const p2 = try async<std.debug.global_allocator> printTrace(p);
+    resume p;
     cancel p2;
 }
 

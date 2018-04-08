@@ -3037,7 +3037,8 @@ struct IrInstructionMergeErrRetTraces {
     IrInstruction base;
 
     IrInstruction *coro_promise_ptr;
-    IrInstruction *err_ret_trace_ptr;
+    IrInstruction *src_err_ret_trace_ptr;
+    IrInstruction *dest_err_ret_trace_ptr;
 };
 
 struct IrInstructionMarkErrRetTracePtr {
@@ -3058,13 +3059,16 @@ static const size_t err_union_payload_index = 1;
 // TODO call graph analysis to find out what this number needs to be for every function
 static const size_t stack_trace_ptr_count = 30;
 
+// these belong to the async function
+#define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
+#define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
+#define RESULT_FIELD_NAME "result"
 #define ASYNC_ALLOC_FIELD_NAME "allocFn"
 #define ASYNC_FREE_FIELD_NAME "freeFn"
 #define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
-#define RESULT_FIELD_NAME "result"
+// these point to data belonging to the awaiter
+#define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 #define RESULT_PTR_FIELD_NAME "result_ptr"
-#define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
-#define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
 
 
 enum FloatMode {
