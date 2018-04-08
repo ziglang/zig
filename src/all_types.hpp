@@ -2691,7 +2691,6 @@ struct IrInstructionFnProto {
 
     IrInstruction **param_types;
     IrInstruction *align_value;
-    IrInstruction *async_allocator_type_value;
     IrInstruction *return_type;
     IrInstruction *async_allocator_type_value;
     bool is_var_args;

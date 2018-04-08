@@ -133,7 +133,6 @@ fn early_seq(c: u8) void {
     early_points[early_seq_index] = c;
     early_seq_index += 1;
 }
-<<<<<<< HEAD
 
 test "coro allocation failure" {
     var failing_allocator = std.debug.FailingAllocator.init(std.debug.global_allocator, 0);

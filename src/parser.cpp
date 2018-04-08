@@ -1037,7 +1037,6 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
 
     Token *async_token = &pc->tokens->at(*token_index);
     if (async_token->id == TokenIdKeywordAsync) {
-        size_t token_index_of_async = *token_index;
         *token_index += 1;
 
         AstNode *allocator_expr_node = nullptr;

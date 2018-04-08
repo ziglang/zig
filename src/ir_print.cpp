@@ -1146,12 +1146,6 @@ static void ir_print_coro_alloc_helper(IrPrint *irp, IrInstructionCoroAllocHelpe
     fprintf(irp->f, ")");
 }
 
-static void ir_print_add_implicit_return_type(IrPrint *irp, IrInstructionAddImplicitReturnType *instruction) {
-    fprintf(irp->f, "@addImplicitReturnType(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_atomic_rmw(IrPrint *irp, IrInstructionAtomicRmw *instruction) {
     fprintf(irp->f, "@atomicRmw(");
     if (instruction->operand_type != nullptr) {
