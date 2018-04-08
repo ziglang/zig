@@ -1192,9 +1192,13 @@ static void ir_print_merge_err_ret_traces(IrPrint *irp, IrInstructionMergeErrRet
     fprintf(irp->f, "@mergeErrRetTraces(");
     ir_print_other_instruction(irp, instruction->coro_promise_ptr);
     fprintf(irp->f, ",");
-    if (instruction->resolved_field != nullptr) {
-        fprintf(irp->f, "field '%s'", buf_ptr(instruction->resolved_field->name));
-    }
+    ir_print_other_instruction(irp, instruction->err_ret_trace_ptr);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_mark_err_ret_trace_ptr(IrPrint *irp, IrInstructionMarkErrRetTracePtr *instruction) {
+    fprintf(irp->f, "@markErrRetTracePtr(");
+    ir_print_other_instruction(irp, instruction->err_ret_trace_ptr);
     fprintf(irp->f, ")");
 }
 
@@ -1580,6 +1584,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdMergeErrRetTraces:
             ir_print_merge_err_ret_traces(irp, (IrInstructionMergeErrRetTraces *)instruction);
+            break;
+        case IrInstructionIdMarkErrRetTracePtr:
+            ir_print_mark_err_ret_trace_ptr(irp, (IrInstructionMarkErrRetTracePtr *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

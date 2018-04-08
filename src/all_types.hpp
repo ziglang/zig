@@ -2057,6 +2057,7 @@ enum IrInstructionId {
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
     IrInstructionIdMergeErrRetTraces,
+    IrInstructionIdMarkErrRetTracePtr,
 };
 
 struct IrInstruction {
@@ -3036,7 +3037,13 @@ struct IrInstructionMergeErrRetTraces {
     IrInstruction base;
 
     IrInstruction *coro_promise_ptr;
-    TypeStructField *resolved_field;
+    IrInstruction *err_ret_trace_ptr;
+};
+
+struct IrInstructionMarkErrRetTracePtr {
+    IrInstruction base;
+
+    IrInstruction *err_ret_trace_ptr;
 };
 
 static const size_t slice_ptr_index = 0;
@@ -3056,7 +3063,8 @@ static const size_t stack_trace_ptr_count = 30;
 #define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
 #define RESULT_FIELD_NAME "result"
 #define RESULT_PTR_FIELD_NAME "result_ptr"
-#define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
+#define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
+#define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
 
 
 enum FloatMode {

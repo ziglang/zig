@@ -4383,14 +4383,19 @@ static LLVMValueRef ir_render_merge_err_ret_traces(CodeGen *g, IrExecutable *exe
 {
     assert(g->have_err_ret_tracing);
 
-    LLVMValueRef coro_promise_ptr = ir_llvm_value(g, instruction->coro_promise_ptr);
-    TypeStructField *field = instruction->resolved_field;
-    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, coro_promise_ptr, field->gen_index, "");
-    LLVMValueRef src_trace_ptr = LLVMBuildLoad(g->builder, ptr_field_ptr, "");
+    LLVMValueRef src_trace_ptr = ir_llvm_value(g, instruction->err_ret_trace_ptr);
     LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, instruction->base.scope);
 
     LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
     LLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2, "");
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_mark_err_ret_trace_ptr(CodeGen *g, IrExecutable *executable,
+        IrInstructionMarkErrRetTracePtr *instruction)
+{
+    assert(g->have_err_ret_tracing);
+    g->cur_err_ret_trace_val_stack = ir_llvm_value(g, instruction->err_ret_trace_ptr);
     return nullptr;
 }
 
@@ -4613,6 +4618,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_save_err_ret_addr(g, executable, (IrInstructionSaveErrRetAddr *)instruction);
         case IrInstructionIdMergeErrRetTraces:
             return ir_render_merge_err_ret_traces(g, executable, (IrInstructionMergeErrRetTraces *)instruction);
+        case IrInstructionIdMarkErrRetTracePtr:
+            return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
     }
     zig_unreachable();
 }
@@ -5504,16 +5511,11 @@ static void do_code_gen(CodeGen *g) {
 
         // error return tracing setup
         bool is_async = fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
-        bool have_err_ret_trace_stack = g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn &&
-            (is_async || !have_err_ret_trace_arg);
-        bool have_exactly_one_err_ret_value = !have_err_ret_trace_stack && g->have_err_ret_tracing && is_async &&
-            type_can_fail(fn_table_entry->type_entry->data.fn.fn_type_id.return_type);
+        bool have_err_ret_trace_stack = g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn && !is_async && !have_err_ret_trace_arg;
         LLVMValueRef err_ret_array_val = nullptr;
-        if (have_err_ret_trace_stack || have_exactly_one_err_ret_value) {
-            uint32_t ret_addr_count = have_exactly_one_err_ret_value ? 1 : stack_trace_ptr_count;
-            TypeTableEntry *array_type = get_array_type(g, g->builtin_types.entry_usize, ret_addr_count);
-            err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses",
-                    get_abi_alignment(g, array_type));
+        if (have_err_ret_trace_stack) {
+            TypeTableEntry *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count);
+            err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses", get_abi_alignment(g, array_type));
             g->cur_err_ret_trace_val_stack = build_alloca(g, g->stack_trace_type, "error_return_trace", get_abi_alignment(g, g->stack_trace_type));
         } else {
             g->cur_err_ret_trace_val_stack = nullptr;
@@ -5610,8 +5612,7 @@ static void do_code_gen(CodeGen *g) {
         }
 
         // finishing error return trace setup. we have to do this after all the allocas.
-        if (have_err_ret_trace_stack || have_exactly_one_err_ret_value) {
-            uint32_t ret_addr_count = have_exactly_one_err_ret_value ? 1 : stack_trace_ptr_count;
+        if (have_err_ret_trace_stack) {
             TypeTableEntry *usize = g->builtin_types.entry_usize;
             size_t index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;
             LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)index_field_index, "");
@@ -5632,7 +5633,7 @@ static void do_code_gen(CodeGen *g) {
 
             size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
             LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
-            gen_store(g, LLVMConstInt(usize->type_ref, ret_addr_count, false), len_field_ptr, get_pointer_to_type(g, usize, false));
+            gen_store(g, LLVMConstInt(usize->type_ref, stack_trace_ptr_count, false), len_field_ptr, get_pointer_to_type(g, usize, false));
         }
 
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;

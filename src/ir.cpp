@@ -729,6 +729,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionMergeErrRetTrace
     return IrInstructionIdMergeErrRetTraces;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionMarkErrRetTracePtr *) {
+    return IrInstructionIdMarkErrRetTracePtr;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -957,31 +961,6 @@ static IrInstruction *ir_build_const_str_lit(IrBuilder *irb, Scope *scope, AstNo
 static IrInstruction *ir_build_const_c_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     init_const_c_str_lit(irb->codegen, &const_instruction->base.value, str);
-    return &const_instruction->base;
-}
-
-static IrInstruction *ir_build_const_promise_init(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        TypeTableEntry *return_type)
-{
-    TypeTableEntry *struct_type = get_promise_frame_type(irb->codegen, return_type);
-
-    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.value.type = struct_type;
-    const_instruction->base.value.special = ConstValSpecialStatic;
-    const_instruction->base.value.data.x_struct.fields = allocate<ConstExprValue>(struct_type->data.structure.src_field_count);
-    const_instruction->base.value.data.x_struct.fields[0].type = struct_type->data.structure.fields[0].type_entry;
-    const_instruction->base.value.data.x_struct.fields[0].special = ConstValSpecialStatic;
-    const_instruction->base.value.data.x_struct.fields[0].data.x_maybe = nullptr;
-    const_instruction->base.value.data.x_struct.fields[1].type = return_type;
-    const_instruction->base.value.data.x_struct.fields[1].special = ConstValSpecialUndef;
-    const_instruction->base.value.data.x_struct.fields[2].type = struct_type->data.structure.fields[2].type_entry;
-    const_instruction->base.value.data.x_struct.fields[2].special = ConstValSpecialUndef;
-    if (irb->codegen->have_err_ret_tracing) {
-        assert(struct_type->data.structure.src_field_count == 4);
-
-        const_instruction->base.value.data.x_struct.fields[3].type = struct_type->data.structure.fields[3].type_entry;
-        const_instruction->base.value.data.x_struct.fields[3].special = ConstValSpecialUndef;
-    }
     return &const_instruction->base;
 }
 
@@ -2729,13 +2708,23 @@ static IrInstruction *ir_build_add_implicit_return_type(IrBuilder *irb, Scope *s
 }
 
 static IrInstruction *ir_build_merge_err_ret_traces(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *coro_promise_ptr, TypeStructField *resolved_field)
+        IrInstruction *coro_promise_ptr, IrInstruction *err_ret_trace_ptr)
 {
     IrInstructionMergeErrRetTraces *instruction = ir_build_instruction<IrInstructionMergeErrRetTraces>(irb, scope, source_node);
     instruction->coro_promise_ptr = coro_promise_ptr;
-    instruction->resolved_field = resolved_field;
+    instruction->err_ret_trace_ptr = err_ret_trace_ptr;
 
     ir_ref_instruction(coro_promise_ptr, irb->current_basic_block);
+    ir_ref_instruction(err_ret_trace_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_mark_err_ret_trace_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *err_ret_trace_ptr) {
+    IrInstructionMarkErrRetTracePtr *instruction = ir_build_instruction<IrInstructionMarkErrRetTracePtr>(irb, scope, source_node);
+    instruction->err_ret_trace_ptr = err_ret_trace_ptr;
+
+    ir_ref_instruction(err_ret_trace_ptr, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -6154,7 +6143,9 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
 
     ir_set_cursor_at_end_and_append_block(irb, no_suspend_block);
     if (irb->codegen->have_err_ret_tracing) {
-        ir_build_merge_err_ret_traces(irb, parent_scope, node, coro_promise_ptr, nullptr);
+        Buf *err_ret_trace_field_name = buf_create_from_str(ERR_RET_TRACE_FIELD_NAME);
+        IrInstruction *err_ret_trace_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, err_ret_trace_field_name);
+        ir_build_merge_err_ret_traces(irb, parent_scope, node, coro_promise_ptr, err_ret_trace_ptr);
     }
     Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
     IrInstruction *promise_result_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, result_field_name);
@@ -6421,8 +6412,11 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         VariableTableEntry *promise_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
 
         return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
-        IrInstruction *promise_init = ir_build_const_promise_init(irb, coro_scope, node, return_type);
-        ir_build_var_decl(irb, coro_scope, node, promise_var, nullptr, nullptr, promise_init);
+        IrInstruction *undef = ir_build_const_undefined(irb, coro_scope, node);
+        TypeTableEntry *coro_frame_type = get_promise_frame_type(irb->codegen, return_type);
+        IrInstruction *coro_frame_type_value = ir_build_const_type(irb, coro_scope, node, coro_frame_type);
+        // TODO mark this var decl as "no safety" e.g. disable initializing the undef value to 0xaa
+        ir_build_var_decl(irb, coro_scope, node, promise_var, coro_frame_type_value, nullptr, undef);
         IrInstruction *coro_promise_ptr = ir_build_var_ptr(irb, coro_scope, node, promise_var, false, false);
 
         VariableTableEntry *await_handle_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
@@ -6456,7 +6450,6 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_set_cursor_at_end_and_append_block(irb, alloc_err_block);
         // we can return undefined here, because the caller passes a pointer to the error struct field
         // in the error union result, and we populate it in case of allocation failure.
-        IrInstruction *undef = ir_build_const_undefined(irb, coro_scope, node);
         ir_build_return(irb, coro_scope, node, undef);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_ok_block);
@@ -6466,16 +6459,32 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
         irb->exec->coro_awaiter_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
                 awaiter_handle_field_name);
+        ir_build_store_ptr(irb, scope, node, irb->exec->coro_awaiter_field_ptr, null_value);
         Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
         irb->exec->coro_result_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, result_field_name);
         result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
         irb->exec->coro_result_ptr_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, result_ptr_field_name);
         ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr, irb->exec->coro_result_field_ptr);
         if (irb->codegen->have_err_ret_tracing) {
-            IrInstruction *err_ret_trace_ptr = ir_build_error_return_trace(irb, scope, node, IrInstructionErrorReturnTrace::NonNull);
-            Buf *err_ret_trace_ptr_field_name = buf_create_from_str(ERR_RET_TRACE_PTR_FIELD_NAME);
-            IrInstruction *coro_err_ret_trace_ptr_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, err_ret_trace_ptr_field_name);
-            ir_build_store_ptr(irb, scope, node, coro_err_ret_trace_ptr_field_ptr, err_ret_trace_ptr);
+            // initialize the error return trace
+            Buf *return_addresses_field_name = buf_create_from_str(RETURN_ADDRESSES_FIELD_NAME);
+            IrInstruction *return_addresses_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, return_addresses_field_name);
+
+            Buf *err_ret_trace_field_name = buf_create_from_str(ERR_RET_TRACE_FIELD_NAME);
+            IrInstruction *err_ret_trace_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, err_ret_trace_field_name);
+            ir_build_mark_err_ret_trace_ptr(irb, scope, node, err_ret_trace_ptr);
+
+            // coordinate with builtin.zig
+            Buf *index_name = buf_create_from_str("index");
+            IrInstruction *index_ptr = ir_build_field_ptr(irb, scope, node, err_ret_trace_ptr, index_name);
+            IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
+            ir_build_store_ptr(irb, scope, node, index_ptr, zero);
+
+            Buf *instruction_addresses_name = buf_create_from_str("instruction_addresses");
+            IrInstruction *addrs_slice_ptr = ir_build_field_ptr(irb, scope, node, err_ret_trace_ptr, instruction_addresses_name);
+
+            IrInstruction *slice_value = ir_build_slice(irb, scope, node, return_addresses_ptr, zero, nullptr, false);
+            ir_build_store_ptr(irb, scope, node, addrs_slice_ptr, slice_value);
         }
 
 
@@ -17939,11 +17948,12 @@ static TypeTableEntry *ir_analyze_instruction_merge_err_ret_traces(IrAnalyze *ir
         return out_val->type;
     }
 
-    TypeStructField *field = find_struct_type_field(promise_frame_type, buf_create_from_str(ERR_RET_TRACE_PTR_FIELD_NAME));
-    assert(field != nullptr);
+    IrInstruction *err_ret_trace_ptr = instruction->err_ret_trace_ptr->other;
+    if (type_is_invalid(err_ret_trace_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *result = ir_build_merge_err_ret_traces(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, coro_promise_ptr, field);
+            instruction->base.source_node, coro_promise_ptr, err_ret_trace_ptr);
     ir_link_new_instruction(result, &instruction->base);
     result->value.type = ira->codegen->builtin_types.entry_void;
     return result->value.type;
@@ -17952,6 +17962,18 @@ static TypeTableEntry *ir_analyze_instruction_merge_err_ret_traces(IrAnalyze *ir
 static TypeTableEntry *ir_analyze_instruction_save_err_ret_addr(IrAnalyze *ira, IrInstructionSaveErrRetAddr *instruction) {
     IrInstruction *result = ir_build_save_err_ret_addr(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_mark_err_ret_trace_ptr(IrAnalyze *ira, IrInstructionMarkErrRetTracePtr *instruction) {
+    IrInstruction *err_ret_trace_ptr = instruction->err_ret_trace_ptr->other;
+    if (type_is_invalid(err_ret_trace_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_mark_err_ret_trace_ptr(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, err_ret_trace_ptr);
     ir_link_new_instruction(result, &instruction->base);
     result->value.type = ira->codegen->builtin_types.entry_void;
     return result->value.type;
@@ -18202,6 +18224,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_add_implicit_return_type(ira, (IrInstructionAddImplicitReturnType *)instruction);
         case IrInstructionIdMergeErrRetTraces:
             return ir_analyze_instruction_merge_err_ret_traces(ira, (IrInstructionMergeErrRetTraces *)instruction);
+        case IrInstructionIdMarkErrRetTracePtr:
+            return ir_analyze_instruction_mark_err_ret_trace_ptr(ira, (IrInstructionMarkErrRetTracePtr *)instruction);
     }
     zig_unreachable();
 }
@@ -18330,6 +18354,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSaveErrRetAddr:
         case IrInstructionIdAddImplicitReturnType:
         case IrInstructionIdMergeErrRetTraces:
+        case IrInstructionIdMarkErrRetTracePtr:
             return true;
 
         case IrInstructionIdPhi:
