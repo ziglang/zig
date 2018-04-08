@@ -468,10 +468,30 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
 
     TypeTableEntry *awaiter_handle_type = get_maybe_type(g, g->builtin_types.entry_promise);
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
-    const char *field_names[] = {AWAITER_HANDLE_FIELD_NAME, RESULT_FIELD_NAME, RESULT_PTR_FIELD_NAME};
-    TypeTableEntry *field_types[] = {awaiter_handle_type, return_type, result_ptr_type};
+
+    ZigList<const char *> field_names = {};
+    field_names.append(AWAITER_HANDLE_FIELD_NAME);
+    field_names.append(RESULT_FIELD_NAME);
+    field_names.append(RESULT_PTR_FIELD_NAME);
+    if (g->have_err_ret_tracing) {
+        field_names.append(ERR_RET_TRACE_PTR_FIELD_NAME);
+        field_names.append(ERR_RET_TRACE_FIELD_NAME);
+        field_names.append(RETURN_ADDRESSES_FIELD_NAME);
+    }
+
+    ZigList<TypeTableEntry *> field_types = {};
+    field_types.append(awaiter_handle_type);
+    field_types.append(return_type);
+    field_types.append(result_ptr_type);
+    if (g->have_err_ret_tracing) {
+        field_types.append(get_ptr_to_stack_trace_type(g));
+        field_types.append(g->stack_trace_type);
+        field_types.append(get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count));
+    }
+
+    assert(field_names.length == field_types.length);
     Buf *name = buf_sprintf("AsyncFramePromise(%s)", buf_ptr(&return_type->name));
-    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, 3);
+    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names.items, field_types.items, field_names.length);
 
     return_type->promise_frame_parent = entry;
     return entry;

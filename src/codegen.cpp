@@ -1114,6 +1114,207 @@ static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     return g->return_address_fn_val;
 }
 
+static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
+    if (g->add_error_return_trace_addr_fn_val != nullptr)
+        return g->add_error_return_trace_addr_fn_val;
+
+    LLVMTypeRef arg_types[] = {
+        get_ptr_to_stack_trace_type(g)->type_ref,
+        g->builtin_types.entry_usize->type_ref,
+    };
+    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 2, false);
+
+    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_add_err_ret_trace_addr"), false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    addLLVMFnAttr(fn_val, "alwaysinline");
+    LLVMSetLinkage(fn_val, LLVMInternalLinkage);
+    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    addLLVMFnAttr(fn_val, "nounwind");
+    add_uwtable_attr(g, fn_val);
+    addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
+    if (g->build_mode == BuildModeDebug) {
+        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
+        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+    }
+
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
+    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
+    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
+    LLVMPositionBuilderAtEnd(g->builder, entry_block);
+    ZigLLVMClearCurrentDebugLocation(g->builder);
+
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->type_ref;
+
+    // stack_trace.instruction_addresses[stack_trace.index % stack_trace.instruction_addresses.len] = return_address;
+
+    LLVMValueRef err_ret_trace_ptr = LLVMGetParam(fn_val, 0);
+    LLVMValueRef address_value = LLVMGetParam(fn_val, 1);
+
+    size_t index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;
+    LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, err_ret_trace_ptr, (unsigned)index_field_index, "");
+    size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1].gen_index;
+    LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, err_ret_trace_ptr, (unsigned)addresses_field_index, "");
+
+    TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
+    size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)ptr_field_index, "");
+    size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
+
+    LLVMValueRef len_value = gen_load_untyped(g, len_field_ptr, 0, false, "");
+    LLVMValueRef index_val = gen_load_untyped(g, index_field_ptr, 0, false, "");
+    LLVMValueRef modded_val = LLVMBuildURem(g->builder, index_val, len_value, "");
+    LLVMValueRef address_indices[] = {
+        modded_val,
+    };
+
+    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
+    LLVMValueRef address_slot = LLVMBuildInBoundsGEP(g->builder, ptr_value, address_indices, 1, "");
+
+    gen_store_untyped(g, address_value, address_slot, 0, false);
+
+    // stack_trace.index += 1;
+    LLVMValueRef index_plus_one_val = LLVMBuildNUWAdd(g->builder, index_val, LLVMConstInt(usize_type_ref, 1, false), "");
+    gen_store_untyped(g, index_plus_one_val, index_field_ptr, 0, false);
+
+    // return;
+    LLVMBuildRetVoid(g->builder);
+
+    LLVMPositionBuilderAtEnd(g->builder, prev_block);
+    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+
+    g->add_error_return_trace_addr_fn_val = fn_val;
+    return fn_val;
+}
+
+static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
+    if (g->merge_err_ret_traces_fn_val)
+        return g->merge_err_ret_traces_fn_val;
+
+    assert(g->stack_trace_type != nullptr);
+
+    LLVMTypeRef param_types[] = {
+        get_ptr_to_stack_trace_type(g)->type_ref,
+        get_ptr_to_stack_trace_type(g)->type_ref,
+    };
+    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), param_types, 2, false);
+
+    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_merge_error_return_traces"), false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    LLVMSetLinkage(fn_val, LLVMInternalLinkage);
+    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    addLLVMFnAttr(fn_val, "nounwind");
+    add_uwtable_attr(g, fn_val);
+    addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
+    addLLVMArgAttr(fn_val, (unsigned)0, "noalias");
+    addLLVMArgAttr(fn_val, (unsigned)0, "writeonly");
+    addLLVMArgAttr(fn_val, (unsigned)1, "nonnull");
+    addLLVMArgAttr(fn_val, (unsigned)1, "noalias");
+    addLLVMArgAttr(fn_val, (unsigned)1, "readonly");
+    if (g->build_mode == BuildModeDebug) {
+        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
+        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+    }
+
+    // this is above the ZigLLVMClearCurrentDebugLocation
+    LLVMValueRef add_error_return_trace_addr_fn_val = get_add_error_return_trace_addr_fn(g);
+
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
+    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
+    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
+    LLVMPositionBuilderAtEnd(g->builder, entry_block);
+    ZigLLVMClearCurrentDebugLocation(g->builder);
+
+    // var frame_index: usize = undefined;
+    // var frames_left: usize = undefined;
+    // if (src_stack_trace.index < src_stack_trace.instruction_addresses.len) {
+    //     frame_index = 0;
+    //     frames_left = src_stack_trace.index;
+    //     if (frames_left == 0) return;
+    // } else {
+    //     frame_index = (src_stack_trace.index + 1) % src_stack_trace.instruction_addresses.len;
+    //     frames_left = src_stack_trace.instruction_addresses.len;
+    // }
+    // while (true) {
+    //     __zig_add_err_ret_trace_addr(dest_stack_trace, src_stack_trace.instruction_addresses[frame_index]);
+    //     frames_left -= 1;
+    //     if (frames_left == 0) return;
+    //     frame_index = (frame_index + 1) % src_stack_trace.instruction_addresses.len;
+    // }
+    LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(fn_val, "Return");
+
+    LLVMValueRef frame_index_ptr = LLVMBuildAlloca(g->builder, g->builtin_types.entry_usize->type_ref, "frame_index");
+    LLVMValueRef frames_left_ptr = LLVMBuildAlloca(g->builder, g->builtin_types.entry_usize->type_ref, "frames_left");
+
+    LLVMValueRef dest_stack_trace_ptr = LLVMGetParam(fn_val, 0);
+    LLVMValueRef src_stack_trace_ptr = LLVMGetParam(fn_val, 1);
+
+    size_t src_index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;
+    size_t src_addresses_field_index = g->stack_trace_type->data.structure.fields[1].gen_index;
+    LLVMValueRef src_index_field_ptr = LLVMBuildStructGEP(g->builder, src_stack_trace_ptr,
+            (unsigned)src_index_field_index, "");
+    LLVMValueRef src_addresses_field_ptr = LLVMBuildStructGEP(g->builder, src_stack_trace_ptr,
+            (unsigned)src_addresses_field_index, "");
+    TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
+    size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
+    LLVMValueRef src_ptr_field_ptr = LLVMBuildStructGEP(g->builder, src_addresses_field_ptr, (unsigned)ptr_field_index, "");
+    size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
+    LLVMValueRef src_len_field_ptr = LLVMBuildStructGEP(g->builder, src_addresses_field_ptr, (unsigned)len_field_index, "");
+    LLVMValueRef src_index_val = LLVMBuildLoad(g->builder, src_index_field_ptr, "");
+    LLVMValueRef src_ptr_val = LLVMBuildLoad(g->builder, src_ptr_field_ptr, "");
+    LLVMValueRef src_len_val = LLVMBuildLoad(g->builder, src_len_field_ptr, "");
+    LLVMValueRef no_wrap_bit = LLVMBuildICmp(g->builder, LLVMIntULT, src_index_val, src_len_val, "");
+    LLVMBasicBlockRef no_wrap_block = LLVMAppendBasicBlock(fn_val, "NoWrap");
+    LLVMBasicBlockRef yes_wrap_block = LLVMAppendBasicBlock(fn_val, "YesWrap");
+    LLVMBasicBlockRef loop_block = LLVMAppendBasicBlock(fn_val, "Loop");
+    LLVMBuildCondBr(g->builder, no_wrap_bit, no_wrap_block, yes_wrap_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, no_wrap_block);
+    LLVMValueRef usize_zero = LLVMConstNull(g->builtin_types.entry_usize->type_ref);
+    LLVMBuildStore(g->builder, usize_zero, frame_index_ptr);
+    LLVMBuildStore(g->builder, src_index_val, frames_left_ptr);
+    LLVMValueRef frames_left_eq_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, src_index_val, usize_zero, "");
+    LLVMBuildCondBr(g->builder, frames_left_eq_zero_bit, return_block, loop_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, yes_wrap_block);
+    LLVMValueRef usize_one = LLVMConstInt(g->builtin_types.entry_usize->type_ref, 1, false);
+    LLVMValueRef plus_one = LLVMBuildNUWAdd(g->builder, src_index_val, usize_one, "");
+    LLVMValueRef mod_len = LLVMBuildURem(g->builder, plus_one, src_len_val, "");
+    LLVMBuildStore(g->builder, mod_len, frame_index_ptr);
+    LLVMBuildStore(g->builder, src_len_val, frames_left_ptr);
+    LLVMBuildBr(g->builder, loop_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, loop_block);
+    LLVMValueRef ptr_index = LLVMBuildLoad(g->builder, frame_index_ptr, "");
+    LLVMValueRef addr_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr_val, &ptr_index, 1, "");
+    LLVMValueRef this_addr_val = LLVMBuildLoad(g->builder, addr_ptr, "");
+    LLVMValueRef args[] = {dest_stack_trace_ptr, this_addr_val};
+    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
+    LLVMValueRef prev_frames_left = LLVMBuildLoad(g->builder, frames_left_ptr, "");
+    LLVMValueRef new_frames_left = LLVMBuildNUWSub(g->builder, prev_frames_left, usize_one, "");
+    LLVMValueRef done_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, new_frames_left, usize_zero, "");
+    LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(fn_val, "Continue");
+    LLVMBuildCondBr(g->builder, done_bit, return_block, continue_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, return_block);
+    LLVMBuildRetVoid(g->builder);
+
+    LLVMPositionBuilderAtEnd(g->builder, continue_block);
+    LLVMBuildStore(g->builder, new_frames_left, frames_left_ptr);
+    LLVMValueRef prev_index = LLVMBuildLoad(g->builder, frame_index_ptr, "");
+    LLVMValueRef index_plus_one = LLVMBuildNUWAdd(g->builder, prev_index, usize_one, "");
+    LLVMValueRef index_mod_len = LLVMBuildURem(g->builder, index_plus_one, src_len_val, "");
+    LLVMBuildStore(g->builder, index_mod_len, frame_index_ptr);
+    LLVMBuildBr(g->builder, loop_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, prev_block);
+    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+
+    g->merge_err_ret_traces_fn_val = fn_val;
+    return fn_val;
+
+}
+
 static LLVMValueRef get_return_err_fn(CodeGen *g) {
     if (g->return_err_fn != nullptr)
         return g->return_err_fn;
@@ -1140,50 +1341,24 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
     }
 
+    // this is above the ZigLLVMClearCurrentDebugLocation
+    LLVMValueRef add_error_return_trace_addr_fn_val = get_add_error_return_trace_addr_fn(g);
+
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
     LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
     LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
     LLVMPositionBuilderAtEnd(g->builder, entry_block);
     ZigLLVMClearCurrentDebugLocation(g->builder);
 
-    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->type_ref;
-
-    // stack_trace.instruction_addresses[stack_trace.index % stack_trace.instruction_addresses.len] = return_address;
-
     LLVMValueRef err_ret_trace_ptr = LLVMGetParam(fn_val, 0);
-    size_t index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;
-    LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, err_ret_trace_ptr, (unsigned)index_field_index, "");
-    size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1].gen_index;
-    LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, err_ret_trace_ptr, (unsigned)addresses_field_index, "");
 
-    TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
-    size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
-    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)ptr_field_index, "");
-    size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
-
-    LLVMValueRef len_value = gen_load_untyped(g, len_field_ptr, 0, false, "");
-    LLVMValueRef index_val = gen_load_untyped(g, index_field_ptr, 0, false, "");
-    LLVMValueRef modded_val = LLVMBuildURem(g->builder, index_val, len_value, "");
-    LLVMValueRef address_indices[] = {
-        modded_val,
-    };
-
-    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
-    LLVMValueRef address_slot = LLVMBuildInBoundsGEP(g->builder, ptr_value, address_indices, 1, "");
-
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->type_ref;
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
     LLVMValueRef return_address_ptr = LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
     LLVMValueRef return_address = LLVMBuildPtrToInt(g->builder, return_address_ptr, usize_type_ref, "");
 
-    LLVMValueRef address_value = LLVMBuildPtrToInt(g->builder, return_address, usize_type_ref, "");
-    gen_store_untyped(g, address_value, address_slot, 0, false);
-
-    // stack_trace.index += 1;
-    LLVMValueRef index_plus_one_val = LLVMBuildAdd(g->builder, index_val, LLVMConstInt(usize_type_ref, 1, false), "");
-    gen_store_untyped(g, index_plus_one_val, index_field_ptr, 0, false);
-
-    // return;
+    LLVMValueRef args[] = { err_ret_trace_ptr, return_address };
+    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
     LLVMBuildRetVoid(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
@@ -1641,7 +1816,6 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
     };
     LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 1,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
-    LLVMSetTailCall(call_instruction, true);
     return call_instruction;
 }
 
@@ -4204,6 +4378,27 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
     return LLVMBuildIntToPtr(g->builder, uncasted_result, operand_type->type_ref, "");
 }
 
+static LLVMValueRef ir_render_merge_err_ret_traces(CodeGen *g, IrExecutable *executable,
+        IrInstructionMergeErrRetTraces *instruction)
+{
+    assert(g->have_err_ret_tracing);
+
+    LLVMValueRef src_trace_ptr = ir_llvm_value(g, instruction->src_err_ret_trace_ptr);
+    LLVMValueRef dest_trace_ptr = ir_llvm_value(g, instruction->dest_err_ret_trace_ptr);
+
+    LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
+    ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_mark_err_ret_trace_ptr(CodeGen *g, IrExecutable *executable,
+        IrInstructionMarkErrRetTracePtr *instruction)
+{
+    assert(g->have_err_ret_tracing);
+    g->cur_err_ret_trace_val_stack = ir_llvm_value(g, instruction->err_ret_trace_ptr);
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -4421,6 +4616,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_atomic_rmw(g, executable, (IrInstructionAtomicRmw *)instruction);
         case IrInstructionIdSaveErrRetAddr:
             return ir_render_save_err_ret_addr(g, executable, (IrInstructionSaveErrRetAddr *)instruction);
+        case IrInstructionIdMergeErrRetTraces:
+            return ir_render_merge_err_ret_traces(g, executable, (IrInstructionMergeErrRetTraces *)instruction);
+        case IrInstructionIdMarkErrRetTracePtr:
+            return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
     }
     zig_unreachable();
 }
@@ -5310,38 +5509,14 @@ static void do_code_gen(CodeGen *g) {
             g->cur_err_ret_trace_val_arg = nullptr;
         }
 
+        // error return tracing setup
         bool is_async = fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
-        bool have_err_ret_trace_stack = g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn &&
-            (is_async || !have_err_ret_trace_arg);
+        bool have_err_ret_trace_stack = g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn && !is_async && !have_err_ret_trace_arg;
+        LLVMValueRef err_ret_array_val = nullptr;
         if (have_err_ret_trace_stack) {
-            // TODO call graph analysis to find out what this number needs to be for every function
-            static const size_t stack_trace_ptr_count = 30;
-
-            TypeTableEntry *usize = g->builtin_types.entry_usize;
-            TypeTableEntry *array_type = get_array_type(g, usize, stack_trace_ptr_count);
-            LLVMValueRef err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses",
-                    get_abi_alignment(g, array_type));
+            TypeTableEntry *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count);
+            err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses", get_abi_alignment(g, array_type));
             g->cur_err_ret_trace_val_stack = build_alloca(g, g->stack_trace_type, "error_return_trace", get_abi_alignment(g, g->stack_trace_type));
-            size_t index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;
-            LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)index_field_index, "");
-            gen_store_untyped(g, LLVMConstNull(usize->type_ref), index_field_ptr, 0, false);
-
-            size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1].gen_index;
-            LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)addresses_field_index, "");
-
-            TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
-            size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
-            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)ptr_field_index, "");
-            LLVMValueRef zero = LLVMConstNull(usize->type_ref);
-            LLVMValueRef indices[] = {zero, zero};
-            LLVMValueRef err_ret_array_val_elem0_ptr = LLVMBuildInBoundsGEP(g->builder, err_ret_array_val,
-                    indices, 2, "");
-            gen_store(g, err_ret_array_val_elem0_ptr, ptr_field_ptr,
-                    get_pointer_to_type(g, get_pointer_to_type(g, usize, false), false));
-
-            size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
-            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
-            gen_store(g, LLVMConstInt(usize->type_ref, stack_trace_ptr_count, false), len_field_ptr, get_pointer_to_type(g, usize, false));
         } else {
             g->cur_err_ret_trace_val_stack = nullptr;
         }
@@ -5434,6 +5609,31 @@ static void do_code_gen(CodeGen *g) {
                 }
 
             }
+        }
+
+        // finishing error return trace setup. we have to do this after all the allocas.
+        if (have_err_ret_trace_stack) {
+            TypeTableEntry *usize = g->builtin_types.entry_usize;
+            size_t index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;
+            LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)index_field_index, "");
+            gen_store_untyped(g, LLVMConstNull(usize->type_ref), index_field_ptr, 0, false);
+
+            size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1].gen_index;
+            LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)addresses_field_index, "");
+
+            TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
+            size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
+            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)ptr_field_index, "");
+            LLVMValueRef zero = LLVMConstNull(usize->type_ref);
+            LLVMValueRef indices[] = {zero, zero};
+            LLVMValueRef err_ret_array_val_elem0_ptr = LLVMBuildInBoundsGEP(g->builder, err_ret_array_val,
+                    indices, 2, "");
+            TypeTableEntry *ptr_ptr_usize_type = get_pointer_to_type(g, get_pointer_to_type(g, usize, false), false);
+            gen_store(g, err_ret_array_val_elem0_ptr, ptr_field_ptr, ptr_ptr_usize_type);
+
+            size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
+            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
+            gen_store(g, LLVMConstInt(usize->type_ref, stack_trace_ptr_count, false), len_field_ptr, get_pointer_to_type(g, usize, false));
         }
 
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
@@ -5943,6 +6143,8 @@ static void define_builtin_compile_vars(CodeGen *g) {
     os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
     Buf *contents = buf_alloc();
 
+    // Modifications to this struct must be coordinated with code that does anything with
+    // g->stack_trace_type. There are hard-coded references to the field indexes.
     buf_append_str(contents,
         "pub const StackTrace = struct {\n"
         "    index: usize,\n"
