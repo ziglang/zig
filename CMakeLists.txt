@@ -503,6 +503,7 @@ set(ZIG_STD_FILES
     "os/get_user_id.zig"
     "os/index.zig"
     "os/linux/errno.zig"
+    "os/linux/errno_to_error.zig"
     "os/linux/i386.zig"
     "os/linux/index.zig"
     "os/linux/x86_64.zig"
