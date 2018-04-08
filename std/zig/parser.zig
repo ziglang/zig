@@ -104,6 +104,11 @@ pub const Parser = struct {
         ptr: &Token,
     };
 
+    const ElseCtx = struct {
+        payload: ?DestPtr,
+        body: DestPtr,
+    };
+
     fn ListSave(comptime T: type) type {
         return struct {
             list: &ArrayList(T),
@@ -140,7 +145,7 @@ pub const Parser = struct {
         FieldInitListCommaOrEnd: ListSave(&ast.NodeFieldInitializer),
         FieldListCommaOrEnd: &ast.NodeContainerDecl,
         SwitchCaseOrEnd: ListSave(&ast.NodeSwitchCase),
-        SwitchCaseCapture: &?ast.NodeSwitchCase.Capture,
+        Payload: DestPtr,
         SwitchCaseCommaOrEnd: ListSave(&ast.NodeSwitchCase),
         SwitchCaseItem: &ArrayList(&ast.Node),
         SwitchCaseItemCommaOrEnd: &ArrayList(&ast.Node),
@@ -635,9 +640,6 @@ pub const Parser = struct {
                         Token.Id.Keyword_await => {
                             @panic("TODO: await");
                         },
-                        Token.Id.Keyword_suspend => {
-                            @panic("TODO: suspend");
-                        },
                         else => {
                             self.putBackToken(token);
                             stack.append(State { .AssignmentExpressionBegin = dest_ptr }) catch unreachable;
@@ -705,21 +707,14 @@ pub const Parser = struct {
 
                             stack.append(State { .UnwrapExpressionEnd = dest_ptr }) catch unreachable;
                             try stack.append(State { .Expression = DestPtr { .Field = &node.rhs } });
-
-                            const next = self.getNextToken();
-                            if (next.id != Token.Id.Pipe) {
-                                self.putBackToken(next);
-                                continue;
-                            }
-
-                            node.op.Catch = try self.createIdentifier(arena, Token(undefined));
-                            try stack.append(State { .ExpectToken = Token.Id.Pipe });
                             try stack.append(State {
-                                .ExpectTokenSave = ExpectTokenSave {
-                                    .id = Token.Id.Identifier,
-                                    .ptr = &(??node.op.Catch).name_token
+                                .Optional = RevertState {
+                                    .tokenizer = *self.tokenizer,
+                                    .parser = *self,
+                                    .ptr = &node.op.Catch,
                                 }
                             });
+                            try stack.append(State { .Payload = DestPtr { .NullableField = &node.op.Catch } });
                             continue;
                         },
                         Token.Id.QuestionMarkQuestionMark => {
@@ -1404,12 +1399,25 @@ pub const Parser = struct {
                             @panic("TODO: inline if");
                         },
                         Token.Id.Keyword_while => {
+                            const node = try arena.create(ast.NodeWhile);
+                            *node = ast.NodeWhile {
+                                .base = self.initNode(ast.Node.Id.While),
+                                .while_token = token,
+                                .condition = undefined,
+                                .payload = null,
+                                .continue_expr = null,
+                                .body = undefined,
+                                .@"else" = null,
+                            };
+                            dest_ptr.store(&node.base);
+
                             @panic("TODO: inline while");
                         },
                         Token.Id.Keyword_for => {
                             @panic("TODO: inline for");
                         },
                         Token.Id.Keyword_switch => {
+                            @breakpoint();
                             const node = try arena.create(ast.NodeSwitch);
                             *node = ast.NodeSwitch {
                                 .base = self.initNode(ast.Node.Id.Switch),
@@ -1433,9 +1441,6 @@ pub const Parser = struct {
                         },
                         Token.Id.Keyword_comptime => {
                             @panic("TODO: inline comptime");
-                        },
-                        Token.Id.Keyword_suspend => {
-                            @panic("TODO: inline suspend");
                         },
                         else => {
                             try self.parseError(&stack, token, "expected primary expression, found {}", @tagName(token.id));
@@ -1547,13 +1552,21 @@ pub const Parser = struct {
                     *node = ast.NodeSwitchCase {
                         .base = self.initNode(ast.Node.Id.SwitchCase),
                         .items = ArrayList(&ast.Node).init(arena),
-                        .capture = null,
+                        .payload = null,
                         .expr = undefined,
                     };
                     try list_state.list.append(node);
                     stack.append(State { .SwitchCaseCommaOrEnd = list_state }) catch unreachable;
                     try stack.append(State { .Expression = DestPtr{ .Field = &node.expr  } });
-                    try stack.append(State { .SwitchCaseCapture = &node.capture });
+                    try stack.append(State {
+                        .Optional = RevertState {
+                            .tokenizer = *self.tokenizer,
+                            .parser = *self,
+                            .ptr = &node.payload,
+                        }
+                    });
+                    try stack.append(State { .Payload = DestPtr { .NullableField = &node.payload } });
+                    try stack.append(State.Required);
 
                     const maybe_else = self.getNextToken();
                     if (maybe_else.id == Token.Id.Keyword_else) {
@@ -1572,12 +1585,8 @@ pub const Parser = struct {
                     }
                 },
 
-                State.SwitchCaseCapture => |capture| {
-                    const token = self.getNextToken();
-                    if (token.id != Token.Id.Pipe) {
-                        self.putBackToken(token);
-                        continue;
-                    }
+                State.Payload => |dest_ptr| {
+                    const lpipe = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
 
                     const is_ptr = blk: {
                         const asterik = self.getNextToken();
@@ -1590,11 +1599,16 @@ pub const Parser = struct {
                     };
 
                     const ident = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
-                    _ = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
-                    *capture = ast.NodeSwitchCase.Capture {
+                    const rpipe = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
+                    const node = try arena.create(ast.NodePayload);
+                    *node = ast.NodePayload {
+                        .base = self.initNode(ast.Node.Id.Payload),
+                        .lpipe = lpipe,
+                        .is_ptr = is_ptr,
                         .symbol = try self.createIdentifier(arena, ident),
-                        .is_ptr = is_ptr
+                        .rpipe = rpipe
                     };
+                    dest_ptr.store(&node.base);
                 },
 
                 State.SwitchCaseItem => |case_items| {
@@ -1856,6 +1870,8 @@ pub const Parser = struct {
                             stack.append(State { .Block = inner_block }) catch unreachable;
                             continue;
                         },
+                        Token.Id.Keyword_suspend, Token.Id.Keyword_if,
+                        Token.Id.Keyword_while, Token.Id.Keyword_for,
                         Token.Id.Keyword_switch => {
                             self.putBackToken(next);
                             stack.append(State { .Expression = DestPtr{.Field = try block.statements.addOne() } }) catch unreachable;
@@ -2572,9 +2588,8 @@ pub const Parser = struct {
 
                         if (prefix_op_node.op == ast.NodeInfixOp.InfixOp.Catch) {
                             if (prefix_op_node.op.Catch) |payload| {
-                                try stack.append(RenderState { .Text = "| " });
-                                try stack.append(RenderState { .Expression = &payload.base });
-                                try stack.append(RenderState { .Text = "|" });
+                            try stack.append(RenderState { .Text = " " });
+                                try stack.append(RenderState { .Expression = payload });
                             }
                             try stack.append(RenderState { .Text = " catch " });
                         } else {
@@ -2763,6 +2778,17 @@ pub const Parser = struct {
                             try stream.print(" ");
                             try stack.append(RenderState { .Expression = rhs });
                         }
+                    },
+                    ast.Node.Id.Payload => {
+                        const payload = @fieldParentPtr(ast.NodePayload, "base", base);
+                        try stack.append(RenderState { .Text = "|"});
+                        try stack.append(RenderState { .Expression = &payload.symbol.base });
+
+                        if (payload.is_ptr) {
+                            try stack.append(RenderState { .Text = "*"});
+                        }
+
+                        try stack.append(RenderState { .Text = "|"});
                     },
                     ast.Node.Id.GroupedExpression => {
                         const grouped_expr = @fieldParentPtr(ast.NodeGroupedExpression, "base", base);
@@ -2985,14 +3011,9 @@ pub const Parser = struct {
                         const switch_case = @fieldParentPtr(ast.NodeSwitchCase, "base", base);
 
                         try stack.append(RenderState { .Expression = switch_case.expr });
-                        if (switch_case.capture) |capture| {
-                            try stack.append(RenderState { .Text = "| "});
-                            try stack.append(RenderState { .Expression = &capture.symbol.base });
-
-                            if (capture.is_ptr) {
-                                try stack.append(RenderState { .Text = "*"});
-                            }
-                            try stack.append(RenderState { .Text = "|"});
+                        if (switch_case.payload) |payload| {
+                            try stack.append(RenderState { .Text = " " });
+                            try stack.append(RenderState { .Expression = payload });
                         }
                         try stack.append(RenderState { .Text = " => "});
 
@@ -3011,6 +3032,7 @@ pub const Parser = struct {
                         const switch_else = @fieldParentPtr(ast.NodeSwitchElse, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(switch_else.token));
                     },
+                    ast.Node.Id.While => @panic("TODO: Render while"),
 
                     ast.Node.Id.StructField,
                     ast.Node.Id.UnionTag,
