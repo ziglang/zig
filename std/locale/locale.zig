@@ -48,8 +48,8 @@ pub fn CreateLocale(comptime CodePoint: type, comptime View: type, comptime Iter
         const FormatterType = struct {
             toUpper: fn(&View, &mem.Allocator) View,
             toLower: fn(&View, &mem.Allocator) View,
-            toUpperImplace: fn(&View) View,
-            toLowerImplace: fn(&View) View,
+            toUpperBuffer: fn(&View, []CodePoint) View,
+            toLowerBuffer: fn(&View, []CodePoint) View,
         };
 
         const Self = this;

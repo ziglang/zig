@@ -129,6 +129,16 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     for (source) |s, i| dest[i] = s;
 }
 
+pub fn copyRange(comptime T: type, dest: []T, destStart: usize, destEnd: usize, source: []const T, sourceStart: usize, sourceEnd: usize) void {
+    assert(destEnd < dest.len and sourceEnd < dest.len);
+    assert(destStart < destEnd and sourceStart < sourceEnd and sourceEnd - sourceStart == destEnd - destStart);
+    var i: usize = sourceStart;
+    const diff: usize = destStart - sourceStart;
+    while (i < sourceEnd) : (i += 1) {
+        dest[i] = source[i];
+    }
+}
+
 pub fn set(comptime T: type, dest: []T, value: T) void {
     for (dest) |*d| *d = value;
 }
