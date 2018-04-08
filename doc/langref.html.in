@@ -2033,7 +2033,27 @@ test "union variant switch" {
     assert(mem.eql(u8, what_is_it, "this is a number"));
 }
 
-// TODO union methods
+// Unions can have methods just like structs and enums:
+
+const Variant = union(enum) {
+    Int: i32,
+    Bool: bool,
+
+    fn truthy(self: &const Variant) bool {
+        return switch (*self) {
+            Variant.Int => |x_int| x_int != 0,
+            Variant.Bool => |x_bool| x_bool,
+        };
+    }
+};
+
+test "union method" {
+    var v1 = Variant { .Int = 1 };
+    var v2 = Variant { .Bool = false };
+
+    assert(v1.truthy());
+    assert(!v2.truthy());
+}
 
 
 const Small = union {
