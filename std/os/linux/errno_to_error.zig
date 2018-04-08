@@ -1,4 +1,5 @@
-const linux = @import("index.zig");
+const std = @import("../../index.zig");
+const linux = std.os.linux;
 
 pub fn errnoToError(r: usize) !usize {
     var errno = linux.getErrno(r);
