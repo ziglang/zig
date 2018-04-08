@@ -7,6 +7,7 @@ pub use switch (builtin.arch) {
     else => @compileError("unsupported arch"),
 };
 pub use @import("errno.zig");
+pub use @import("errno_to_error.zig");
 
 pub const PATH_MAX = 4096;
 
@@ -366,10 +367,144 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
+pub const CLONE_CHILD_CLEARTID              = 0x200000;
+pub const CLONE_CHILD_SETTID                = 0x1000000;
+pub const CLONE_DETACHED                    = 0x400000;
+pub const CLONE_FILES                       = 0x400;
+pub const CLONE_FS                          = 0x200;
+pub const CLONE_IO                          = 0x80000000;
+pub const CLONE_NEWIPC                      = 0x8000000;
+pub const CLONE_NEWNET                      = 0x40000000;
+pub const CLONE_NEWNS                       = 0x20000;
+pub const CLONE_NEWPID                      = 0x20000000;
+pub const CLONE_NEWUSER                     = 0x10000000;
+pub const CLONE_NEWUTS                      = 0x4000000;
+pub const CLONE_PARENT                      = 0x8000;
+pub const CLONE_PARENT_SETTID               = 0x100000;
+pub const CLONE_PTRACE                      = 0x2000;
+pub const CLONE_SETTLS                      = 0x80000;
+pub const CLONE_SIGHAND                     = 0x800;
+pub const CLONE_SYSVSEM                     = 0x40000;
+pub const CLONE_THREAD                      = 0x10000;
+pub const CLONE_UNTRACED                    = 0x800000;
+pub const CLONE_VFORK                       = 0x4000;
+pub const CLONE_VM                          = 0x100;
+
+pub const MS_ACTIVE                        = 0x40000000;
+pub const MS_ASYNC                         = 0x1;
+pub const MS_BIND                          = 0x1000;
+pub const MS_DIRSYNC                       = 0x80;
+pub const MS_INVALIDATE                    = 0x2;
+pub const MS_I_VERSION                     = 0x800000;
+pub const MS_KERNMOUNT                     = 0x400000;
+pub const MS_MANDLOCK                      = 0x40;
+pub const MS_MGC_MSK                       = 0xffff0000;
+pub const MS_MGC_VAL                       = 0xc0ed0000;
+pub const MS_MOVE                          = 0x2000;
+pub const MS_NOATIME                       = 0x400;
+pub const MS_NODEV                         = 0x4;
+pub const MS_NODIRATIME                    = 0x800;
+pub const MS_NOEXEC                        = 0x8;
+pub const MS_NOSUID                        = 0x2;
+pub const MS_NOUSER                        = -0x80000000;
+pub const MS_POSIXACL                      = 0x10000;
+pub const MS_PRIVATE                       = 0x40000;
+pub const MS_RDONLY                        = 0x1;
+pub const MS_REC                           = 0x4000;
+pub const MS_RELATIME                      = 0x200000;
+pub const MS_REMOUNT                       = 0x20;
+pub const MS_RMT_MASK                      = 0x800051;
+pub const MS_SHARED                        = 0x100000;
+pub const MS_SILENT                        = 0x8000;
+pub const MS_SLAVE                         = 0x80000;
+pub const MS_STRICTATIME                   = 0x1000000;
+pub const MS_SYNC                          = 0x4;
+pub const MS_SYNCHRONOUS                   = 0x10;
+pub const MS_UNBINDABLE                    = 0x20000;
+
+pub const MNT_FORCE         = 0x00000001;
+pub const MNT_DETACH        = 0x00000002;
+pub const MNT_EXPIRE        = 0x00000004;
+pub const UMOUNT_NOFOLLOW   = 0x00000008;
+pub const UMOUNT_UNUSED     = 0x80000000;
+
+pub const S_IFMT     = 0o170000;
+pub const S_IFSOCK   = 0o140000;
+pub const S_IFLNK    = 0o120000;
+pub const S_IFREG    = 0o100000;
+pub const S_IFBLK    = 0o060000;
+pub const S_IFDIR    = 0o040000;
+pub const S_IFCHR    = 0o020000;
+pub const S_IFIFO    = 0o010000;
+
+pub const S_ISUID     = 0o4000;
+pub const S_ISGID     = 0o2000;
+pub const S_ISVTX     = 0o1000;
+
+pub const S_IRWXU     = 0o0700;
+pub const S_IRUSR     = 0o0400;
+pub const S_IWUSR     = 0o0200;
+pub const S_IXUSR     = 0o0100;
+
+pub const S_IRWXG     = 0o0070;
+pub const S_IRGRP     = 0o0040;
+pub const S_IWGRP     = 0o0020;
+pub const S_IXGRP     = 0o0010;
+
+pub const S_IRWXO     = 0o0007;
+pub const S_IROTH     = 0o0004;
+pub const S_IWOTH     = 0o0002;
+pub const S_IXOTH     = 0o0001;
+
+pub fn S_ISREG(m: u32) bool {
+    return m & S_IFREG == 0o100000;
+}
+
+pub fn S_ISDIR(m: u32) bool {
+    return m & S_IFDIR == 0o040000;
+}
+
+pub fn S_ISCHR(m: u32) bool {
+    return m & S_IFCHR == 0o020000;
+}
+
+pub fn S_ISBLK(m: u32) bool {
+    return m & S_IFBLK == 0o060000;
+}
+
+pub fn S_ISFIFO(m: u32) bool {
+    return m & S_IFIFO == 0o010000;
+}
+
+pub fn S_ISLNK(m: u32) bool {
+    return m & S_IFLNK == 0o120000;
+}
+
+pub fn S_ISSOCK(m: u32) bool {
+    return m & S_IFSOCK == 0o140000;
+}
+
+
+
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) usize {
     const signed_r = @bitCast(isize, r);
     return if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0;
+}
+
+pub fn mount(source: ?&const u8, target: ?&const u8, file_system_type: ?&const u8, 
+    mount_flags: usize, data: ?&const u8) usize {
+    
+    return syscall5(SYS_mount, @ptrToInt(source), @ptrToInt(target), @ptrToInt(file_system_type), 
+        mount_flags, @ptrToInt(data));
+}
+
+pub fn umount2(target: &const u8, flags: usize) usize {
+    return syscall1(SYS_umount2, @ptrToInt(target), flags);
+}
+
+pub fn chroot(path: &const u8) usize {
+    return syscall1(SYS_chroot, @ptrToInt(path));
 }
 
 pub fn dup2(old: i32, new: i32) usize {
@@ -513,6 +648,58 @@ pub fn setreuid(ruid: u32, euid: u32) usize {
 
 pub fn setregid(rgid: u32, egid: u32) usize {
     return syscall2(SYS_setregid, rgid, egid);
+}
+
+pub fn getuid() u32 {
+    return u32(syscall0(SYS_getuid));
+}
+
+pub fn getgid() u32 {
+    return u32(syscall0(SYS_getgid));
+}
+
+pub fn geteuid() u32 {
+    return u32(syscall0(SYS_geteuid));
+}
+
+pub fn getegid() u32 {
+    return u32(syscall0(SYS_getegid));
+}
+
+pub fn seteuid(euid: u32) usize {
+    return syscall1(SYS_seteuid, euid);
+}
+
+pub fn setegid(egid: u32) usize {
+    return syscall1(SYS_setegid, egid);
+}
+
+pub fn getresuid(ruid: &u32, euid: &u32, suid: &u32) usize {
+    return syscall3(SYS_getresuid, @ptrToInt(ruid), @ptrToInt(euid), @ptrToInt(suid));
+}
+
+pub fn getresgid(rgid: &u32, egid: &u32, sgid: &u32) usize {
+    return syscall3(SYS_getresgid, @ptrToInt(rgid), @ptrToInt(egid), @ptrToInt(sgid));
+}
+
+pub fn setresuid(ruid: u32, euid: u32, suid: u32) usize {
+    return syscall3(SYS_setresuid, ruid, euid, suid);
+}
+
+pub fn setresgid(rgid: u32, egid: u32, sgid: u32) usize {
+    return syscall3(SYS_setresgid, rgid, egid, sgid);
+}
+
+pub fn getgroups(size: usize, list: &u32) usize {
+    return syscall2(SYS_getgroups, size, @ptrToInt(list));
+}
+
+pub fn setgroups(size: usize, list: &const u32) usize {
+    return syscall2(SYS_setgroups, size, @ptrToInt(list));
+}
+
+pub fn getpid() i32 {
+    return @bitCast(i32, u32(syscall0(SYS_getpid)));
 }
 
 pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) usize {
@@ -729,6 +916,71 @@ pub fn fstat(fd: i32, stat_buf: &Stat) usize {
     return syscall2(SYS_fstat, usize(fd), @ptrToInt(stat_buf));
 }
 
+pub fn stat(pathname: &const u8, statbuf: &Stat) usize {
+    return syscall2(SYS_stat, @ptrToInt(pathname), @ptrToInt(statbuf));
+}
+
+pub fn lstat(pathname: &const u8, statbuf: &Stat) usize {
+    return syscall2(SYS_lstat, @ptrToInt(pathname), @ptrToInt(statbuf));
+}
+
+pub fn listxattr(path: &const u8, list: &u8, size: usize) usize {
+    return syscall3(SYS_listxattr, @ptrToInt(path), @ptrToInt(list), size);
+}
+
+pub fn llistxattr(path: &const u8, list: &u8, size: usize) usize {
+    return syscall3(SYS_llistxattr, @ptrToInt(path), @ptrToInt(list), size);
+}
+
+pub fn flistxattr(fd: usize, list: &u8, size: usize) usize {
+    return syscall3(SYS_flistxattr, fd, @ptrToInt(list), size);
+}
+
+pub fn getxattr(path: &const u8, name: &const u8, value: &void, size: usize) usize {
+    return syscall4(SYS_getxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value), size);
+}
+
+pub fn lgetxattr(path: &const u8, name: &const u8, value: &void, size: usize) usize {
+    return syscall4(SYS_lgetxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value), size);
+}
+
+pub fn fgetxattr(fd: usize, name: &const u8, value: &void, size: usize) usize {
+    return syscall4(SYS_lgetxattr, fd, @ptrToInt(name), @ptrToInt(value), size);
+}
+
+pub fn setxattr(path: &const u8, name: &const u8, value: &const void, 
+    size: usize, flags: usize) usize {
+    
+    return syscall5(SYS_setxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value),
+        size, flags);
+}
+
+pub fn lsetxattr(path: &const u8, name: &const u8, value: &const void, 
+    size: usize, flags: usize) usize {
+    
+    return syscall5(SYS_lsetxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value),
+        size, flags);
+}
+
+pub fn fsetxattr(fd: usize, name: &const u8, value: &const void, 
+    size: usize, flags: usize) usize {
+    
+    return syscall5(SYS_fsetxattr, fd, @ptrToInt(name), @ptrToInt(value),
+        size, flags);
+}
+
+pub fn removexattr(path: &const u8, name: &const u8) usize {
+    return syscall2(SYS_removexattr, @ptrToInt(path), @ptrToInt(name));
+}
+
+pub fn lremovexattr(path: &const u8, name: &const u8) usize {
+    return syscall2(SYS_lremovexattr, @ptrToInt(path), @ptrToInt(name));
+}
+
+pub fn fremovexattr(fd: usize, name: &const u8) usize {
+    return syscall2(SYS_fremovexattr, fd, @ptrToInt(name));
+}
+
 pub const epoll_data = extern union {
     ptr: usize,
     fd: i32,
@@ -772,6 +1024,125 @@ pub fn timerfd_gettime(fd: i32, curr_value: &itimerspec) usize {
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_value: ?&itimerspec) usize {
     return syscall4(SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value));
+}
+
+pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
+pub const _LINUX_CAPABILITY_U32S_1    = 1;
+
+pub const _LINUX_CAPABILITY_VERSION_2 = 0x20071026;
+pub const _LINUX_CAPABILITY_U32S_2    = 2;
+
+pub const _LINUX_CAPABILITY_VERSION_3 = 0x20080522;
+pub const _LINUX_CAPABILITY_U32S_3    = 2;
+
+pub const VFS_CAP_REVISION_MASK   = 0xFF000000;
+pub const VFS_CAP_REVISION_SHIFT  = 24;
+pub const VFS_CAP_FLAGS_MASK      = ~VFS_CAP_REVISION_MASK;
+pub const VFS_CAP_FLAGS_EFFECTIVE = 0x000001;
+
+pub const VFS_CAP_REVISION_1 = 0x01000000;
+pub const VFS_CAP_U32_1      = 1;
+pub const XATTR_CAPS_SZ_1    = @sizeOf(u32)*(1 + 2*VFS_CAP_U32_1);
+
+pub const VFS_CAP_REVISION_2 = 0x02000000;
+pub const VFS_CAP_U32_2      = 2;
+pub const XATTR_CAPS_SZ_2    = @sizeOf(u32)*(1 + 2*VFS_CAP_U32_2);
+
+pub const XATTR_CAPS_SZ      = XATTR_CAPS_SZ_2;
+pub const VFS_CAP_U32        = VFS_CAP_U32_2;
+pub const VFS_CAP_REVISION   = VFS_CAP_REVISION_2;
+
+pub const vfs_cap_data = extern struct {
+    //all of these are mandated as little endian
+    //when on disk.
+    const Data = struct {
+        permitted: u32,
+        inheritable: u32,
+    };
+    
+    magic_etc: u32,
+    data:  [VFS_CAP_U32]Data,
+};
+
+
+pub const CAP_CHOWN             = 0;
+pub const CAP_DAC_OVERRIDE      = 1;
+pub const CAP_DAC_READ_SEARCH   = 2;
+pub const CAP_FOWNER            = 3;
+pub const CAP_FSETID            = 4;
+pub const CAP_KILL              = 5;
+pub const CAP_SETGID            = 6;
+pub const CAP_SETUID            = 7;
+pub const CAP_SETPCAP           = 8;
+pub const CAP_LINUX_IMMUTABLE   = 9;
+pub const CAP_NET_BIND_SERVICE  = 10;
+pub const CAP_NET_BROADCAST     = 11;
+pub const CAP_NET_ADMIN         = 12;
+pub const CAP_NET_RAW           = 13;
+pub const CAP_IPC_LOCK          = 14;
+pub const CAP_IPC_OWNER         = 15;
+pub const CAP_SYS_MODULE        = 16;
+pub const CAP_SYS_RAWIO         = 17;
+pub const CAP_SYS_CHROOT        = 18;
+pub const CAP_SYS_PTRACE        = 19;
+pub const CAP_SYS_PACCT         = 20;
+pub const CAP_SYS_ADMIN         = 21;
+pub const CAP_SYS_BOOT          = 22;
+pub const CAP_SYS_NICE          = 23;
+pub const CAP_SYS_RESOURCE      = 24;
+pub const CAP_SYS_TIME          = 25;
+pub const CAP_SYS_TTY_CONFIG    = 26;
+pub const CAP_MKNOD             = 27;
+pub const CAP_LEASE             = 28;
+pub const CAP_AUDIT_WRITE       = 29;
+pub const CAP_AUDIT_CONTROL     = 30;
+pub const CAP_SETFCAP           = 31;
+pub const CAP_MAC_OVERRIDE      = 32;
+pub const CAP_MAC_ADMIN         = 33;
+pub const CAP_SYSLOG            = 34;
+pub const CAP_WAKE_ALARM        = 35;
+pub const CAP_BLOCK_SUSPEND     = 36;
+pub const CAP_AUDIT_READ        = 37;
+pub const CAP_LAST_CAP          = CAP_AUDIT_READ;
+
+pub fn cap_valid(u8: x) bool {
+    return x >= 0 and x <= CAP_LAST_CAP;
+}
+
+pub fn CAP_TO_MASK(cap: u8) u32 {
+    return u32(1) << u5(cap & 31);
+}
+
+pub fn CAP_TO_INDEX(cap: u8) u8 {
+    return cap >> 5;
+}
+
+pub const cap_t = extern struct {
+    hdrp: &cap_user_header_t,
+    datap: &cap_user_data_t,
+};
+
+pub const cap_user_header_t = extern struct {
+    version: u32,
+    pid: usize,
+};
+
+pub const cap_user_data_t = extern struct {
+    effective: u32,
+    permitted: u32,
+    inheritable: u32,
+};
+
+pub fn unshare(flags: usize) usize {
+    return syscall1(SYS_unshare, usize(flags));
+}
+
+pub fn capget(hdrp: &cap_user_header_t, datap: &cap_user_data_t) usize {
+    return syscall2(SYS_capget, @ptrToInt(hdrp), @ptrToInt(datap));
+}
+
+pub fn capset(hdrp: &cap_user_header_t, datap: &const cap_user_data_t) usize {
+    return syscall2(SYS_capset, @ptrToInt(hdrp), @ptrToInt(datap));
 }
 
 test "import linux test" {
