@@ -164,6 +164,9 @@ pub const Parser = struct {
         WhileContinueExpr: &?&ast.Node,
         Statement: &ast.NodeBlock,
         Semicolon: &const &const ast.Node,
+        AsmOutputItems: &ArrayList(ast.NodeAsm.AsmOutput),
+        AsmInputItems: &ArrayList(ast.NodeAsm.AsmInput),
+        AsmClopperItems: &ArrayList(&ast.NodeStringLiteral),
         ExprListItemOrEnd: ExprListCtx,
         ExprListCommaOrEnd: ExprListCtx,
         FieldInitListItemOrEnd: ListSave(&ast.NodeFieldInitializer),
@@ -1488,7 +1491,44 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_asm => {
-                            @panic("TODO: inline asm");
+                            const is_volatile = blk: {
+                                const volatile_token = self.getNextToken();
+                                if (volatile_token.id != Token.Id.Keyword_volatile) {
+                                    self.putBackToken(volatile_token);
+                                    break :blk false;
+                                }
+                                break :blk true;
+                            };
+                            _ = (try self.eatToken(&stack, Token.Id.LParen)) ?? continue;
+                            const template = (try self.eatToken(&stack, Token.Id.StringLiteral)) ?? continue;
+                            // TODO parse template
+
+                            const node = try arena.create(ast.NodeAsm);
+                            *node = ast.NodeAsm {
+                                .base = self.initNode(ast.Node.Id.Asm),
+                                .asm_token = token,
+                                .is_volatile = is_volatile,
+                                .template = template,
+                                //.tokens = ArrayList(ast.NodeAsm.AsmToken).init(arena),
+                                .outputs = ArrayList(ast.NodeAsm.AsmOutput).init(arena),
+                                .inputs = ArrayList(ast.NodeAsm.AsmInput).init(arena),
+                                .cloppers = ArrayList(&ast.NodeStringLiteral).init(arena),
+                                .rparen = undefined,
+                            };
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.RParen,
+                                    .ptr = &node.rparen,
+                                }
+                            }) catch unreachable;
+                            try stack.append(State { .AsmClopperItems = &node.cloppers });
+                            try stack.append(State { .IfToken = Token.Id.Colon });
+                            try stack.append(State { .AsmInputItems = &node.inputs });
+                            try stack.append(State { .IfToken = Token.Id.Colon });
+                            try stack.append(State { .AsmOutputItems = &node.outputs });
+                            try stack.append(State { .IfToken = Token.Id.Colon });
                         },
                         Token.Id.Keyword_if => {
                             const node = try arena.create(ast.NodeIf);
@@ -1619,6 +1659,84 @@ pub const Parser = struct {
                             continue;
                         }
                     }
+                },
+
+
+                State.AsmOutputItems => |items| {
+                    const lbracket = self.getNextToken();
+                    if (lbracket.id != Token.Id.LBracket) {
+                        self.putBackToken(lbracket);
+                        continue;
+                    }
+
+                    stack.append(State { .AsmOutputItems = items }) catch unreachable;
+                    try stack.append(State { .IfToken = Token.Id.Comma });
+
+                    const symbolic_name = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
+                    _ = (try self.eatToken(&stack, Token.Id.RBracket)) ?? continue;
+                    const constraint = (try self.eatToken(&stack, Token.Id.StringLiteral)) ?? continue;
+
+                    _ = (try self.eatToken(&stack, Token.Id.LParen)) ?? continue;
+                    try stack.append(State { .ExpectToken = Token.Id.RParen });
+
+                    const res = try items.addOne();
+                    *res = ast.NodeAsm.AsmOutput {
+                        .symbolic_name = symbolic_name,
+                        .constraint = constraint,
+                        .variable_name = null,
+                        .return_type = null,
+                    };
+                    const symbol_or_arrow = self.getNextToken();
+                    switch (symbol_or_arrow.id) {
+                        Token.Id.Identifier => res.variable_name = symbol_or_arrow,
+                        Token.Id.Arrow => {
+                            try stack.append(State { .TypeExprBegin = DestPtr { .NullableField = &res.return_type } });
+                        },
+                        else => {
+                            try self.parseError(&stack, symbol_or_arrow, "expected '->' or {}, found {}",
+                                @tagName(Token.Id.Identifier),
+                                @tagName(symbol_or_arrow.id));
+                            continue;
+                        },
+                    }
+                },
+
+                State.AsmInputItems => |items| {
+                    const lbracket = self.getNextToken();
+                    if (lbracket.id != Token.Id.LBracket) {
+                        self.putBackToken(lbracket);
+                        continue;
+                    }
+
+                    stack.append(State { .AsmInputItems = items }) catch unreachable;
+                    try stack.append(State { .IfToken = Token.Id.Comma });
+
+                    const symbolic_name = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
+                    _ = (try self.eatToken(&stack, Token.Id.RBracket)) ?? continue;
+                    const constraint = (try self.eatToken(&stack, Token.Id.StringLiteral)) ?? continue;
+
+                    _ = (try self.eatToken(&stack, Token.Id.LParen)) ?? continue;
+                    try stack.append(State { .ExpectToken = Token.Id.RParen });
+
+                    const res = try items.addOne();
+                    *res = ast.NodeAsm.AsmInput {
+                        .symbolic_name = symbolic_name,
+                        .constraint = constraint,
+                        .expr = undefined,
+                    };
+                    try stack.append(State { .Expression = DestPtr { .Field = &res.expr } });
+                },
+
+                State.AsmClopperItems => |items| {
+                    const string = self.getNextToken();
+                    if (string.id != Token.Id.StringLiteral) {
+                        self.putBackToken(string);
+                        continue;
+                    }
+
+                    try items.append(try self.createStringLiteral(arena, string));
+                    stack.append(State { .AsmClopperItems = items }) catch unreachable;
+                    try stack.append(State { .IfToken = Token.Id.Comma });
                 },
 
                 State.ExprListItemOrEnd => |list_state| {
@@ -3675,6 +3793,24 @@ pub const Parser = struct {
                         try stack.append(RenderState { .Expression = if_node.condition });
                         try stack.append(RenderState { .Text = "(" });
                     },
+                    ast.Node.Id.Asm => {
+                        const asm_node = @fieldParentPtr(ast.NodeAsm, "base", base);
+                        try stream.print("{} ", self.tokenizer.getTokenSlice(asm_node.asm_token));
+
+                        if (asm_node.is_volatile) {
+                            try stream.write("volatile ");
+                        }
+
+                        try stream.print("({}", self.tokenizer.getTokenSlice(asm_node.template));
+
+                        try stack.append(RenderState { .Text = ")" });
+                        @panic("TODO: Render asm");
+                        //\\    return asm volatile ("syscall"
+                        //\\        : [ret] "={rax}" (-> usize)
+                        //\\        : [number] "{rax}" (number),
+                        //\\            [arg1] "{rdi}" (arg1)
+                        //\\        : "rcx", "r11");
+                    },,
 
                     ast.Node.Id.StructField,
                     ast.Node.Id.UnionTag,

@@ -47,6 +47,7 @@ pub const Node = struct {
         NullLiteral,
         UndefinedLiteral,
         ThisLiteral,
+        Asm,
         Unreachable,
         ErrorType,
         BuiltinCall,
@@ -94,6 +95,7 @@ pub const Node = struct {
             Id.NullLiteral => @fieldParentPtr(NodeNullLiteral, "base", base).iterate(index),
             Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).iterate(index),
             Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).iterate(index),
+            Id.Asm => @fieldParentPtr(NodeAsm, "base", base).iterate(index),
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).iterate(index),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
@@ -143,6 +145,7 @@ pub const Node = struct {
             Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).firstToken(),
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).firstToken(),
             Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).firstToken(),
+            Id.Asm => @fieldParentPtr(NodeAsm, "base", base).firstToken(),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
@@ -190,6 +193,7 @@ pub const Node = struct {
             Id.NullLiteral => @fieldParentPtr(NodeNullLiteral, "base", base).lastToken(),
             Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).lastToken(),
             Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).lastToken(),
+            Id.Asm => @fieldParentPtr(NodeAsm, "base", base).lastToken(),
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).lastToken(),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
@@ -1509,6 +1513,43 @@ pub const NodeThisLiteral = struct {
 
     pub fn lastToken(self: &NodeThisLiteral) Token {
         return self.token;
+    }
+};
+
+pub const NodeAsm = struct {
+    base: Node,
+    asm_token: Token,
+    is_volatile: bool,
+    template: Token,
+    //tokens: ArrayList(AsmToken),
+    outputs: ArrayList(AsmOutput),
+    inputs: ArrayList(AsmInput),
+    cloppers: ArrayList(&NodeStringLiteral),
+    rparen: Token,
+
+    const AsmOutput = struct {
+        symbolic_name: Token,
+        constraint: Token,
+        variable_name: ?Token,
+        return_type: ?&Node,
+    };
+
+    const AsmInput = struct {
+        symbolic_name: Token,
+        constraint: Token,
+        expr: &Node,
+    };
+
+    pub fn iterate(self: &NodeAsm, index: usize) ?&Node {
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeAsm) Token {
+        return self.asm_token;
+    }
+
+    pub fn lastToken(self: &NodeAsm) Token {
+        return self.rparen;
     }
 };
 
