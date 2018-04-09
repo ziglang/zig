@@ -2053,40 +2053,45 @@ pub const Parser = struct {
 
                 State.Semicolon => |node_ptr| {
                     const node = *node_ptr;
-                    switch (node.id) {
-                        ast.Node.Id.Root,
-                        ast.Node.Id.StructField,
-                        ast.Node.Id.UnionTag,
-                        ast.Node.Id.EnumTag,
-                        ast.Node.Id.ParamDecl,
-                        ast.Node.Id.Block,
-                        ast.Node.Id.Payload,
-                        ast.Node.Id.Switch,
-                        ast.Node.Id.SwitchCase,
-                        ast.Node.Id.SwitchElse,
-                        ast.Node.Id.FieldInitializer,
-                        ast.Node.Id.LineComment,
-                        ast.Node.Id.TestDecl => continue,
-                        ast.Node.Id.While => {
-                            const while_node = @fieldParentPtr(ast.NodeWhile, "base", node);
-                            if (while_node.@"else") |@"else"| {
-                                stack.append(State { .Semicolon = &@"else".base }) catch unreachable;
-                                continue;
-                            }
-
-                            stack.append(State { .Semicolon = &while_node.body }) catch unreachable;
-                            continue;
-                        },
-                        ast.Node.Id.Else => {
-                            const else_node = @fieldParentPtr(ast.NodeElse, "base", node);
-                            stack.append(State { .Semicolon = &else_node.body }) catch unreachable;
-                            continue;
-                        },
-                        else => {
-                            _ = (try self.eatToken(&stack, Token.Id.Semicolon)) ?? continue;
-                        }
+                    if (requireSemiColon(node)) {
+                        _ = (try self.eatToken(&stack, Token.Id.Semicolon)) ?? continue;
                     }
                 }
+            }
+        }
+    }
+
+    fn requireSemiColon(node: &const ast.Node) bool {
+        var n = node;
+        while (true) {
+            switch (n.id) {
+                ast.Node.Id.Root,
+                ast.Node.Id.StructField,
+                ast.Node.Id.UnionTag,
+                ast.Node.Id.EnumTag,
+                ast.Node.Id.ParamDecl,
+                ast.Node.Id.Block,
+                ast.Node.Id.Payload,
+                ast.Node.Id.Switch,
+                ast.Node.Id.SwitchCase,
+                ast.Node.Id.SwitchElse,
+                ast.Node.Id.FieldInitializer,
+                ast.Node.Id.LineComment,
+                ast.Node.Id.TestDecl => return false,
+                ast.Node.Id.While => {
+                    const while_node = @fieldParentPtr(ast.NodeWhile, "base", n);
+                    if (while_node.@"else") |@"else"| {
+                        n = @"else".base;
+                        continue;
+                    }
+
+                    n = while_node.body;
+                },
+                ast.Node.Id.Else => {
+                    const else_node = @fieldParentPtr(ast.NodeElse, "base", n);
+                    n = else_node.body;
+                },
+                else => return true,
             }
         }
     }
@@ -2559,7 +2564,6 @@ pub const Parser = struct {
         Expression: &ast.Node,
         VarDecl: &ast.NodeVarDecl,
         Statement: &ast.Node,
-        Semicolon: &ast.Node,
         FieldInitializer: &ast.NodeFieldInitializer,
         PrintIndent,
         Indent: usize,
@@ -3344,44 +3348,11 @@ pub const Parser = struct {
                             try stack.append(RenderState { .VarDecl = var_decl});
                         },
                         else => {
-                            try stack.append(RenderState { .Semicolon = base });
+                            if (requireSemiColon(base)) {
+                                try stack.append(RenderState { .Text = ";" });
+                            }
                             try stack.append(RenderState { .Expression = base });
                         },
-                    }
-                },
-                RenderState.Semicolon => |base| {
-                    switch (base.id) {
-                        ast.Node.Id.Root,
-                        ast.Node.Id.StructField,
-                        ast.Node.Id.UnionTag,
-                        ast.Node.Id.EnumTag,
-                        ast.Node.Id.ParamDecl,
-                        ast.Node.Id.Block,
-                        ast.Node.Id.Payload,
-                        ast.Node.Id.Switch,
-                        ast.Node.Id.SwitchCase,
-                        ast.Node.Id.SwitchElse,
-                        ast.Node.Id.FieldInitializer,
-                        ast.Node.Id.LineComment,
-                        ast.Node.Id.TestDecl => {},
-                        ast.Node.Id.While => {
-                            const while_node = @fieldParentPtr(ast.NodeWhile, "base", base);
-                            if (while_node.@"else") |@"else"| {
-                                stack.append(RenderState { .Semicolon = &@"else".base }) catch unreachable;
-                                continue;
-                            }
-
-                            stack.append(RenderState { .Semicolon = while_node.body }) catch unreachable;
-                            continue;
-                        },
-                        ast.Node.Id.Else => {
-                            const else_node = @fieldParentPtr(ast.NodeElse, "base", base);
-                            stack.append(RenderState { .Semicolon = else_node.body }) catch unreachable;
-                            continue;
-                        },
-                        else => {
-                            try stack.append(RenderState { .Text = ";" });
-                        }
                     }
                 },
                 RenderState.Indent => |new_indent| indent = new_indent,
