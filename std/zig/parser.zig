@@ -1449,7 +1449,24 @@ pub const Parser = struct {
                             @panic("TODO: inline asm");
                         },
                         Token.Id.Keyword_if => {
-                            @panic("TODO: inline if");
+                            const node = try arena.create(ast.NodeIf);
+                            *node = ast.NodeIf {
+                                .base = self.initNode(ast.Node.Id.If),
+                                .if_token = token,
+                                .condition = undefined,
+                                .payload = null,
+                                .body = undefined,
+                                .@"else" = null,
+                            };
+                            dest_ptr.store(&node.base);
+
+                            stack.append(State { .Else = &node.@"else" }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.body } });
+                            try stack.append(State { .ValuePayload = &node.payload });
+                            try stack.append(State { .ExpectToken = Token.Id.RParen });
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.condition } });
+                            try stack.append(State { .ExpectToken = Token.Id.LParen });
+                            continue;
                         },
                         Token.Id.Keyword_inline => {
                             stack.append(State {
@@ -2187,6 +2204,15 @@ pub const Parser = struct {
                     }
 
                     n = for_node.body;
+                },
+                ast.Node.Id.If => {
+                    const if_node = @fieldParentPtr(ast.NodeIf, "base", n);
+                    if (if_node.@"else") |@"else"| {
+                        n = @"else".base;
+                        continue;
+                    }
+
+                    n = if_node.body;
                 },
                 ast.Node.Id.Else => {
                     const else_node = @fieldParentPtr(ast.NodeElse, "base", n);
@@ -3363,14 +3389,19 @@ pub const Parser = struct {
                         const else_node = @fieldParentPtr(ast.NodeElse, "base", base);
                         try stream.print("{} ", self.tokenizer.getTokenSlice(else_node.else_token));
 
-                        if (else_node.body.id == ast.Node.Id.Block) {
-                            try stack.append(RenderState { .Expression = else_node.body });
-                        } else {
-                            try stack.append(RenderState { .Indent = indent });
-                            try stack.append(RenderState { .Expression = else_node.body });
-                            try stack.append(RenderState.PrintIndent);
-                            try stack.append(RenderState { .Indent = indent + indent_delta });
-                            try stack.append(RenderState { .Text = "\n" });
+                        switch (else_node.body.id) {
+                            ast.Node.Id.Block, ast.Node.Id.If,
+                            ast.Node.Id.For, ast.Node.Id.While,
+                            ast.Node.Id.Switch => {
+                                try stack.append(RenderState { .Expression = else_node.body });
+                            },
+                            else => {
+                                try stack.append(RenderState { .Indent = indent });
+                                try stack.append(RenderState { .Expression = else_node.body });
+                                try stack.append(RenderState.PrintIndent);
+                                try stack.append(RenderState { .Indent = indent + indent_delta });
+                                try stack.append(RenderState { .Text = "\n" });
+                            }
                         }
 
                         if (else_node.payload) |payload| {
@@ -3396,6 +3427,7 @@ pub const Parser = struct {
                             if (while_node.body.id == ast.Node.Id.Block) {
                                 try stack.append(RenderState { .Text = " " });
                             } else {
+                                try stack.append(RenderState.PrintIndent);
                                 try stack.append(RenderState { .Text = "\n" });
                             }
                         }
@@ -3445,6 +3477,7 @@ pub const Parser = struct {
                             if (for_node.body.id == ast.Node.Id.Block) {
                                 try stack.append(RenderState { .Text = " " });
                             } else {
+                                try stack.append(RenderState.PrintIndent);
                                 try stack.append(RenderState { .Text = "\n" });
                             }
                         }
@@ -3467,6 +3500,53 @@ pub const Parser = struct {
 
                         try stack.append(RenderState { .Text = ")" });
                         try stack.append(RenderState { .Expression = for_node.array_expr });
+                        try stack.append(RenderState { .Text = "(" });
+                    },
+                    ast.Node.Id.If => {
+                        const if_node = @fieldParentPtr(ast.NodeIf, "base", base);
+                        try stream.print("{} ", self.tokenizer.getTokenSlice(if_node.if_token));
+
+                        switch (if_node.body.id) {
+                            ast.Node.Id.Block, ast.Node.Id.If,
+                            ast.Node.Id.For, ast.Node.Id.While,
+                            ast.Node.Id.Switch => {
+                                if (if_node.@"else") |@"else"| {
+                                    try stack.append(RenderState { .Expression = &@"else".base });
+
+                                    if (if_node.body.id == ast.Node.Id.Block) {
+                                        try stack.append(RenderState { .Text = " " });
+                                    } else {
+                                        try stack.append(RenderState.PrintIndent);
+                                        try stack.append(RenderState { .Text = "\n" });
+                                    }
+                                }
+                            },
+                            else => {
+                                if (if_node.@"else") |@"else"| {
+                                    try stack.append(RenderState { .Expression = @"else".body });
+
+                                    if (@"else".payload) |payload| {
+                                        try stack.append(RenderState { .Text = " " });
+                                        try stack.append(RenderState { .Expression = &payload.base });
+                                    }
+
+                                    try stack.append(RenderState { .Text = " " });
+                                    try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(@"else".else_token) });
+                                    try stack.append(RenderState { .Text = " " });
+                                }
+                            }
+                        }
+
+                        try stack.append(RenderState { .Expression = if_node.body });
+                        try stack.append(RenderState { .Text = " " });
+
+                        if (if_node.payload) |payload| {
+                            try stack.append(RenderState { .Expression = &payload.base });
+                            try stack.append(RenderState { .Text = " " });
+                        }
+
+                        try stack.append(RenderState { .Text = ")" });
+                        try stack.append(RenderState { .Expression = if_node.condition });
                         try stack.append(RenderState { .Text = "(" });
                     },
 
@@ -4210,8 +4290,7 @@ test "zig fmt: if" {
         \\        unreachable;
         \\    }
         \\
-        \\    if (10 < 0)
-        \\        unreachable;
+        \\    if (10 < 0) unreachable;
         \\
         \\    if (10 < 0) {
         \\        unreachable;

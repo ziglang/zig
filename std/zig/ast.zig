@@ -29,6 +29,7 @@ pub const Node = struct {
         SwitchElse,
         While,
         For,
+        If,
         InfixOp,
         PrefixOp,
         SuffixOp,
@@ -73,6 +74,7 @@ pub const Node = struct {
             Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).iterate(index),
             Id.While => @fieldParentPtr(NodeWhile, "base", base).iterate(index),
             Id.For => @fieldParentPtr(NodeFor, "base", base).iterate(index),
+            Id.If => @fieldParentPtr(NodeIf, "base", base).iterate(index),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).iterate(index),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).iterate(index),
@@ -118,6 +120,7 @@ pub const Node = struct {
             Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).firstToken(),
             Id.While => @fieldParentPtr(NodeWhile, "base", base).firstToken(),
             Id.For => @fieldParentPtr(NodeFor, "base", base).firstToken(),
+            Id.If => @fieldParentPtr(NodeIf, "base", base).firstToken(),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).firstToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).firstToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).firstToken(),
@@ -163,6 +166,7 @@ pub const Node = struct {
             Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).lastToken(),
             Id.While => @fieldParentPtr(NodeWhile, "base", base).lastToken(),
             Id.For => @fieldParentPtr(NodeFor, "base", base).lastToken(),
+            Id.If => @fieldParentPtr(NodeIf, "base", base).lastToken(),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).lastToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).lastToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).lastToken(),
@@ -859,6 +863,49 @@ pub const NodeFor = struct {
     }
 
     pub fn lastToken(self: &NodeFor) Token {
+        if (self.@"else") |@"else"| {
+            return @"else".body.lastToken();
+        }
+
+        return self.body.lastToken();
+    }
+};
+
+pub const NodeIf = struct {
+    base: Node,
+    if_token: Token,
+    condition: &Node,
+    payload: ?&NodeValuePayload,
+    body: &Node,
+    @"else": ?&NodeElse,
+
+    pub fn iterate(self: &NodeIf, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.condition;
+        i -= 1;
+
+        if (self.payload) |payload| {
+            if (i < 1) return &payload.base;
+            i -= 1;
+        }
+
+        if (i < 1) return self.body;
+        i -= 1;
+
+        if (self.@"else") |@"else"| {
+            if (i < 1) return &@"else".base;
+            i -= 1;
+        }
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeIf) Token {
+        return self.if_token;
+    }
+
+    pub fn lastToken(self: &NodeIf) Token {
         if (self.@"else") |@"else"| {
             return @"else".body.lastToken();
         }
