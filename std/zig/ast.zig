@@ -21,6 +21,7 @@ pub const Node = struct {
         ParamDecl,
         Block,
         Payload,
+        Else,
         Switch,
         SwitchCase,
         SwitchElse,
@@ -61,6 +62,7 @@ pub const Node = struct {
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).iterate(index),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).iterate(index),
             Id.Payload => @fieldParentPtr(NodePayload, "base", base).iterate(index),
+            Id.Else => @fieldParentPtr(NodeSwitch, "base", base).iterate(index),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).iterate(index),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).iterate(index),
             Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).iterate(index),
@@ -102,6 +104,7 @@ pub const Node = struct {
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).firstToken(),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).firstToken(),
             Id.Payload => @fieldParentPtr(NodePayload, "base", base).firstToken(),
+            Id.Else => @fieldParentPtr(NodeSwitch, "base", base).firstToken(),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).firstToken(),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).firstToken(),
             Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).firstToken(),
@@ -143,6 +146,7 @@ pub const Node = struct {
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).lastToken(),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).lastToken(),
             Id.Payload => @fieldParentPtr(NodePayload, "base", base).lastToken(),
+            Id.Else => @fieldParentPtr(NodeElse, "base", base).lastToken(),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).lastToken(),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).lastToken(),
             Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).lastToken(),
@@ -578,6 +582,35 @@ pub const NodePayload = struct {
     }
 };
 
+pub const NodeElse = struct {
+    base: Node,
+    else_token: Token,
+    payload: ?&NodePayload,
+    body: &Node,
+
+    pub fn iterate(self: &NodeElse, index: usize) ?&Node {
+        var i = index;
+
+        if (self.payload) |payload| {
+            if (i < 1) return &payload.base;
+            i -= 1;
+        }
+
+        if (i < 1) return self.body;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeElse) Token {
+        return self.else_token;
+    }
+
+    pub fn lastToken(self: &NodeElse) Token {
+        return self.body.lastToken();
+    }
+};
+
 pub const NodeSwitch = struct {
     base: Node,
     switch_token: Token,
@@ -609,7 +642,7 @@ pub const NodeSwitch = struct {
 pub const NodeSwitchCase = struct {
     base: Node,
     items: ArrayList(&Node),
-    payload: ?&Node,
+    payload: ?&NodePayload,
     expr: &Node,
 
     pub fn iterate(self: &NodeSwitchCase, index: usize) ?&Node {
@@ -657,18 +690,14 @@ pub const NodeSwitchElse = struct {
 
 pub const NodeWhile = struct {
     base: Node,
+    label: ?Token,
+    inline_token: ?Token,
     while_token: Token,
     condition: &Node,
     payload: ?&NodePayload,
     continue_expr: ?&Node,
     body: &Node,
-    @"else": ?Else,
-
-    const Else = struct {
-        capture: ?&NodeIdentifier,
-        body: &Node,
-    };
-
+    @"else": ?&NodeElse,
 
     pub fn iterate(self: &NodeWhile, index: usize) ?&Node {
         var i = index;
@@ -690,12 +719,7 @@ pub const NodeWhile = struct {
         i -= 1;
 
         if (self.@"else") |@"else"| {
-            if (@"else".capture) |capture| {
-                if (i < 1) return &capture.base;
-                i -= 1;
-            }
-
-            if (i < 1) return @"else".body;
+            if (i < 1) return &@"else".base;
             i -= 1;
         }
 
@@ -703,6 +727,14 @@ pub const NodeWhile = struct {
     }
 
     pub fn firstToken(self: &NodeWhile) Token {
+        if (self.label) |label| {
+            return label;
+        }
+
+        if (self.inline_token) |inline_token| {
+            return inline_token;
+        }
+
         return self.while_token;
     }
 
@@ -749,7 +781,7 @@ pub const NodeInfixOp = struct {
         BitXor,
         BoolAnd,
         BoolOr,
-        Catch: ?&Node,
+        Catch: ?&NodePayload,
         Div,
         EqualEqual,
         ErrorUnion,
