@@ -309,6 +309,18 @@ pub const Parser = struct {
                             });
                             continue;
                         },
+                        Token.Id.Keyword_comptime => {
+                            const node = try arena.create(ast.NodeComptime);
+                            *node = ast.NodeComptime {
+                                .base = self.initNode(ast.Node.Id.Comptime),
+                                .comptime_token = token,
+                                .expr = undefined,
+                            };
+                            try root_node.decls.append(&node.base);
+                            stack.append(State.TopLevel) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
+                            continue;
+                        },
                         else => {
                             self.putBackToken(token);
                             stack.append(State.TopLevel) catch unreachable;
@@ -1523,7 +1535,15 @@ pub const Parser = struct {
                             try stack.append(State { .ExpectToken = Token.Id.LParen });
                         },
                         Token.Id.Keyword_comptime => {
-                            @panic("TODO: inline comptime");
+                            const node = try arena.create(ast.NodeComptime);
+                            *node = ast.NodeComptime {
+                                .base = self.initNode(ast.Node.Id.Comptime),
+                                .comptime_token = token,
+                                .expr = undefined,
+                            };
+                            dest_ptr.store(&node.base);
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
+                            continue;
                         },
                         else => {
                             try self.parseError(&stack, token, "expected primary expression, found {}", @tagName(token.id));
@@ -2131,7 +2151,10 @@ pub const Parser = struct {
                                 continue;
                             } else {
                                 self.putBackToken(mut_token);
-                                @panic("TODO: comptime block");
+                                self.putBackToken(next);
+                                const statememt = try block.statements.addOne();
+                                stack.append(State { .Semicolon = statememt }) catch unreachable;
+                                try stack.append(State { .Expression = DestPtr{.Field = statememt } });
                             }
                         },
                         Token.Id.Keyword_var, Token.Id.Keyword_const => {
@@ -2239,6 +2262,10 @@ pub const Parser = struct {
                 ast.Node.Id.Defer => {
                     const defer_node = @fieldParentPtr(ast.NodeDefer, "base", n);
                     n = defer_node.expr;
+                },
+                ast.Node.Id.Comptime => {
+                    const comptime_node = @fieldParentPtr(ast.NodeComptime, "base", n);
+                    n = comptime_node.expr;
                 },
                 else => return true,
             }
@@ -2824,6 +2851,12 @@ pub const Parser = struct {
                                 try stack.append(RenderState { .Expression = value});
                             }
                         },
+                        ast.Node.Id.Comptime => {
+                            if (requireSemiColon(decl)) {
+                                try stack.append(RenderState { .Text = ";" });
+                            }
+                            try stack.append(RenderState { .Expression = decl });
+                        },
                         else => unreachable,
                     }
                 },
@@ -2938,6 +2971,11 @@ pub const Parser = struct {
                         const defer_node = @fieldParentPtr(ast.NodeDefer, "base", base);
                         try stream.print("{} ", self.tokenizer.getTokenSlice(defer_node.defer_token));
                         try stack.append(RenderState { .Expression = defer_node.expr });
+                    },
+                    ast.Node.Id.Comptime => {
+                        const comptime_node = @fieldParentPtr(ast.NodeComptime, "base", base);
+                        try stream.print("{} ", self.tokenizer.getTokenSlice(comptime_node.comptime_token));
+                        try stack.append(RenderState { .Expression = comptime_node.expr });
                     },
                     ast.Node.Id.InfixOp => {
                         const prefix_op_node = @fieldParentPtr(ast.NodeInfixOp, "base", base);
