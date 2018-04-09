@@ -2140,6 +2140,24 @@ pub const Parser = struct {
                             stack.append(State { .VarDecl = var_decl }) catch unreachable;
                             continue;
                         },
+                        Token.Id.Keyword_defer, Token.Id.Keyword_errdefer => {
+                            const node = try arena.create(ast.NodeDefer);
+                            *node = ast.NodeDefer {
+                                .base = self.initNode(ast.Node.Id.Defer),
+                                .defer_token = next,
+                                .kind = switch (next.id) {
+                                    Token.Id.Keyword_defer => ast.NodeDefer.Kind.Unconditional,
+                                    Token.Id.Keyword_errdefer => ast.NodeDefer.Kind.Error,
+                                    else => unreachable,
+                                },
+                                .expr = undefined,
+                            };
+                            try block.statements.append(&node.base);
+
+                            stack.append(State { .Semicolon = &node.base }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr{.Field = &node.expr } });
+                            continue;
+                        },
                         Token.Id.LBrace => {
                             const inner_block = try self.createBlock(arena, (?Token)(null), next);
                             try block.statements.append(&inner_block.base);
@@ -2217,6 +2235,10 @@ pub const Parser = struct {
                 ast.Node.Id.Else => {
                     const else_node = @fieldParentPtr(ast.NodeElse, "base", n);
                     n = else_node.body;
+                },
+                ast.Node.Id.Defer => {
+                    const defer_node = @fieldParentPtr(ast.NodeDefer, "base", n);
+                    n = defer_node.expr;
                 },
                 else => return true,
             }
@@ -2911,6 +2933,11 @@ pub const Parser = struct {
                                 });
                             }
                         }
+                    },
+                    ast.Node.Id.Defer => {
+                        const defer_node = @fieldParentPtr(ast.NodeDefer, "base", base);
+                        try stream.print("{} ", self.tokenizer.getTokenSlice(defer_node.defer_token));
+                        try stack.append(RenderState { .Expression = defer_node.expr });
                     },
                     ast.Node.Id.InfixOp => {
                         const prefix_op_node = @fieldParentPtr(ast.NodeInfixOp, "base", base);

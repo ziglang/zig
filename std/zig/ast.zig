@@ -20,6 +20,7 @@ pub const Node = struct {
         FnProto,
         ParamDecl,
         Block,
+        Defer,
         ErrorPayload,
         ValuePayload,
         ValueIndexPayload,
@@ -65,6 +66,7 @@ pub const Node = struct {
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).iterate(index),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).iterate(index),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).iterate(index),
+            Id.Defer => @fieldParentPtr(NodeDefer, "base", base).iterate(index),
             Id.ErrorPayload => @fieldParentPtr(NodeErrorPayload, "base", base).iterate(index),
             Id.ValuePayload => @fieldParentPtr(NodeValuePayload, "base", base).iterate(index),
             Id.ValueIndexPayload => @fieldParentPtr(NodeValueIndexPayload, "base", base).iterate(index),
@@ -111,6 +113,7 @@ pub const Node = struct {
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).firstToken(),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).firstToken(),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).firstToken(),
+            Id.Defer => @fieldParentPtr(NodeDefer, "base", base).firstToken(),
             Id.ErrorPayload => @fieldParentPtr(NodeErrorPayload, "base", base).firstToken(),
             Id.ValuePayload => @fieldParentPtr(NodeValuePayload, "base", base).firstToken(),
             Id.ValueIndexPayload => @fieldParentPtr(NodeValueIndexPayload, "base", base).firstToken(),
@@ -157,6 +160,7 @@ pub const Node = struct {
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).lastToken(),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).lastToken(),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).lastToken(),
+            Id.Defer => @fieldParentPtr(NodeDefer, "base", base).lastToken(),
             Id.ErrorPayload => @fieldParentPtr(NodeErrorPayload, "base", base).lastToken(),
             Id.ValuePayload => @fieldParentPtr(NodeValuePayload, "base", base).lastToken(),
             Id.ValueIndexPayload => @fieldParentPtr(NodeValueIndexPayload, "base", base).lastToken(),
@@ -570,6 +574,35 @@ pub const NodeBlock = struct {
 
     pub fn lastToken(self: &NodeBlock) Token {
         return self.rbrace;
+    }
+};
+
+pub const NodeDefer = struct {
+    base: Node,
+    defer_token: Token,
+    kind: Kind,
+    expr: &Node,
+
+    const Kind = enum {
+        Error,
+        Unconditional,
+    };
+
+    pub fn iterate(self: &NodeDefer, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.expr;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeDefer) Token {
+        return self.defer_token;
+    }
+
+    pub fn lastToken(self: &NodeDefer) Token {
+        return self.expr.lastToken();
     }
 };
 
