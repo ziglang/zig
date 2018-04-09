@@ -3,24 +3,39 @@ const debug = std.debug;
 const mem = std.mem;
 const assert = debug.assert;
 
+pub const Errors = error {
+    InvalidStartByte,
+    CodepointTooLarge,
+    InvalidCodepoint,
+    ExpectedContinuation,
+    OverlongEncoding,
+    IndexOutOfBounds,
+    InvalidBytes,
+    OutOfMemory,
+};
+
+pub const MemoryErrors = error {
+    OutOfMemory,
+};
+
 /// Given the first byte of a UTF-8 codepoint,
 /// returns a number 1-4 indicating the total length of the codepoint in bytes.
 /// If this byte does not match the form of a UTF-8 start byte, returns Utf8InvalidStartByte.
-pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
+pub fn ByteSequenceLength(first_byte: u8) !u3 {
     if (first_byte < 0b10000000) return u3(1);
     if (first_byte & 0b11100000 == 0b11000000) return u3(2);
     if (first_byte & 0b11110000 == 0b11100000) return u3(3);
     if (first_byte & 0b11111000 == 0b11110000) return u3(4);
-    return error.Utf8InvalidStartByte;
+    return error.InvalidStartByte;
 }
 
-pub fn utf8CodepointSequenceLength(c: u32) !u4 {
-    if (c < 0x80) return 1;
-    if (c < 0x800) return 2;
+pub fn CodepointSequenceLength(c: u32) !u3 {
+    if (c < 0x80) return u3(1);
+    if (c < 0x800) return u3(2);
     if (c -% 0xd800 < 0x800) return error.InvalidCodepoint;
-    if (c < 0x10000) return 3;
-    if (c < 0x110000) return 4;
-    return error.Utf8CodepointTooLarge;
+    if (c < 0x10000) return u3(3);
+    if (c < 0x110000) return u3(4);
+    return error.CodepointTooLarge;
 }
 
 /// Encodes a code point back into utf8
@@ -31,8 +46,8 @@ pub fn utf8CodepointSequenceLength(c: u32) !u4 {
 ///        but giving it a minimum of 4 will ensure it will work
 ///        for all code points :).
 /// Errors: Will return an error if the code point is invalid.
-pub fn utf8Encode(c: u32, out: []u8) !usize {
-    if (utf8CodepointSequenceLength(c)) |length| {
+pub fn Encode(c: u32, out: []u8) !usize {
+    if (CodepointSequenceLength(c)) |length| {
         debug.assert(out.len >= length);
         switch (length) {
             1 => out[0] = u8(c), // Can just add a '0' and code point, thus output 'c'
@@ -57,6 +72,7 @@ pub fn utf8Encode(c: u32, out: []u8) !usize {
             },
             else => unreachable,
         }
+        return usize(length);
     } else |err| {
         return err;
     }
@@ -66,81 +82,81 @@ pub fn utf8Encode(c: u32, out: []u8) !usize {
 /// bytes.len must be equal to utf8ByteSequenceLength(bytes[0]) catch unreachable.
 /// If you already know the length at comptime, you can call one of
 /// utf8Decode2,utf8Decode3,utf8Decode4 directly instead of this function.
-pub fn utf8Decode(bytes: []const u8) !u32 {
+pub fn Decode(bytes: []const u8) !u32 {
     return switch (bytes.len) {
         1 => u32(bytes[0]),
-        2 => utf8Decode2(bytes),
-        3 => utf8Decode3(bytes),
-        4 => utf8Decode4(bytes),
+        2 => Decode2(bytes),
+        3 => Decode3(bytes),
+        4 => Decode4(bytes),
         else => unreachable,
     };
 }
 
-pub fn utf8Decode2(bytes: []const u8) !u32 {
+pub fn Decode2(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 2);
     debug.assert(bytes[0] & 0b11100000 == 0b11000000);
     var value: u32 = bytes[0] & 0b00011111;
 
-    if (bytes[1] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
+    if (bytes[1] & 0b11000000 != 0b10000000) return error.ExpectedContinuation;
     value <<= 6;
     value |= bytes[1] & 0b00111111;
 
-    if (value < 0x80) return error.Utf8OverlongEncoding;
+    if (value < 0x80) return error.OverlongEncoding;
 
     return value;
 }
 
-pub fn utf8Decode3(bytes: []const u8) !u32 {
+pub fn Decode3(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 3);
     debug.assert(bytes[0] & 0b11110000 == 0b11100000);
     var value: u32 = bytes[0] & 0b00001111;
 
-    if (bytes[1] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
+    if (bytes[1] & 0b11000000 != 0b10000000) return error.ExpectedContinuation;
     value <<= 6;
     value |= bytes[1] & 0b00111111;
 
-    if (bytes[2] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
+    if (bytes[2] & 0b11000000 != 0b10000000) return error.ExpectedContinuation;
     value <<= 6;
     value |= bytes[2] & 0b00111111;
 
-    if (value < 0x800) return error.Utf8OverlongEncoding;
-    if (0xd800 <= value and value <= 0xdfff) return error.Utf8EncodesSurrogateHalf;
+    if (value < 0x800) return error.OverlongEncoding;
+    if (0xd800 <= value and value <= 0xdfff) return error.EncodesSurrogateHalf;
 
     return value;
 }
 
-pub fn utf8Decode4(bytes: []const u8) !u32 {
+pub fn Decode4(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 4);
     debug.assert(bytes[0] & 0b11111000 == 0b11110000);
     var value: u32 = bytes[0] & 0b00000111;
 
-    if (bytes[1] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
+    if (bytes[1] & 0b11000000 != 0b10000000) return error.ExpectedContinuation;
     value <<= 6;
     value |= bytes[1] & 0b00111111;
 
-    if (bytes[2] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
+    if (bytes[2] & 0b11000000 != 0b10000000) return error.ExpectedContinuation;
     value <<= 6;
     value |= bytes[2] & 0b00111111;
 
-    if (bytes[3] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
+    if (bytes[3] & 0b11000000 != 0b10000000) return error.ExpectedContinuation;
     value <<= 6;
     value |= bytes[3] & 0b00111111;
 
-    if (value < 0x10000) return error.Utf8OverlongEncoding;
-    if (value > 0x10FFFF) return error.Utf8CodepointTooLarge;
+    if (value < 0x10000) return error.OverlongEncoding;
+    if (value > 0x10FFFF) return error.CodepointTooLarge;
 
     return value;
 }
 
-pub fn utf8ValidateSlice(s: []const u8) bool {
+pub fn ValidateSlice(s: []const u8) bool {
     var i: usize = 0;
     while (i < s.len) {
-        if (utf8ByteSequenceLength(s[i])) |cp_len| {
+        if (ByteSequenceLength(s[i])) |cp_len| {
             if (i + cp_len > s.len) {
                 return false;
             }
 
-            if (utf8Decode(s[i..i+cp_len])) |_| {} else |_| { return false; }
+            if (Decode(s[i..i+cp_len])) |_| {} else |_| { return false; }
             i += cp_len;
         } else |err| {
             return false;
@@ -152,41 +168,49 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
 /// Utf8View iterates the code points of a utf-8 encoded string.
 ///
 /// ```
-/// var utf8 = (try std.unicode.Utf8View.init("hi there")).iterator();
+/// var utf8 = (try std.utf8.View.init("hi there")).iterator();
 /// while (utf8.nextCodepointSlice()) |codepoint| {
 ///   std.debug.warn("got codepoint {}\n", codepoint);
 /// }
 /// ```
-pub const Utf8View = struct {
+pub const View = struct {
     bytes: []const u8,
 
-    pub fn init(s: []const u8) !Utf8View {
-        if (!utf8ValidateSlice(s)) {
-            return error.InvalidUtf8;
+    pub fn init(s: []const u8) !View {
+        if (!ValidateSlice(s)) {
+            return error.InvalidBytes;
         }
 
         return initUnchecked(s);
     }
 
-    pub fn eql(self: &const Utf8View, other: &const Utf8View) bool {
+    pub fn eql(self: &const View, other: &const View) bool {
         return mem.eql(u8, self.bytes, other.bytes);
     }
 
-    pub fn sliceBytes(self: &const Utf8View, start: usize, end: usize) []const u8 {
+    pub fn sliceBytes(self: &const View, start: usize, end: usize) []const u8 {
         return self.bytes[start..end];
     }
 
-    pub fn sliceBytesToEndFrom(self: &const Utf8View, start: usize) []const u8 {
+    pub fn sliceBytesToEndFrom(self: &const View, start: usize) []const u8 {
         return self.bytes[start..];
     }
 
-    fn convertCodepointIndexToRaw(self: &const Utf8View, initialPoint: usize, codepointIndex: usize) !usize {
+    pub fn getBytes(self: &const View) []const u8 {
+        return self.bytes;
+    }
+
+    pub fn byteLen(self: &const View) usize {
+        return self.bytes.len;
+    }
+
+    fn convertCodepointIndexToRaw(self: &const View, initialPoint: usize, codepointIndex: usize) !usize {
         var i: usize = initialPoint;
         var rawIndex: usize = i;
 
         while (i != codepointIndex) {
             if (rawIndex >= self.bytes.len) return error.IndexOutOfBounds;
-            rawIndex += utf8ByteSequenceLength(self.bytes[rawIndex]);
+            rawIndex += ByteSequenceLength(self.bytes[rawIndex]);
             i += 1;
         }
         return rawIndex;
@@ -194,7 +218,7 @@ pub const Utf8View = struct {
 
     // Slices using two code point indexes
     // Will return an error if out of bounds.
-    pub fn sliceCodepoint(self: &const Utf8View, start: usize, end: usize) ![]const u8 {
+    pub fn sliceCodepoint(self: &const View, start: usize, end: usize) ![]const u8 {
         // Grab first code point length and keep going till i == start
         const rawStart: usize = try self.convertCodepointIndexToRaw(start, true);
         const rawEnd: usize = try self.convertCodepointIndexToRaw(end, false);
@@ -202,15 +226,15 @@ pub const Utf8View = struct {
         return self.sliceBytes(rawStart, rawEnd);
     }
 
-    pub fn sliceCodepointToEndFrom(self: &const Utf8View, start: usize) ![]const u8 {
+    pub fn sliceCodepointToEndFrom(self: &const View, start: usize) ![]const u8 {
         return self.sliceBytesToEndFrom(try self.convertCodepointIndexToRaw(start, true));
     }
 
-    pub fn byteAt(self: &const Utf8View, index: usize) u8 {
+    pub fn byteAt(self: &const View, index: usize) u8 {
         return self.bytes[index];
     }
 
-    pub fn byteFromEndAt(self: &const Utf8View, index: usize) u8 {
+    pub fn byteFromEndAt(self: &const View, index: usize) u8 {
         return self.bytes[self.bytes.len - 1 - index];
     }
 
@@ -218,15 +242,15 @@ pub const Utf8View = struct {
     /// Note: the index refers to code point indexes not raw indexes.
     ///       also that this is meant for when code point is in lower half
     ///       use codePointFromEndAt for when you know it is in upper half.
-    pub fn codePointAt(self: &const Utf8View, index: usize) !u32 {
+    pub fn codePointAt(self: &const View, index: usize) !u32 {
         const rawIndex: usize = try self.convertCodepointIndexToRaw(index, true);
-        const length: usize = utf8ByteSequenceLength(self.bytes[rawIndex]);
+        const length: usize = ByteSequenceLength(self.bytes[rawIndex]);
 
         switch (length) {
             1 => return u32(self.bytes[rawIndex]),
-            2 => return try utf8Decode2(self.bytes[rawIndex..rawIndex+2]),
-            3 => return try utf8Decode3(self.bytes[rawIndex..rawIndex+3]),
-            4 => return try utf8Decode4(self.bytes[rawIndex..rawIndex+4]),
+            2 => return try Decode2(self.bytes[rawIndex..rawIndex+2]),
+            3 => return try Decode3(self.bytes[rawIndex..rawIndex+3]),
+            4 => return try Decode4(self.bytes[rawIndex..rawIndex+4]),
             else => unreachable,
         }
     }
@@ -237,7 +261,7 @@ pub const Utf8View = struct {
     /// Note: the index refers to code point indexes not raw indexes.
     ///       also that this is meant for when code point is in lower half
     ///       use codePointFromEndAt for when you know it is in upper half.
-    pub fn codePointFromEndAt(self: &const Utf8View, index: usize) !u32 {
+    pub fn codePointFromEndAt(self: &const View, index: usize) !u32 {
         // Going back to front is a little more convuluted
         // If we do (c & 0xC0) == 0x80 then we know we can skip it due to nature of Utf8
         // Therefore we can iterate backwards, once we reach a point where it is no longer true
@@ -261,73 +285,72 @@ pub const Utf8View = struct {
             }
         }
 
-        const length: usize = utf8ByteSequenceLength(self.bytes[rawIndex]);
+        const length: usize = ByteSequenceLength(self.bytes[rawIndex]);
 
         switch (length) {
             1 => return u32(self.bytes[rawIndex]),
-            2 => return try utf8Decode2(self.bytes[rawIndex..rawIndex+2]),
-            3 => return try utf8Decode3(self.bytes[rawIndex..rawIndex+3]),
-            4 => return try utf8Decode4(self.bytes[rawIndex..rawIndex+4]),
+            2 => return try Decode2(self.bytes[rawIndex..rawIndex+2]),
+            3 => return try Decode3(self.bytes[rawIndex..rawIndex+3]),
+            4 => return try Decode4(self.bytes[rawIndex..rawIndex+4]),
             else => unreachable,
         }
     }
 
-    pub fn initUnchecked(s: []const u8) Utf8View {
-        return Utf8View {
+    pub fn initUnchecked(s: []const u8) View {
+        return View {
             .bytes = s,
         };
     }
 
-    pub fn initComptime(comptime s: []const u8) Utf8View {
+    pub fn initComptime(comptime s: []const u8) View {
         if (comptime init(s)) |r| {
             return r;
-        } else |err| switch (err) {
-            error.InvalidUtf8 => {
-                @compileError("invalid utf8");
-                unreachable;
-            }
+        } else |err| {
+            // @Refactor: when an 'enum' can be converted to a string
+            //            representation print error :).
+            @compileError("Invalid Bytes");
         }
     }
 
-    pub fn iterator(s: &const Utf8View) Utf8Iterator {
-        return Utf8Iterator {
+    pub fn iterator(s: &const View) Iterator {
+        return Iterator {
             .raw = s.bytes,
             .index = 0,
         };
     }
 };
 
-pub const Utf8Iterator = struct {
+pub const Iterator = struct {
     raw: []const u8,
     index: usize,
 
-    pub fn reset(it: &Utf8Iterator) void {
+    pub fn reset(it: &Iterator) void {
         it.index = 0;
     }
 
-    pub fn next(it: &Utf8Iterator) ?[]const u {
+    pub fn next(it: &Iterator) ?[]const u {
         return it.nextCodepointSlice();
     }
 
-    pub fn nextBytes(it: &Utf8Iterator) ?[]const u8 {
+    pub fn nextBytes(it: &Iterator) ?[]const u8 {
         if (it.index >= it.raw.len) {
             return null;
         }
 
-        const cp_len = utf8ByteSequenceLength(it.raw[it.index]) catch unreachable;
+        const cp_len = ByteSequenceLength(it.raw[it.index]) catch unreachable;
 
         it.index+= cp_len;
         return it.raw[it.index-cp_len..it.index];
     }
 
-    pub fn nextCodepoint(it: &Utf8Iterator) ?u32 {
+    pub fn nextCodepoint(it: &Iterator) ?u32 {
         const slice = it.nextBytes() ?? return null;
 
         const r = switch (slice.len) {
             1 => u32(slice[0]),
-            2 => utf8Decode2(slice),
-            3 => utf8Decode3(slice),
-            4 => utf8Decode4(slice),
+            2 => Decode2(slice),
+            3 => Decode3(slice),
+            4 => Decode4(slice),
             else => unreachable,
         };
 
@@ -335,7 +358,7 @@ pub const Utf8Iterator = struct {
     }
 };
 
-fn utf8_changeCase(view: &Utf8View, allocator: &mem.Allocator, lowercase: bool) Utf8View {
+fn changeCase(view: &View, allocator: &mem.Allocator, lowercase: bool) MemoryErrors!View {
     assert(view.bytes.len > 0);
     // Note: The unicode alphabet is currently just the english one
     // I'll later have it as all the alphabets but for simplicity now it'll just be english
@@ -346,12 +369,12 @@ fn utf8_changeCase(view: &Utf8View, allocator: &mem.Allocator, lowercase: bool) 
     var i : usize = 0;
 
     while (bytes) |v| {
-        var bytes = utf8Encode(v);
-        if (lowercase and Utf8_Locale.isLowercaseLetter(v)) {
+        var bytes = Encode(v);
+        if (lowercase and Locale.isLowercaseLetter(v)) {
             for (view.buffer.bytes[i..i + bytes.len]) |byte| {
                 newArray[i] = v + ('a' - 'A');
             }
-        } else if (!lowercase and Utf8_Locale.isUppercaseLetter(v)) {
+        } else if (!lowercase and Locale.isUppercaseLetter(v)) {
             for (view.buffer.bytes[i..i + bytes.len]) |byte| {
                 newArray[i] = v - ('a' - 'A');
             }
@@ -364,24 +387,24 @@ fn utf8_changeCase(view: &Utf8View, allocator: &mem.Allocator, lowercase: bool) 
         i += bytes.len;
     }
 
-    return Utf8View.initUnchecked(newArray);
+    return View.initUnchecked(newArray);
 }
 
-fn utf8_changeCaseBuffer(view: &Utf8View, buffer: []u8, lowercase: bool) Utf8View {
+fn changeCaseBuffer(view: &View, buffer: []u8, lowercase: bool) View {
     assert(view.bytes.len > 0 and view.bytes.len <= buffer.len);
     var it = view.iterator();
     var codepoint = it.nextCodepoint();
     var i: usize = 0;
-    const diff: usize = comptime utf8Decode('a') - utf8Decode('A');
+    const diff: usize = comptime Decode('a') - Decode('A');
 
     while (bytes) |v| {
         // Forcing a safety check, we can't count how many
         // codepoints prior sadly.
         assert(buffer.len > i);
 
-        if (lowercase and Utf8_Locale.isLowercaseLetter(v)) {
+        if (lowercase and Locale.isLowercaseLetter(v)) {
             buffer[i] = v + diff;
-        } else if (!lowercase and Utf8_Locale.isUppercaseLetter(v)) {
+        } else if (!lowercase and Locale.isUppercaseLetter(v)) {
             buffer[i] = v - diff;
         } else {
             buffer[i] = v;
@@ -390,73 +413,72 @@ fn utf8_changeCaseBuffer(view: &Utf8View, buffer: []u8, lowercase: bool) Utf8Vie
         i += 1;
     }
 
-    return Utf8View.initUnchecked(buffer[0..i]);
+    return View.initUnchecked(buffer[0..i]);
 }
 
-fn utf8_toLower(view: &Utf8View, allocator: &mem.Allocator) Utf8View {
+fn toLower(view: &View, allocator: &mem.Allocator) MemoryErrors!View {
     return try changeCase(view, allocator, true);
 }
 
-fn utf8_toUpper(view: &Utf8View, allocator: &mem.Allocator) Utf8View {
+fn toUpper(view: &View, allocator: &mem.Allocator) MemoryErrors!View {
     return try changeCase(view, allocator, false);
 }
 
-fn utf8_toUpperBuffer(view: &Utf8View, buffer: []u32) Utf8View {
+fn toUpperBuffer(view: &View, buffer: []u32) View {
     return try changeCaseBuffer(view, buffer, false);
 }
 
-fn utf8_toLowerBuffer(view: &Utf8View, buffer: []u32) Utf8View {
+fn toLowerBuffer(view: &View, buffer: []u32) View {
     return try changeCaseBuffer(view, buffer, true);
 }
 
-pub const Utf8_Locale_Type = locale.CreateLocale(u8, Utf8View, Utf8Iterator);
-pub const Utf8_Locale = Locale_Type {
-    .lowercaseLetters = Utf8View.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = Utf8View.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-    .whitespaceLetters = Utf8View.initUnchecked(" \t\r\n"), .numbers = Utf8View.initUnchecked("0123456789"), 
+pub const Locale = locale.CreateLocale(u8, View, Iterator) {
+    .lowercaseLetters = View.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = View.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+    .whitespaceLetters = View.initUnchecked(" \t\r\n"), .numbers = View.initUnchecked("0123456789"), 
     .formatter = Locale_Type.FormatterType {
-        .toLower = utf8_toLower, .toUpper = utf8_toUpper,
-        .toLowerBuffer = utf8_toLowerBuffer, .toUpperBuffer = utf8_toUpperBuffer,
+        .toLower = toLower, .toUpper = toUpper,
+        .toLowerBuffer = toLowerBuffer, .toUpperBuffer = toUpperBuffer,
     }
 };
 
 test "utf8 encode" {
     // A few taken from wikipedia a few taken elsewhere
     var array: [4]u8 = undefined;
-    debug.assert(?? utf8Encode(try utf8Decode("€"), array[0..]) == 3);
+    debug.assert((try Encode(try Decode("€"), array[0..])) == 3);
     debug.assert(array[0] == 0b11100010);
     debug.assert(array[1] == 0b10000010);
     debug.assert(array[2] == 0b10101100);
 
-    debug.assert(?? utf8Encode(try utf8Decode("$"), array[0..]) == 1);
+    debug.assert((try Encode(try Decode("$"), array[0..])) == 1);
     debug.assert(array[0] == 0b00100100);
 
-    debug.assert(?? utf8Encode(try utf8Decode("¢"), array[0..]) == 2);
+    debug.assert((try Encode(try Decode("¢"), array[0..])) == 2);
     debug.assert(array[0] == 0b11000010);
     debug.assert(array[1] == 0b10100010);
 
-    debug.assert(?? utf8Encode(try utf8Decode("𐍈"), array[0..]) == 4);
+    debug.assert((try Encode(try Decode("𐍈"), array[0..])) == 4);
     debug.assert(array[0] == 0b11110000);
     debug.assert(array[1] == 0b10010000);
     debug.assert(array[2] == 0b10001101);
     debug.assert(array[3] == 0b10001000);
 }
 
-test "uf8 encode error" {
+test "utf8 encode error" {
     var array: [4]u8 = undefined;
-    testErrorEncode(0x10FFFF, array[0..], error.Utf8CodepointTooLarge);
+    testErrorEncode(0x10FFFF, array[0..], error.CodepointTooLarge);
     testErrorEncode(0xd900, array[0..], error.InvalidCodepoint);
 }
 
 fn testErrorEncode(codePoint: u32, array: []u8, expectedErr: error) void {
-    if (utf8Encode(codePoint, array)) |_| {
+    if (Encode(codePoint, array)) |_| {
         unreachable;
     } else |err| {
-        assert(err == expected_err);
+        assert(err == expectedErr);
     }
 }
 
 test "utf8 iterator on ascii" {
-    const s = Utf8View.initComptime("abc");
+    const s = View.initComptime("abc");
 
     var it1 = s.iterator();
     debug.assert(std.mem.eql(u8, "a", ??it1.nextBytes()));
@@ -475,12 +497,12 @@ test "utf8 view bad" {
     // Compile-time error.
     // const s3 = Utf8View.initComptime("\xfe\xf2");
 
-    const s = Utf8View.init("hel\xadlo");
-    if (s) |_| { unreachable; } else |err| { debug.assert(err == error.InvalidUtf8); }
+    const s = View.init("hel\xadlo");
+    if (s) |_| { unreachable; } else |err| { debug.assert(err == error.InvalidBytes); }
 }
 
 test "utf8 view ok" {
-    const s = Utf8View.initComptime("東京市");
+    const s = View.initComptime("東京市");
 
     var it1 = s.iterator();
     debug.assert(std.mem.eql(u8, "東", ??it1.nextBytes()));
@@ -496,10 +518,10 @@ test "utf8 view ok" {
 }
 
 test "bad utf8 slice" {
-    debug.assert(utf8ValidateSlice("abc"));
-    debug.assert(!utf8ValidateSlice("abc\xc0"));
-    debug.assert(!utf8ValidateSlice("abc\xc0abc"));
-    debug.assert(utf8ValidateSlice("abc\xdf\xbf"));
+    debug.assert(ValidateSlice("abc"));
+    debug.assert(!ValidateSlice("abc\xc0"));
+    debug.assert(!ValidateSlice("abc\xc0abc"));
+    debug.assert(ValidateSlice("abc\xdf\xbf"));
 }
 
 test "valid utf8" {
@@ -519,49 +541,49 @@ test "valid utf8" {
 
 test "invalid utf8 continuation bytes" {
     // unexpected continuation
-    testError("\x80", error.Utf8InvalidStartByte);
-    testError("\xbf", error.Utf8InvalidStartByte);
+    testError("\x80", error.InvalidStartByte);
+    testError("\xbf", error.InvalidStartByte);
     // too many leading 1's
-    testError("\xf8", error.Utf8InvalidStartByte);
-    testError("\xff", error.Utf8InvalidStartByte);
+    testError("\xf8", error.InvalidStartByte);
+    testError("\xff", error.InvalidStartByte);
     // expected continuation for 2 byte sequences
     testError("\xc2", error.UnexpectedEof);
-    testError("\xc2\x00", error.Utf8ExpectedContinuation);
-    testError("\xc2\xc0", error.Utf8ExpectedContinuation);
+    testError("\xc2\x00", error.ExpectedContinuation);
+    testError("\xc2\xc0", error.ExpectedContinuation);
     // expected continuation for 3 byte sequences
     testError("\xe0", error.UnexpectedEof);
     testError("\xe0\x00", error.UnexpectedEof);
     testError("\xe0\xc0", error.UnexpectedEof);
     testError("\xe0\xa0", error.UnexpectedEof);
-    testError("\xe0\xa0\x00", error.Utf8ExpectedContinuation);
-    testError("\xe0\xa0\xc0", error.Utf8ExpectedContinuation);
+    testError("\xe0\xa0\x00", error.ExpectedContinuation);
+    testError("\xe0\xa0\xc0", error.ExpectedContinuation);
     // expected continuation for 4 byte sequences
     testError("\xf0", error.UnexpectedEof);
     testError("\xf0\x00", error.UnexpectedEof);
     testError("\xf0\xc0", error.UnexpectedEof);
     testError("\xf0\x90\x00", error.UnexpectedEof);
     testError("\xf0\x90\xc0", error.UnexpectedEof);
-    testError("\xf0\x90\x80\x00", error.Utf8ExpectedContinuation);
-    testError("\xf0\x90\x80\xc0", error.Utf8ExpectedContinuation);
+    testError("\xf0\x90\x80\x00", error.ExpectedContinuation);
+    testError("\xf0\x90\x80\xc0", error.ExpectedContinuation);
 }
 
 test "overlong utf8 codepoint" {
-    testError("\xc0\x80", error.Utf8OverlongEncoding);
-    testError("\xc1\xbf", error.Utf8OverlongEncoding);
-    testError("\xe0\x80\x80", error.Utf8OverlongEncoding);
-    testError("\xe0\x9f\xbf", error.Utf8OverlongEncoding);
-    testError("\xf0\x80\x80\x80", error.Utf8OverlongEncoding);
-    testError("\xf0\x8f\xbf\xbf", error.Utf8OverlongEncoding);
+    testError("\xc0\x80", error.OverlongEncoding);
+    testError("\xc1\xbf", error.OverlongEncoding);
+    testError("\xe0\x80\x80", error.OverlongEncoding);
+    testError("\xe0\x9f\xbf", error.OverlongEncoding);
+    testError("\xf0\x80\x80\x80", error.OverlongEncoding);
+    testError("\xf0\x8f\xbf\xbf", error.OverlongEncoding);
 }
 
 test "misc invalid utf8" {
     // codepoint out of bounds
-    testError("\xf4\x90\x80\x80", error.Utf8CodepointTooLarge);
-    testError("\xf7\xbf\xbf\xbf", error.Utf8CodepointTooLarge);
+    testError("\xf4\x90\x80\x80", error.CodepointTooLarge);
+    testError("\xf7\xbf\xbf\xbf", error.CodepointTooLarge);
     // surrogate halves
     testValid("\xed\x9f\xbf", 0xd7ff);
-    testError("\xed\xa0\x80", error.Utf8EncodesSurrogateHalf);
-    testError("\xed\xbf\xbf", error.Utf8EncodesSurrogateHalf);
+    testError("\xed\xa0\x80", error.EncodesSurrogateHalf);
+    testError("\xed\xbf\xbf", error.EncodesSurrogateHalf);
     testValid("\xee\x80\x80", 0xe000);
 }
 
@@ -578,8 +600,8 @@ fn testValid(bytes: []const u8, expected_codepoint: u32) void {
 }
 
 fn testDecode(bytes: []const u8) !u32 {
-    const length = try utf8ByteSequenceLength(bytes[0]);
+    const length = try ByteSequenceLength(bytes[0]);
     if (bytes.len < length) return error.UnexpectedEof;
     debug.assert(bytes.len == length);
-    return utf8Decode(bytes);
+    return Decode(bytes);
 }

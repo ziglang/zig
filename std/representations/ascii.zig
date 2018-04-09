@@ -1,5 +1,5 @@
 const std = @import("../index.zig");
-const unicode = std.unicode;
+const unicode = std.utf8;
 const mem = std.mem;
 const math = std.math;
 const Set = std.BufSet;
@@ -8,15 +8,24 @@ const warn = std.debug.warn;
 const DebugAllocator = std.debug.global_allocator;
 const locale = std.locale;
 
-pub const AsciiIterator = struct {
+pub const Errors = error {
+    InvalidCharacter,
+    OutOfMemory,
+};
+
+pub const MemoryErrors = error {
+    OutOfMemory,
+};
+
+pub const Iterator = struct {
     raw: []const u8,
     index: usize,
 
-    pub fn reset(it: &AsciiIterator) void {
+    pub fn reset(it: &Iterator) void {
         it.index = 0;
     }
 
-    pub fn nextBytes(it: &AsciiIterator)?[]const u8 {
+    pub fn nextBytes(it: &Iterator)?[]const u8 {
         if (it.index >= it.raw.len) {
             return null;
         }
@@ -27,16 +36,16 @@ pub const AsciiIterator = struct {
         return x;
     }
 
-    pub fn nextCodePoint(it: &AsciiIterator)?u8 {
+    pub fn nextCodePoint(it: &Iterator)?u8 {
         var x = it.nextBytes();
         return if (x) |y| y[0] else null;
     }
 };
 
-pub const AsciiView = struct {
+pub const View = struct {
     characters: []const u8,
 
-    pub fn init(s: []const u8) !AsciiView {
+    pub fn init(s: []const u8) !View {
         for (s) |char| {
             if (char > 127) return error.InvalidCharacter;
         }
@@ -44,54 +53,72 @@ pub const AsciiView = struct {
         return initUnchecked(s);
     }
 
-    pub fn eql(self: &const AsciiView, other: &const AsciiView) bool {
+    pub fn initComptime(comptime s: []const u8) View {
+        if (comptime init(s)) |view| {
+            return view;
+        } else |err| {
+            // @Refactor: add on more information when converting enums to strings
+            //            become a thing in the language
+            @compileError("Invalid bytes");
+        }
+    }
+
+    pub fn eql(self: &const View, other: &const View) bool {
         return mem.eql(u8, self.characters, other.characters);
     }
 
-    pub fn sliceCodepoint(self: &const AsciiView, start: usize, end: usize) []const u8 {
+    pub fn sliceCodepoint(self: &const View, start: usize, end: usize) []const u8 {
         return self.characters[start..end];
     }
 
-    pub fn sliceCodepointToEndFrom(self: &const AsciiView, start: usize) []const u8 {
+    pub fn sliceCodepointToEndFrom(self: &const View, start: usize) []const u8 {
         return self.characters[start..];
     }
 
-    pub fn sliceBytes(self: &const AsciiView, start: usize, end: usize) []const u8 {
+    pub fn byteLen(self: &const View) usize {
+        return self.characters.len;
+    }
+
+    pub fn getBytes(self: &const View) []const u8 {
+        return self.characters;
+    }
+
+    pub fn sliceBytes(self: &const View, start: usize, end: usize) []const u8 {
         return self.characters[start..end];
     }
 
-    pub fn sliceBytesToEndFrom(self: &const AsciiView, start: usize) []const u8 {
+    pub fn sliceBytesToEndFrom(self: &const View, start: usize) []const u8 {
         return self.characters[start..];
     }
 
-    pub fn byteAt(self: &const AsciiView, index: usize) u8 {
+    pub fn byteAt(self: &const View, index: usize) u8 {
         return self.characters[index];
     }
 
-    pub fn byteFromEndAt(self: &const AsciiView, index: usize) u8 {
+    pub fn byteFromEndAt(self: &const View, index: usize) u8 {
         return self.characters[self.characters.len - 1 - index];
     }
 
-    pub fn codePointAt(self: &const AsciiView, index: usize) u8 {
+    pub fn codePointAt(self: &const View, index: usize) u8 {
         return self.characters[index];
     }
 
-    pub fn codePointFromEndAt(self: &const AsciiView, index: usize) u8 {
+    pub fn codePointFromEndAt(self: &const View, index: usize) u8 {
         return self.characters[self.characters.len - 1 - index];
     }
 
-    pub fn initUnchecked(s: []const u8) AsciiView {
-        return AsciiView {
+    pub fn initUnchecked(s: []const u8) View {
+        return View {
             .characters = s
         };
     }
 
-    pub fn iterator(self: &const AsciiView) AsciiIterator {
-        return AsciiIterator { .index = 0, .raw = self.characters };
+    pub fn iterator(self: &const View) Iterator {
+        return Iterator { .index = 0, .raw = self.characters };
     }
 };
 
-fn changeCase(view: &AsciiView, allocator: &mem.Allocator, lowercase: bool) AsciiView {
+fn changeCase(view: &View, allocator: &mem.Allocator, lowercase: bool) MemoryErrors!View {
     assert(view.characters.len > 0);
     // Ascii so no need to do it 'right'
     var newArray : []u8 = try allocator.alloc(u8, @sizeOf(u8) * view.characters.len);
@@ -99,7 +126,7 @@ fn changeCase(view: &AsciiView, allocator: &mem.Allocator, lowercase: bool) Asci
     var char = it.nextCodePoint();
     var i : usize = 0;
 
-    while (char) |next| {
+    while (char) |v| {
         if (lowercase and Locale.isLowercaseLetter(v)) {
             newArray[i] = v + ('a' - 'A');
         } else if (!lowercase and Locale.isUppercaseLetter(v)) {
@@ -111,10 +138,10 @@ fn changeCase(view: &AsciiView, allocator: &mem.Allocator, lowercase: bool) Asci
         i += 1;
     }
 
-    return AsciiView.initUnchecked(newArray);
+    return View.initUnchecked(newArray);
 }
 
-fn changeCaseBuffer(view: &AsciiView, buffer: []u8, lowercase: bool) AsciiView {
+fn changeCaseBuffer(view: &View, buffer: []u8, lowercase: bool) View {
     assert(view.characters.len > 0 and view.characters.len <= buffer.len);
     // Ascii so we can just write into the array directly without translating it back into bytes
     // For unicode you would have to run an encode.
@@ -133,29 +160,30 @@ fn changeCaseBuffer(view: &AsciiView, buffer: []u8, lowercase: bool) AsciiView {
         char = it.nextCodePoint();
         i += 1;
     }
-    return AsciiView.initUnchecked(buffer[0..i]);
+    return View.initUnchecked(buffer[0..i]);
 }
 
-fn toLower(view: &AsciiView, allocator: &mem.Allocator) AsciiView {
+fn toLower(view: &View, allocator: &mem.Allocator) MemoryErrors!View {
     return changeCase(view, allocator, true);
 }
 
-fn toUpper(view: &AsciiView, allocator: &mem.Allocator) AsciiView {
+fn toUpper(view: &View, allocator: &mem.Allocator) MemoryErrors!View {
     return changeCase(view, allocator, false);
 }
 
-fn toUpperBuffer(view: &AsciiView, buffer: []u8) AsciiView {
+fn toUpperBuffer(view: &View, buffer: []u8) View {
     return changeCaseBuffer(view, buffer, false);
 }
 
-fn toLowerBuffer(view: &AsciiView, buffer: []u8) AsciiView {
+fn toLowerBuffer(view: &View, buffer: []u8) View {
     return changeCaseBuffer(view, buffer, true);
 }
 
-pub const Locale_Type = locale.CreateLocale(u8, AsciiView, AsciiIterator);
-pub const Locale = Locale_Type { 
-    .lowercaseLetters = AsciiView.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = AsciiView.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-    .whitespaceLetters = AsciiView.initUnchecked(" \t\r\n"), .numbers = AsciiView.initUnchecked("0123456789"), 
+const Locale_Type = locale.CreateLocale(u8, View, Iterator);
+
+pub const Locale = Locale_Type {
+    .lowercaseLetters = View.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = View.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+    .whitespaceLetters = View.initUnchecked(" \t\r\n"), .numbers = View.initUnchecked("0123456789"), 
     .formatter = Locale_Type.FormatterType {
         .toLower = toLower, .toUpper = toUpper,
         .toLowerBuffer = toLowerBuffer, .toUpperBuffer = toUpperBuffer,
@@ -164,7 +192,7 @@ pub const Locale = Locale_Type {
 
 test "Ascii Locale" {
     // To be split up later
-    var views = [] AsciiView { Locale.lowercaseLetters, Locale.uppercaseLetters };
+    var views = [] View { Locale.lowercaseLetters, Locale.uppercaseLetters };
     var it = Locale.iterator(views[0..]);
     var i: usize = 0;
     var lower = "abcdefghijklmnopqrstuvwxyz";
@@ -181,8 +209,8 @@ test "Ascii Locale" {
         i += 1;
     }
     
-    var view = try AsciiView.init("A");
-    view = Locale.formatter.toLower(&view, DebugAllocator);
+    var view = try View.init("A");
+    view = try Locale.formatter.toLower(&view, DebugAllocator);
     assert(view.characters[0] == 'a');
     DebugAllocator.free(view.characters);
 }

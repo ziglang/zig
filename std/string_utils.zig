@@ -1,12 +1,12 @@
 const std = @import("index.zig");
-const unicode = std.unicode;
+const unicode = std.utf8;
 const mem = std.mem;
 const math = std.math;
 const Set = std.BufSet;
 const assert = std.debug.assert;
 const locale = std.locale;
 const ascii = std.ascii;
-const allocator = std.debug.debug_allocator;
+const utf8 = std.utf8;
 
 // Handles a series of string utilities that are focused around handling and manipulating strings
 
@@ -25,47 +25,8 @@ pub fn strEql(a: []const u8, b: []const u8)bool {
 }
 
 // Just directs you to the standard string handler
-pub fn hash_unicode(k: unicode.Utf8View) u32 {
+pub fn hash_utf8(k: unicode.View) u32 {
     return hashStr(k.bytes);
-}
-
-pub fn findStr(a: []const u8, target: []const u8, start: usize, end: usize, highest: bool) ?usize {
-    var array = a[start..end];
-    var i : usize = 0;
-    var index : ?usize = null;
-
-    while (i < array.len) {
-        // If there is no possible way we could fit the string early return
-        if (array.len - i < target.len) return index;
-
-        if (array[i] == target[0]) {
-            var equal = true;
-            var j : usize = 1;
-
-            while (j < target.len) {
-                if (array[i + j] != target[j]) {
-                    equal = false;
-
-                    // Reduce amount of comparisons
-                    i += j - 1;
-                    break;
-                }
-                j += 1;
-            }
-
-            if (equal) {
-                index = i;
-                if (!highest) {
-                    return index;
-                } else {
-                    i += j - 1;
-                }
-            }
-        }
-        i += 1;
-    }
-
-    return index;
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
@@ -165,7 +126,7 @@ pub fn t_SplitIt(comptime viewType: type, comptime iterator_type: type, comptime
     };
 }
 
-test "string_utils.split" {
+test "string_utils.split.ascii" {
     var it = try asciiSplit("   abc def   ghi  ", " ");
     assert(mem.eql(u8, ?? it.nextBytes(), "abc"));
     assert(mem.eql(u8, ?? it.nextBytes(), "def"));
@@ -173,15 +134,87 @@ test "string_utils.split" {
     assert(mem.eql(u8, ?? it.nextBytes(), "ghi"));
     assert(it.nextBytes() == null);
 }
+
+test "string_utils.split.unicode" {
+    var it = try utf8Split("   abc ۩   g߶hi  ", " ");
+    assert(mem.eql(u8, ?? it.nextBytes(), "abc"));
+    assert(mem.eql(u8, ?? it.nextBytes(), "۩"));
+    assert(mem.eql(u8, ?? it.restBytes(), "g߶hi  "));
+    assert(mem.eql(u8, ?? it.nextBytes(), "g߶hi"));
+    assert(it.nextBytes() == null);
+}
               
-pub const t_AsciiSplitIt = t_SplitIt(ascii.AsciiView, ascii.AsciiIterator, []const u8, u8);
+pub const t_AsciiSplitIt = t_SplitIt(ascii.View, ascii.Iterator, []const u8, u8);
 
 pub fn asciiSplit(a: []const u8, splitBytes: []const u8) !t_AsciiSplitIt {
     return try t_AsciiSplitIt.init(a, splitBytes);
 }
 
-pub const t_Utf8SplitIt = t_SplitIt(unicode.Utf8View, unicode.Utf8Iterator, []const u8, u32);
+pub const t_Utf8SplitIt = t_SplitIt(utf8.View, utf8.Iterator, []const u8, u32);
 
 pub fn utf8Split(a: []const u8, splitBytes: []const u8) !t_Utf8SplitIt {
     return try t_Utf8SplitIt.init(a, splitBytes);
+}
+
+pub fn asciiJoin(allocator: &mem.Allocator, sep: []const u8, strings: ...) ![]u8 {
+    return join(u8, allocator, sep, strings);
+}
+
+pub fn asciiJoinBuffer(buffer: []u8, sep: []const u8, strings: ...) []u8 {
+    return joinBuffer(u8, buffer, sep, strings);
+}
+
+pub fn utf8Join(allocator: &mem.Allocator, sep: []const u8, strings: ...) ![]u8 {
+    return join(u8, allocator, sep, strings);
+}
+
+pub fn utf8JoinBuffer(buffer: []u8, sep: []const u8, strings: ...) []u8 {
+    return joinBuffer(u8, buffer, sep, strings);
+}
+
+fn calculateLength(comptime baseType: type,  sep: []const baseType, views: [][]const baseType, strings: ...) usize {
+    var totalLength: usize = sep.len * strings.len;
+    comptime var string_i = 0;
+    inline while (string_i < strings.len) : (string_i += 1) {
+        const arg = ([]const baseType)(strings[string_i]);
+        totalLength += arg.len;
+        views[string_i] = arg;
+    }
+    return totalLength;
+}
+
+// The allocator could fail.
+pub fn join(comptime baseType: type, allocator: &mem.Allocator, sep: []const baseType, strings: ...) ![]baseType {
+    var views: [strings.len][]const u8 = undefined;
+    const totalLength = calculateLength(baseType, sep, views[0..], strings);
+    const buf = try allocator.alloc(baseType, totalLength);
+    return joinViewsBuffer(baseType, sep, views[0..], totalLength, buf);
+}
+
+// You could give us invalid utf8 for example or even invalid ascii
+pub fn joinBuffer(comptime baseType: type,  buffer: []baseType, sep: []const baseType, strings: ...) []baseType {
+    var views: [strings.len][]const u8 = undefined;
+    const totalLength = calculateLength(baseType, sep, views[0..], strings);
+    return joinViewsBuffer(baseType, sep, views[0..], totalLength, buffer);
+}
+
+pub fn joinViewsBuffer(comptime baseType: type, sep: []const baseType, strings: [][]const baseType, totalLength: usize, buffer: []baseType) []baseType {
+    assert(totalLength <= buffer.len);
+    var buffer_i: usize = 0;
+    for (strings) |string| {
+        // Write to buffer
+        mem.copy(baseType, buffer[buffer_i..], string);
+        buffer_i += string.len;
+        // As to not print the last one
+        if (buffer_i == totalLength) break;
+        mem.copy(baseType, buffer[buffer_i..], sep);
+        buffer_i += sep.len;
+    }
+    return buffer[0..buffer_i];
+}
+
+test "ascii.joinBuffer" {
+    var buf: [100]u8 = undefined;
+    assert(mem.eql(u8, asciiJoinBuffer(buf[0..], ", ", "a", "b", "c"), "a, b, c"));
+    assert(mem.eql(u8, asciiJoinBuffer(buf[0..], ",", "a"), "a"));
 }

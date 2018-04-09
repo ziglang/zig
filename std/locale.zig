@@ -1,11 +1,15 @@
-const std = @import("../index.zig");
-const unicode = std.unicode;
+const std = @import("index.zig");
+const unicode = std.utf8;
 const mem = std.mem;
 const math = std.math;
 const Set = std.BufSet;
 const assert = std.debug.assert;
 const warn = std.debug.warn;
 const DebugAllocator = std.debug.global_allocator;
+
+const Errors = error {
+    OutOfMemory,
+};
 
 pub fn CreateLocale(comptime CodePoint: type, comptime View: type, comptime Iterator: type) type {
     return struct {
@@ -21,20 +25,20 @@ pub fn CreateLocale(comptime CodePoint: type, comptime View: type, comptime Iter
 
         formatter: FormatterType,
 
-        pub fn isInView(iew: &View, codePoint: CodePoint) bool {
+        pub fn isInView(view: &const View, codePoint: CodePoint) bool {
             return codePoint >= view.codePointAt(0) and codePoint <= view.codePointFromEndAt(0);
         }
 
         pub fn isNum(self: &const Self, codePoint: CodePoint) bool {
-            return isInView(self.numbers, codePoint);
+            return isInView(&self.numbers, codePoint);
         }
 
         pub fn isLowercaseLetter(self: &const Self, codePoint: CodePoint) bool {
-            return isInView(self.lowercaseLetters, codePoint);
+            return isInView(&self.lowercaseLetters, codePoint);
         }
 
         pub fn isUppercaseLetter(self: &const Self, codePoint: CodePoint) bool {
-            return isInView(self.uppercaseLetters, codePoint);
+            return isInView(&self.uppercaseLetters, codePoint);
         }
 
         pub fn isLetter(self: &const Self, codePoint: CodePoint) bool {
@@ -42,12 +46,12 @@ pub fn CreateLocale(comptime CodePoint: type, comptime View: type, comptime Iter
         }
 
         pub fn isWhitespace(self: &const Self, codePoint: CodePoint) bool {
-            return isInView(self.whitespaceLetters, codePoint);
+            return isInView(&self.whitespaceLetters, codePoint);
         }
 
         const FormatterType = struct {
-            toUpper: fn(&View, &mem.Allocator) View,
-            toLower: fn(&View, &mem.Allocator) View,
+            toUpper: fn(&View, &mem.Allocator) Errors!View,
+            toLower: fn(&View, &mem.Allocator) Errors!View,
             toUpperBuffer: fn(&View, []CodePoint) View,
             toLowerBuffer: fn(&View, []CodePoint) View,
         };
