@@ -1413,6 +1413,17 @@ pub const Parser = struct {
                             }) catch unreachable;
                         },
                         Token.Id.Keyword_extern => {
+                            const next = self.getNextToken();
+                            if (next.id == Token.Id.Keyword_fn) {
+                                // TODO shouldn't need this cast
+                                const fn_proto = try self.createFnProto(arena, next,
+                                    (?Token)(token), (?&ast.Node)(null), (?Token)(null), (?Token)(null), (?Token)(null));
+                                dest_ptr.store(&fn_proto.base);
+                                stack.append(State { .FnProto = fn_proto }) catch unreachable;
+                                continue;
+                            }
+
+                            self.putBackToken(next);
                             stack.append(State {
                                 .ContainerExtern = ContainerExternCtx {
                                     .dest_ptr = dest_ptr,
@@ -1455,7 +1466,26 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_fn => {
-                            @panic("TODO: fn proto");
+                            // TODO shouldn't need these casts
+                            const fn_proto = try self.createFnProto(arena, token,
+                                (?Token)(null), (?&ast.Node)(null), (?Token)(null), (?Token)(null), (?Token)(null));
+                            dest_ptr.store(&fn_proto.base);
+                            stack.append(State { .FnProto = fn_proto }) catch unreachable;
+                            continue;
+                        },
+                        Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
+                            // TODO shouldn't need this cast
+                            const fn_proto = try self.createFnProto(arena, undefined,
+                                (?Token)(null), (?&ast.Node)(null), (?Token)(token), (?Token)(null), (?Token)(null));
+                            dest_ptr.store(&fn_proto.base);
+                            stack.append(State { .FnProto = fn_proto }) catch unreachable;
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.Keyword_fn,
+                                    .ptr = &fn_proto.fn_token,
+                                }
+                            });
+                            continue;
                         },
                         Token.Id.Keyword_asm => {
                             @panic("TODO: inline asm");
@@ -2781,41 +2811,14 @@ pub const Parser = struct {
                         ast.Node.Id.FnProto => {
                             const fn_proto = @fieldParentPtr(ast.NodeFnProto, "base", decl);
 
-                            if (fn_proto.body_node == null) {
-                                try stack.append(RenderState { .Text = ";" });
+                            if (fn_proto.body_node) |body_node| {
+                                stack.append(RenderState { .Expression = body_node}) catch unreachable;
+                                try stack.append(RenderState { .Text = " "});
+                            } else {
+                                stack.append(RenderState { .Text = ";" }) catch unreachable;
                             }
 
-                            try stack.append(RenderState { .FnProtoRParen = fn_proto});
-                            var i = fn_proto.params.len;
-                            while (i != 0) {
-                                i -= 1;
-                                const param_decl_node = fn_proto.params.items[i];
-                                try stack.append(RenderState { .ParamDecl = param_decl_node});
-                                if (i != 0) {
-                                    try stack.append(RenderState { .Text = ", " });
-                                }
-                            }
-
-                            try stack.append(RenderState { .Text = "(" });
-                            if (fn_proto.name_token) |name_token| {
-                                try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(name_token) });
-                            }
-
-                            try stack.append(RenderState { .Text = "fn " });
-                            if (fn_proto.lib_name) |lib_name| {
-                                try stack.append(RenderState { .Text = " " });
-                                try stack.append(RenderState { .Expression = lib_name });
-                            }
-                            if (fn_proto.extern_token) |extern_token| {
-                                try stack.append(RenderState { .Text = " " });
-                                try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(extern_token) });
-                            }
-
-                            if (fn_proto.visib_token) |visib_token| {
-                                assert(visib_token.id == Token.Id.Keyword_pub or visib_token.id == Token.Id.Keyword_export);
-                                try stack.append(RenderState { .Text = " " });
-                                try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(visib_token) });
-                            }
+                            try stack.append(RenderState { .Expression = decl });
                         },
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.NodeVarDecl, "base", decl);
@@ -3386,7 +3389,65 @@ pub const Parser = struct {
                             }
                         }
                     },
-                    ast.Node.Id.FnProto => @panic("TODO fn proto in an expression"),
+                    ast.Node.Id.FnProto => {
+                        const fn_proto = @fieldParentPtr(ast.NodeFnProto, "base", base);
+
+                        switch (fn_proto.return_type) {
+                            ast.NodeFnProto.ReturnType.Explicit => |node| {
+                                try stack.append(RenderState { .Expression = node});
+                            },
+                            ast.NodeFnProto.ReturnType.Infer => {
+                                try stack.append(RenderState { .Text = "var"});
+                            },
+                            ast.NodeFnProto.ReturnType.InferErrorSet => |node| {
+                                try stack.append(RenderState { .Expression = node});
+                                try stack.append(RenderState { .Text = "!"});
+                            },
+                        }
+
+                        if (fn_proto.align_expr != null) {
+                            @panic("TODO");
+                        }
+
+                        try stack.append(RenderState { .Text = ") " });
+                        var i = fn_proto.params.len;
+                        while (i != 0) {
+                            i -= 1;
+                            const param_decl_node = fn_proto.params.items[i];
+                            try stack.append(RenderState { .ParamDecl = param_decl_node});
+                            if (i != 0) {
+                                try stack.append(RenderState { .Text = ", " });
+                            }
+                        }
+
+                        try stack.append(RenderState { .Text = "(" });
+                        if (fn_proto.name_token) |name_token| {
+                            try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(name_token) });
+                            try stack.append(RenderState { .Text = " " });
+                        }
+
+                        try stack.append(RenderState { .Text = "fn" });
+
+                        if (fn_proto.cc_token) |cc_token| {
+                            try stack.append(RenderState { .Text = " " });
+                            try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(cc_token) });
+                        }
+
+                        if (fn_proto.lib_name) |lib_name| {
+                            try stack.append(RenderState { .Text = " " });
+                            try stack.append(RenderState { .Expression = lib_name });
+                        }
+                        if (fn_proto.extern_token) |extern_token| {
+                            try stack.append(RenderState { .Text = " " });
+                            try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(extern_token) });
+                        }
+
+                        if (fn_proto.visib_token) |visib_token| {
+                            assert(visib_token.id == Token.Id.Keyword_pub or visib_token.id == Token.Id.Keyword_export);
+                            try stack.append(RenderState { .Text = " " });
+                            try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(visib_token) });
+                        }
+                    },
                     ast.Node.Id.LineComment => @panic("TODO render line comment in an expression"),
                     ast.Node.Id.Switch => {
                         const switch_node = @fieldParentPtr(ast.NodeSwitch, "base", base);
@@ -4461,6 +4522,9 @@ test "zig fmt: fn type" {
         \\    return i + 1;
         \\}
         \\
+        \\const a: fn(u8) u8 = undefined;
+        \\const b: extern fn(u8) u8 = undefined;
+        \\const c: nakedcc fn(u8) u8 = undefined;
         \\const ap: fn(u8) u8 = a;
         \\
     );
