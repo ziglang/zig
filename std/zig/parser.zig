@@ -170,7 +170,9 @@ pub const Parser = struct {
         FieldInitListCommaOrEnd: ListSave(&ast.NodeFieldInitializer),
         FieldListCommaOrEnd: &ast.NodeContainerDecl,
         SwitchCaseOrEnd: ListSave(&ast.NodeSwitchCase),
-        Payload: &?&ast.NodePayload,
+        ErrorPayload: &?&ast.NodeErrorPayload,
+        ValuePayload: &?&ast.NodeValuePayload,
+        ValueIndexPayload: &?&ast.NodeValueIndexPayload,
         SwitchCaseCommaOrEnd: ListSave(&ast.NodeSwitchCase),
         SwitchCaseItem: &ArrayList(&ast.Node),
         SwitchCaseItemCommaOrEnd: &ArrayList(&ast.Node),
@@ -769,7 +771,7 @@ pub const Parser = struct {
 
                             stack.append(State { .UnwrapExpressionEnd = dest_ptr }) catch unreachable;
                             try stack.append(State { .Expression = DestPtr { .Field = &node.rhs } });
-                            try stack.append(State { .Payload = &node.op.Catch });
+                            try stack.append(State { .ErrorPayload = &node.op.Catch });
                             continue;
                         },
                         Token.Id.QuestionMarkQuestionMark => {
@@ -1471,7 +1473,15 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_for => {
-                            @panic("TODO: inline for");
+                            stack.append(State {
+                                .For = LoopCtx {
+                                    .label = null,
+                                    .inline_token = null,
+                                    .loop_token = token,
+                                    .dest_ptr = dest_ptr,
+                                }
+                            }) catch unreachable;
+                            continue;
                         },
                         Token.Id.Keyword_switch => {
                             const node = try arena.create(ast.NodeSwitch);
@@ -1614,7 +1624,7 @@ pub const Parser = struct {
                     try list_state.list.append(node);
                     stack.append(State { .SwitchCaseCommaOrEnd = list_state }) catch unreachable;
                     try stack.append(State { .Expression = DestPtr{ .Field = &node.expr  } });
-                    try stack.append(State { .Payload = &node.payload });
+                    try stack.append(State { .ValuePayload = &node.payload });
 
                     const maybe_else = self.getNextToken();
                     if (maybe_else.id == Token.Id.Keyword_else) {
@@ -1681,7 +1691,7 @@ pub const Parser = struct {
                     *dest = node;
 
                     stack.append(State { .Expression = DestPtr { .Field = &node.body } }) catch unreachable;
-                    try stack.append(State { .Payload = &node.payload });
+                    try stack.append(State { .ErrorPayload = &node.payload });
                 },
 
                 State.WhileContinueExpr => |dest| {
@@ -1696,7 +1706,26 @@ pub const Parser = struct {
                     try stack.append(State { .Expression = DestPtr { .NullableField = dest } });
                 },
 
-                State.Payload => |dest| {
+                State.ErrorPayload => |dest| {
+                    const lpipe = self.getNextToken();
+                    if (lpipe.id != Token.Id.Pipe) {
+                        self.putBackToken(lpipe);
+                        continue;
+                    }
+
+                    const error_symbol = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
+                    const rpipe = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
+                    const node = try arena.create(ast.NodeErrorPayload);
+                    *node = ast.NodeErrorPayload {
+                        .base = self.initNode(ast.Node.Id.ErrorPayload),
+                        .lpipe = lpipe,
+                        .error_symbol = try self.createIdentifier(arena, error_symbol),
+                        .rpipe = rpipe
+                    };
+                    *dest = node;
+                },
+
+                State.ValuePayload => |dest| {
                     const lpipe = self.getNextToken();
                     if (lpipe.id != Token.Id.Pipe) {
                         self.putBackToken(lpipe);
@@ -1713,14 +1742,56 @@ pub const Parser = struct {
                         }
                     };
 
-                    const ident = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
+                    const value_symbol = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
                     const rpipe = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
-                    const node = try arena.create(ast.NodePayload);
-                    *node = ast.NodePayload {
-                        .base = self.initNode(ast.Node.Id.Payload),
+                    const node = try arena.create(ast.NodeValuePayload);
+                    *node = ast.NodeValuePayload {
+                        .base = self.initNode(ast.Node.Id.ValuePayload),
                         .lpipe = lpipe,
                         .is_ptr = is_ptr,
-                        .symbol = try self.createIdentifier(arena, ident),
+                        .value_symbol = try self.createIdentifier(arena, value_symbol),
+                        .rpipe = rpipe
+                    };
+                    *dest = node;
+                },
+
+                State.ValueIndexPayload => |dest| {
+                    const lpipe = self.getNextToken();
+                    if (lpipe.id != Token.Id.Pipe) {
+                        self.putBackToken(lpipe);
+                        continue;
+                    }
+
+                    const is_ptr = blk: {
+                        const asterik = self.getNextToken();
+                        if (asterik.id == Token.Id.Asterisk) {
+                            break :blk true;
+                        } else {
+                            self.putBackToken(asterik);
+                            break :blk false;
+                        }
+                    };
+
+                    const value_symbol = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
+                    const index_symbol = blk: {
+                        const comma = self.getNextToken();
+                        if (comma.id != Token.Id.Comma) {
+                            self.putBackToken(comma);
+                            break :blk null;
+                        }
+
+                        const symbol = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
+                        break :blk try self.createIdentifier(arena, symbol);
+                    };
+
+                    const rpipe = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
+                    const node = try arena.create(ast.NodeValueIndexPayload);
+                    *node = ast.NodeValueIndexPayload {
+                        .base = self.initNode(ast.Node.Id.ValueIndexPayload),
+                        .lpipe = lpipe,
+                        .is_ptr = is_ptr,
+                        .value_symbol = try self.createIdentifier(arena, value_symbol),
+                        .index_symbol = index_symbol,
                         .rpipe = rpipe
                     };
                     *dest = node;
@@ -1986,13 +2057,32 @@ pub const Parser = struct {
                     stack.append(State { .Else = &node.@"else" }) catch unreachable;
                     try stack.append(State { .Expression = DestPtr { .Field = &node.body } });
                     try stack.append(State { .WhileContinueExpr = &node.continue_expr });
-                    try stack.append(State { .Payload = &node.payload });
+                    try stack.append(State { .ValuePayload = &node.payload });
                     try stack.append(State { .ExpectToken = Token.Id.RParen });
                     try stack.append(State { .Expression = DestPtr { .Field = &node.condition } });
                     try stack.append(State { .ExpectToken = Token.Id.LParen });
                 },
 
                 State.For => |ctx| {
+                    const node = try arena.create(ast.NodeFor);
+                    *node = ast.NodeFor {
+                        .base = self.initNode(ast.Node.Id.For),
+                        .label = ctx.label,
+                        .inline_token = ctx.inline_token,
+                        .for_token = ctx.loop_token,
+                        .array_expr = undefined,
+                        .payload = null,
+                        .body = undefined,
+                        .@"else" = null,
+                    };
+                    ctx.dest_ptr.store(&node.base);
+
+                    stack.append(State { .Else = &node.@"else" }) catch unreachable;
+                    try stack.append(State { .Expression = DestPtr { .Field = &node.body } });
+                    try stack.append(State { .ValueIndexPayload = &node.payload });
+                    try stack.append(State { .ExpectToken = Token.Id.RParen });
+                    try stack.append(State { .Expression = DestPtr { .Field = &node.array_expr } });
+                    try stack.append(State { .ExpectToken = Token.Id.LParen });
                 },
 
                 State.Block => |block| {
@@ -2071,7 +2161,9 @@ pub const Parser = struct {
                 ast.Node.Id.EnumTag,
                 ast.Node.Id.ParamDecl,
                 ast.Node.Id.Block,
-                ast.Node.Id.Payload,
+                ast.Node.Id.ErrorPayload,
+                ast.Node.Id.ValuePayload,
+                ast.Node.Id.ValueIndexPayload,
                 ast.Node.Id.Switch,
                 ast.Node.Id.SwitchCase,
                 ast.Node.Id.SwitchElse,
@@ -2086,6 +2178,15 @@ pub const Parser = struct {
                     }
 
                     n = while_node.body;
+                },
+                ast.Node.Id.For => {
+                    const for_node = @fieldParentPtr(ast.NodeFor, "base", n);
+                    if (for_node.@"else") |@"else"| {
+                        n = @"else".base;
+                        continue;
+                    }
+
+                    n = for_node.body;
                 },
                 ast.Node.Id.Else => {
                     const else_node = @fieldParentPtr(ast.NodeElse, "base", n);
@@ -2982,10 +3083,33 @@ pub const Parser = struct {
                             try stack.append(RenderState { .Expression = rhs });
                         }
                     },
-                    ast.Node.Id.Payload => {
-                        const payload = @fieldParentPtr(ast.NodePayload, "base", base);
+                    ast.Node.Id.ErrorPayload => {
+                        const payload = @fieldParentPtr(ast.NodeErrorPayload, "base", base);
                         try stack.append(RenderState { .Text = "|"});
-                        try stack.append(RenderState { .Expression = &payload.symbol.base });
+                        try stack.append(RenderState { .Expression = &payload.error_symbol.base });
+                        try stack.append(RenderState { .Text = "|"});
+                    },
+                    ast.Node.Id.ValuePayload => {
+                        const payload = @fieldParentPtr(ast.NodeValuePayload, "base", base);
+                        try stack.append(RenderState { .Text = "|"});
+                        try stack.append(RenderState { .Expression = &payload.value_symbol.base });
+
+                        if (payload.is_ptr) {
+                            try stack.append(RenderState { .Text = "*"});
+                        }
+
+                        try stack.append(RenderState { .Text = "|"});
+                    },
+                    ast.Node.Id.ValueIndexPayload => {
+                        const payload = @fieldParentPtr(ast.NodeValueIndexPayload, "base", base);
+                        try stack.append(RenderState { .Text = "|"});
+
+                        if (payload.index_symbol) |index_symbol| {
+                            try stack.append(RenderState { .Expression = &index_symbol.base });
+                            try stack.append(RenderState { .Text = ", "});
+                        }
+
+                        try stack.append(RenderState { .Expression = &payload.value_symbol.base });
 
                         if (payload.is_ptr) {
                             try stack.append(RenderState { .Text = "*"});
@@ -3301,6 +3425,48 @@ pub const Parser = struct {
 
                         try stack.append(RenderState { .Text = ")" });
                         try stack.append(RenderState { .Expression = while_node.condition });
+                        try stack.append(RenderState { .Text = "(" });
+                    },
+                    ast.Node.Id.For => {
+                        const for_node = @fieldParentPtr(ast.NodeFor, "base", base);
+                        if (for_node.label) |label| {
+                            try stream.print("{}: ", self.tokenizer.getTokenSlice(label));
+                        }
+
+                        if (for_node.inline_token) |inline_token| {
+                            try stream.print("{} ", self.tokenizer.getTokenSlice(inline_token));
+                        }
+
+                        try stream.print("{} ", self.tokenizer.getTokenSlice(for_node.for_token));
+
+                        if (for_node.@"else") |@"else"| {
+                            try stack.append(RenderState { .Expression = &@"else".base });
+
+                            if (for_node.body.id == ast.Node.Id.Block) {
+                                try stack.append(RenderState { .Text = " " });
+                            } else {
+                                try stack.append(RenderState { .Text = "\n" });
+                            }
+                        }
+
+                        if (for_node.body.id == ast.Node.Id.Block) {
+                            try stack.append(RenderState { .Expression = for_node.body });
+                            try stack.append(RenderState { .Text = " " });
+                        } else {
+                            try stack.append(RenderState { .Indent = indent });
+                            try stack.append(RenderState { .Expression = for_node.body });
+                            try stack.append(RenderState.PrintIndent);
+                            try stack.append(RenderState { .Indent = indent + indent_delta });
+                            try stack.append(RenderState { .Text = "\n" });
+                        }
+
+                        if (for_node.payload) |payload| {
+                            try stack.append(RenderState { .Expression = &payload.base });
+                            try stack.append(RenderState { .Text = " " });
+                        }
+
+                        try stack.append(RenderState { .Text = ")" });
+                        try stack.append(RenderState { .Expression = for_node.array_expr });
                         try stack.append(RenderState { .Text = "(" });
                     },
 
@@ -4022,10 +4188,10 @@ test "zig fmt: for" {
         \\        continue;
         \\
         \\    const res = for (a) |v, i| {
-        \\        breal v;
+        \\        break v;
         \\    } else {
         \\        unreachable;
-        \\    }
+        \\    };
         \\
         \\    var num: usize = 0;
         \\    inline for (a) |v, i| {
