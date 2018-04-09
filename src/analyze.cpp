@@ -3236,7 +3236,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
             break;
         case NodeTypeContainerDecl:
         case NodeTypeParamDecl:
-        case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
         case NodeTypeBlock:

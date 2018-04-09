@@ -465,7 +465,7 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
     return x;
 }
 
-fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
+pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
     const value = switch (c) {
         '0' ... '9' => c - '0',
         'A' ... 'Z' => c - 'A' + 10,

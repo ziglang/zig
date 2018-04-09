@@ -148,8 +148,6 @@ static const char *node_type_str(NodeType node_type) {
             return "Root";
         case NodeTypeFnDef:
             return "FnDef";
-        case NodeTypeFnDecl:
-            return "FnDecl";
         case NodeTypeFnProto:
             return "FnProto";
         case NodeTypeParamDecl:
@@ -1098,7 +1096,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
                 break;
             }
-        case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeTestDecl:
         case NodeTypeStructField:

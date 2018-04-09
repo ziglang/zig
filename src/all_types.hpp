@@ -359,7 +359,6 @@ enum NodeType {
     NodeTypeRoot,
     NodeTypeFnProto,
     NodeTypeFnDef,
-    NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeBlock,
     NodeTypeGroupedExpr,
@@ -451,10 +450,6 @@ struct AstNodeFnProto {
 struct AstNodeFnDef {
     AstNode *fn_proto;
     AstNode *body;
-};
-
-struct AstNodeFnDecl {
-    AstNode *fn_proto;
 };
 
 struct AstNodeParamDecl {
@@ -713,10 +708,6 @@ struct AstNodeSwitchRange {
     AstNode *end;
 };
 
-struct AstNodeLabel {
-    Buf *name;
-};
-
 struct AstNodeCompTime {
     AstNode *expr;
 };
@@ -892,7 +883,6 @@ struct AstNode {
     union {
         AstNodeRoot root;
         AstNodeFnDef fn_def;
-        AstNodeFnDecl fn_decl;
         AstNodeFnProto fn_proto;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
@@ -917,7 +907,6 @@ struct AstNode {
         AstNodeSwitchExpr switch_expr;
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
-        AstNodeLabel label;
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
