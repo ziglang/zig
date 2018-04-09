@@ -1,4 +1,5 @@
 const std = @import("index.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const event = this;
 const mem = std.mem;
@@ -38,7 +39,7 @@ pub const TcpServer = struct {
     {
         self.handleRequestFn = handleRequestFn;
 
-        try std.os.posixBind(self.sockfd, &address.sockaddr);
+        try std.os.posixBind(self.sockfd, &address.os_addr);
         try std.os.posixListen(self.sockfd, posix.SOMAXCONN);
         self.listen_address = std.net.Address.initPosix(try std.os.posixGetSockName(self.sockfd));
 
@@ -59,7 +60,7 @@ pub const TcpServer = struct {
     pub async fn handler(self: &TcpServer) void {
         while (true) {
             var accepted_addr: std.net.Address = undefined;
-            if (std.os.posixAccept(self.sockfd, &accepted_addr.sockaddr,
+            if (std.os.posixAccept(self.sockfd, &accepted_addr.os_addr,
                 posix.SOCK_NONBLOCK | posix.SOCK_CLOEXEC)) |accepted_fd|
             {
                 var socket = std.os.File.openHandle(accepted_fd);
@@ -118,7 +119,7 @@ pub const Loop = struct {
 
     pub fn addFd(self: &Loop, fd: i32, prom: promise) !void {
         var ev = std.os.linux.epoll_event {
-            .events = std.os.linux.EPOLLIN|std.os.linux.EPOLLET,
+            .events = std.os.linux.EPOLLIN|std.os.linux.EPOLLOUT|std.os.linux.EPOLLET,
             .data = std.os.linux.epoll_data {
                 .ptr = @ptrToInt(prom),
             },
@@ -155,7 +156,24 @@ pub const Loop = struct {
     }
 };
 
+pub async fn connect(loop: &Loop, _address: &const std.net.Address) !std.os.File {
+    var address = *_address; // TODO https://github.com/zig-lang/zig/issues/733
+
+    const sockfd = try std.os.posixSocket(posix.AF_INET, posix.SOCK_STREAM|posix.SOCK_CLOEXEC|posix.SOCK_NONBLOCK, posix.PROTO_tcp);
+    errdefer std.os.close(sockfd);
+
+    try std.os.posixConnectAsync(sockfd, &address.os_addr);
+    try await try async loop.waitFd(sockfd);
+    try std.os.posixGetSockOptConnectError(sockfd);
+
+    return std.os.File.openHandle(sockfd);
+}
+
 test "listen on a port, send bytes, receive bytes" {
+    if (builtin.os != builtin.Os.linux) {
+        // TODO build abstractions for other operating systems
+        return;
+    }
     const MyServer = struct {
         tcp_server: TcpServer,
 
@@ -198,11 +216,20 @@ test "listen on a port, send bytes, receive bytes" {
     defer server.tcp_server.deinit();
     try server.tcp_server.listen(addr, MyServer.handler);
 
-    var stderr_file = try std.io.getStdErr();
-    var stderr_stream = &std.io.FileOutStream.init(&stderr_file).stream;
-    try stderr_stream.print("\nlistening at ");
-    try server.tcp_server.listen_address.format(stderr_stream);
-    try stderr_stream.print("\n");
-
+    const p = try async<std.debug.global_allocator> doAsyncTest(&loop, server.tcp_server.listen_address);
+    defer cancel p;
     loop.run();
+}
+
+async fn doAsyncTest(loop: &Loop, address: &const std.net.Address) void {
+    errdefer @panic("test failure");
+
+    var socket_file = try await try async event.connect(loop, address);
+    defer socket_file.close();
+
+    var buf: [512]u8 = undefined;
+    const amt_read = try socket_file.read(buf[0..]);
+    const msg = buf[0..amt_read];
+    assert(mem.eql(u8, msg, "hello from server\n"));
+    loop.stop();
 }

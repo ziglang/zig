@@ -408,6 +408,9 @@ static uint32_t get_err_ret_trace_arg_index(CodeGen *g, FnTableEntry *fn_table_e
     if (!g->have_err_ret_tracing) {
         return UINT32_MAX;
     }
+    if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        return 0;
+    }
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     if (!fn_type_can_fail(&fn_type->data.fn.fn_type_id)) {
         return UINT32_MAX;

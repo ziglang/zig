@@ -2755,9 +2755,10 @@ static IrInstruction *ir_mark_gen(IrInstruction *instruction) {
 
 static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, bool gen_error_defers) {
     Scope *scope = inner_scope;
+    bool is_noreturn = false;
     while (scope != outer_scope) {
         if (!scope)
-            return false;
+            return is_noreturn;
 
         if (scope->id == ScopeIdDefer) {
             AstNode *defer_node = scope->source_node;
@@ -2770,14 +2771,18 @@ static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
                 Scope *defer_expr_scope = defer_node->data.defer.expr_scope;
                 IrInstruction *defer_expr_value = ir_gen_node(irb, defer_expr_node, defer_expr_scope);
                 if (defer_expr_value != irb->codegen->invalid_instruction) {
-                    ir_mark_gen(ir_build_check_statement_is_void(irb, defer_expr_scope, defer_expr_node, defer_expr_value));
+                    if (defer_expr_value->value.type != nullptr && defer_expr_value->value.type->id == TypeTableEntryIdUnreachable) {
+                        is_noreturn = true;
+                    } else {
+                        ir_mark_gen(ir_build_check_statement_is_void(irb, defer_expr_scope, defer_expr_node, defer_expr_value));
+                    }
                 }
             }
 
         }
         scope = scope->parent;
     }
-    return true;
+    return is_noreturn;
 }
 
 static void ir_set_cursor_at_end(IrBuilder *irb, IrBasicBlock *basic_block) {
@@ -2936,12 +2941,13 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err_val, return_block, continue_block, is_comptime));
 
                 ir_set_cursor_at_end_and_append_block(irb, return_block);
-                ir_gen_defers_for_block(irb, scope, outer_scope, true);
-                IrInstruction *err_val = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
-                if (irb->codegen->have_err_ret_tracing && !should_inline) {
-                    ir_build_save_err_ret_addr(irb, scope, node);
+                if (!ir_gen_defers_for_block(irb, scope, outer_scope, true)) {
+                    IrInstruction *err_val = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
+                    if (irb->codegen->have_err_ret_tracing && !should_inline) {
+                        ir_build_save_err_ret_addr(irb, scope, node);
+                    }
+                    ir_gen_async_return(irb, scope, node, err_val, false);
                 }
-                ir_gen_async_return(irb, scope, node, err_val, false);
 
                 ir_set_cursor_at_end_and_append_block(irb, continue_block);
                 IrInstruction *unwrapped_ptr = ir_build_unwrap_err_payload(irb, scope, node, err_union_ptr, false);
@@ -5695,7 +5701,7 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *continue_scope, Ast
 
     IrBasicBlock *dest_block = loop_scope->continue_block;
     ir_gen_defers_for_block(irb, continue_scope, dest_block->scope, false);
-    return ir_build_br(irb, continue_scope, node, dest_block, is_comptime);
+    return ir_mark_gen(ir_build_br(irb, continue_scope, node, dest_block, is_comptime));
 }
 
 static IrInstruction *ir_gen_error_type(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -6178,7 +6184,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
 
     ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
     ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
-    ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false);
+    ir_mark_gen(ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false));
 
     ir_set_cursor_at_end_and_append_block(irb, resume_block);
     IrInstruction *yes_suspend_result = ir_build_load_ptr(irb, parent_scope, node, my_result_var_ptr);
@@ -6254,7 +6260,7 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
 
     ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
     ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
-    ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false);
+    ir_mark_gen(ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false));
 
     ir_set_cursor_at_end_and_append_block(irb, resume_block);
     return ir_build_const_void(irb, parent_scope, node);
@@ -16746,6 +16752,11 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
 
     if (fn_type_id.cc == CallingConventionAsync) {
+        if (instruction->async_allocator_type_value == nullptr) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("async fn proto missing allocator type"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
         IrInstruction *async_allocator_type_value = instruction->async_allocator_type_value->other;
         fn_type_id.async_allocator_type = ir_resolve_type(ira, async_allocator_type_value);
         if (type_is_invalid(fn_type_id.async_allocator_type))

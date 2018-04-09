@@ -775,12 +775,12 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
     return syscall3(SYS_socket, domain, socket_type, protocol);
 }
 
-pub fn setsockopt(fd: i32, level: i32, optname: i32, optval: &const u8, optlen: socklen_t) usize {
-    return syscall5(SYS_setsockopt, usize(fd), usize(level), usize(optname), usize(optval), @ptrToInt(optlen));
+pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: &const u8, optlen: socklen_t) usize {
+    return syscall5(SYS_setsockopt, usize(fd), level, optname, usize(optval), @ptrToInt(optlen));
 }
 
-pub fn getsockopt(fd: i32, level: i32, optname: i32, noalias optval: &u8, noalias optlen: &socklen_t) usize {
-    return syscall5(SYS_getsockopt, usize(fd), usize(level), usize(optname), @ptrToInt(optval), @ptrToInt(optlen));
+pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: &u8, noalias optlen: &socklen_t) usize {
+    return syscall5(SYS_getsockopt, usize(fd), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
 pub fn sendmsg(fd: i32, msg: &const msghdr, flags: u32) usize {
@@ -833,14 +833,14 @@ pub fn fstat(fd: i32, stat_buf: &Stat) usize {
     return syscall2(SYS_fstat, usize(fd), @ptrToInt(stat_buf));
 }
 
-pub const epoll_data = extern union {
+pub const epoll_data = packed union {
     ptr: usize,
     fd: i32,
     @"u32": u32,
     @"u64": u64,
 };
 
-pub const epoll_event = extern struct {
+pub const epoll_event = packed struct {
     events: u32,
     data: epoll_data,
 };

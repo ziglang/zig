@@ -432,6 +432,7 @@ set(ZIG_STD_FILES
     "dwarf.zig"
     "elf.zig"
     "empty.zig"
+    "event.zig"
     "fmt/errol/enum3.zig"
     "fmt/errol/index.zig"
     "fmt/errol/lookup.zig"

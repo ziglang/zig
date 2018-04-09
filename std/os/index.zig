@@ -2217,7 +2217,7 @@ pub fn linuxEpollCtl(epfd: i32, op: u32, fd: i32, event: &linux.epoll_event) Lin
 
 pub fn linuxEpollWait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
     while (true) {
-        const rc = posix.epoll_wait(epfd, &events[0], u32(events.len), timeout);
+        const rc = posix.epoll_wait(epfd, events.ptr, u32(events.len), timeout);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return rc,
@@ -2251,5 +2251,136 @@ pub fn posixGetSockName(sockfd: i32) PosixGetSockNameError!posix.sockaddr {
         posix.EINVAL => unreachable,
         posix.ENOTSOCK => unreachable,
         posix.ENOBUFS => return PosixGetSockNameError.SystemResources,
+    }
+}
+
+pub const PosixConnectError = error {
+    /// For UNIX domain sockets, which are identified by pathname: Write permission is denied on  the  socket
+    /// file,  or  search  permission  is  denied  for  one of the directories in the path prefix.
+    /// or
+    /// The user tried to connect to a broadcast address without having the socket broadcast flag enabled  or
+    /// the connection request failed because of a local firewall rule.
+    PermissionDenied,
+
+    /// Local address is already in use.
+    AddressInUse,
+
+    /// (Internet  domain  sockets)  The  socket  referred  to  by sockfd had not previously been bound to an
+    /// address and, upon attempting to bind it to an ephemeral port, it was determined that all port numbers
+    /// in    the    ephemeral    port    range    are   currently   in   use.    See   the   discussion   of
+    /// /proc/sys/net/ipv4/ip_local_port_range in ip(7).
+    AddressNotAvailable,
+
+    /// The passed address didn't have the correct address family in its sa_family field.
+    AddressFamilyNotSupported,
+
+    /// Insufficient entries in the routing cache.
+    SystemResources,
+
+    /// A connect() on a stream socket found no one listening on the remote address.
+    ConnectionRefused,
+
+    /// Network is unreachable.
+    NetworkUnreachable,
+
+    /// Timeout  while  attempting  connection.   The server may be too busy to accept new connections.  Note
+    /// that for IP sockets the timeout may be very long when syncookies are enabled on the server.
+    ConnectionTimedOut,
+
+    Unexpected,
+};
+
+pub fn posixConnect(sockfd: i32, sockaddr: &const posix.sockaddr) PosixConnectError!void {
+    while (true) {
+        const rc = posix.connect(sockfd, sockaddr, @sizeOf(posix.sockaddr));
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return,
+            else => return unexpectedErrorPosix(err),
+
+            posix.EACCES => return PosixConnectError.PermissionDenied,
+            posix.EPERM => return PosixConnectError.PermissionDenied,
+            posix.EADDRINUSE => return PosixConnectError.AddressInUse,
+            posix.EADDRNOTAVAIL => return PosixConnectError.AddressNotAvailable,
+            posix.EAFNOSUPPORT => return PosixConnectError.AddressFamilyNotSupported,
+            posix.EAGAIN => return PosixConnectError.SystemResources,
+            posix.EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
+            posix.EBADF => unreachable, // sockfd is not a valid open file descriptor.
+            posix.ECONNREFUSED => return PosixConnectError.ConnectionRefused,
+            posix.EFAULT => unreachable, // The socket structure address is outside the user's address space.
+            posix.EINPROGRESS => unreachable, // The socket is nonblocking and the connection cannot be completed immediately.
+            posix.EINTR => continue,
+            posix.EISCONN => unreachable, // The socket is already connected.
+            posix.ENETUNREACH => return PosixConnectError.NetworkUnreachable,
+            posix.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            posix.EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
+            posix.ETIMEDOUT => return PosixConnectError.ConnectionTimedOut,
+        }
+    }
+}
+
+/// Same as posixConnect except it is for blocking socket file descriptors.
+/// It expects to receive EINPROGRESS.
+pub fn posixConnectAsync(sockfd: i32, sockaddr: &const posix.sockaddr) PosixConnectError!void {
+    while (true) {
+        const rc = posix.connect(sockfd, sockaddr, @sizeOf(posix.sockaddr));
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0, posix.EINPROGRESS => return,
+            else => return unexpectedErrorPosix(err),
+
+            posix.EACCES => return PosixConnectError.PermissionDenied,
+            posix.EPERM => return PosixConnectError.PermissionDenied,
+            posix.EADDRINUSE => return PosixConnectError.AddressInUse,
+            posix.EADDRNOTAVAIL => return PosixConnectError.AddressNotAvailable,
+            posix.EAFNOSUPPORT => return PosixConnectError.AddressFamilyNotSupported,
+            posix.EAGAIN => return PosixConnectError.SystemResources,
+            posix.EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
+            posix.EBADF => unreachable, // sockfd is not a valid open file descriptor.
+            posix.ECONNREFUSED => return PosixConnectError.ConnectionRefused,
+            posix.EFAULT => unreachable, // The socket structure address is outside the user's address space.
+            posix.EINTR => continue,
+            posix.EISCONN => unreachable, // The socket is already connected.
+            posix.ENETUNREACH => return PosixConnectError.NetworkUnreachable,
+            posix.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            posix.EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
+            posix.ETIMEDOUT => return PosixConnectError.ConnectionTimedOut,
+        }
+    }
+}
+
+pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
+    var err_code: i32 = undefined;
+    var size: u32 = @sizeOf(i32);
+    const rc = posix.getsockopt(sockfd, posix.SOL_SOCKET, posix.SO_ERROR, @ptrCast(&u8, &err_code), &size);
+    assert(size == 4);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => switch (err_code) {
+            0 => return,
+            else => return unexpectedErrorPosix(err),
+
+            posix.EACCES => return PosixConnectError.PermissionDenied,
+            posix.EPERM => return PosixConnectError.PermissionDenied,
+            posix.EADDRINUSE => return PosixConnectError.AddressInUse,
+            posix.EADDRNOTAVAIL => return PosixConnectError.AddressNotAvailable,
+            posix.EAFNOSUPPORT => return PosixConnectError.AddressFamilyNotSupported,
+            posix.EAGAIN => return PosixConnectError.SystemResources,
+            posix.EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
+            posix.EBADF => unreachable, // sockfd is not a valid open file descriptor.
+            posix.ECONNREFUSED => return PosixConnectError.ConnectionRefused,
+            posix.EFAULT => unreachable, // The socket structure address is outside the user's address space.
+            posix.EISCONN => unreachable, // The socket is already connected.
+            posix.ENETUNREACH => return PosixConnectError.NetworkUnreachable,
+            posix.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            posix.EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
+            posix.ETIMEDOUT => return PosixConnectError.ConnectionTimedOut,
+        },
+        else => return unexpectedErrorPosix(err),
+        posix.EBADF => unreachable, // The argument sockfd is not a valid file descriptor.
+        posix.EFAULT => unreachable, // The address pointed to by optval or optlen is not in a valid part of the process address space. 
+        posix.EINVAL => unreachable,
+        posix.ENOPROTOOPT => unreachable, // The option is unknown at the level indicated.
+        posix.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
     }
 }
