@@ -2229,3 +2229,27 @@ pub fn linuxEpollWait(epfd: i32, events: []linux.epoll_event, timeout: i32) usiz
         }
     }
 }
+
+pub const PosixGetSockNameError = error {
+    /// Insufficient resources were available in the system to perform the operation.
+    SystemResources,
+
+    Unexpected,
+};
+
+pub fn posixGetSockName(sockfd: i32) PosixGetSockNameError!posix.sockaddr {
+    var addr: posix.sockaddr = undefined;
+    var addrlen: posix.socklen_t = @sizeOf(posix.sockaddr);
+    const rc = posix.getsockname(sockfd, &addr, &addrlen);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return addr,
+        else => return unexpectedErrorPosix(err),
+
+        posix.EBADF => unreachable,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.ENOTSOCK => unreachable,
+        posix.ENOBUFS => return PosixGetSockNameError.SystemResources,
+    }
+}

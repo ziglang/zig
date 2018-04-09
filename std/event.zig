@@ -5,11 +5,12 @@ const mem = std.mem;
 const posix = std.os.posix;
 
 pub const TcpServer = struct {
-    handleRequestFn: async(&mem.Allocator) fn (&TcpServer, &const std.net.Address, &const std.os.File) void,
+    handleRequestFn: async<&mem.Allocator> fn (&TcpServer, &const std.net.Address, &const std.os.File) void,
 
     loop: &Loop,
     sockfd: i32,
     accept_coro: ?promise,
+    listen_address: std.net.Address,
 
     waiting_for_emfile_node: PromiseNode,
 
@@ -28,18 +29,20 @@ pub const TcpServer = struct {
             .accept_coro = null,
             .handleRequestFn = undefined,
             .waiting_for_emfile_node = undefined,
+            .listen_address = undefined,
         };
     }
 
     pub fn listen(self: &TcpServer, address: &const std.net.Address,
-        handleRequestFn: async(&mem.Allocator) fn (&TcpServer, &const std.net.Address, &const std.os.File)void) !void
+        handleRequestFn: async<&mem.Allocator> fn (&TcpServer, &const std.net.Address, &const std.os.File)void) !void
     {
         self.handleRequestFn = handleRequestFn;
 
         try std.os.posixBind(self.sockfd, &address.sockaddr);
         try std.os.posixListen(self.sockfd, posix.SOMAXCONN);
+        self.listen_address = std.net.Address.initPosix(try std.os.posixGetSockName(self.sockfd));
 
-        self.accept_coro = try async(self.loop.allocator) (TcpServer.handler)(self); // TODO #817
+        self.accept_coro = try async<self.loop.allocator> TcpServer.handler(self);
         errdefer cancel ??self.accept_coro;
 
         try self.loop.addFd(self.sockfd, ??self.accept_coro);
@@ -60,10 +63,7 @@ pub const TcpServer = struct {
                 posix.SOCK_NONBLOCK | posix.SOCK_CLOEXEC)) |accepted_fd|
             {
                 var socket = std.os.File.openHandle(accepted_fd);
-                // TODO #817
-                _ = async(self.loop.allocator) (self.handleRequestFn)(self, accepted_addr,
-                    socket) catch |err| switch (err)
-                {
+                _ = async<self.loop.allocator> self.handleRequestFn(self, accepted_addr, socket) catch |err| switch (err) {
                     error.OutOfMemory => {
                         socket.close();
                         continue;
@@ -161,7 +161,7 @@ test "listen on a port, send bytes, receive bytes" {
 
         const Self = this;
 
-        async(&mem.Allocator) fn handler(tcp_server: &TcpServer, _addr: &const std.net.Address,
+        async<&mem.Allocator> fn handler(tcp_server: &TcpServer, _addr: &const std.net.Address,
             _socket: &const std.os.File) void
         {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
@@ -197,6 +197,12 @@ test "listen on a port, send bytes, receive bytes" {
     };
     defer server.tcp_server.deinit();
     try server.tcp_server.listen(addr, MyServer.handler);
+
+    var stderr_file = try std.io.getStdErr();
+    var stderr_stream = &std.io.FileOutStream.init(&stderr_file).stream;
+    try stderr_stream.print("\nlistening at ");
+    try server.tcp_server.listen_address.format(stderr_stream);
+    try stderr_stream.print("\n");
 
     loop.run();
 }

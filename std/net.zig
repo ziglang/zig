@@ -35,6 +35,12 @@ pub const Address = struct {
         };
     }
 
+    pub fn initPosix(addr: &const posix.sockaddr) Address {
+        return Address {
+            .sockaddr = *addr,
+        };
+    }
+
     pub fn format(self: &const Address, out_stream: var) !void {
         switch (self.sockaddr.in.family) {
             posix.AF_INET => {
