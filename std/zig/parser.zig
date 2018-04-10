@@ -721,7 +721,7 @@ pub const Parser = struct {
                         },
                         else => {
                             self.putBackToken(token);
-                            stack.append(State { .AssignmentExpressionBegin = dest_ptr }) catch unreachable;
+                            stack.append(State { .UnwrapExpressionBegin = dest_ptr }) catch unreachable;
                             continue;
                         }
                     }
@@ -750,7 +750,7 @@ pub const Parser = struct {
 
                 State.AssignmentExpressionBegin => |dest_ptr| {
                     stack.append(State { .AssignmentExpressionEnd = dest_ptr }) catch unreachable;
-                    try stack.append(State { .UnwrapExpressionBegin = dest_ptr });
+                    try stack.append(State { .Expression = dest_ptr });
                     continue;
                 },
 
@@ -762,7 +762,7 @@ pub const Parser = struct {
                         dest_ptr.store(&node.base);
 
                         stack.append(State { .AssignmentExpressionEnd = dest_ptr }) catch unreachable;
-                        try stack.append(State { .UnwrapExpressionBegin = DestPtr { .Field = &node.rhs } });
+                        try stack.append(State { .Expression = DestPtr { .Field = &node.rhs } });
                         continue;
                     } else {
                         self.putBackToken(token);
@@ -1895,7 +1895,7 @@ pub const Parser = struct {
 
                     _ = (try self.eatToken(&stack, Token.Id.LParen)) ?? continue;
                     stack.append(State { .ExpectToken = Token.Id.RParen }) catch unreachable;
-                    try stack.append(State { .Expression = DestPtr { .NullableField = dest } });
+                    try stack.append(State { .AssignmentExpressionBegin = DestPtr { .NullableField = dest } });
                 },
 
                 State.ErrorPayload => |dest| {
@@ -2333,7 +2333,7 @@ pub const Parser = struct {
                             try block.statements.append(&node.base);
 
                             stack.append(State { .Semicolon = &node.base }) catch unreachable;
-                            try stack.append(State { .Expression = DestPtr{.Field = &node.expr } });
+                            try stack.append(State { .AssignmentExpressionBegin = DestPtr{.Field = &node.expr } });
                             continue;
                         },
                         Token.Id.LBrace => {
@@ -2347,7 +2347,7 @@ pub const Parser = struct {
                             self.putBackToken(next);
                             const statememt = try block.statements.addOne();
                             stack.append(State { .Semicolon = statememt }) catch unreachable;
-                            try stack.append(State { .Expression = DestPtr{.Field = statememt } });
+                            try stack.append(State { .AssignmentExpressionBegin = DestPtr{.Field = statememt } });
                             continue;
                         }
                     }
@@ -4260,8 +4260,6 @@ test "zig fmt: precedence" {
         \\    a or b and c;
         \\    (a or b) and c;
         \\    (a or b) and c;
-        \\    a = b or c;
-        \\    (a = b) or c;
         \\}
         \\
     );
