@@ -48,6 +48,8 @@ pub const Node = struct {
         UndefinedLiteral,
         ThisLiteral,
         Asm,
+        AsmInput,
+        AsmOutput,
         Unreachable,
         ErrorType,
         BuiltinCall,
@@ -96,6 +98,8 @@ pub const Node = struct {
             Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).iterate(index),
             Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).iterate(index),
             Id.Asm => @fieldParentPtr(NodeAsm, "base", base).iterate(index),
+            Id.AsmInput => @fieldParentPtr(NodeAsmInput, "base", base).iterate(index),
+            Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).iterate(index),
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).iterate(index),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
@@ -146,6 +150,8 @@ pub const Node = struct {
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).firstToken(),
             Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).firstToken(),
             Id.Asm => @fieldParentPtr(NodeAsm, "base", base).firstToken(),
+            Id.AsmInput => @fieldParentPtr(NodeAsmInput, "base", base).firstToken(),
+            Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).firstToken(),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
@@ -194,6 +200,8 @@ pub const Node = struct {
             Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).lastToken(),
             Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).lastToken(),
             Id.Asm => @fieldParentPtr(NodeAsm, "base", base).lastToken(),
+            Id.AsmInput => @fieldParentPtr(NodeAsmInput, "base", base).lastToken(),
+            Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).lastToken(),
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).lastToken(),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
@@ -1516,31 +1524,105 @@ pub const NodeThisLiteral = struct {
     }
 };
 
+pub const NodeAsmOutput = struct {
+    base: Node,
+    symbolic_name: &NodeIdentifier,
+    constraint: &NodeStringLiteral,
+    kind: Kind,
+
+    const Kind = union(enum) {
+        Variable: &NodeIdentifier,
+        Return: &Node
+    };
+
+    pub fn iterate(self: &NodeAsmOutput, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return &self.symbolic_name.base;
+        i -= 1;
+
+        if (i < 1) return &self.constraint.base;
+        i -= 1;
+
+        switch (self.kind) {
+            Kind.Variable => |variable_name| {
+                if (i < 1) return &variable_name.base;
+                i -= 1;
+            },
+            Kind.Return => |return_type| {
+                if (i < 1) return return_type;
+                i -= 1;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeAsmOutput) Token {
+        return self.symbolic_name.firstToken();
+    }
+
+    pub fn lastToken(self: &NodeAsmOutput) Token {
+        return switch (self.kind) {
+            Kind.Variable => |variable_name| variable_name.lastToken(),
+            Kind.Return => |return_type| return_type.lastToken(),
+        };
+    }
+};
+
+pub const NodeAsmInput = struct {
+    base: Node,
+    symbolic_name: &NodeIdentifier,
+    constraint: &NodeStringLiteral,
+    expr: &Node,
+
+    pub fn iterate(self: &NodeAsmInput, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return &self.symbolic_name.base;
+        i -= 1;
+
+        if (i < 1) return &self.constraint.base;
+        i -= 1;
+
+        if (i < 1) return self.expr;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeAsmInput) Token {
+        return self.symbolic_name.firstToken();
+    }
+
+    pub fn lastToken(self: &NodeAsmInput) Token {
+        return self.expr.lastToken();
+    }
+};
+
 pub const NodeAsm = struct {
     base: Node,
     asm_token: Token,
     is_volatile: bool,
     template: Token,
     //tokens: ArrayList(AsmToken),
-    outputs: ArrayList(AsmOutput),
-    inputs: ArrayList(AsmInput),
+    outputs: ArrayList(&NodeAsmOutput),
+    inputs: ArrayList(&NodeAsmInput),
     cloppers: ArrayList(&NodeStringLiteral),
     rparen: Token,
 
-    const AsmOutput = struct {
-        symbolic_name: Token,
-        constraint: Token,
-        variable_name: ?Token,
-        return_type: ?&Node,
-    };
-
-    const AsmInput = struct {
-        symbolic_name: Token,
-        constraint: Token,
-        expr: &Node,
-    };
-
     pub fn iterate(self: &NodeAsm, index: usize) ?&Node {
+        var i = index;
+
+        if (i < self.outputs.len) return &self.outputs.at(index).base;
+        i -= self.outputs.len;
+
+        if (i < self.inputs.len) return &self.inputs.at(index).base;
+        i -= self.inputs.len;
+
+        if (i < self.cloppers.len) return &self.cloppers.at(index).base;
+        i -= self.cloppers.len;
+
         return null;
     }
 

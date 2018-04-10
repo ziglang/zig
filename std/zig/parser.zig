@@ -164,8 +164,8 @@ pub const Parser = struct {
         WhileContinueExpr: &?&ast.Node,
         Statement: &ast.NodeBlock,
         Semicolon: &const &const ast.Node,
-        AsmOutputItems: &ArrayList(ast.NodeAsm.AsmOutput),
-        AsmInputItems: &ArrayList(ast.NodeAsm.AsmInput),
+        AsmOutputItems: &ArrayList(&ast.NodeAsmOutput),
+        AsmInputItems: &ArrayList(&ast.NodeAsmInput),
         AsmClopperItems: &ArrayList(&ast.NodeStringLiteral),
         ExprListItemOrEnd: ExprListCtx,
         ExprListCommaOrEnd: ExprListCtx,
@@ -1510,8 +1510,8 @@ pub const Parser = struct {
                                 .is_volatile = is_volatile,
                                 .template = template,
                                 //.tokens = ArrayList(ast.NodeAsm.AsmToken).init(arena),
-                                .outputs = ArrayList(ast.NodeAsm.AsmOutput).init(arena),
-                                .inputs = ArrayList(ast.NodeAsm.AsmInput).init(arena),
+                                .outputs = ArrayList(&ast.NodeAsmOutput).init(arena),
+                                .inputs = ArrayList(&ast.NodeAsmInput).init(arena),
                                 .cloppers = ArrayList(&ast.NodeStringLiteral).init(arena),
                                 .rparen = undefined,
                             };
@@ -1679,18 +1679,23 @@ pub const Parser = struct {
                     _ = (try self.eatToken(&stack, Token.Id.LParen)) ?? continue;
                     try stack.append(State { .ExpectToken = Token.Id.RParen });
 
-                    const res = try items.addOne();
-                    *res = ast.NodeAsm.AsmOutput {
-                        .symbolic_name = symbolic_name,
-                        .constraint = constraint,
-                        .variable_name = null,
-                        .return_type = null,
+                    const node = try arena.create(ast.NodeAsmOutput);
+                    *node = ast.NodeAsmOutput {
+                        .base = self.initNode(ast.Node.Id.AsmOutput),
+                        .symbolic_name = try self.createIdentifier(arena, symbolic_name),
+                        .constraint = try self.createStringLiteral(arena, constraint),
+                        .kind = undefined,
                     };
+                    try items.append(node);
+
                     const symbol_or_arrow = self.getNextToken();
                     switch (symbol_or_arrow.id) {
-                        Token.Id.Identifier => res.variable_name = symbol_or_arrow,
+                        Token.Id.Identifier => {
+                            node.kind = ast.NodeAsmOutput.Kind { .Variable = try self.createIdentifier(arena, symbol_or_arrow) };
+                        },
                         Token.Id.Arrow => {
-                            try stack.append(State { .TypeExprBegin = DestPtr { .NullableField = &res.return_type } });
+                            node.kind = ast.NodeAsmOutput.Kind { .Return = undefined };
+                            try stack.append(State { .TypeExprBegin = DestPtr { .Field = &node.kind.Return } });
                         },
                         else => {
                             try self.parseError(&stack, symbol_or_arrow, "expected '->' or {}, found {}",
@@ -1718,13 +1723,15 @@ pub const Parser = struct {
                     _ = (try self.eatToken(&stack, Token.Id.LParen)) ?? continue;
                     try stack.append(State { .ExpectToken = Token.Id.RParen });
 
-                    const res = try items.addOne();
-                    *res = ast.NodeAsm.AsmInput {
-                        .symbolic_name = symbolic_name,
-                        .constraint = constraint,
+                    const node = try arena.create(ast.NodeAsmInput);
+                    *node = ast.NodeAsmInput {
+                        .base = self.initNode(ast.Node.Id.AsmInput),
+                        .symbolic_name = try self.createIdentifier(arena, symbolic_name),
+                        .constraint = try self.createStringLiteral(arena, constraint),
                         .expr = undefined,
                     };
-                    try stack.append(State { .Expression = DestPtr { .Field = &res.expr } });
+                    try items.append(node);
+                    try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
                 },
 
                 State.AsmClopperItems => |items| {
@@ -3803,14 +3810,113 @@ pub const Parser = struct {
 
                         try stream.print("({}", self.tokenizer.getTokenSlice(asm_node.template));
 
+                        try stack.append(RenderState { .Indent = indent });
                         try stack.append(RenderState { .Text = ")" });
-                        @panic("TODO: Render asm");
-                        //\\    return asm volatile ("syscall"
-                        //\\        : [ret] "={rax}" (-> usize)
-                        //\\        : [number] "{rax}" (number),
-                        //\\            [arg1] "{rdi}" (arg1)
-                        //\\        : "rcx", "r11");
-                    },,
+                        {
+                            const cloppers = asm_node.cloppers.toSliceConst();
+                            var i = cloppers.len;
+                            while (i != 0) {
+                                i -= 1;
+                                try stack.append(RenderState { .Expression = &cloppers[i].base });
+
+                                if (i != 0) {
+                                    try stack.append(RenderState { .Text = ", " });
+                                }
+                            }
+                        }
+                        try stack.append(RenderState { .Text = ": " });
+                        try stack.append(RenderState.PrintIndent);
+                        try stack.append(RenderState { .Indent = indent + indent_delta });
+                        try stack.append(RenderState { .Text = "\n" });
+                        {
+                            const inputs = asm_node.inputs.toSliceConst();
+                            var i = inputs.len;
+                            while (i != 0) {
+                                i -= 1;
+                                const node = inputs[i];
+                                try stack.append(RenderState { .Expression = &node.base});
+
+                                if (i != 0) {
+                                    try stack.append(RenderState.PrintIndent);
+                                    try stack.append(RenderState {
+                                        .Text = blk: {
+                                            const prev_node = inputs[i - 1];
+                                            const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, node.firstToken());
+                                            if (loc.line >= 2) {
+                                                break :blk "\n\n";
+                                            }
+                                            break :blk "\n";
+                                        },
+                                    });
+                                    try stack.append(RenderState { .Text = "," });
+                                }
+                            }
+                        }
+                        try stack.append(RenderState { .Indent = indent + indent_delta + 2});
+                        try stack.append(RenderState { .Text = ": "});
+                        try stack.append(RenderState.PrintIndent);
+                        try stack.append(RenderState { .Indent = indent + indent_delta});
+                        try stack.append(RenderState { .Text = "\n" });
+                        {
+                            const outputs = asm_node.outputs.toSliceConst();
+                            var i = outputs.len;
+                            while (i != 0) {
+                                i -= 1;
+                                const node = outputs[i];
+                                try stack.append(RenderState { .Expression = &node.base});
+
+                                if (i != 0) {
+                                    try stack.append(RenderState.PrintIndent);
+                                    try stack.append(RenderState {
+                                        .Text = blk: {
+                                            const prev_node = outputs[i - 1];
+                                            const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, node.firstToken());
+                                            if (loc.line >= 2) {
+                                                break :blk "\n\n";
+                                            }
+                                            break :blk "\n";
+                                        },
+                                    });
+                                    try stack.append(RenderState { .Text = "," });
+                                }
+                            }
+                        }
+                        try stack.append(RenderState { .Indent = indent + indent_delta + 2});
+                        try stack.append(RenderState { .Text = ": "});
+                        try stack.append(RenderState.PrintIndent);
+                        try stack.append(RenderState { .Indent = indent + indent_delta});
+                        try stack.append(RenderState { .Text = "\n" });
+                    },
+                    ast.Node.Id.AsmInput => {
+                        const asm_input = @fieldParentPtr(ast.NodeAsmInput, "base", base);
+
+                        try stack.append(RenderState { .Text = ")"});
+                        try stack.append(RenderState { .Expression = asm_input.expr});
+                        try stack.append(RenderState { .Text = " ("});
+                        try stack.append(RenderState { .Expression = &asm_input.constraint.base});
+                        try stack.append(RenderState { .Text = "] "});
+                        try stack.append(RenderState { .Expression = &asm_input.symbolic_name.base});
+                        try stack.append(RenderState { .Text = "["});
+                    },
+                    ast.Node.Id.AsmOutput => {
+                        const asm_output = @fieldParentPtr(ast.NodeAsmOutput, "base", base);
+
+                        try stack.append(RenderState { .Text = ")"});
+                        switch (asm_output.kind) {
+                            ast.NodeAsmOutput.Kind.Variable => |variable_name| {
+                                try stack.append(RenderState { .Expression = &variable_name.base});
+                            },
+                            ast.NodeAsmOutput.Kind.Return => |return_type| {
+                                try stack.append(RenderState { .Expression = return_type});
+                                try stack.append(RenderState { .Text = "-> "});
+                            },
+                        }
+                        try stack.append(RenderState { .Text = " ("});
+                        try stack.append(RenderState { .Expression = &asm_output.constraint.base});
+                        try stack.append(RenderState { .Text = "] "});
+                        try stack.append(RenderState { .Expression = &asm_output.symbolic_name.base});
+                        try stack.append(RenderState { .Text = "["});
+                    },
 
                     ast.Node.Id.StructField,
                     ast.Node.Id.UnionTag,
@@ -4672,7 +4778,7 @@ test "zig fmt: inline asm" {
         \\    return asm volatile ("syscall"
         \\        : [ret] "={rax}" (-> usize)
         \\        : [number] "{rax}" (number),
-        \\            [arg1] "{rdi}" (arg1)
+        \\          [arg1] "{rdi}" (arg1)
         \\        : "rcx", "r11");
         \\}
         \\
