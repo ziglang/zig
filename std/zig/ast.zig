@@ -17,14 +17,15 @@ pub const Node = struct {
         UnionTag,
         EnumTag,
         Identifier,
+        AsyncAttribute,
         FnProto,
         ParamDecl,
         Block,
         Defer,
         Comptime,
-        ErrorPayload,
-        ValuePayload,
-        ValueIndexPayload,
+        Payload,
+        PointerPayload,
+        PointerIndexPayload,
         Else,
         Switch,
         SwitchCase,
@@ -37,6 +38,7 @@ pub const Node = struct {
         SuffixOp,
         GroupedExpression,
         ControlFlowExpression,
+        Suspend,
         FieldInitializer,
         IntegerLiteral,
         FloatLiteral,
@@ -67,14 +69,15 @@ pub const Node = struct {
             Id.UnionTag => @fieldParentPtr(NodeUnionTag, "base", base).iterate(index),
             Id.EnumTag => @fieldParentPtr(NodeEnumTag, "base", base).iterate(index),
             Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).iterate(index),
+            Id.AsyncAttribute => @fieldParentPtr(NodeAsyncAttribute, "base", base).iterate(index),
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).iterate(index),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).iterate(index),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).iterate(index),
             Id.Defer => @fieldParentPtr(NodeDefer, "base", base).iterate(index),
             Id.Comptime => @fieldParentPtr(NodeComptime, "base", base).iterate(index),
-            Id.ErrorPayload => @fieldParentPtr(NodeErrorPayload, "base", base).iterate(index),
-            Id.ValuePayload => @fieldParentPtr(NodeValuePayload, "base", base).iterate(index),
-            Id.ValueIndexPayload => @fieldParentPtr(NodeValueIndexPayload, "base", base).iterate(index),
+            Id.Payload => @fieldParentPtr(NodePayload, "base", base).iterate(index),
+            Id.PointerPayload => @fieldParentPtr(NodePointerPayload, "base", base).iterate(index),
+            Id.PointerIndexPayload => @fieldParentPtr(NodePointerIndexPayload, "base", base).iterate(index),
             Id.Else => @fieldParentPtr(NodeSwitch, "base", base).iterate(index),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).iterate(index),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).iterate(index),
@@ -87,6 +90,7 @@ pub const Node = struct {
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).iterate(index),
             Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).iterate(index),
             Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).iterate(index),
+            Id.Suspend => @fieldParentPtr(NodeSuspend, "base", base).iterate(index),
             Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).iterate(index),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
@@ -118,14 +122,15 @@ pub const Node = struct {
             Id.UnionTag => @fieldParentPtr(NodeUnionTag, "base", base).firstToken(),
             Id.EnumTag => @fieldParentPtr(NodeEnumTag, "base", base).firstToken(),
             Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).firstToken(),
+            Id.AsyncAttribute => @fieldParentPtr(NodeAsyncAttribute, "base", base).firstToken(),
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).firstToken(),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).firstToken(),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).firstToken(),
             Id.Defer => @fieldParentPtr(NodeDefer, "base", base).firstToken(),
             Id.Comptime => @fieldParentPtr(NodeComptime, "base", base).firstToken(),
-            Id.ErrorPayload => @fieldParentPtr(NodeErrorPayload, "base", base).firstToken(),
-            Id.ValuePayload => @fieldParentPtr(NodeValuePayload, "base", base).firstToken(),
-            Id.ValueIndexPayload => @fieldParentPtr(NodeValueIndexPayload, "base", base).firstToken(),
+            Id.Payload => @fieldParentPtr(NodePayload, "base", base).firstToken(),
+            Id.PointerPayload => @fieldParentPtr(NodePointerPayload, "base", base).firstToken(),
+            Id.PointerIndexPayload => @fieldParentPtr(NodePointerIndexPayload, "base", base).firstToken(),
             Id.Else => @fieldParentPtr(NodeSwitch, "base", base).firstToken(),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).firstToken(),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).firstToken(),
@@ -138,6 +143,7 @@ pub const Node = struct {
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).firstToken(),
             Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).firstToken(),
             Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).firstToken(),
+            Id.Suspend => @fieldParentPtr(NodeSuspend, "base", base).firstToken(),
             Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).firstToken(),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).firstToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
@@ -169,14 +175,15 @@ pub const Node = struct {
             Id.UnionTag => @fieldParentPtr(NodeUnionTag, "base", base).lastToken(),
             Id.EnumTag => @fieldParentPtr(NodeEnumTag, "base", base).lastToken(),
             Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).lastToken(),
+            Id.AsyncAttribute => @fieldParentPtr(NodeAsyncAttribute, "base", base).lastToken(),
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).lastToken(),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).lastToken(),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).lastToken(),
             Id.Defer => @fieldParentPtr(NodeDefer, "base", base).lastToken(),
             Id.Comptime => @fieldParentPtr(NodeComptime, "base", base).lastToken(),
-            Id.ErrorPayload => @fieldParentPtr(NodeErrorPayload, "base", base).lastToken(),
-            Id.ValuePayload => @fieldParentPtr(NodeValuePayload, "base", base).lastToken(),
-            Id.ValueIndexPayload => @fieldParentPtr(NodeValueIndexPayload, "base", base).lastToken(),
+            Id.Payload => @fieldParentPtr(NodePayload, "base", base).lastToken(),
+            Id.PointerPayload => @fieldParentPtr(NodePointerPayload, "base", base).lastToken(),
+            Id.PointerIndexPayload => @fieldParentPtr(NodePointerIndexPayload, "base", base).lastToken(),
             Id.Else => @fieldParentPtr(NodeElse, "base", base).lastToken(),
             Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).lastToken(),
             Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).lastToken(),
@@ -189,6 +196,7 @@ pub const Node = struct {
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).lastToken(),
             Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).lastToken(),
             Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).lastToken(),
+            Id.Suspend => @fieldParentPtr(NodeSuspend, "base", base).lastToken(),
             Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).lastToken(),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).lastToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
@@ -456,6 +464,36 @@ pub const NodeIdentifier = struct {
     }
 };
 
+pub const NodeAsyncAttribute = struct {
+    base: Node,
+    async_token: Token,
+    allocator_type: ?&Node,
+    rangle_bracket: ?Token,
+
+    pub fn iterate(self: &NodeAsyncAttribute, index: usize) ?&Node {
+        var i = index;
+
+        if (self.allocator_type) |allocator_type| {
+            if (i < 1) return allocator_type;
+            i -= 1;
+        }
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeAsyncAttribute) Token {
+        return self.async_token;
+    }
+
+    pub fn lastToken(self: &NodeAsyncAttribute) Token {
+        if (self.rangle_bracket) |rangle_bracket| {
+            return rangle_bracket;
+        }
+
+        return self.async_token;
+    }
+};
+
 pub const NodeFnProto = struct {
     base: Node,
     visib_token: ?Token,
@@ -467,6 +505,7 @@ pub const NodeFnProto = struct {
     extern_token: ?Token,
     inline_token: ?Token,
     cc_token: ?Token,
+    async_attr: ?&NodeAsyncAttribute,
     body_node: ?&Node,
     lib_name: ?&Node, // populated if this is an extern declaration
     align_expr: ?&Node, // populated if align(A) is present
@@ -509,6 +548,14 @@ pub const NodeFnProto = struct {
         if (self.lib_name) |lib_name| {
             if (i < 1) return lib_name;
             i -= 1;
+        }
+
+        switch (self.call_convetion) {
+            CallConvetion.Async => |attr| {
+                if (i < 1) return &attr.base;
+                i -= 1;
+            },
+            else => {},
         }
 
         return null;
@@ -645,13 +692,13 @@ pub const NodeComptime = struct {
     }
 };
 
-pub const NodeErrorPayload = struct {
+pub const NodePayload = struct {
     base: Node,
     lpipe: Token,
     error_symbol: &NodeIdentifier,
     rpipe: Token,
 
-    pub fn iterate(self: &NodeErrorPayload, index: usize) ?&Node {
+    pub fn iterate(self: &NodePayload, index: usize) ?&Node {
         var i = index;
 
         if (i < 1) return &self.error_symbol.base;
@@ -660,23 +707,23 @@ pub const NodeErrorPayload = struct {
         return null;
     }
 
-    pub fn firstToken(self: &NodeErrorPayload) Token {
+    pub fn firstToken(self: &NodePayload) Token {
         return self.lpipe;
     }
 
-    pub fn lastToken(self: &NodeErrorPayload) Token {
+    pub fn lastToken(self: &NodePayload) Token {
         return self.rpipe;
     }
 };
 
-pub const NodeValuePayload = struct {
+pub const NodePointerPayload = struct {
     base: Node,
     lpipe: Token,
     is_ptr: bool,
     value_symbol: &NodeIdentifier,
     rpipe: Token,
 
-    pub fn iterate(self: &NodeValuePayload, index: usize) ?&Node {
+    pub fn iterate(self: &NodePointerPayload, index: usize) ?&Node {
         var i = index;
 
         if (i < 1) return &self.value_symbol.base;
@@ -685,16 +732,16 @@ pub const NodeValuePayload = struct {
         return null;
     }
 
-    pub fn firstToken(self: &NodeValuePayload) Token {
+    pub fn firstToken(self: &NodePointerPayload) Token {
         return self.lpipe;
     }
 
-    pub fn lastToken(self: &NodeValuePayload) Token {
+    pub fn lastToken(self: &NodePointerPayload) Token {
         return self.rpipe;
     }
 };
 
-pub const NodeValueIndexPayload = struct {
+pub const NodePointerIndexPayload = struct {
     base: Node,
     lpipe: Token,
     is_ptr: bool,
@@ -702,7 +749,7 @@ pub const NodeValueIndexPayload = struct {
     index_symbol: ?&NodeIdentifier,
     rpipe: Token,
 
-    pub fn iterate(self: &NodeValueIndexPayload, index: usize) ?&Node {
+    pub fn iterate(self: &NodePointerIndexPayload, index: usize) ?&Node {
         var i = index;
 
         if (i < 1) return &self.value_symbol.base;
@@ -716,11 +763,11 @@ pub const NodeValueIndexPayload = struct {
         return null;
     }
 
-    pub fn firstToken(self: &NodeValueIndexPayload) Token {
+    pub fn firstToken(self: &NodePointerIndexPayload) Token {
         return self.lpipe;
     }
 
-    pub fn lastToken(self: &NodeValueIndexPayload) Token {
+    pub fn lastToken(self: &NodePointerIndexPayload) Token {
         return self.rpipe;
     }
 };
@@ -728,7 +775,7 @@ pub const NodeValueIndexPayload = struct {
 pub const NodeElse = struct {
     base: Node,
     else_token: Token,
-    payload: ?&NodeErrorPayload,
+    payload: ?&NodePayload,
     body: &Node,
 
     pub fn iterate(self: &NodeElse, index: usize) ?&Node {
@@ -785,7 +832,7 @@ pub const NodeSwitch = struct {
 pub const NodeSwitchCase = struct {
     base: Node,
     items: ArrayList(&Node),
-    payload: ?&NodeValuePayload,
+    payload: ?&NodePointerPayload,
     expr: &Node,
 
     pub fn iterate(self: &NodeSwitchCase, index: usize) ?&Node {
@@ -837,7 +884,7 @@ pub const NodeWhile = struct {
     inline_token: ?Token,
     while_token: Token,
     condition: &Node,
-    payload: ?&NodeValuePayload,
+    payload: ?&NodePointerPayload,
     continue_expr: ?&Node,
     body: &Node,
     @"else": ?&NodeElse,
@@ -896,7 +943,7 @@ pub const NodeFor = struct {
     inline_token: ?Token,
     for_token: Token,
     array_expr: &Node,
-    payload: ?&NodeValueIndexPayload,
+    payload: ?&NodePointerIndexPayload,
     body: &Node,
     @"else": ?&NodeElse,
 
@@ -947,7 +994,7 @@ pub const NodeIf = struct {
     base: Node,
     if_token: Token,
     condition: &Node,
-    payload: ?&NodeValuePayload,
+    payload: ?&NodePointerPayload,
     body: &Node,
     @"else": ?&NodeElse,
 
@@ -1020,7 +1067,7 @@ pub const NodeInfixOp = struct {
         BitXor,
         BoolAnd,
         BoolOr,
-        Catch: ?&NodeErrorPayload,
+        Catch: ?&NodePayload,
         Div,
         EqualEqual,
         ErrorUnion,
@@ -1113,13 +1160,16 @@ pub const NodePrefixOp = struct {
 
     const PrefixOp = union(enum) {
         AddrOf: AddrOfInfo,
+        ArrayType: &Node,
+        Await,
         BitNot,
         BoolNot,
+        Cancel,
         Deref,
         MaybeType,
         Negation,
         NegationWrap,
-        ArrayType: &Node,
+        Resume,
         SliceType: AddrOfInfo,
         Try,
         UnwrapMaybe,
@@ -1153,13 +1203,16 @@ pub const NodePrefixOp = struct {
                 if (i < 1) return size_expr;
                 i -= 1;
             },
+            PrefixOp.Await,
             PrefixOp.BitNot,
             PrefixOp.BoolNot,
+            PrefixOp.Cancel,
             PrefixOp.Deref,
             PrefixOp.Negation,
             PrefixOp.NegationWrap,
             PrefixOp.Return,
             PrefixOp.Try,
+            PrefixOp.Resume,
             PrefixOp.UnwrapMaybe => {},
         }
 
@@ -1218,8 +1271,7 @@ pub const NodeSuffixOp = struct {
 
     const CallInfo = struct {
         params: ArrayList(&Node),
-        is_async: bool,
-        allocator: ?&Node,
+        async_attr: ?&NodeAsyncAttribute,
     };
 
     const SliceRange = struct {
@@ -1344,6 +1396,45 @@ pub const NodeControlFlowExpression = struct {
         }
 
         return self.ltoken;
+    }
+};
+
+pub const NodeSuspend = struct {
+    base: Node,
+    suspend_token: Token,
+    payload: ?&NodePayload,
+    body: ?&Node,
+
+    pub fn iterate(self: &NodeSuspend, index: usize) ?&Node {
+        var i = index;
+
+        if (self.payload) |payload| {
+            if (i < 1) return &payload.base;
+            i -= 1;
+        }
+
+        if (self.body) |body| {
+            if (i < 1) return body;
+            i -= 1;
+        }
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeSuspend) Token {
+        return self.suspend_token;
+    }
+
+    pub fn lastToken(self: &NodeSuspend) Token {
+        if (self.body) |body| {
+            return body.lastToken();
+        }
+
+        if (self.payload) |payload| {
+            return payload.lastToken();
+        }
+
+        return self.suspend_token;
     }
 };
 

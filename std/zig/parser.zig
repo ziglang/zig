@@ -134,6 +134,11 @@ pub const Parser = struct {
         dest_ptr: DestPtr,
     };
 
+    const AsyncEndCtx = struct {
+        dest_ptr: DestPtr,
+        attribute: &ast.NodeAsyncAttribute,
+    };
+
     const State = union(enum) {
         TopLevel,
         TopLevelExtern: TopLevelDeclCtx,
@@ -173,9 +178,11 @@ pub const Parser = struct {
         FieldInitListCommaOrEnd: ListSave(&ast.NodeFieldInitializer),
         FieldListCommaOrEnd: &ast.NodeContainerDecl,
         SwitchCaseOrEnd: ListSave(&ast.NodeSwitchCase),
-        ErrorPayload: &?&ast.NodeErrorPayload,
-        ValuePayload: &?&ast.NodeValuePayload,
-        ValueIndexPayload: &?&ast.NodeValueIndexPayload,
+        SuspendBody: &ast.NodeSuspend,
+        AsyncEnd: AsyncEndCtx,
+        Payload: &?&ast.NodePayload,
+        PointerPayload: &?&ast.NodePointerPayload,
+        PointerIndexPayload: &?&ast.NodePointerIndexPayload,
         SwitchCaseCommaOrEnd: ListSave(&ast.NodeSwitchCase),
         SwitchCaseItem: &ArrayList(&ast.Node),
         SwitchCaseItemCommaOrEnd: &ArrayList(&ast.Node),
@@ -397,6 +404,45 @@ pub const Parser = struct {
                                     .ptr = &fn_proto.fn_token,
                                 }
                             });
+                            continue;
+                        },
+                        Token.Id.Keyword_async => {
+                            // TODO shouldn't need this cast
+                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, undefined,
+                                ctx.extern_token, ctx.lib_name, (?Token)(null), (?Token)(null), (?Token)(null));
+
+                            const async_node = try arena.create(ast.NodeAsyncAttribute);
+                            *async_node = ast.NodeAsyncAttribute {
+                                .base = self.initNode(ast.Node.Id.AsyncAttribute),
+                                .async_token = token,
+                                .allocator_type = null,
+                                .rangle_bracket = null,
+                            };
+
+                            fn_proto.async_attr = async_node;
+                            stack.append(State { .FnDef = fn_proto }) catch unreachable;
+                            try stack.append(State { .FnProto = fn_proto });
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.Keyword_fn,
+                                    .ptr = &fn_proto.fn_token,
+                                }
+                            });
+
+                            const langle_bracket = self.getNextToken();
+                            if (langle_bracket.id != Token.Id.AngleBracketLeft) {
+                                self.putBackToken(langle_bracket);
+                                continue;
+                            }
+
+                            async_node.rangle_bracket = Token(undefined);
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.AngleBracketRight,
+                                    .ptr = &??async_node.rangle_bracket,
+                                }
+                            });
+                            try stack.append(State { .TypeExprBegin = DestPtr { .NullableField = &async_node.allocator_type } });
                             continue;
                         },
                         else => {
@@ -711,13 +757,14 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_cancel => {
-                            @panic("TODO: cancel");
+                            const cancel_node = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp.Cancel);
+                            dest_ptr.store(&cancel_node.base);
+                            stack.append(State { .Expression = DestPtr { .Field = &cancel_node.rhs } }) catch unreachable;
                         },
                         Token.Id.Keyword_resume => {
-                            @panic("TODO: resume");
-                        },
-                        Token.Id.Keyword_await => {
-                            @panic("TODO: await");
+                            const resume_node = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp.Resume);
+                            dest_ptr.store(&resume_node.base);
+                            stack.append(State { .Expression = DestPtr { .Field = &resume_node.rhs } }) catch unreachable;
                         },
                         else => {
                             self.putBackToken(token);
@@ -786,7 +833,7 @@ pub const Parser = struct {
 
                             stack.append(State { .UnwrapExpressionEnd = dest_ptr }) catch unreachable;
                             try stack.append(State { .Expression = DestPtr { .Field = &node.rhs } });
-                            try stack.append(State { .ErrorPayload = &node.op.Catch });
+                            try stack.append(State { .Payload = &node.op.Catch });
                             continue;
                         },
                         Token.Id.QuestionMarkQuestionMark => {
@@ -1113,6 +1160,9 @@ pub const Parser = struct {
                             try stack.append(State { .AddrOfModifiers = &node.op.AddrOf });
                         }
                         continue;
+                        //Token.Id.Keyword_await => {
+                        //    @panic("TODO: await");
+                        //},
                     } else {
                         self.putBackToken(token);
                         stack.append(State { .SuffixOpExpressionBegin = dest_ptr }) catch unreachable;
@@ -1124,7 +1174,38 @@ pub const Parser = struct {
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_async => {
-                            @panic("TODO: Parse async");
+                            const async_node = try arena.create(ast.NodeAsyncAttribute);
+                            *async_node = ast.NodeAsyncAttribute {
+                                .base = self.initNode(ast.Node.Id.AsyncAttribute),
+                                .async_token = token,
+                                .allocator_type = null,
+                                .rangle_bracket = null,
+                            };
+
+                            stack.append(State {
+                                .AsyncEnd = AsyncEndCtx {
+                                    .dest_ptr = dest_ptr,
+                                    .attribute = async_node,
+                                }
+                            }) catch unreachable;
+                            try stack.append(State { .SuffixOpExpressionEnd = dest_ptr });
+                            try stack.append(State { .PrimaryExpression = dest_ptr });
+
+                            const langle_bracket = self.getNextToken();
+                            if (langle_bracket.id != Token.Id.AngleBracketLeft) {
+                                self.putBackToken(langle_bracket);
+                                continue;
+                            }
+
+                            async_node.rangle_bracket = Token(undefined);
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.AngleBracketRight,
+                                    .ptr = &??async_node.rangle_bracket,
+                                }
+                            });
+                            try stack.append(State { .TypeExprBegin = DestPtr { .NullableField = &async_node.allocator_type } });
+                            continue;
                         },
                         else => {
                             self.putBackToken(token);
@@ -1142,8 +1223,7 @@ pub const Parser = struct {
                             const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
                                 .Call = ast.NodeSuffixOp.CallInfo {
                                     .params = ArrayList(&ast.Node).init(arena),
-                                    .is_async = false, // TODO: ASYNC
-                                    .allocator = null,
+                                    .async_attr = null,
                                 }
                             });
                             node.lhs = dest_ptr.get();
@@ -1255,6 +1335,19 @@ pub const Parser = struct {
                                 .token = token,
                             };
                             dest_ptr.store(&node.base);
+                            continue;
+                        },
+                        Token.Id.Keyword_suspend => {
+                            const node = try arena.create(ast.NodeSuspend);
+                            *node = ast.NodeSuspend {
+                                .base = self.initNode(ast.Node.Id.Suspend),
+                                .suspend_token = token,
+                                .payload = null,
+                                .body = null,
+                            };
+                            dest_ptr.store(&node.base);
+                            stack.append(State { .SuspendBody = node }) catch unreachable;
+                            try stack.append(State { .Payload = &node.payload });
                             continue;
                         },
                         Token.Id.MultilineStringLiteralLine => {
@@ -1477,17 +1570,12 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
+                            const fn_token = (try self.eatToken(&stack, Token.Id.Keyword_fn)) ?? continue;
                             // TODO shouldn't need this cast
-                            const fn_proto = try self.createFnProto(arena, undefined,
+                            const fn_proto = try self.createFnProto(arena, fn_token,
                                 (?Token)(null), (?&ast.Node)(null), (?Token)(token), (?Token)(null), (?Token)(null));
                             dest_ptr.store(&fn_proto.base);
                             stack.append(State { .FnProto = fn_proto }) catch unreachable;
-                            try stack.append(State {
-                                .ExpectTokenSave = ExpectTokenSave {
-                                    .id = Token.Id.Keyword_fn,
-                                    .ptr = &fn_proto.fn_token,
-                                }
-                            });
                             continue;
                         },
                         Token.Id.Keyword_asm => {
@@ -1544,7 +1632,7 @@ pub const Parser = struct {
 
                             stack.append(State { .Else = &node.@"else" }) catch unreachable;
                             try stack.append(State { .Expression = DestPtr { .Field = &node.body } });
-                            try stack.append(State { .ValuePayload = &node.payload });
+                            try stack.append(State { .PointerPayload = &node.payload });
                             try stack.append(State { .ExpectToken = Token.Id.RParen });
                             try stack.append(State { .Expression = DestPtr { .Field = &node.condition } });
                             try stack.append(State { .ExpectToken = Token.Id.LParen });
@@ -1816,7 +1904,7 @@ pub const Parser = struct {
                     try list_state.list.append(node);
                     stack.append(State { .SwitchCaseCommaOrEnd = list_state }) catch unreachable;
                     try stack.append(State { .Expression = DestPtr{ .Field = &node.expr  } });
-                    try stack.append(State { .ValuePayload = &node.payload });
+                    try stack.append(State { .PointerPayload = &node.payload });
 
                     const maybe_else = self.getNextToken();
                     if (maybe_else.id == Token.Id.Keyword_else) {
@@ -1883,7 +1971,7 @@ pub const Parser = struct {
                     *dest = node;
 
                     stack.append(State { .Expression = DestPtr { .Field = &node.body } }) catch unreachable;
-                    try stack.append(State { .ErrorPayload = &node.payload });
+                    try stack.append(State { .Payload = &node.payload });
                 },
 
                 State.WhileContinueExpr => |dest| {
@@ -1898,7 +1986,41 @@ pub const Parser = struct {
                     try stack.append(State { .AssignmentExpressionBegin = DestPtr { .NullableField = dest } });
                 },
 
-                State.ErrorPayload => |dest| {
+                State.SuspendBody => |suspend_node| {
+                    if (suspend_node.payload != null) {
+                        try stack.append(State { .AssignmentExpressionBegin = DestPtr { .NullableField = &suspend_node.body } });
+                    }
+                    continue;
+                },
+
+                State.AsyncEnd => |ctx| {
+                    const node = ctx.dest_ptr.get();
+
+                    switch (node.id) {
+                        ast.Node.Id.FnProto => {
+                            const fn_proto = @fieldParentPtr(ast.NodeFnProto, "base", node);
+                            fn_proto.async_attr = ctx.attribute;
+                        },
+                        ast.Node.Id.SuffixOp => {
+                            const suffix_op = @fieldParentPtr(ast.NodeSuffixOp, "base", node);
+                            if (suffix_op.op == ast.NodeSuffixOp.SuffixOp.Call) {
+                                suffix_op.op.Call.async_attr = ctx.attribute;
+                                continue;
+                            }
+
+                            try self.parseError(&stack, node.firstToken(), "expected call or fn proto, found {}.",
+                                @tagName(suffix_op.op));
+                            continue;
+                        },
+                        else => {
+                            try self.parseError(&stack, node.firstToken(), "expected call or fn proto, found {}.",
+                                @tagName(node.id));
+                            continue;
+                        }
+                    }
+                },
+
+                State.Payload => |dest| {
                     const lpipe = self.getNextToken();
                     if (lpipe.id != Token.Id.Pipe) {
                         self.putBackToken(lpipe);
@@ -1907,9 +2029,9 @@ pub const Parser = struct {
 
                     const error_symbol = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
                     const rpipe = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
-                    const node = try arena.create(ast.NodeErrorPayload);
-                    *node = ast.NodeErrorPayload {
-                        .base = self.initNode(ast.Node.Id.ErrorPayload),
+                    const node = try arena.create(ast.NodePayload);
+                    *node = ast.NodePayload {
+                        .base = self.initNode(ast.Node.Id.Payload),
                         .lpipe = lpipe,
                         .error_symbol = try self.createIdentifier(arena, error_symbol),
                         .rpipe = rpipe
@@ -1917,7 +2039,7 @@ pub const Parser = struct {
                     *dest = node;
                 },
 
-                State.ValuePayload => |dest| {
+                State.PointerPayload => |dest| {
                     const lpipe = self.getNextToken();
                     if (lpipe.id != Token.Id.Pipe) {
                         self.putBackToken(lpipe);
@@ -1936,9 +2058,9 @@ pub const Parser = struct {
 
                     const value_symbol = (try self.eatToken(&stack, Token.Id.Identifier)) ?? continue;
                     const rpipe = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
-                    const node = try arena.create(ast.NodeValuePayload);
-                    *node = ast.NodeValuePayload {
-                        .base = self.initNode(ast.Node.Id.ValuePayload),
+                    const node = try arena.create(ast.NodePointerPayload);
+                    *node = ast.NodePointerPayload {
+                        .base = self.initNode(ast.Node.Id.PointerPayload),
                         .lpipe = lpipe,
                         .is_ptr = is_ptr,
                         .value_symbol = try self.createIdentifier(arena, value_symbol),
@@ -1947,7 +2069,7 @@ pub const Parser = struct {
                     *dest = node;
                 },
 
-                State.ValueIndexPayload => |dest| {
+                State.PointerIndexPayload => |dest| {
                     const lpipe = self.getNextToken();
                     if (lpipe.id != Token.Id.Pipe) {
                         self.putBackToken(lpipe);
@@ -1977,9 +2099,9 @@ pub const Parser = struct {
                     };
 
                     const rpipe = (try self.eatToken(&stack, Token.Id.Pipe)) ?? continue;
-                    const node = try arena.create(ast.NodeValueIndexPayload);
-                    *node = ast.NodeValueIndexPayload {
-                        .base = self.initNode(ast.Node.Id.ValueIndexPayload),
+                    const node = try arena.create(ast.NodePointerIndexPayload);
+                    *node = ast.NodePointerIndexPayload {
+                        .base = self.initNode(ast.Node.Id.PointerIndexPayload),
                         .lpipe = lpipe,
                         .is_ptr = is_ptr,
                         .value_symbol = try self.createIdentifier(arena, value_symbol),
@@ -2249,7 +2371,7 @@ pub const Parser = struct {
                     stack.append(State { .Else = &node.@"else" }) catch unreachable;
                     try stack.append(State { .Expression = DestPtr { .Field = &node.body } });
                     try stack.append(State { .WhileContinueExpr = &node.continue_expr });
-                    try stack.append(State { .ValuePayload = &node.payload });
+                    try stack.append(State { .PointerPayload = &node.payload });
                     try stack.append(State { .ExpectToken = Token.Id.RParen });
                     try stack.append(State { .Expression = DestPtr { .Field = &node.condition } });
                     try stack.append(State { .ExpectToken = Token.Id.LParen });
@@ -2271,7 +2393,7 @@ pub const Parser = struct {
 
                     stack.append(State { .Else = &node.@"else" }) catch unreachable;
                     try stack.append(State { .Expression = DestPtr { .Field = &node.body } });
-                    try stack.append(State { .ValueIndexPayload = &node.payload });
+                    try stack.append(State { .PointerIndexPayload = &node.payload });
                     try stack.append(State { .ExpectToken = Token.Id.RParen });
                     try stack.append(State { .Expression = DestPtr { .Field = &node.array_expr } });
                     try stack.append(State { .ExpectToken = Token.Id.LParen });
@@ -2374,9 +2496,9 @@ pub const Parser = struct {
                 ast.Node.Id.EnumTag,
                 ast.Node.Id.ParamDecl,
                 ast.Node.Id.Block,
-                ast.Node.Id.ErrorPayload,
-                ast.Node.Id.ValuePayload,
-                ast.Node.Id.ValueIndexPayload,
+                ast.Node.Id.Payload,
+                ast.Node.Id.PointerPayload,
+                ast.Node.Id.PointerIndexPayload,
                 ast.Node.Id.Switch,
                 ast.Node.Id.SwitchCase,
                 ast.Node.Id.SwitchElse,
@@ -2421,6 +2543,15 @@ pub const Parser = struct {
                 ast.Node.Id.Comptime => {
                     const comptime_node = @fieldParentPtr(ast.NodeComptime, "base", n);
                     n = comptime_node.expr;
+                },
+                ast.Node.Id.Suspend => {
+                    const suspend_node = @fieldParentPtr(ast.NodeSuspend, "base", n);
+                    if (suspend_node.body) |body| {
+                        n = body;
+                        continue;
+                    }
+
+                    return true;
                 },
                 else => return true,
             }
@@ -2540,6 +2671,7 @@ pub const Parser = struct {
             },
             Token.Id.QuestionMark => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.MaybeType),
             Token.Id.QuestionMarkQuestionMark => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.UnwrapMaybe),
+            Token.Id.Keyword_await => (ast.NodePrefixOp.PrefixOp)(ast.NodePrefixOp.PrefixOp.Await),
             else => null,
         };
     }
@@ -2628,6 +2760,7 @@ pub const Parser = struct {
             .extern_token = *extern_token,
             .inline_token = *inline_token,
             .cc_token = *cc_token,
+            .async_attr = null,
             .body_node = null,
             .lib_name = lib_name,
             .align_expr = null,
@@ -3105,6 +3238,30 @@ pub const Parser = struct {
                         try stream.print("{} ", self.tokenizer.getTokenSlice(comptime_node.comptime_token));
                         try stack.append(RenderState { .Expression = comptime_node.expr });
                     },
+                    ast.Node.Id.AsyncAttribute => {
+                        const async_attr = @fieldParentPtr(ast.NodeAsyncAttribute, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(async_attr.async_token));
+
+                        if (async_attr.allocator_type) |allocator_type| {
+                            try stack.append(RenderState { .Text = ">" });
+                            try stack.append(RenderState { .Expression = allocator_type });
+                            try stack.append(RenderState { .Text = "<" });
+                        }
+                    },
+                    ast.Node.Id.Suspend => {
+                        const suspend_node = @fieldParentPtr(ast.NodeSuspend, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(suspend_node.suspend_token));
+
+                        if (suspend_node.body) |body| {
+                            try stack.append(RenderState { .Expression = body });
+                            try stack.append(RenderState { .Text = " " });
+                        }
+
+                        if (suspend_node.payload) |payload| {
+                            try stack.append(RenderState { .Expression = &payload.base });
+                            try stack.append(RenderState { .Text = " " });
+                        }
+                    },
                     ast.Node.Id.InfixOp => {
                         const prefix_op_node = @fieldParentPtr(ast.NodeInfixOp, "base", base);
                         try stack.append(RenderState { .Expression = prefix_op_node.rhs });
@@ -3211,6 +3368,9 @@ pub const Parser = struct {
                             ast.NodePrefixOp.PrefixOp.Try => try stream.write("try "),
                             ast.NodePrefixOp.PrefixOp.UnwrapMaybe => try stream.write("??"),
                             ast.NodePrefixOp.PrefixOp.MaybeType => try stream.write("?"),
+                            ast.NodePrefixOp.PrefixOp.Await => try stream.write("await "),
+                            ast.NodePrefixOp.PrefixOp.Cancel => try stream.write("cancel "),
+                            ast.NodePrefixOp.PrefixOp.Resume => try stream.write("resume "),
                         }
                     },
                     ast.Node.Id.SuffixOp => {
@@ -3229,11 +3389,18 @@ pub const Parser = struct {
                                     }
                                 }
                                 try stack.append(RenderState { .Text = "("});
+                                try stack.append(RenderState { .Expression = suffix_op.lhs });
+
+                                if (call_info.async_attr) |async_attr| {
+                                    try stack.append(RenderState { .Text = " "});
+                                    try stack.append(RenderState { .Expression = &async_attr.base });
+                                }
                             },
                             ast.NodeSuffixOp.SuffixOp.ArrayAccess => |index_expr| {
                                 try stack.append(RenderState { .Text = "]"});
                                 try stack.append(RenderState { .Expression = index_expr});
                                 try stack.append(RenderState { .Text = "["});
+                                try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                             ast.NodeSuffixOp.SuffixOp.Slice => |range| {
                                 try stack.append(RenderState { .Text = "]"});
@@ -3243,6 +3410,7 @@ pub const Parser = struct {
                                 try stack.append(RenderState { .Text = ".."});
                                 try stack.append(RenderState { .Expression = range.start});
                                 try stack.append(RenderState { .Text = "["});
+                                try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                             ast.NodeSuffixOp.SuffixOp.StructInitializer => |field_inits| {
                                 try stack.append(RenderState { .Text = " }"});
@@ -3257,6 +3425,7 @@ pub const Parser = struct {
                                     }
                                 }
                                 try stack.append(RenderState { .Text = "{"});
+                                try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                             ast.NodeSuffixOp.SuffixOp.ArrayInitializer => |exprs| {
                                 try stack.append(RenderState { .Text = " }"});
@@ -3271,10 +3440,9 @@ pub const Parser = struct {
                                     }
                                 }
                                 try stack.append(RenderState { .Text = "{"});
+                                try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                         }
-
-                        try stack.append(RenderState { .Expression = suffix_op.lhs });
                     },
                     ast.Node.Id.ControlFlowExpression => {
                         const flow_expr = @fieldParentPtr(ast.NodeControlFlowExpression, "base", base);
@@ -3302,14 +3470,14 @@ pub const Parser = struct {
                             try stack.append(RenderState { .Expression = rhs });
                         }
                     },
-                    ast.Node.Id.ErrorPayload => {
-                        const payload = @fieldParentPtr(ast.NodeErrorPayload, "base", base);
+                    ast.Node.Id.Payload => {
+                        const payload = @fieldParentPtr(ast.NodePayload, "base", base);
                         try stack.append(RenderState { .Text = "|"});
                         try stack.append(RenderState { .Expression = &payload.error_symbol.base });
                         try stack.append(RenderState { .Text = "|"});
                     },
-                    ast.Node.Id.ValuePayload => {
-                        const payload = @fieldParentPtr(ast.NodeValuePayload, "base", base);
+                    ast.Node.Id.PointerPayload => {
+                        const payload = @fieldParentPtr(ast.NodePointerPayload, "base", base);
                         try stack.append(RenderState { .Text = "|"});
                         try stack.append(RenderState { .Expression = &payload.value_symbol.base });
 
@@ -3319,8 +3487,8 @@ pub const Parser = struct {
 
                         try stack.append(RenderState { .Text = "|"});
                     },
-                    ast.Node.Id.ValueIndexPayload => {
-                        const payload = @fieldParentPtr(ast.NodeValueIndexPayload, "base", base);
+                    ast.Node.Id.PointerIndexPayload => {
+                        const payload = @fieldParentPtr(ast.NodePointerIndexPayload, "base", base);
                         try stack.append(RenderState { .Text = "|"});
 
                         if (payload.index_symbol) |index_symbol| {
@@ -3552,6 +3720,11 @@ pub const Parser = struct {
                         }
 
                         try stack.append(RenderState { .Text = "fn" });
+
+                        if (fn_proto.async_attr) |async_attr| {
+                            try stack.append(RenderState { .Text = " " });
+                            try stack.append(RenderState { .Expression = &async_attr.base });
+                        }
 
                         if (fn_proto.cc_token) |cc_token| {
                             try stack.append(RenderState { .Text = " " });
@@ -4789,8 +4962,7 @@ test "zig fmt: coroutines" {
         \\    x += 1;
         \\    suspend;
         \\    x += 1;
-        \\    suspend |p| {
-        \\    }
+        \\    suspend |p| {}
         \\    const p = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
@@ -4802,11 +4974,4 @@ test "zig fmt: coroutines" {
         \\}
         \\
     );
-}
-
-test "zig fmt: zig fmt" {
-    try testCanonical(@embedFile("ast.zig"));
-    try testCanonical(@embedFile("index.zig"));
-    try testCanonical(@embedFile("parser.zig"));
-    try testCanonical(@embedFile("tokenizer.zig"));
 }
