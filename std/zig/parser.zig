@@ -417,7 +417,7 @@ pub const Parser = struct {
                         },
                         Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
                             // TODO shouldn't need this cast
-                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, undefined,
+                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, Token(undefined),
                                 ctx.extern_token, ctx.lib_name, (?Token)(token), (?Token)(null), (?Token)(null));
                             stack.append(State { .FnDef = fn_proto }) catch unreachable;
                             try stack.append(State { .FnProto = fn_proto });
