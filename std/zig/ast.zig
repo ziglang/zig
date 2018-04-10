@@ -11,6 +11,7 @@ pub const Node = struct {
     pub const Id = enum {
         Root,
         VarDecl,
+        Use,
         ErrorSetDecl,
         ContainerDecl,
         StructField,
@@ -63,6 +64,7 @@ pub const Node = struct {
         return switch (base.id) {
             Id.Root => @fieldParentPtr(NodeRoot, "base", base).iterate(index),
             Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).iterate(index),
+            Id.Use => @fieldParentPtr(NodeUse, "base", base).iterate(index),
             Id.ErrorSetDecl => @fieldParentPtr(NodeErrorSetDecl, "base", base).iterate(index),
             Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).iterate(index),
             Id.StructField => @fieldParentPtr(NodeStructField, "base", base).iterate(index),
@@ -116,6 +118,7 @@ pub const Node = struct {
         return switch (base.id) {
             Id.Root => @fieldParentPtr(NodeRoot, "base", base).firstToken(),
             Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).firstToken(),
+            Id.Use => @fieldParentPtr(NodeUse, "base", base).firstToken(),
             Id.ErrorSetDecl => @fieldParentPtr(NodeErrorSetDecl, "base", base).firstToken(),
             Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).firstToken(),
             Id.StructField => @fieldParentPtr(NodeStructField, "base", base).firstToken(),
@@ -169,6 +172,7 @@ pub const Node = struct {
         return switch (base.id) {
             Id.Root => @fieldParentPtr(NodeRoot, "base", base).lastToken(),
             Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).lastToken(),
+            Id.Use => @fieldParentPtr(NodeUse, "base", base).lastToken(),
             Id.ErrorSetDecl => @fieldParentPtr(NodeErrorSetDecl, "base", base).lastToken(),
             Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).lastToken(),
             Id.StructField => @fieldParentPtr(NodeStructField, "base", base).lastToken(),
@@ -284,6 +288,31 @@ pub const NodeVarDecl = struct {
     }
 
     pub fn lastToken(self: &NodeVarDecl) Token {
+        return self.semicolon_token;
+    }
+};
+
+pub const NodeUse = struct {
+    base: Node,
+    visib_token: ?Token,
+    expr: &Node,
+    semicolon_token: Token,
+
+    pub fn iterate(self: &NodeUse, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.expr;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeUse) Token {
+        if (self.visib_token) |visib_token| return visib_token;
+        return self.expr.firstToken();
+    }
+
+    pub fn lastToken(self: &NodeUse) Token {
         return self.semicolon_token;
     }
 };

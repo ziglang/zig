@@ -348,31 +348,54 @@ pub const Parser = struct {
                 },
                 State.TopLevelExtern => |ctx| {
                     const token = self.getNextToken();
-                    if (token.id == Token.Id.Keyword_extern) {
-                        const lib_name_token = self.getNextToken();
-                        const lib_name = blk: {
-                            if (lib_name_token.id == Token.Id.StringLiteral) {
-                                const res = try self.createStringLiteral(arena, lib_name_token);
-                                break :blk &res.base;
-                            } else {
-                                self.putBackToken(lib_name_token);
-                                break :blk null;
-                            }
-                        };
-
-                        stack.append(State {
-                            .TopLevelDecl = TopLevelDeclCtx {
-                                .decls = ctx.decls,
+                    switch (token.id) {
+                        Token.Id.Keyword_use => {
+                            const node = try arena.create(ast.NodeUse);
+                            *node = ast.NodeUse {
+                                .base = self.initNode(ast.Node.Id.Use),
                                 .visib_token = ctx.visib_token,
-                                .extern_token = token,
-                                .lib_name = lib_name,
-                            },
-                        }) catch unreachable;
-                        continue;
+                                .expr = undefined,
+                                .semicolon_token = undefined,
+                            };
+                            try ctx.decls.append(&node.base);
+
+                            stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.Semicolon,
+                                    .ptr = &node.semicolon_token,
+                                }
+                            }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
+                            continue;
+                        },
+                        Token.Id.Keyword_extern => {
+                            const lib_name_token = self.getNextToken();
+                            const lib_name = blk: {
+                                if (lib_name_token.id == Token.Id.StringLiteral) {
+                                    const res = try self.createStringLiteral(arena, lib_name_token);
+                                    break :blk &res.base;
+                                } else {
+                                    self.putBackToken(lib_name_token);
+                                    break :blk null;
+                                }
+                            };
+
+                            stack.append(State {
+                                .TopLevelDecl = TopLevelDeclCtx {
+                                    .decls = ctx.decls,
+                                    .visib_token = ctx.visib_token,
+                                    .extern_token = token,
+                                    .lib_name = lib_name,
+                                },
+                            }) catch unreachable;
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            stack.append(State { .TopLevelDecl = ctx }) catch unreachable;
+                            continue;
+                        }
                     }
-                    self.putBackToken(token);
-                    stack.append(State { .TopLevelDecl = ctx }) catch unreachable;
-                    continue;
                 },
                 State.TopLevelDecl => |ctx| {
                     const token = self.getNextToken();
@@ -3068,6 +3091,15 @@ pub const Parser = struct {
 
                             try stack.append(RenderState { .Expression = decl });
                         },
+                        ast.Node.Id.Use => {
+                            const use_decl = @fieldParentPtr(ast.NodeUse, "base", decl);
+                            if (use_decl.visib_token) |visib_token| {
+                                try stream.print("{} ", self.tokenizer.getTokenSlice(visib_token));
+                            }
+                            try stream.print("use ");
+                            try stack.append(RenderState { .Text = ";" });
+                            try stack.append(RenderState { .Expression = use_decl.expr });
+                        },
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.NodeVarDecl, "base", decl);
                             try stack.append(RenderState { .VarDecl = var_decl});
@@ -4086,6 +4118,7 @@ pub const Parser = struct {
                     ast.Node.Id.EnumTag,
                     ast.Node.Id.Root,
                     ast.Node.Id.VarDecl,
+                    ast.Node.Id.Use,
                     ast.Node.Id.TestDecl,
                     ast.Node.Id.ParamDecl => unreachable,
                 },
@@ -4997,6 +5030,14 @@ test "zig fmt: Block after if" {
         \\        const a = 0;
         \\    }
         \\}
+        \\
+    );
+}
+
+test "zig fmt: use" {
+    try testCanonical(
+        \\use @import("std");
+        \\pub use @import("std");
         \\
     );
 }
