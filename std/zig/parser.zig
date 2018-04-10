@@ -5011,26 +5011,6 @@ test "zig fmt: coroutines" {
     );
 }
 
-test "zig fmt: coroutines" {
-    try testCanonical(
-        \\async fn simpleAsyncFn() void {
-        \\    x += 1;
-        \\    suspend;
-        \\    x += 1;
-        \\    suspend |p| {}
-        \\    const p = async simpleAsyncFn() catch unreachable;
-        \\    await p;
-        \\}
-        \\
-        \\test "coroutine suspend, resume, cancel" {
-        \\    const p = try async<std.debug.global_allocator> testAsyncSeq();
-        \\    resume p;
-        \\    cancel p;
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: Block after if" {
     try testCanonical(
         \\test "Block after if" {
