@@ -613,17 +613,25 @@ pub const Tokenizer = struct {
                     '\\' => {
                         state = State.CharLiteralBackslash;
                     },
-                    '\'' => break, // Look for this error later.
+                    '\'' => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
                     else => {
-                        if (c < 0x20 or c == 0x7f)
-                            break; // Look for this error later.
+                        if (c < 0x20 or c == 0x7f) {
+                            result.id = Token.Id.Invalid;
+                            break;
+                        }
 
                         state = State.CharLiteralEnd;
                     }
                 },
 
                 State.CharLiteralBackslash => switch (c) {
-                    '\n' => break, // Look for this error later.
+                    '\n' => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
                     else => {
                         state = State.CharLiteralEnd;
                     },
@@ -635,7 +643,10 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    else => break, // Look for this error later.
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
                 },
 
                 State.MultilineStringLiteralLine => switch (c) {
@@ -903,7 +914,6 @@ pub const Tokenizer = struct {
                 State.FloatExponentNumber,
                 State.StringLiteral, // find this error later
                 State.MultilineStringLiteralLine,
-                State.CharLiteralEnd,
                 State.Builtin => {},
 
                 State.Identifier => {
@@ -922,6 +932,7 @@ pub const Tokenizer = struct {
                 State.MultilineStringLiteralLineBackslash,
                 State.CharLiteral,
                 State.CharLiteralBackslash,
+                State.CharLiteralEnd,
                 State.StringLiteralBackslash => {
                     result.id = Token.Id.Invalid;
                 },
@@ -1073,7 +1084,7 @@ test "tokenizer - invalid token characters" {
     testTokenize("`", []Token.Id{Token.Id.Invalid});
     testTokenize("'c", []Token.Id {Token.Id.Invalid});
     testTokenize("'", []Token.Id {Token.Id.Invalid});
-    testTokenize("''", []Token.Id {Token.Id.Invalid});
+    testTokenize("''", []Token.Id {Token.Id.Invalid, Token.Id.Invalid});
 }
 
 test "tokenizer - invalid literal/comment characters" {
@@ -1147,6 +1158,7 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
+        std.debug.warn("{} {}\n", @tagName(expected_token_id), @tagName(token.id));
         std.debug.assert(@TagType(Token.Id)(token.id) == @TagType(Token.Id)(expected_token_id));
         switch (expected_token_id) {
             Token.Id.StringLiteral => |expected_kind| {
