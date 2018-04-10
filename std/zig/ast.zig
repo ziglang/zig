@@ -297,7 +297,7 @@ pub const NodeErrorSetDecl = struct {
     pub fn iterate(self: &NodeErrorSetDecl, index: usize) ?&Node {
         var i = index;
 
-        if (i < self.decls.len) return self.decls.at(i);
+        if (i < self.decls.len) return &self.decls.at(i).base;
         i -= self.decls.len;
 
         return null;
@@ -548,14 +548,6 @@ pub const NodeFnProto = struct {
         if (self.lib_name) |lib_name| {
             if (i < 1) return lib_name;
             i -= 1;
-        }
-
-        switch (self.call_convetion) {
-            CallConvetion.Async => |attr| {
-                if (i < 1) return &attr.base;
-                i -= 1;
-            },
-            else => {},
         }
 
         return null;
@@ -814,7 +806,7 @@ pub const NodeSwitch = struct {
         if (i < 1) return self.expr;
         i -= 1;
 
-        if (i < self.cases.len) return self.cases.at(i);
+        if (i < self.cases.len) return &self.cases.at(i).base;
         i -= self.cases.len;
 
         return null;
@@ -842,7 +834,7 @@ pub const NodeSwitchCase = struct {
         i -= self.items.len;
 
         if (self.payload) |payload| {
-            if (i < 1) return payload;
+            if (i < 1) return &payload.base;
             i -= 1;
         }
 
@@ -1093,6 +1085,13 @@ pub const NodeInfixOp = struct {
         i -= 1;
 
         switch (self.op) {
+            InfixOp.Catch => |maybe_payload| {
+                if (maybe_payload) |payload| {
+                    if (i < 1) return &payload.base;
+                    i -= 1;
+                }
+            },
+
             InfixOp.Add,
             InfixOp.AddWrap,
             InfixOp.ArrayCat,
@@ -1208,9 +1207,9 @@ pub const NodePrefixOp = struct {
             PrefixOp.BoolNot,
             PrefixOp.Cancel,
             PrefixOp.Deref,
+            PrefixOp.MaybeType,
             PrefixOp.Negation,
             PrefixOp.NegationWrap,
-            PrefixOp.Return,
             PrefixOp.Try,
             PrefixOp.Resume,
             PrefixOp.UnwrapMaybe => {},
