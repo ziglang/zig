@@ -5041,3 +5041,11 @@ test "zig fmt: use" {
         \\
     );
 }
+
+test "zig fmt: string identifier" {
+    try testCanonical(
+        \\const @"a b" = @"c d".@"e f";
+        \\fn @"g h"() void {}
+        \\
+    );
+}

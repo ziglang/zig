@@ -78,7 +78,6 @@ pub const Token = struct {
         StringLiteral: StrLitKind,
         MultilineStringLiteralLine: StrLitKind,
         CharLiteral,
-        StringIdentifier,
         Eof,
         Builtin,
         Bang,
@@ -434,7 +433,7 @@ pub const Tokenizer = struct {
 
                 State.SawAtSign => switch (c) {
                     '"' => {
-                        result.id = Token.Id.StringIdentifier;
+                        result.id = Token.Id.Identifier;
                         state = State.StringLiteral;
                     },
                     else => {
@@ -1136,7 +1135,7 @@ test "tokenizer - string identifier and builtin fns" {
     ,
         []Token.Id{
             Token.Id.Keyword_const,
-            Token.Id.StringIdentifier,
+            Token.Id.Identifier,
             Token.Id.Equal,
             Token.Id.Builtin,
             Token.Id.LParen,
