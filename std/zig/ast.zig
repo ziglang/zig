@@ -566,7 +566,6 @@ pub const NodeFnProto = struct {
                 if (i < 1) return node;
                 i -= 1;
             },
-            ReturnType.Infer => {},
         }
 
         if (self.align_expr) |align_expr| {
