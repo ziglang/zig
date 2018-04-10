@@ -1158,7 +1158,6 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
-        std.debug.warn("{} {}\n", @tagName(expected_token_id), @tagName(token.id));
         std.debug.assert(@TagType(Token.Id)(token.id) == @TagType(Token.Id)(expected_token_id));
         switch (expected_token_id) {
             Token.Id.StringLiteral => |expected_kind| {
