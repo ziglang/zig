@@ -1437,6 +1437,14 @@ pub const Parser = struct {
                             dest_ptr.store(&node.base);
                             continue;
                         },
+                        Token.Id.Keyword_var => {
+                            const node = try arena.create(ast.NodeVarType);
+                            *node = ast.NodeVarType {
+                                .base = self.initNode(ast.Node.Id.VarType),
+                                .token = token,
+                            };
+                            dest_ptr.store(&node.base);
+                        },
                         Token.Id.Keyword_unreachable => {
                             const node = try arena.create(ast.NodeUnreachable);
                             *node = ast.NodeUnreachable {
@@ -2192,9 +2200,6 @@ pub const Parser = struct {
                 State.FnProtoReturnType => |fn_proto| {
                     const token = self.getNextToken();
                     switch (token.id) {
-                        Token.Id.Keyword_var => {
-                            fn_proto.return_type = ast.NodeFnProto.ReturnType { .Infer = token };
-                        },
                         Token.Id.Bang => {
                             fn_proto.return_type = ast.NodeFnProto.ReturnType { .InferErrorSet = undefined };
                             stack.append(State {
@@ -3573,6 +3578,10 @@ pub const Parser = struct {
                         const error_type = @fieldParentPtr(ast.NodeErrorType, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(error_type.token));
                     },
+                    ast.Node.Id.VarType => {
+                        const var_type = @fieldParentPtr(ast.NodeVarType, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(var_type.token));
+                    },
                     ast.Node.Id.ContainerDecl => {
                         const container_decl = @fieldParentPtr(ast.NodeContainerDecl, "base", base);
 
@@ -3710,9 +3719,6 @@ pub const Parser = struct {
                         switch (fn_proto.return_type) {
                             ast.NodeFnProto.ReturnType.Explicit => |node| {
                                 try stack.append(RenderState { .Expression = node});
-                            },
-                            ast.NodeFnProto.ReturnType.Infer => {
-                                try stack.append(RenderState { .Text = "var"});
                             },
                             ast.NodeFnProto.ReturnType.InferErrorSet => |node| {
                                 try stack.append(RenderState { .Expression = node});
@@ -4136,9 +4142,6 @@ pub const Parser = struct {
                         ast.NodeFnProto.ReturnType.Explicit => |node| {
                             try stack.append(RenderState { .Expression = node});
                         },
-                        ast.NodeFnProto.ReturnType.Infer => {
-                            try stream.print("var");
-                        },
                         ast.NodeFnProto.ReturnType.InferErrorSet => |node| {
                             try stream.print("!");
                             try stack.append(RenderState { .Expression = node});
@@ -4485,6 +4488,15 @@ test "zig fmt: call expression" {
 test "zig fmt: var args" {
     try testCanonical(
         \\fn print(args: ...) void {}
+        \\
+    );
+}
+
+test "zig fmt: var type" {
+    try testCanonical(
+        \\fn print(args: var) var {}
+        \\const Var = var;
+        \\const i: var = 0;
         \\
     );
 }

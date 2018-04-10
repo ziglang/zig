@@ -55,6 +55,7 @@ pub const Node = struct {
         AsmOutput,
         Unreachable,
         ErrorType,
+        VarType,
         BuiltinCall,
         LineComment,
         TestDecl,
@@ -108,6 +109,7 @@ pub const Node = struct {
             Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).iterate(index),
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).iterate(index),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).iterate(index),
+            Id.VarType => @fieldParentPtr(NodeVarType, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).iterate(index),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).iterate(index),
@@ -162,6 +164,7 @@ pub const Node = struct {
             Id.AsmInput => @fieldParentPtr(NodeAsmInput, "base", base).firstToken(),
             Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).firstToken(),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).firstToken(),
+            Id.VarType => @fieldParentPtr(NodeVarType, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).firstToken(),
@@ -216,6 +219,7 @@ pub const Node = struct {
             Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).lastToken(),
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).lastToken(),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).lastToken(),
+            Id.VarType => @fieldParentPtr(NodeVarType, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).lastToken(),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).lastToken(),
@@ -541,7 +545,6 @@ pub const NodeFnProto = struct {
 
     pub const ReturnType = union(enum) {
         Explicit: &Node,
-        Infer: Token,
         InferErrorSet: &Node,
     };
 
@@ -597,7 +600,6 @@ pub const NodeFnProto = struct {
             // TODO allow this and next prong to share bodies since the types are the same
             ReturnType.Explicit => |node| return node.lastToken(),
             ReturnType.InferErrorSet => |node| return node.lastToken(),
-            ReturnType.Infer => |token| return token,
         }
     }
 };
@@ -1784,6 +1786,23 @@ pub const NodeErrorType = struct {
     }
 
     pub fn lastToken(self: &NodeErrorType) Token {
+        return self.token;
+    }
+};
+
+pub const NodeVarType = struct {
+    base: Node,
+    token: Token,
+
+    pub fn iterate(self: &NodeVarType, index: usize) ?&Node {
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeVarType) Token {
+        return self.token;
+    }
+
+    pub fn lastToken(self: &NodeVarType) Token {
         return self.token;
     }
 };
