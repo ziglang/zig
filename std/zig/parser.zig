@@ -1515,17 +1515,23 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Period => {
+                            const identifier = try self.createLiteral(arena, ast.NodeIdentifier, Token(undefined));
                             const node = try self.createToDestNode(arena, dest_ptr, ast.NodeInfixOp,
                                 ast.NodeInfixOp {
                                     .base = undefined,
                                     .lhs = dest_ptr.get(),
                                     .op_token = token,
                                     .op = ast.NodeInfixOp.InfixOp.Period,
-                                    .rhs = undefined,
+                                    .rhs = &identifier.base,
                                 }
                             );
                             stack.append(State { .SuffixOpExpressionEnd = dest_ptr }) catch unreachable;
-                            try stack.append(State { .SuffixOpExpressionBegin = DestPtr { .Field = &node.rhs }});
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.Identifier,
+                                    .ptr = &identifier.token
+                                }
+                            });
                             continue;
                         },
                         else => {
@@ -5011,6 +5017,7 @@ test "zig fmt: inline asm" {
 test "zig fmt: coroutines" {
     try testCanonical(
         \\async fn simpleAsyncFn() void {
+        \\    const a = async a.b();
         \\    x += 1;
         \\    suspend;
         \\    x += 1;
