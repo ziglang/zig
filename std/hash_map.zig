@@ -114,6 +114,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
         }
 
         pub fn remove(hm: &Self, key: K) ?&Entry {
+            if (hm.entries.len == 0) return null;
             hm.incrementModificationCount();
             const start_index = hm.keyToIndex(key);
             {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
@@ -236,7 +237,10 @@ pub fn HashMap(comptime K: type, comptime V: type,
 }
 
 test "basic hash map usage" {
-    var map = HashMap(i32, i32, hash_i32, eql_i32).init(debug.global_allocator);
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var map = HashMap(i32, i32, hash_i32, eql_i32).init(&direct_allocator.allocator);
     defer map.deinit();
 
     assert((map.put(1, 11) catch unreachable) == null);

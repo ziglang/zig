@@ -1,6 +1,8 @@
-const HashMap = @import("hash_map.zig").HashMap;
-const mem = @import("mem.zig");
+const std = @import("index.zig");
+const HashMap = std.HashMap;
+const mem = std.mem;
 const Allocator = mem.Allocator;
+const assert = std.debug.assert;
 
 /// BufMap copies keys and values before they go into the map, and
 /// frees them when they get removed.
@@ -28,18 +30,12 @@ pub const BufMap = struct {
     }
 
     pub fn set(self: &BufMap, key: []const u8, value: []const u8) !void {
-        if (self.hash_map.get(key)) |entry| {
-            const value_copy = try self.copy(value);
-            errdefer self.free(value_copy);
-            const old_value = ??(try self.hash_map.put(key, value_copy));
-            self.free(old_value);
-        } else {
-            const key_copy = try self.copy(key);
-            errdefer self.free(key_copy);
-            const value_copy = try self.copy(value);
-            errdefer self.free(value_copy);
-            _ = try self.hash_map.put(key_copy, value_copy);
-        }
+        self.delete(key);
+        const key_copy = try self.copy(key);
+        errdefer self.free(key_copy);
+        const value_copy = try self.copy(value);
+        errdefer self.free(value_copy);
+        _ = try self.hash_map.put(key_copy, value_copy);
     }
 
     pub fn get(self: &BufMap, key: []const u8) ?[]const u8 {
@@ -66,17 +62,12 @@ pub const BufMap = struct {
     }
 
     fn copy(self: &BufMap, value: []const u8) ![]const u8 {
-        const result = try self.hash_map.allocator.alloc(u8, value.len);
-        mem.copy(u8, result, value);
-        return result;
+        return mem.dupe(self.hash_map.allocator, u8, value);
     }
 };
 
-const assert = @import("debug/index.zig").assert;
-const heap = @import("heap.zig");
-
 test "BufMap" {
-    var direct_allocator = heap.DirectAllocator.init();
+    var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
     var bufmap = BufMap.init(&direct_allocator.allocator);
