@@ -14,26 +14,43 @@ pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn
     }
 }
 
-// Note that memset does not return `dest`, like the libc API.
-// The semantics of memset is dictated by the corresponding
-// LLVM intrinsics, not by the libc API.
-export fn memset(dest: ?&u8, c: u8, n: usize) void {
+export fn memset(dest: ?&u8, c: u8, n: usize) ?&u8 {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
     while (index != n) : (index += 1)
         (??dest)[index] = c;
+
+    return dest;
 }
 
-// Note that memcpy does not return `dest`, like the libc API.
-// The semantics of memcpy is dictated by the corresponding
-// LLVM intrinsics, not by the libc API.
-export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) void {
+export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) ?&u8 {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
     while (index != n) : (index += 1)
         (??dest)[index] = (??src)[index];
+
+    return dest;
+}
+
+export fn memmove(dest: ?&u8, src: ?&const u8, n: usize) ?&u8 {
+    @setRuntimeSafety(false);
+
+    if (@ptrToInt(dest) < @ptrToInt(src)) {
+        var index: usize = 0;
+        while (index != n) : (index += 1) {
+            (??dest)[index] = (??src)[index];
+        }
+    } else {
+        var index = n;
+        while (index != 0) {
+            index -= 1;
+            (??dest)[index] = (??src)[index];
+        }
+    }
+
+    return dest;
 }
 
 comptime {
