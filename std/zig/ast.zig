@@ -214,7 +214,7 @@ pub const NodeVarDecl = struct {
     eq_token: Token,
     mut_token: Token,
     comptime_token: ?Token,
-    extern_token: ?Token,
+    extern_export_token: ?Token,
     lib_name: ?&Node,
     type_node: ?&Node,
     align_node: ?&Node,
@@ -245,7 +245,7 @@ pub const NodeVarDecl = struct {
     pub fn firstToken(self: &NodeVarDecl) Token {
         if (self.visib_token) |visib_token| return visib_token;
         if (self.comptime_token) |comptime_token| return comptime_token;
-        if (self.extern_token) |extern_token| return extern_token;
+        if (self.extern_export_token) |extern_export_token| return extern_export_token;
         assert(self.lib_name == null);
         return self.mut_token;
     }
@@ -496,8 +496,7 @@ pub const NodeFnProto = struct {
     params: ArrayList(&Node),
     return_type: ReturnType,
     var_args_token: ?Token,
-    extern_token: ?Token,
-    inline_token: ?Token,
+    extern_export_inline_token: ?Token,
     cc_token: ?Token,
     async_attr: ?&NodeAsyncAttribute,
     body_node: ?&Node,
@@ -547,9 +546,8 @@ pub const NodeFnProto = struct {
 
     pub fn firstToken(self: &NodeFnProto) Token {
         if (self.visib_token) |visib_token| return visib_token;
-        if (self.extern_token) |extern_token| return extern_token;
+        if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
         assert(self.lib_name == null);
-        if (self.inline_token) |inline_token| return inline_token;
         if (self.cc_token) |cc_token| return cc_token;
         return self.fn_token;
     }

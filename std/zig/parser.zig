@@ -55,7 +55,7 @@ pub const Parser = struct {
     const TopLevelDeclCtx = struct {
         decls: &ArrayList(&ast.Node),
         visib_token: ?Token,
-        extern_token: ?Token,
+        extern_export_inline_token: ?Token,
         lib_name: ?&ast.Node,
     };
 
@@ -142,6 +142,7 @@ pub const Parser = struct {
     const State = union(enum) {
         TopLevel,
         TopLevelExtern: TopLevelDeclCtx,
+        TopLevelLibname: TopLevelDeclCtx,
         TopLevelDecl: TopLevelDeclCtx,
         ContainerExtern: ContainerExternCtx,
         ContainerDecl: &ast.NodeContainerDecl,
@@ -332,13 +333,13 @@ pub const Parser = struct {
                             root_node.eof_token = token;
                             return Tree {.root_node = root_node, .arena_allocator = arena_allocator};
                         },
-                        Token.Id.Keyword_pub, Token.Id.Keyword_export => {
+                        Token.Id.Keyword_pub => {
                             stack.append(State.TopLevel) catch unreachable;
                             try stack.append(State {
                                 .TopLevelExtern = TopLevelDeclCtx {
                                     .decls = &root_node.decls,
                                     .visib_token = token,
-                                    .extern_token = null,
+                                    .extern_export_inline_token = null,
                                     .lib_name = null,
                                 }
                             });
@@ -363,7 +364,7 @@ pub const Parser = struct {
                                 .TopLevelExtern = TopLevelDeclCtx {
                                     .decls = &root_node.decls,
                                     .visib_token = null,
-                                    .extern_token = null,
+                                    .extern_export_inline_token = null,
                                     .lib_name = null,
                                 }
                             });
@@ -374,7 +375,64 @@ pub const Parser = struct {
                 State.TopLevelExtern => |ctx| {
                     const token = self.getNextToken();
                     switch (token.id) {
+                        Token.Id.Keyword_export, Token.Id.Keyword_inline => {
+                            stack.append(State {
+                                .TopLevelDecl = TopLevelDeclCtx {
+                                    .decls = ctx.decls,
+                                    .visib_token = ctx.visib_token,
+                                    .extern_export_inline_token = token,
+                                    .lib_name = null,
+                                },
+                            }) catch unreachable;
+                            continue;
+                        },
+                        Token.Id.Keyword_extern => {
+                            stack.append(State {
+                                .TopLevelLibname = TopLevelDeclCtx {
+                                    .decls = ctx.decls,
+                                    .visib_token = ctx.visib_token,
+                                    .extern_export_inline_token = token,
+                                    .lib_name = null,
+                                },
+                            }) catch unreachable;
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            stack.append(State { .TopLevelDecl = ctx }) catch unreachable;
+                            continue;
+                        }
+                    }
+                },
+
+                State.TopLevelLibname => |ctx| {
+                    const lib_name = blk: {
+                        const lib_name_token = self.getNextToken();
+                        break :blk (try self.parseStringLiteral(arena, lib_name_token)) ?? {
+                            self.putBackToken(lib_name_token);
+                            break :blk null;
+                        };
+                    };
+
+                    stack.append(State {
+                        .TopLevelDecl = TopLevelDeclCtx {
+                            .decls = ctx.decls,
+                            .visib_token = ctx.visib_token,
+                            .extern_export_inline_token = ctx.extern_export_inline_token,
+                            .lib_name = lib_name,
+                        },
+                    }) catch unreachable;
+                },
+
+                State.TopLevelDecl => |ctx| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
                         Token.Id.Keyword_use => {
+                            if (ctx.extern_export_inline_token != null) {
+                                try self.parseError(&stack, token, "Invalid token {}", @tagName((??ctx.extern_export_inline_token).id));
+                                continue;
+                            }
+
                             const node = try self.createAttachNode(arena, ctx.decls, ast.NodeUse,
                                 ast.NodeUse {
                                     .base = undefined,
@@ -392,43 +450,21 @@ pub const Parser = struct {
                             try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
                             continue;
                         },
-                        Token.Id.Keyword_extern => {
-                            const lib_name = blk: {
-                                const lib_name_token = self.getNextToken();
-                                break :blk (try self.parseStringLiteral(arena, lib_name_token)) ?? {
-                                    self.putBackToken(lib_name_token);
-                                    break :blk null;
-                                };
-                            };
-
-                            stack.append(State {
-                                .TopLevelDecl = TopLevelDeclCtx {
-                                    .decls = ctx.decls,
-                                    .visib_token = ctx.visib_token,
-                                    .extern_token = token,
-                                    .lib_name = lib_name,
-                                },
-                            }) catch unreachable;
-                            continue;
-                        },
-                        else => {
-                            self.putBackToken(token);
-                            stack.append(State { .TopLevelDecl = ctx }) catch unreachable;
-                            continue;
-                        }
-                    }
-                },
-                State.TopLevelDecl => |ctx| {
-                    const token = self.getNextToken();
-                    switch (token.id) {
                         Token.Id.Keyword_var, Token.Id.Keyword_const => {
+                            if (ctx.extern_export_inline_token) |extern_export_inline_token| {
+                                if (extern_export_inline_token.id == Token.Id.Keyword_inline) {
+                                    try self.parseError(&stack, token, "Invalid token {}", @tagName(extern_export_inline_token.id));
+                                    continue;
+                                }
+                            }
+
                             const var_decl_node = try self.createAttachNode(arena, ctx.decls, ast.NodeVarDecl,
                                 ast.NodeVarDecl {
                                     .base = undefined,
                                     .visib_token = ctx.visib_token,
                                     .mut_token = token,
                                     .comptime_token = null,
-                                    .extern_token = ctx.extern_token,
+                                    .extern_export_token = ctx.extern_export_inline_token,
                                     .type_node = null,
                                     .align_node = null,
                                     .init_node = null,
@@ -452,8 +488,7 @@ pub const Parser = struct {
                                     .params = ArrayList(&ast.Node).init(arena),
                                     .return_type = undefined,
                                     .var_args_token = null,
-                                    .extern_token = ctx.extern_token,
-                                    .inline_token = null,
+                                    .extern_export_inline_token = ctx.extern_export_inline_token,
                                     .cc_token = null,
                                     .async_attr = null,
                                     .body_node = null,
@@ -475,8 +510,7 @@ pub const Parser = struct {
                                     .params = ArrayList(&ast.Node).init(arena),
                                     .return_type = undefined,
                                     .var_args_token = null,
-                                    .extern_token = ctx.extern_token,
-                                    .inline_token = null,
+                                    .extern_export_inline_token = ctx.extern_export_inline_token,
                                     .cc_token = token,
                                     .async_attr = null,
                                     .body_node = null,
@@ -513,8 +547,7 @@ pub const Parser = struct {
                                     .params = ArrayList(&ast.Node).init(arena),
                                     .return_type = undefined,
                                     .var_args_token = null,
-                                    .extern_token = ctx.extern_token,
-                                    .inline_token = null,
+                                    .extern_export_inline_token = ctx.extern_export_inline_token,
                                     .cc_token = null,
                                     .async_attr = async_node,
                                     .body_node = null,
@@ -752,7 +785,7 @@ pub const Parser = struct {
                                 .TopLevelExtern = TopLevelDeclCtx {
                                     .decls = &container_decl.fields_and_decls,
                                     .visib_token = token,
-                                    .extern_token = null,
+                                    .extern_export_inline_token = null,
                                     .lib_name = null,
                                 }
                             });
@@ -764,7 +797,7 @@ pub const Parser = struct {
                                 .TopLevelExtern = TopLevelDeclCtx {
                                     .decls = &container_decl.fields_and_decls,
                                     .visib_token = token,
-                                    .extern_token = null,
+                                    .extern_export_inline_token = null,
                                     .lib_name = null,
                                 }
                             });
@@ -781,7 +814,7 @@ pub const Parser = struct {
                                 .TopLevelExtern = TopLevelDeclCtx {
                                     .decls = &container_decl.fields_and_decls,
                                     .visib_token = null,
-                                    .extern_token = null,
+                                    .extern_export_inline_token = null,
                                     .lib_name = null,
                                 }
                             });
@@ -1659,8 +1692,7 @@ pub const Parser = struct {
                                         .params = ArrayList(&ast.Node).init(arena),
                                         .return_type = undefined,
                                         .var_args_token = null,
-                                        .extern_token = token,
-                                        .inline_token = null,
+                                        .extern_export_inline_token = token,
                                         .cc_token = null,
                                         .async_attr = null,
                                         .body_node = null,
@@ -1717,8 +1749,7 @@ pub const Parser = struct {
                                     .params = ArrayList(&ast.Node).init(arena),
                                     .return_type = undefined,
                                     .var_args_token = null,
-                                    .extern_token = null,
-                                    .inline_token = null,
+                                    .extern_export_inline_token = null,
                                     .cc_token = null,
                                     .async_attr = null,
                                     .body_node = null,
@@ -1740,8 +1771,7 @@ pub const Parser = struct {
                                     .params = ArrayList(&ast.Node).init(arena),
                                     .return_type = undefined,
                                     .var_args_token = null,
-                                    .extern_token = null,
-                                    .inline_token = null,
+                                    .extern_export_inline_token = null,
                                     .cc_token = token,
                                     .async_attr = null,
                                     .body_node = null,
@@ -2573,7 +2603,7 @@ pub const Parser = struct {
                                         .visib_token = null,
                                         .mut_token = mut_token,
                                         .comptime_token = next,
-                                        .extern_token = null,
+                                        .extern_export_token = null,
                                         .type_node = null,
                                         .align_node = null,
                                         .init_node = null,
@@ -2601,7 +2631,7 @@ pub const Parser = struct {
                                     .visib_token = null,
                                     .mut_token = next,
                                     .comptime_token = null,
-                                    .extern_token = null,
+                                    .extern_export_token = null,
                                     .type_node = null,
                                     .align_node = null,
                                     .init_node = null,
@@ -3281,13 +3311,13 @@ pub const Parser = struct {
                         try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(comptime_token) });
                     }
 
-                    if (var_decl.extern_token) |extern_token| {
+                    if (var_decl.extern_export_token) |extern_export_token| {
                         if (var_decl.lib_name != null) {
                             try stack.append(RenderState { .Text = " " });
                             try stack.append(RenderState { .Expression = ??var_decl.lib_name });
                         }
                         try stack.append(RenderState { .Text = " " });
-                        try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(extern_token) });
+                        try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(extern_export_token) });
                     }
 
                     if (var_decl.visib_token) |visib_token| {
@@ -3865,9 +3895,9 @@ pub const Parser = struct {
                             try stack.append(RenderState { .Text = " " });
                             try stack.append(RenderState { .Expression = lib_name });
                         }
-                        if (fn_proto.extern_token) |extern_token| {
+                        if (fn_proto.extern_export_inline_token) |extern_export_inline_token| {
                             try stack.append(RenderState { .Text = " " });
-                            try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(extern_token) });
+                            try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(extern_export_inline_token) });
                         }
 
                         if (fn_proto.visib_token) |visib_token| {
@@ -4608,6 +4638,8 @@ test "zig fmt: extern function" {
     try testCanonical(
         \\extern fn puts(s: &const u8) c_int;
         \\extern "c" fn puts(s: &const u8) c_int;
+        \\export fn puts(s: &const u8) c_int;
+        \\inline fn puts(s: &const u8) c_int;
         \\
     );
 }
