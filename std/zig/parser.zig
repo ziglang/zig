@@ -177,6 +177,8 @@ pub const Parser = struct {
         FieldInitListItemOrEnd: ListSave(&ast.NodeFieldInitializer),
         FieldInitListCommaOrEnd: ListSave(&ast.NodeFieldInitializer),
         FieldListCommaOrEnd: &ast.NodeContainerDecl,
+        IdentifierListItemOrEnd: ListSave(&ast.NodeIdentifier),
+        IdentifierListCommaOrEnd: ListSave(&ast.NodeIdentifier),
         SwitchCaseOrEnd: ListSave(&ast.NodeSwitchCase),
         SuspendBody: &ast.NodeSuspend,
         AsyncEnd: AsyncEndCtx,
@@ -1683,11 +1685,8 @@ pub const Parser = struct {
 
                         },
                         Token.Id.Keyword_error => {
-                            const next = self.getNextToken();
-
-                            if (next.id != Token.Id.LBrace) {
+                            if (self.eatToken(Token.Id.LBrace) == null) {
                                 dest_ptr.store(&(try self.createLiteral(arena, ast.NodeErrorType, token)).base);
-                                self.putBackToken(next);
                                 continue;
                             }
 
@@ -1700,43 +1699,12 @@ pub const Parser = struct {
                                 }
                             );
 
-                            while (true) {
-                                const t = self.getNextToken();
-                                switch (t.id) {
-                                    Token.Id.RBrace => {
-                                        node.rbrace_token = t;
-                                        break;
-                                    },
-                                    Token.Id.Identifier => {
-                                        try node.decls.append(
-                                            try self.createLiteral(arena, ast.NodeIdentifier, t)
-                                        );
-                                    },
-                                    else => {
-                                        try self.parseError(&stack, token, "expected {} or {}, found {}",
-                                            @tagName(Token.Id.RBrace),
-                                            @tagName(Token.Id.Identifier),
-                                            @tagName(token.id));
-                                        continue;
-                                    }
+                            stack.append(State {
+                                .IdentifierListItemOrEnd = ListSave(&ast.NodeIdentifier) {
+                                    .list = &node.decls,
+                                    .ptr = &node.rbrace_token,
                                 }
-
-                                const t2 = self.getNextToken();
-                                switch (t2.id) {
-                                    Token.Id.RBrace => {
-                                        node.rbrace_token = t;
-                                        break;
-                                    },
-                                    Token.Id.Comma => continue,
-                                    else => {
-                                        try self.parseError(&stack, token, "expected {} or {}, found {}",
-                                            @tagName(Token.Id.RBrace),
-                                            @tagName(Token.Id.Comma),
-                                            @tagName(token.id));
-                                        continue;
-                                    }
-                                }
-                            }
+                            }) catch unreachable;
                             continue;
                         },
                         Token.Id.Keyword_packed => {
@@ -2082,6 +2050,24 @@ pub const Parser = struct {
                     });
                 },
 
+                State.IdentifierListItemOrEnd => |list_state| {
+                    if (self.eatToken(Token.Id.RBrace)) |rbrace| {
+                        *list_state.ptr = rbrace;
+                        continue;
+                    }
+
+                    const node = try self.createLiteral(arena, ast.NodeIdentifier, Token(undefined));
+                    try list_state.list.append(node);
+
+                    stack.append(State { .IdentifierListCommaOrEnd = list_state }) catch unreachable;
+                    try stack.append(State {
+                        .ExpectTokenSave = ExpectTokenSave {
+                            .id = Token.Id.Identifier,
+                            .ptr = &node.token,
+                        }
+                    });
+                },
+
                 State.SwitchCaseOrEnd => |list_state| {
                     if (self.eatToken(Token.Id.RBrace)) |rbrace| {
                         *list_state.ptr = rbrace;
@@ -2136,6 +2122,11 @@ pub const Parser = struct {
                 State.FieldListCommaOrEnd => |container_decl| {
                     try self.commaOrEnd(&stack, Token.Id.RBrace, &container_decl.rbrace_token,
                         State { .ContainerDecl = container_decl });
+                    continue;
+                },
+
+                State.IdentifierListCommaOrEnd => |list_state| {
+                    try self.commaOrEnd(&stack, Token.Id.RBrace, list_state.ptr, State { .IdentifierListItemOrEnd = list_state });
                     continue;
                 },
 
