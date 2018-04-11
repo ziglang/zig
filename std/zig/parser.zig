@@ -431,7 +431,7 @@ pub const Parser = struct {
                         },
                         Token.Id.Keyword_async => {
                             // TODO shouldn't need this cast
-                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, undefined,
+                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, Token(undefined),
                                 ctx.extern_token, ctx.lib_name, (?Token)(null), (?Token)(null), (?Token)(null));
 
                             const async_node = try arena.create(ast.NodeAsyncAttribute);
