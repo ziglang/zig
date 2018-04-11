@@ -7,6 +7,7 @@ pub const Message = struct {
     receiver: MailboxId,
     type:     usize,
     payload:  usize,
+    buffer:   ?[]const u8,
 
     pub fn from(mailbox_id: &const MailboxId) Message {
         return Message {
@@ -14,6 +15,7 @@ pub const Message = struct {
             .receiver = *mailbox_id,
             .type     = 0,
             .payload  = 0,
+            .buffer   = null,
         };
     }
 
@@ -23,16 +25,26 @@ pub const Message = struct {
             .receiver = *mailbox_id,
             .type     = msg_type,
             .payload  = 0,
+            .buffer   = null,
         };
     }
 
-    pub fn withData(mailbox_id: &const MailboxId, msg_type: usize, payload: usize) Message {
-        return Message {
-            .sender   = MailboxId.This,
-            .receiver = *mailbox_id,
-            .type     = msg_type,
-            .payload  = payload,
-        };
+    pub fn as(self: &const Message, sender: &const MailboxId) Message {
+        var message = *self;
+        message.sender = *sender;
+        return message;
+    }
+
+    pub fn data(self: &const Message, var_data: var) Message {
+        var message = *self;
+
+        if (@canImplicitCast([]const u8, var_data)) {
+            message.buffer = var_data;
+        } else {
+            message.payload = var_data;
+        }
+
+        return message;
     }
 };
 
@@ -91,10 +103,8 @@ pub fn read(fd: i32, buf: &u8, count: usize) usize {
 pub fn write(fd: i32, buf: &const u8, count: usize) usize {
     switch (fd) {
         STDOUT_FILENO, STDERR_FILENO => {
-            var i: usize = 0;
-            while (i < count) : (i += 1) {
-                send(Message.withData(Server.Terminal, 1, buf[i]));
-            }
+            send(Message.to(Server.Terminal, 1)
+                        .data(buf[0..count]));
         },
         else => unreachable,
     }
@@ -108,16 +118,12 @@ pub fn write(fd: i32, buf: &const u8, count: usize) usize {
 
 pub const Syscall = enum(usize) {
     exit          = 0,
-    createPort    = 1,
-    send          = 2,
-    receive       = 3,
-    subscribeIRQ  = 4,
-    inb           = 5,
-    map           = 6,
-    createThread  = 7,
-    createProcess = 8,
-    wait          = 9,
-    portReady     = 10,
+    send          = 1,
+    receive       = 2,
+    subscribeIRQ  = 3,
+    inb           = 4,
+    map           = 5,
+    createThread  = 6,
 };
 
 
@@ -128,13 +134,6 @@ pub const Syscall = enum(usize) {
 pub fn exit(status: i32) noreturn {
     _ = syscall1(Syscall.exit, @bitCast(usize, isize(status)));
     unreachable;
-}
-
-pub fn createPort(mailbox_id: &const MailboxId) void {
-    _ = switch (*mailbox_id) {
-        MailboxId.Port => |id| syscall1(Syscall.createPort, id),
-        else => unreachable,
-    };
 }
 
 pub fn send(message: &const Message) void {
@@ -159,18 +158,6 @@ pub fn map(v_addr: usize, p_addr: usize, size: usize, writable: bool) bool {
 
 pub fn createThread(function: fn()void) u16 {
     return u16(syscall1(Syscall.createThread, @ptrToInt(function)));
-}
-
-pub fn createProcess(elf_addr: usize) u16 {
-    return u16(syscall1(Syscall.createProcess, elf_addr));
-}
-
-pub fn wait(tid: u16) void {
-    _ = syscall1(Syscall.wait, tid);
-}
-
-pub fn portReady(port: u16) bool {
-    return syscall1(Syscall.portReady, port) != 0;
 }
 
 /////////////////////////
