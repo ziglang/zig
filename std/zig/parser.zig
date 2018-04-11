@@ -2957,6 +2957,7 @@ pub const Parser = struct {
             Token.Id.QuestionMark => ast.NodePrefixOp.PrefixOp { .MaybeType = void{} },
             Token.Id.QuestionMarkQuestionMark => ast.NodePrefixOp.PrefixOp { .UnwrapMaybe = void{} },
             Token.Id.Keyword_await => ast.NodePrefixOp.PrefixOp { .Await = void{} },
+            Token.Id.Keyword_try => ast.NodePrefixOp.PrefixOp { .Try = void{ } },
             else => null,
         };
     }
