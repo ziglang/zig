@@ -31,8 +31,8 @@ pub const BufMap = struct {
         if (self.hash_map.get(key)) |entry| {
             const value_copy = try self.copy(value);
             errdefer self.free(value_copy);
-            _ = try self.hash_map.put(key, value_copy);
-            self.free(entry.value);
+            const old_value = ??(try self.hash_map.put(key, value_copy));
+            self.free(old_value);
         } else {
             const key_copy = try self.copy(key);
             errdefer self.free(key_copy);
@@ -71,3 +71,29 @@ pub const BufMap = struct {
         return result;
     }
 };
+
+const assert = @import("debug/index.zig").assert;
+const heap = @import("heap.zig");
+
+test "BufMap" {
+    var direct_allocator = heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var bufmap = BufMap.init(&direct_allocator.allocator);
+    defer bufmap.deinit();
+
+    try bufmap.set("x", "1");
+    assert(mem.eql(u8, ??bufmap.get("x"), "1"));
+    assert(1 == bufmap.count());
+
+    try bufmap.set("x", "2");
+    assert(mem.eql(u8, ??bufmap.get("x"), "2"));
+    assert(1 == bufmap.count());
+
+    try bufmap.set("x", "3");
+    assert(mem.eql(u8, ??bufmap.get("x"), "3"));
+    assert(1 == bufmap.count());
+
+    bufmap.delete("x");
+    assert(0 == bufmap.count());
+}
