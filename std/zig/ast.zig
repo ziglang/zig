@@ -360,6 +360,7 @@ pub const NodeContainerDecl = struct {
 
 pub const NodeStructField = struct {
     base: Node,
+    visib_token: ?Token,
     name_token: Token,
     type_expr: &Node,
 
@@ -373,6 +374,7 @@ pub const NodeStructField = struct {
     }
 
     pub fn firstToken(self: &NodeStructField) Token {
+        if (self.visib_token) |visib_token| return visib_token;
         return self.name_token;
     }
 

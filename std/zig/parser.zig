@@ -669,6 +669,7 @@ pub const Parser = struct {
                                     const node = try self.createAttachNode(arena, &container_decl.fields_and_decls, ast.NodeStructField,
                                         ast.NodeStructField {
                                             .base = undefined,
+                                            .visib_token = null,
                                             .name_token = token,
                                             .type_expr = undefined,
                                         }
@@ -721,7 +722,42 @@ pub const Parser = struct {
                                 },
                             }
                         },
-                        Token.Id.Keyword_pub, Token.Id.Keyword_export => {
+                        Token.Id.Keyword_pub => {
+                            if (self.eatToken(Token.Id.Identifier)) |identifier| {
+                                switch (container_decl.kind) {
+                                    ast.NodeContainerDecl.Kind.Struct => {
+                                        const node = try self.createAttachNode(arena, &container_decl.fields_and_decls, ast.NodeStructField,
+                                            ast.NodeStructField {
+                                                .base = undefined,
+                                                .visib_token = token,
+                                                .name_token = identifier,
+                                                .type_expr = undefined,
+                                            }
+                                        );
+
+                                        stack.append(State { .FieldListCommaOrEnd = container_decl }) catch unreachable;
+                                        try stack.append(State { .Expression = DestPtr { .Field = &node.type_expr } });
+                                        try stack.append(State { .ExpectToken = Token.Id.Colon });
+                                        continue;
+                                    },
+                                    else => {
+                                        self.putBackToken(identifier);
+                                    }
+                                }
+                            }
+
+                            stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
+                            try stack.append(State {
+                                .TopLevelExtern = TopLevelDeclCtx {
+                                    .decls = &container_decl.fields_and_decls,
+                                    .visib_token = token,
+                                    .extern_token = null,
+                                    .lib_name = null,
+                                }
+                            });
+                            continue;
+                        },
+                        Token.Id.Keyword_export => {
                             stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
                             try stack.append(State {
                                 .TopLevelExtern = TopLevelDeclCtx {
@@ -864,111 +900,11 @@ pub const Parser = struct {
                             stack.append(State { .Expression = DestPtr { .Field = &node.rhs } }) catch unreachable;
                             continue;
                         },
-                        Token.Id.Keyword_suspend => {
-                            const node = try self.createToDestNode(arena, dest_ptr, ast.NodeSuspend,
-                                ast.NodeSuspend {
-                                    .base = undefined,
-                                    .suspend_token = token,
-                                    .payload = null,
-                                    .body = null,
-                                }
-                            );
-
-                            stack.append(State { .SuspendBody = node }) catch unreachable;
-                            try stack.append(State { .Payload = &node.payload });
-                            continue;
-                        },
-                        Token.Id.Keyword_if => {
-                            const node = try self.createToDestNode(arena, dest_ptr, ast.NodeIf,
-                                ast.NodeIf {
-                                    .base = undefined,
-                                    .if_token = token,
-                                    .condition = undefined,
-                                    .payload = null,
-                                    .body = undefined,
-                                    .@"else" = null,
-                                }
-                            );
-
-                            stack.append(State { .Else = &node.@"else" }) catch unreachable;
-                            try stack.append(State { .Expression = DestPtr { .Field = &node.body } });
-                            try stack.append(State { .PointerPayload = &node.payload });
-                            try stack.append(State { .ExpectToken = Token.Id.RParen });
-                            try stack.append(State { .Expression = DestPtr { .Field = &node.condition } });
-                            try stack.append(State { .ExpectToken = Token.Id.LParen });
-                            continue;
-                        },
-                        Token.Id.Keyword_while => {
-                            stack.append(State {
-                                .While = LoopCtx {
-                                    .label = null,
-                                    .inline_token = null,
-                                    .loop_token = token,
-                                    .dest_ptr = dest_ptr,
-                                }
-                            }) catch unreachable;
-                            continue;
-                        },
-                        Token.Id.Keyword_for => {
-                            stack.append(State {
-                                .For = LoopCtx {
-                                    .label = null,
-                                    .inline_token = null,
-                                    .loop_token = token,
-                                    .dest_ptr = dest_ptr,
-                                }
-                            }) catch unreachable;
-                            continue;
-                        },
-                        Token.Id.Keyword_switch => {
-                            const node = try self.createToDestNode(arena, dest_ptr, ast.NodeSwitch,
-                                ast.NodeSwitch {
-                                    .base = undefined,
-                                    .switch_token = token,
-                                    .expr = undefined,
-                                    .cases = ArrayList(&ast.NodeSwitchCase).init(arena),
-                                    .rbrace = undefined,
-                                }
-                            );
-
-                            stack.append(State {
-                                .SwitchCaseOrEnd = ListSave(&ast.NodeSwitchCase) {
-                                    .list = &node.cases,
-                                    .ptr = &node.rbrace,
-                                },
-                            }) catch unreachable;
-                            try stack.append(State { .ExpectToken = Token.Id.LBrace });
-                            try stack.append(State { .ExpectToken = Token.Id.RParen });
-                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
-                            try stack.append(State { .ExpectToken = Token.Id.LParen });
-                        },
-                        Token.Id.Keyword_comptime => {
-                            const node = try self.createToDestNode(arena, dest_ptr, ast.NodeComptime,
-                                ast.NodeComptime {
-                                    .base = undefined,
-                                    .comptime_token = token,
-                                    .expr = undefined,
-                                }
-                            );
-                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
-                            continue;
-                        },
-                        Token.Id.LBrace => {
-                            const block = try self.createToDestNode(arena, dest_ptr, ast.NodeBlock,
-                                ast.NodeBlock {
-                                    .base = undefined,
-                                    .label = null,
-                                    .lbrace = token,
-                                    .statements = ArrayList(&ast.Node).init(arena),
-                                    .rbrace = undefined,
-                                }
-                            );
-                            stack.append(State { .Block = block }) catch unreachable;
-                            continue;
-                        },
                         else => {
-                            self.putBackToken(token);
-                            stack.append(State { .UnwrapExpressionBegin = dest_ptr }) catch unreachable;
+                            if (!try self.parseBlockExpr(&stack, arena, dest_ptr, token)) {
+                                self.putBackToken(token);
+                                stack.append(State { .UnwrapExpressionBegin = dest_ptr }) catch unreachable;
+                            }
                             continue;
                         }
                     }
@@ -1407,7 +1343,7 @@ pub const Parser = struct {
                 State.PrefixOpExpression => |dest_ptr| {
                     const token = self.getNextToken();
                     if (tokenIdToPrefixOp(token.id)) |prefix_id| {
-                        const node = try self.createToDestNode(arena, dest_ptr, ast.NodePrefixOp,
+                        var node = try self.createToDestNode(arena, dest_ptr, ast.NodePrefixOp,
                             ast.NodePrefixOp {
                                 .base = undefined,
                                 .op_token = token,
@@ -1415,6 +1351,20 @@ pub const Parser = struct {
                                 .rhs = undefined,
                             }
                         );
+
+                        if (token.id == Token.Id.AsteriskAsterisk) {
+                            const child = try self.createNode(arena, ast.NodePrefixOp,
+                                ast.NodePrefixOp {
+                                    .base = undefined,
+                                    .op_token = token,
+                                    .op = prefix_id,
+                                    .rhs = undefined,
+                                }
+                            );
+                            node.rhs = &child.base;
+                            node = child;
+                        }
+
                         stack.append(State { .TypeExprBegin = DestPtr { .Field = &node.rhs } }) catch unreachable;
                         if (node.op == ast.NodePrefixOp.PrefixOp.AddrOf) {
                             try stack.append(State { .AddrOfModifiers = &node.op.AddrOf });
@@ -1871,7 +1821,9 @@ pub const Parser = struct {
                             continue;
                         },
                         else => {
-                            try self.parseError(&stack, token, "expected primary expression, found {}", @tagName(token.id));
+                            if (!try self.parseBlockExpr(&stack, arena, dest_ptr, token)) {
+                                try self.parseError(&stack, token, "expected primary expression, found {}", @tagName(token.id));
+                            }
                             continue;
                         }
                     }
@@ -2790,6 +2742,117 @@ pub const Parser = struct {
         }
     }
 
+    fn parseBlockExpr(self: &Parser, stack: &ArrayList(State), arena: &mem.Allocator, dest_ptr: &const DestPtr, token: &const Token) !bool {
+        switch (token.id) {
+            Token.Id.Keyword_suspend => {
+                const node = try self.createToDestNode(arena, dest_ptr, ast.NodeSuspend,
+                    ast.NodeSuspend {
+                        .base = undefined,
+                        .suspend_token = *token,
+                        .payload = null,
+                        .body = null,
+                    }
+                );
+
+                stack.append(State { .SuspendBody = node }) catch unreachable;
+                try stack.append(State { .Payload = &node.payload });
+                return true;
+            },
+            Token.Id.Keyword_if => {
+                const node = try self.createToDestNode(arena, dest_ptr, ast.NodeIf,
+                    ast.NodeIf {
+                        .base = undefined,
+                        .if_token = *token,
+                        .condition = undefined,
+                        .payload = null,
+                        .body = undefined,
+                        .@"else" = null,
+                    }
+                );
+
+                stack.append(State { .Else = &node.@"else" }) catch unreachable;
+                try stack.append(State { .Expression = DestPtr { .Field = &node.body } });
+                try stack.append(State { .PointerPayload = &node.payload });
+                try stack.append(State { .ExpectToken = Token.Id.RParen });
+                try stack.append(State { .Expression = DestPtr { .Field = &node.condition } });
+                try stack.append(State { .ExpectToken = Token.Id.LParen });
+                return true;
+            },
+            Token.Id.Keyword_while => {
+                stack.append(State {
+                    .While = LoopCtx {
+                        .label = null,
+                        .inline_token = null,
+                        .loop_token = *token,
+                        .dest_ptr = *dest_ptr,
+                    }
+                }) catch unreachable;
+                return true;
+            },
+            Token.Id.Keyword_for => {
+                stack.append(State {
+                    .For = LoopCtx {
+                        .label = null,
+                        .inline_token = null,
+                        .loop_token = *token,
+                        .dest_ptr = *dest_ptr,
+                    }
+                }) catch unreachable;
+                return true;
+            },
+            Token.Id.Keyword_switch => {
+                const node = try self.createToDestNode(arena, dest_ptr, ast.NodeSwitch,
+                    ast.NodeSwitch {
+                        .base = undefined,
+                        .switch_token = *token,
+                        .expr = undefined,
+                        .cases = ArrayList(&ast.NodeSwitchCase).init(arena),
+                        .rbrace = undefined,
+                    }
+                );
+
+                stack.append(State {
+                    .SwitchCaseOrEnd = ListSave(&ast.NodeSwitchCase) {
+                        .list = &node.cases,
+                        .ptr = &node.rbrace,
+                    },
+                }) catch unreachable;
+                try stack.append(State { .ExpectToken = Token.Id.LBrace });
+                try stack.append(State { .ExpectToken = Token.Id.RParen });
+                try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
+                try stack.append(State { .ExpectToken = Token.Id.LParen });
+                return true;
+            },
+            Token.Id.Keyword_comptime => {
+                const node = try self.createToDestNode(arena, dest_ptr, ast.NodeComptime,
+                    ast.NodeComptime {
+                        .base = undefined,
+                        .comptime_token = *token,
+                        .expr = undefined,
+                    }
+                );
+                try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
+                return true;
+            },
+            Token.Id.LBrace => {
+                const block = try self.createToDestNode(arena, dest_ptr, ast.NodeBlock,
+                    ast.NodeBlock {
+                        .base = undefined,
+                        .label = null,
+                        .lbrace = *token,
+                        .statements = ArrayList(&ast.Node).init(arena),
+                        .rbrace = undefined,
+                    }
+                );
+                stack.append(State { .Block = block }) catch unreachable;
+                return true;
+            },
+            else => {
+                return false;
+            }
+        }
+    }
+
     fn commaOrEnd(self: &Parser, stack: &ArrayList(State), end: &const Token.Id, maybe_ptr: ?&Token, state_after_comma: &const State) !void {
         var token = self.getNextToken();
         switch (token.id) {
@@ -2881,7 +2944,7 @@ pub const Parser = struct {
             Token.Id.Tilde => ast.NodePrefixOp.PrefixOp { .BitNot = void{} },
             Token.Id.Minus => ast.NodePrefixOp.PrefixOp { .Negation = void{} },
             Token.Id.MinusPercent => ast.NodePrefixOp.PrefixOp { .NegationWrap = void{} },
-            Token.Id.Asterisk => ast.NodePrefixOp.PrefixOp { .Deref = void{} },
+            Token.Id.Asterisk, Token.Id.AsteriskAsterisk => ast.NodePrefixOp.PrefixOp { .Deref = void{} },
             Token.Id.Ampersand => ast.NodePrefixOp.PrefixOp {
                 .AddrOf = ast.NodePrefixOp.AddrOfInfo {
                     .align_expr = null,
@@ -3126,6 +3189,9 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.StructField => {
                             const field = @fieldParentPtr(ast.NodeStructField, "base", decl);
+                            if (field.visib_token) |visib_token| {
+                                try stream.print("{} ", self.tokenizer.getTokenSlice(visib_token));
+                            }
                             try stream.print("{}: ", self.tokenizer.getTokenSlice(field.name_token));
                             try stack.append(RenderState { .Expression = field.type_expr});
                         },
@@ -4573,6 +4639,7 @@ test "zig fmt: struct declaration" {
         \\const S = struct {
         \\    const Self = this;
         \\    f1: u8,
+        \\    pub f3: u8,
         \\
         \\    fn method(self: &Self) Self {
         \\        return *self;
@@ -4583,14 +4650,14 @@ test "zig fmt: struct declaration" {
         \\
         \\const Ps = packed struct {
         \\    a: u8,
-        \\    b: u8,
+        \\    pub b: u8,
         \\
         \\    c: u8
         \\};
         \\
         \\const Es = extern struct {
         \\    a: u8,
-        \\    b: u8,
+        \\    pub b: u8,
         \\
         \\    c: u8
         \\};
@@ -4895,6 +4962,7 @@ test "zig fmt: if" {
         \\    }
         \\
         \\    const is_world_broken = if (10 < 0) true else false;
+        \\    const some_number = 1 + if (10 < 0) 2 else 3;
         \\
         \\    const a: ?u8 = 10;
         \\    const b: ?u8 = null;
