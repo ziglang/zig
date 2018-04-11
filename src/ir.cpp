@@ -11804,7 +11804,8 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         }
     }
 
-    bool comptime_arg = param_decl_node->data.param_decl.is_inline;
+    bool comptime_arg = param_decl_node->data.param_decl.is_inline ||
+        casted_arg->value.type->id == TypeTableEntryIdNumLitInt || casted_arg->value.type->id == TypeTableEntryIdNumLitFloat;
 
     ConstExprValue *arg_val;
 
@@ -11829,6 +11830,12 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         var->shadowable = !comptime_arg;
 
         *next_proto_i += 1;
+    } else if (casted_arg->value.type->id == TypeTableEntryIdNumLitInt ||
+            casted_arg->value.type->id == TypeTableEntryIdNumLitFloat)
+    {
+        ir_add_error(ira, casted_arg,
+            buf_sprintf("compiler bug: integer and float literals in var args function must be casted. https://github.com/zig-lang/zig/issues/557"));
+        return false;
     }
 
     if (!comptime_arg) {
