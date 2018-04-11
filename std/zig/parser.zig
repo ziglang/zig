@@ -2722,7 +2722,7 @@ pub const Parser = struct {
                         continue;
                     }
 
-                    n = while_node.body;
+                    return while_node.body.id != ast.Node.Id.Block;
                 },
                 ast.Node.Id.For => {
                     const for_node = @fieldParentPtr(ast.NodeFor, "base", n);
@@ -2731,7 +2731,7 @@ pub const Parser = struct {
                         continue;
                     }
 
-                    n = for_node.body;
+                    return for_node.body.id != ast.Node.Id.Block;
                 },
                 ast.Node.Id.If => {
                     const if_node = @fieldParentPtr(ast.NodeIf, "base", n);
@@ -2740,25 +2740,25 @@ pub const Parser = struct {
                         continue;
                     }
 
-                    n = if_node.body;
+                    return if_node.body.id != ast.Node.Id.Block;
                 },
                 ast.Node.Id.Else => {
                     const else_node = @fieldParentPtr(ast.NodeElse, "base", n);
                     n = else_node.body;
+                    continue;
                 },
                 ast.Node.Id.Defer => {
                     const defer_node = @fieldParentPtr(ast.NodeDefer, "base", n);
-                    n = defer_node.expr;
+                    return defer_node.expr.id != ast.Node.Id.Block;
                 },
                 ast.Node.Id.Comptime => {
                     const comptime_node = @fieldParentPtr(ast.NodeComptime, "base", n);
-                    n = comptime_node.expr;
+                    return comptime_node.expr.id != ast.Node.Id.Block;
                 },
                 ast.Node.Id.Suspend => {
                     const suspend_node = @fieldParentPtr(ast.NodeSuspend, "base", n);
                     if (suspend_node.body) |body| {
-                        n = body;
-                        continue;
+                        return body.id != ast.Node.Id.Block;
                     }
 
                     return true;
