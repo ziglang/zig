@@ -76,6 +76,7 @@ enum TokenId {
     TokenIdKeywordNull,
     TokenIdKeywordOr,
     TokenIdKeywordPacked,
+    TokenIdKeywordPromise,
     TokenIdKeywordPub,
     TokenIdKeywordResume,
     TokenIdKeywordReturn,

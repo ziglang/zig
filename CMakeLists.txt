@@ -5,6 +5,11 @@ if(NOT CMAKE_BUILD_TYPE)
         "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif()
 
+if(NOT CMAKE_INSTALL_PREFIX)
+  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE STRING
+      "Directory to install zig to" FORCE)
+endif()
+
 project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
@@ -30,11 +35,7 @@ if(GIT_EXE)
 endif()
 message("Configuring zig version ${ZIG_VERSION}")
 
-set(ZIG_LIBC_LIB_DIR "" CACHE STRING "Default native target libc directory where crt1.o can be found")
-set(ZIG_LIBC_STATIC_LIB_DIR "" CACHE STRING "Default native target libc directory where crtbeginT.o can be found")
-set(ZIG_LIBC_INCLUDE_DIR "/usr/include" CACHE STRING "Default native target libc include directory")
-set(ZIG_DYNAMIC_LINKER "" CACHE STRING "Override dynamic linker for native target")
-set(ZIG_EACH_LIB_RPATH off CACHE BOOL "Add each dynamic library to rpath for native target")
+set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_STATIC_LIB_DIR_ESCAPED "${ZIG_LIBC_STATIC_LIB_DIR}")
@@ -48,6 +49,22 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 
 find_package(llvm)
 find_package(clang)
+
+if(NOT MSVC)
+    find_library(LIBXML2 NAMES xml2 libxml2)
+    if(${LIBXML2} STREQUAL "LIBXML2-NOTFOUND")
+        message(FATAL_ERROR "Could not find libxml2")
+    else()
+        message("${LIBXML2} found")
+    endif()
+
+    find_library(ZLIB NAMES z zlib libz)
+    if(${ZLIB} STREQUAL "ZLIB-NOTFOUND")
+        message(FATAL_ERROR "Could not find zlib")
+    else()
+        message("${ZLIB} found")
+    endif()
+endif()
 
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
 
@@ -413,18 +430,24 @@ set(ZIG_STD_FILES
     "crypto/sha2.zig"
     "crypto/sha3.zig"
     "crypto/blake2.zig"
+    "crypto/hmac.zig"
     "cstr.zig"
     "debug/failing_allocator.zig"
     "debug/index.zig"
     "dwarf.zig"
     "elf.zig"
     "empty.zig"
-    "endian.zig"
+    "event.zig"
     "fmt/errol/enum3.zig"
     "fmt/errol/index.zig"
     "fmt/errol/lookup.zig"
     "fmt/index.zig"
     "hash_map.zig"
+    "hash/index.zig"
+    "hash/adler.zig"
+    "hash/crc.zig"
+    "hash/fnv.zig"
+    "hash/siphash.zig"
     "heap.zig"
     "index.zig"
     "io.zig"
@@ -485,7 +508,6 @@ set(ZIG_STD_FILES
     "os/get_user_id.zig"
     "os/index.zig"
     "os/linux/errno.zig"
-    "os/linux/i386.zig"
     "os/linux/index.zig"
     "os/linux/x86_64.zig"
     "os/path.zig"
@@ -493,7 +515,7 @@ set(ZIG_STD_FILES
     "os/windows/index.zig"
     "os/windows/util.zig"
     "os/zen.zig"
-    "rand.zig"
+    "rand/index.zig"
     "sort.zig"
     "special/bootstrap.zig"
     "special/bootstrap_lib.zig"
@@ -682,6 +704,8 @@ if(MINGW)
     set(EXE_LDFLAGS "-static -static-libgcc -static-libstdc++")
 elseif(MSVC)
     set(EXE_LDFLAGS "/STACK:16777216")
+elseif(ZIG_STATIC)
+    set(EXE_LDFLAGS "-static")
 else()
     set(EXE_LDFLAGS " ")
 endif()
@@ -710,7 +734,7 @@ target_link_libraries(zig LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
 )
 if(NOT MSVC)
-    target_link_libraries(zig LINK_PUBLIC xml2)
+    target_link_libraries(zig LINK_PUBLIC ${LIBXML2})
 endif()
 if(ZIG_DIA_GUIDS_LIB)
     target_link_libraries(zig LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})

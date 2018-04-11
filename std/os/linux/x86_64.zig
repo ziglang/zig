@@ -488,3 +488,11 @@ pub const timespec = extern struct {
     tv_sec: isize,
     tv_nsec: isize,
 };
+
+pub const dirent = extern struct {
+    d_ino: usize,
+    d_off: usize,
+    d_reclen: u16,
+    d_name: u8, // field address is the address of first byte of name
+};
+

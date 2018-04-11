@@ -45,6 +45,11 @@ pub fn build(b: &Builder) !void {
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
+
+    // This is for finding /lib/libz.a on alpine linux.
+    // TODO turn this into -Dextra-lib-path=/lib option
+    exe.addLibPath("/lib");
+
     exe.addIncludeDir("src");
     exe.addIncludeDir(cmake_binary_dir);
     addCppLib(b, exe, cmake_binary_dir, "zig_cpp");
@@ -64,6 +69,14 @@ pub fn build(b: &Builder) !void {
     if (exe.target.getOs() == builtin.Os.linux) {
         const libstdcxx_path_padded = try b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
         const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
+        if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
+            warn(
+                \\Unable to determine path to libstdc++.a
+                \\On Fedora, install libstdc++-static and try again.
+                \\
+            );
+            return error.RequiredLibraryNotFound;
+        }
         exe.addObjectFile(libstdcxx_path);
 
         exe.linkSystemLibrary("pthread");

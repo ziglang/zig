@@ -359,7 +359,6 @@ enum NodeType {
     NodeTypeRoot,
     NodeTypeFnProto,
     NodeTypeFnDef,
-    NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeBlock,
     NodeTypeGroupedExpr,
@@ -409,6 +408,7 @@ enum NodeType {
     NodeTypeResume,
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
+    NodeTypePromiseType,
 };
 
 struct AstNodeRoot {
@@ -450,10 +450,6 @@ struct AstNodeFnProto {
 struct AstNodeFnDef {
     AstNode *fn_proto;
     AstNode *body;
-};
-
-struct AstNodeFnDecl {
-    AstNode *fn_proto;
 };
 
 struct AstNodeParamDecl {
@@ -712,10 +708,6 @@ struct AstNodeSwitchRange {
     AstNode *end;
 };
 
-struct AstNodeLabel {
-    Buf *name;
-};
-
 struct AstNodeCompTime {
     AstNode *expr;
 };
@@ -879,6 +871,10 @@ struct AstNodeSuspend {
     AstNode *promise_symbol;
 };
 
+struct AstNodePromiseType {
+    AstNode *payload_type; // can be NULL
+};
+
 struct AstNode {
     enum NodeType type;
     size_t line;
@@ -887,7 +883,6 @@ struct AstNode {
     union {
         AstNodeRoot root;
         AstNodeFnDef fn_def;
-        AstNodeFnDecl fn_decl;
         AstNodeFnProto fn_proto;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
@@ -912,7 +907,6 @@ struct AstNode {
         AstNodeSwitchExpr switch_expr;
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
-        AstNodeLabel label;
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
@@ -939,6 +933,7 @@ struct AstNode {
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
+        AstNodePromiseType promise_type;
     } data;
 };
 
@@ -1251,7 +1246,10 @@ struct FnTableEntry {
     ScopeBlock *def_scope; // parent is child_scope
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
-    TypeTableEntry *implicit_return_type;
+    // in the case of normal functions this is the implicit return type
+    // in the case of async functions this is the implicit return type according to the
+    // zig source code, not according to zig ir
+    TypeTableEntry *src_implicit_return_type;
     bool is_test;
     FnInline fn_inline;
     FnAnalState anal_state;
@@ -1612,7 +1610,8 @@ struct CodeGen {
     FnTableEntry *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
-    LLVMValueRef cur_err_ret_trace_val;
+    LLVMValueRef cur_err_ret_trace_val_arg;
+    LLVMValueRef cur_err_ret_trace_val_stack;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
@@ -1646,6 +1645,8 @@ struct CodeGen {
     LLVMValueRef coro_save_fn_val;
     LLVMValueRef coro_promise_fn_val;
     LLVMValueRef coro_alloc_helper_fn_val;
+    LLVMValueRef merge_err_ret_traces_fn_val;
+    LLVMValueRef add_error_return_trace_addr_fn_val;
     bool error_during_imports;
 
     const char **clang_argv;
@@ -1751,6 +1752,7 @@ enum ScopeId {
     ScopeIdLoop,
     ScopeIdFnDef,
     ScopeIdCompTime,
+    ScopeIdCoroPrelude,
 };
 
 struct Scope {
@@ -1858,6 +1860,12 @@ struct ScopeFnDef {
     FnTableEntry *fn_entry;
 };
 
+// This scope is created to indicate that the code in the scope
+// is auto-generated coroutine prelude stuff.
+struct ScopeCoroPrelude {
+    Scope base;
+};
+
 // synchronized with code in define_builtin_compile_vars
 enum AtomicOrder {
     AtomicOrderUnordered,
@@ -1944,6 +1952,7 @@ enum IrInstructionId {
     IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
+    IrInstructionIdPromiseType,
     IrInstructionIdSliceType,
     IrInstructionIdAsm,
     IrInstructionIdSizeOf,
@@ -2034,6 +2043,10 @@ enum IrInstructionId {
     IrInstructionIdAtomicRmw,
     IrInstructionIdPromiseResultType,
     IrInstructionIdAwaitBookkeeping,
+    IrInstructionIdSaveErrRetAddr,
+    IrInstructionIdAddImplicitReturnType,
+    IrInstructionIdMergeErrRetTraces,
+    IrInstructionIdMarkErrRetTracePtr,
 };
 
 struct IrInstruction {
@@ -2360,6 +2373,12 @@ struct IrInstructionArrayType {
     IrInstruction *child_type;
 };
 
+struct IrInstructionPromiseType {
+    IrInstruction base;
+
+    IrInstruction *payload_type;
+};
+
 struct IrInstructionSliceType {
     IrInstruction base;
 
@@ -2673,6 +2692,7 @@ struct IrInstructionFnProto {
     IrInstruction **param_types;
     IrInstruction *align_value;
     IrInstruction *return_type;
+    IrInstruction *async_allocator_type_value;
     bool is_var_args;
 };
 
@@ -2865,6 +2885,11 @@ struct IrInstructionExport {
 
 struct IrInstructionErrorReturnTrace {
     IrInstruction base;
+
+    enum Nullable {
+        Null,
+        NonNull,
+    } nullable;
 };
 
 struct IrInstructionErrorUnion {
@@ -2987,6 +3012,30 @@ struct IrInstructionAwaitBookkeeping {
     IrInstruction *promise_result_type;
 };
 
+struct IrInstructionSaveErrRetAddr {
+    IrInstruction base;
+};
+
+struct IrInstructionAddImplicitReturnType {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionMergeErrRetTraces {
+    IrInstruction base;
+
+    IrInstruction *coro_promise_ptr;
+    IrInstruction *src_err_ret_trace_ptr;
+    IrInstruction *dest_err_ret_trace_ptr;
+};
+
+struct IrInstructionMarkErrRetTracePtr {
+    IrInstruction base;
+
+    IrInstruction *err_ret_trace_ptr;
+};
+
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
 
@@ -2996,10 +3045,18 @@ static const size_t maybe_null_index = 1;
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
+// TODO call graph analysis to find out what this number needs to be for every function
+static const size_t stack_trace_ptr_count = 30;
+
+// these belong to the async function
+#define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
+#define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
+#define RESULT_FIELD_NAME "result"
 #define ASYNC_ALLOC_FIELD_NAME "allocFn"
 #define ASYNC_FREE_FIELD_NAME "freeFn"
 #define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
-#define RESULT_FIELD_NAME "result"
+// these point to data belonging to the awaiter
+#define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 #define RESULT_PTR_FIELD_NAME "result_ptr"
 
 

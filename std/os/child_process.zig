@@ -13,8 +13,6 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const LinkedList = std.LinkedList;
 
-var children_nodes = LinkedList(&ChildProcess).init();
-
 const is_windows = builtin.os == Os.windows;
 
 pub const ChildProcess = struct {
@@ -296,8 +294,6 @@ pub const ChildProcess = struct {
     }
 
     fn cleanupAfterWait(self: &ChildProcess, status: i32) !Term {
-        children_nodes.remove(&self.llnode);
-
         defer {
             os.close(self.err_pipe[0]);
             os.close(self.err_pipe[1]);
@@ -426,9 +422,6 @@ pub const ChildProcess = struct {
         self.err_pipe = err_pipe;
         self.llnode = LinkedList(&ChildProcess).Node.init(self);
         self.term = null;
-
-        // TODO make this atomic so it works even with threads
-        children_nodes.prepend(&self.llnode);
 
         if (self.stdin_behavior == StdIo.Pipe) { os.close(stdin_pipe[0]); }
         if (self.stdout_behavior == StdIo.Pipe) { os.close(stdout_pipe[1]); }
@@ -772,32 +765,4 @@ fn readIntFd(fd: i32) !ErrInt {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     os.posixRead(fd, bytes[0..]) catch return error.SystemResources;
     return mem.readInt(bytes[0..], ErrInt, builtin.endian);
-}
-
-extern fn sigchld_handler(_: i32) void {
-    while (true) {
-        var status: i32 = undefined;
-        const pid_result = posix.waitpid(-1, &status, posix.WNOHANG);
-        if (pid_result == 0) {
-            return;
-        }
-        const err = posix.getErrno(pid_result);
-        if (err > 0) {
-            if (err == posix.ECHILD) {
-                return;
-            }
-            unreachable;
-        }
-        handleTerm(i32(pid_result), status);
-    }
-}
-
-fn handleTerm(pid: i32, status: i32) void {
-    var it = children_nodes.first;
-    while (it) |node| : (it = node.next) {
-        if (node.data.pid == pid) {
-            node.data.handleWaitResult(status);
-            return;
-        }
-    }
 }

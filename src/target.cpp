@@ -863,6 +863,10 @@ Buf *target_dynamic_linker(ZigTarget *target) {
             env == ZigLLVM_GNUX32)
     {
         return buf_create_from_str("/libx32/ld-linux-x32.so.2");
+    } else if (arch == ZigLLVM_x86_64 &&
+            (env == ZigLLVM_Musl || env == ZigLLVM_MuslEABI || env == ZigLLVM_MuslEABIHF))
+    {
+        return buf_create_from_str("/lib/ld-musl-x86_64.so.1");
     } else {
         return buf_create_from_str("/lib64/ld-linux-x86-64.so.2");
     }

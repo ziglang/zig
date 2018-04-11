@@ -1,6 +1,15 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("wrong type passed to @panic",
+        \\export fn entry() void {
+        \\    var e = error.Foo;
+        \\    @panic(e);
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: expected type '[]const u8', found 'error{Foo}'");
+
+
     cases.add("@tagName used on union with no associated enum tag",
         \\const FloatInt = extern union {
         \\    Float: f32,
@@ -17,7 +26,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add("returning error from void async function",
         \\const std = @import("std");
         \\export fn entry() void {
-        \\    const p = async(std.debug.global_allocator) amain() catch unreachable;
+        \\    const p = async<std.debug.global_allocator> amain() catch unreachable;
         \\}
         \\async fn amain() void {
         \\    return error.ShouldBeCompileError;

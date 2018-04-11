@@ -105,7 +105,7 @@ fn Sha2_32(comptime params: Sha2Params32) type { return struct {
         }
 
         // Full middle blocks.
-        while (off + 64 < b.len) : (off += 64) {
+        while (off + 64 <= b.len) : (off += 64) {
             d.round(b[off..off + 64]);
         }
 
@@ -319,6 +319,15 @@ test "sha256 streaming" {
     htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
 }
 
+test "sha256 aligned final" {
+    var block = []u8 {0} ** Sha256.block_size;
+    var out: [Sha256.digest_size]u8 = undefined;
+
+    var h = Sha256.init();
+    h.update(block);
+    h.final(out[0..]);
+}
+
 
 /////////////////////
 // Sha384 + Sha512
@@ -420,7 +429,7 @@ fn Sha2_64(comptime params: Sha2Params64) type { return struct {
         }
 
         // Full middle blocks.
-        while (off + 128 < b.len) : (off += 128) {
+        while (off + 128 <= b.len) : (off += 128) {
             d.round(b[off..off + 128]);
         }
 
@@ -668,4 +677,13 @@ test "sha512 streaming" {
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+}
+
+test "sha512 aligned final" {
+    var block = []u8 {0} ** Sha512.block_size;
+    var out: [Sha512.digest_size]u8 = undefined;
+
+    var h = Sha512.init();
+    h.update(block);
+    h.final(out[0..]);
 }

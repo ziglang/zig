@@ -41,6 +41,10 @@ pub fn main() !void {
     const args = try os.argsAlloc(allocator);
     defer os.argsFree(allocator, args);
 
+    if (args.len >= 2 and mem.eql(u8, args[1], "build")) {
+        return buildMain(allocator, args[2..]);
+    }
+
     if (args.len >= 2 and mem.eql(u8, args[1], "fmt")) {
         return fmtMain(allocator, args[2..]);
     }
@@ -560,6 +564,161 @@ fn printZen() !void {
     );
 }
 
+fn buildMain(allocator: &mem.Allocator, argv: []const []const u8) !void {
+    var build_file: [] const u8 = "build.zig";
+    var cache_dir: ?[] const u8 = null;
+    var zig_install_prefix: ?[] const u8 = null;
+    var asked_for_help = false;
+    var asked_for_init = false;
+
+    var args = ArrayList([] const u8).init(allocator);
+    defer args.deinit();
+
+    var zig_exe_path = try os.selfExePath(allocator);
+    defer allocator.free(zig_exe_path);
+
+    try args.append("");  // Placeholder for zig-cache/build
+    try args.append("");  // Placeholder for zig_exe_path
+    try args.append("");  // Placeholder for build_file_dirname
+    try args.append("");  // Placeholder for full_cache_dir
+
+    var i: usize = 0;
+    while (i < argv.len) : (i += 1) {
+        var arg = argv[i];
+        if (mem.eql(u8, arg, "--help")) {
+            asked_for_help = true;
+            try args.append(argv[i]);
+        } else if (mem.eql(u8, arg, "--init")) {
+            asked_for_init = true;
+            try args.append(argv[i]);
+        } else if (i + 1 < argv.len and mem.eql(u8, arg, "--build-file")) {
+            build_file = argv[i + 1];
+            i += 1;
+        } else if (i + 1 < argv.len and mem.eql(u8, arg, "--cache-dir")) {
+            cache_dir = argv[i + 1];
+            i += 1;
+        } else if (i + 1 < argv.len and mem.eql(u8, arg, "--zig-install-prefix")) {
+            try args.append(arg);
+            i += 1;
+            zig_install_prefix = argv[i];
+            try args.append(argv[i]);
+        } else {
+            try args.append(arg);
+        }
+    }
+
+    const zig_lib_dir = try resolveZigLibDir(allocator, zig_install_prefix);
+    defer allocator.free(zig_lib_dir);
+
+    const zig_std_dir = try os.path.join(allocator, zig_lib_dir, "std");
+    defer allocator.free(zig_std_dir);
+
+    const special_dir = try os.path.join(allocator, zig_std_dir, "special");
+    defer allocator.free(special_dir);
+
+    const build_runner_path = try os.path.join(allocator, special_dir, "build_runner.zig");
+    defer allocator.free(build_runner_path);
+
+    // g = codegen_create(build_runner_path, ...)
+    // codegen_set_out_name(g, "build")
+
+    const build_file_abs = try os.path.resolve(allocator, ".", build_file);
+    defer allocator.free(build_file_abs);
+
+    const build_file_basename = os.path.basename(build_file_abs);
+    const build_file_dirname = os.path.dirname(build_file_abs);
+
+    var full_cache_dir: []u8 = undefined;
+    if (cache_dir == null) {
+        full_cache_dir = try os.path.join(allocator, build_file_dirname, "zig-cache");
+    } else {
+        full_cache_dir = try os.path.resolve(allocator, ".", ??cache_dir, full_cache_dir);
+    }
+    defer allocator.free(full_cache_dir);
+
+    const path_to_build_exe = try os.path.join(allocator, full_cache_dir, "build");
+    defer allocator.free(path_to_build_exe);
+    // codegen_set_cache_dir(g, full_cache_dir)
+
+    args.items[0] = path_to_build_exe;
+    args.items[1] = zig_exe_path;
+    args.items[2] = build_file_dirname;
+    args.items[3] = full_cache_dir;
+
+    var build_file_exists: bool = undefined;
+    if (os.File.openRead(allocator, build_file_abs)) |*file| {
+        file.close();
+        build_file_exists = true;
+    } else |_| {
+        build_file_exists = false;
+    }
+
+    if (!build_file_exists and asked_for_help) {
+        // TODO(bnoordhuis) Print help message from std/special/build_runner.zig
+        return;
+    }
+
+    if (!build_file_exists and asked_for_init) {
+        const build_template_path = try os.path.join(allocator, special_dir, "build_file_template.zig");
+        defer allocator.free(build_template_path);
+
+        var srcfile = try os.File.openRead(allocator, build_template_path);
+        defer srcfile.close();
+
+        var dstfile = try os.File.openWrite(allocator, build_file_abs);
+        defer dstfile.close();
+
+        while (true) {
+            var buffer: [4096]u8 = undefined;
+            const n = try srcfile.read(buffer[0..]);
+            if (n == 0) break;
+            try dstfile.write(buffer[0..n]);
+        }
+
+        return;
+    }
+
+    if (!build_file_exists) {
+        warn(
+            \\No 'build.zig' file found.
+            \\Initialize a 'build.zig' template file with `zig build --init`,
+            \\or build an executable directly with `zig build-exe $FILENAME.zig`.
+            \\See: `zig build --help` or `zig help` for more options.
+            \\
+        );
+        os.exit(1);
+    }
+
+    // codegen_build(g)
+    // codegen_link(g, path_to_build_exe)
+    // codegen_destroy(g)
+
+    var proc = try os.ChildProcess.init(args.toSliceConst(), allocator);
+    defer proc.deinit();
+
+    var term = try proc.spawnAndWait();
+    switch (term) {
+        os.ChildProcess.Term.Exited => |status| {
+            if (status != 0) {
+                warn("{} exited with status {}\n", args.at(0), status);
+                os.exit(1);
+            }
+        },
+        os.ChildProcess.Term.Signal => |signal| {
+            warn("{} killed by signal {}\n", args.at(0), signal);
+            os.exit(1);
+        },
+        os.ChildProcess.Term.Stopped => |signal| {
+            warn("{} stopped by signal {}\n", args.at(0), signal);
+            os.exit(1);
+        },
+        os.ChildProcess.Term.Unknown => |status| {
+            warn("{} encountered unknown failure {}\n", args.at(0), status);
+            os.exit(1);
+        },
+    }
+}
+
 fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
     for (file_paths) |file_path| {
         var file = try os.File.openRead(allocator, file_path);
@@ -582,6 +741,7 @@ fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
         defer baf.destroy();
 
         try parser.renderSource(baf.stream(), tree.root_node);
+        try baf.finish();
     }
 }
 

@@ -15,7 +15,7 @@ find_program(LLVM_CONFIG_EXE
         "c:/msys64/mingw64/bin"
         "C:/Libraries/llvm-6.0.0/bin")
 
-if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug"))
+if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug") OR ZIG_STATIC)
   execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
       OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
@@ -66,7 +66,7 @@ if(NOT LLVM_LIBRARIES)
 endif()
 
 link_directories("${CMAKE_PREFIX_PATH}/lib")
-
+link_directories("${LLVM_LIBDIRS}")
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(LLVM DEFAULT_MSG LLVM_LIBRARIES LLVM_INCLUDE_DIRS)

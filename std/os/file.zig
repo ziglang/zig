@@ -233,7 +233,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    fn mode(self: &File) ModeError!FileMode {
+    fn mode(self: &File) ModeError!os.FileMode {
         if (is_posix) {
             var stat: posix.Stat = undefined;
             const err = posix.getErrno(posix.fstat(self.handle, &stat));
