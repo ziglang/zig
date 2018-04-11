@@ -2036,7 +2036,7 @@ pub const Parser = struct {
                     );
                     try list_state.list.append(node);
                     stack.append(State { .SwitchCaseCommaOrEnd = list_state }) catch unreachable;
-                    try stack.append(State { .Expression = DestPtr{ .Field = &node.expr  } });
+                    try stack.append(State { .AssignmentExpressionBegin = DestPtr{ .Field = &node.expr  } });
                     try stack.append(State { .PointerPayload = &node.payload });
 
                     const maybe_else = self.getNextToken();
@@ -4817,6 +4817,7 @@ test "zig fmt: switch" {
         \\    const res = switch (0) {
         \\        0 => 0,
         \\        1 => 2,
+        \\        1 => a = 4,
         \\        else => 4
         \\    };
         \\
