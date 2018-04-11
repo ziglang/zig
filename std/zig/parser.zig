@@ -171,7 +171,7 @@ pub const Parser = struct {
         Semicolon: &const &const ast.Node,
         AsmOutputItems: &ArrayList(&ast.NodeAsmOutput),
         AsmInputItems: &ArrayList(&ast.NodeAsmInput),
-        AsmClopperItems: &ArrayList(&ast.NodeStringLiteral),
+        AsmClopperItems: &ArrayList(&ast.Node),
         ExprListItemOrEnd: ExprListCtx,
         ExprListCommaOrEnd: ExprListCtx,
         FieldInitListItemOrEnd: ListSave(&ast.NodeFieldInitializer),
@@ -301,7 +301,11 @@ pub const Parser = struct {
                         Token.Id.Keyword_test => {
                             stack.append(State.TopLevel) catch unreachable;
 
-                            const name_token = (try self.expectToken(&stack, Token.Id.StringLiteral)) ?? continue;
+                            const name_token = self.getNextToken();
+                            const name = (try self.parseStringLiteral(arena, name_token)) ?? {
+                                try self.parseError(&stack, name_token, "expected string literal, found {}", @tagName(name_token.id));
+                                continue;
+                            };
                             const lbrace = (try self.expectToken(&stack, Token.Id.LBrace)) ?? continue;
 
                             const block = try self.createNode(arena, ast.NodeBlock,
@@ -317,7 +321,7 @@ pub const Parser = struct {
                                 ast.NodeTestDecl {
                                     .base = undefined,
                                     .test_token = token,
-                                    .name = &(try self.createLiteral(arena, ast.NodeStringLiteral, name_token)).base,
+                                    .name = name,
                                     .body_node = &block.base,
                                 }
                             );
@@ -389,15 +393,12 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_extern => {
-                            const lib_name_token = self.getNextToken();
                             const lib_name = blk: {
-                                if (lib_name_token.id == Token.Id.StringLiteral) {
-                                    const res = try self.createLiteral(arena, ast.NodeStringLiteral, lib_name_token);
-                                    break :blk &res.base;
-                                } else {
+                                const lib_name_token = self.getNextToken();
+                                break :blk (try self.parseStringLiteral(arena, lib_name_token)) ?? {
                                     self.putBackToken(lib_name_token);
                                     break :blk null;
-                                }
+                                };
                             };
 
                             stack.append(State {
@@ -1504,10 +1505,6 @@ pub const Parser = struct {
                             dest_ptr.store(&(try self.createLiteral(arena, ast.NodeFloatLiteral, token)).base);
                             continue;
                         },
-                        Token.Id.StringLiteral => {
-                            dest_ptr.store(&(try self.createLiteral(arena, ast.NodeStringLiteral, token)).base);
-                            continue;
-                        },
                         Token.Id.CharLiteral => {
                             dest_ptr.store(&(try self.createLiteral(arena, ast.NodeCharLiteral, token)).base);
                             continue;
@@ -1536,24 +1533,8 @@ pub const Parser = struct {
                             dest_ptr.store(&(try self.createLiteral(arena, ast.NodeUnreachable, token)).base);
                             continue;
                         },
-                        Token.Id.MultilineStringLiteralLine => {
-                            const node = try self.createToDestNode(arena, dest_ptr, ast.NodeMultilineStringLiteral,
-                                ast.NodeMultilineStringLiteral {
-                                    .base = undefined,
-                                    .tokens = ArrayList(Token).init(arena),
-                                }
-                            );
-                            try node.tokens.append(token);
-                            while (true) {
-                                const multiline_str = self.getNextToken();
-                                if (multiline_str.id != Token.Id.MultilineStringLiteralLine) {
-                                    self.putBackToken(multiline_str);
-                                    break;
-                                }
-
-                                try node.tokens.append(multiline_str);
-                            }
-                            continue;
+                        Token.Id.StringLiteral, Token.Id.MultilineStringLiteralLine => {
+                            dest_ptr.store((try self.parseStringLiteral(arena, token)) ?? unreachable);
                         },
                         Token.Id.LParen => {
                             const node = try self.createToDestNode(arena, dest_ptr, ast.NodeGroupedExpression,
@@ -1781,7 +1762,12 @@ pub const Parser = struct {
                                 break :blk true;
                             };
                             _ = (try self.expectToken(&stack, Token.Id.LParen)) ?? continue;
-                            const template = (try self.expectToken(&stack, Token.Id.StringLiteral)) ?? continue;
+
+                            const template_token = self.getNextToken();
+                            const template = (try self.parseStringLiteral(arena, template_token)) ?? {
+                                try self.parseError(&stack, template_token, "expected string literal, found {}", @tagName(template_token.id));
+                                continue;
+                            };
                             // TODO parse template
 
                             const node = try self.createToDestNode(arena, dest_ptr, ast.NodeAsm,
@@ -1793,7 +1779,7 @@ pub const Parser = struct {
                                     //.tokens = ArrayList(ast.NodeAsm.AsmToken).init(arena),
                                     .outputs = ArrayList(&ast.NodeAsmOutput).init(arena),
                                     .inputs = ArrayList(&ast.NodeAsmInput).init(arena),
-                                    .cloppers = ArrayList(&ast.NodeStringLiteral).init(arena),
+                                    .cloppers = ArrayList(&ast.Node).init(arena),
                                     .rparen = undefined,
                                 }
                             );
@@ -1881,7 +1867,12 @@ pub const Parser = struct {
 
                     const symbolic_name = (try self.expectToken(&stack, Token.Id.Identifier)) ?? continue;
                     _ = (try self.expectToken(&stack, Token.Id.RBracket)) ?? continue;
-                    const constraint = (try self.expectToken(&stack, Token.Id.StringLiteral)) ?? continue;
+
+                    const constraint_token = self.getNextToken();
+                    const constraint = (try self.parseStringLiteral(arena, constraint_token)) ?? {
+                        try self.parseError(&stack, constraint_token, "expected string literal, found {}", @tagName(constraint_token.id));
+                        continue;
+                    };
 
                     _ = (try self.expectToken(&stack, Token.Id.LParen)) ?? continue;
                     try stack.append(State { .ExpectToken = Token.Id.RParen });
@@ -1890,7 +1881,7 @@ pub const Parser = struct {
                         ast.NodeAsmOutput {
                             .base = undefined,
                             .symbolic_name = try self.createLiteral(arena, ast.NodeIdentifier, symbolic_name),
-                            .constraint = try self.createLiteral(arena, ast.NodeStringLiteral, constraint),
+                            .constraint = constraint,
                             .kind = undefined,
                         }
                     );
@@ -1926,7 +1917,12 @@ pub const Parser = struct {
 
                     const symbolic_name = (try self.expectToken(&stack, Token.Id.Identifier)) ?? continue;
                     _ = (try self.expectToken(&stack, Token.Id.RBracket)) ?? continue;
-                    const constraint = (try self.expectToken(&stack, Token.Id.StringLiteral)) ?? continue;
+
+                    const constraint_token = self.getNextToken();
+                    const constraint = (try self.parseStringLiteral(arena, constraint_token)) ?? {
+                        try self.parseError(&stack, constraint_token, "expected string literal, found {}", @tagName(constraint_token.id));
+                        continue;
+                    };
 
                     _ = (try self.expectToken(&stack, Token.Id.LParen)) ?? continue;
                     try stack.append(State { .ExpectToken = Token.Id.RParen });
@@ -1935,7 +1931,7 @@ pub const Parser = struct {
                         ast.NodeAsmInput {
                             .base = undefined,
                             .symbolic_name = try self.createLiteral(arena, ast.NodeIdentifier, symbolic_name),
-                            .constraint = try self.createLiteral(arena, ast.NodeStringLiteral, constraint),
+                            .constraint = constraint,
                             .expr = undefined,
                         }
                     );
@@ -1944,13 +1940,13 @@ pub const Parser = struct {
                 },
 
                 State.AsmClopperItems => |items| {
-                    const string = self.getNextToken();
-                    if (string.id != Token.Id.StringLiteral) {
-                        self.putBackToken(string);
+                    const string_token = self.getNextToken();
+                    const string = (try self.parseStringLiteral(arena, string_token)) ?? {
+                        self.putBackToken(string_token);
                         continue;
-                    }
+                    };
+                    try items.append(string);
 
-                    try items.append(try self.createLiteral(arena, ast.NodeStringLiteral, string));
                     stack.append(State { .AsmClopperItems = items }) catch unreachable;
                     try stack.append(State { .IfToken = Token.Id.Comma });
                 },
@@ -2739,6 +2735,37 @@ pub const Parser = struct {
                 },
                 else => return true,
             }
+        }
+    }
+
+    fn parseStringLiteral(self: &Parser, arena: &mem.Allocator, token: &const Token) !?&ast.Node {
+        switch (token.id) {
+            Token.Id.StringLiteral => {
+                return &(try self.createLiteral(arena, ast.NodeStringLiteral, token)).base;
+            },
+            Token.Id.MultilineStringLiteralLine => {
+                const node = try self.createNode(arena, ast.NodeMultilineStringLiteral,
+                    ast.NodeMultilineStringLiteral {
+                        .base = undefined,
+                        .tokens = ArrayList(Token).init(arena),
+                    }
+                );
+                try node.tokens.append(token);
+                while (true) {
+                    const multiline_str = self.getNextToken();
+                    if (multiline_str.id != Token.Id.MultilineStringLiteralLine) {
+                        self.putBackToken(multiline_str);
+                        break;
+                    }
+
+                    try node.tokens.append(multiline_str);
+                }
+
+                return &node.base;
+            },
+            // TODO: We shouldn't need a cast, but:
+            // zig: /home/jc/Documents/zig/src/ir.cpp:7962: TypeTableEntry* ir_resolve_peer_types(IrAnalyze*, AstNode*, IrInstruction**, size_t): Assertion `err_set_type != nullptr' failed.
+            else => return (?&ast.Node)(null),
         }
     }
 
@@ -4085,8 +4112,6 @@ pub const Parser = struct {
                             try stream.write("volatile ");
                         }
 
-                        try stream.print("({}", self.tokenizer.getTokenSlice(asm_node.template));
-
                         try stack.append(RenderState { .Indent = indent });
                         try stack.append(RenderState { .Text = ")" });
                         {
@@ -4094,7 +4119,7 @@ pub const Parser = struct {
                             var i = cloppers.len;
                             while (i != 0) {
                                 i -= 1;
-                                try stack.append(RenderState { .Expression = &cloppers[i].base });
+                                try stack.append(RenderState { .Expression = cloppers[i] });
 
                                 if (i != 0) {
                                     try stack.append(RenderState { .Text = ", " });
@@ -4163,6 +4188,8 @@ pub const Parser = struct {
                         try stack.append(RenderState.PrintIndent);
                         try stack.append(RenderState { .Indent = indent + indent_delta});
                         try stack.append(RenderState { .Text = "\n" });
+                        try stack.append(RenderState { .Expression = asm_node.template });
+                        try stack.append(RenderState { .Text = "(" });
                     },
                     ast.Node.Id.AsmInput => {
                         const asm_input = @fieldParentPtr(ast.NodeAsmInput, "base", base);
@@ -4170,7 +4197,7 @@ pub const Parser = struct {
                         try stack.append(RenderState { .Text = ")"});
                         try stack.append(RenderState { .Expression = asm_input.expr});
                         try stack.append(RenderState { .Text = " ("});
-                        try stack.append(RenderState { .Expression = &asm_input.constraint.base});
+                        try stack.append(RenderState { .Expression = asm_input.constraint });
                         try stack.append(RenderState { .Text = "] "});
                         try stack.append(RenderState { .Expression = &asm_input.symbolic_name.base});
                         try stack.append(RenderState { .Text = "["});
@@ -4189,7 +4216,7 @@ pub const Parser = struct {
                             },
                         }
                         try stack.append(RenderState { .Text = " ("});
-                        try stack.append(RenderState { .Expression = &asm_output.constraint.base});
+                        try stack.append(RenderState { .Expression = asm_output.constraint });
                         try stack.append(RenderState { .Text = "] "});
                         try stack.append(RenderState { .Expression = &asm_output.symbolic_name.base});
                         try stack.append(RenderState { .Text = "["});

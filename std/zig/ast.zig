@@ -1608,7 +1608,7 @@ pub const NodeThisLiteral = struct {
 pub const NodeAsmOutput = struct {
     base: Node,
     symbolic_name: &NodeIdentifier,
-    constraint: &NodeStringLiteral,
+    constraint: &Node,
     kind: Kind,
 
     const Kind = union(enum) {
@@ -1622,7 +1622,7 @@ pub const NodeAsmOutput = struct {
         if (i < 1) return &self.symbolic_name.base;
         i -= 1;
 
-        if (i < 1) return &self.constraint.base;
+        if (i < 1) return self.constraint;
         i -= 1;
 
         switch (self.kind) {
@@ -1654,7 +1654,7 @@ pub const NodeAsmOutput = struct {
 pub const NodeAsmInput = struct {
     base: Node,
     symbolic_name: &NodeIdentifier,
-    constraint: &NodeStringLiteral,
+    constraint: &Node,
     expr: &Node,
 
     pub fn iterate(self: &NodeAsmInput, index: usize) ?&Node {
@@ -1663,7 +1663,7 @@ pub const NodeAsmInput = struct {
         if (i < 1) return &self.symbolic_name.base;
         i -= 1;
 
-        if (i < 1) return &self.constraint.base;
+        if (i < 1) return self.constraint;
         i -= 1;
 
         if (i < 1) return self.expr;
@@ -1685,11 +1685,11 @@ pub const NodeAsm = struct {
     base: Node,
     asm_token: Token,
     is_volatile: bool,
-    template: Token,
+    template: &Node,
     //tokens: ArrayList(AsmToken),
     outputs: ArrayList(&NodeAsmOutput),
     inputs: ArrayList(&NodeAsmInput),
-    cloppers: ArrayList(&NodeStringLiteral),
+    cloppers: ArrayList(&Node),
     rparen: Token,
 
     pub fn iterate(self: &NodeAsm, index: usize) ?&Node {
@@ -1701,7 +1701,7 @@ pub const NodeAsm = struct {
         if (i < self.inputs.len) return &self.inputs.at(index).base;
         i -= self.inputs.len;
 
-        if (i < self.cloppers.len) return &self.cloppers.at(index).base;
+        if (i < self.cloppers.len) return self.cloppers.at(index);
         i -= self.cloppers.len;
 
         return null;
