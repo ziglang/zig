@@ -2354,6 +2354,16 @@ pub const Parser = struct {
                             continue;
                         },
                         else => {
+                            // TODO: this is a special case. Remove this when #760 is fixed
+                            if (token.id == Token.Id.Keyword_error) {
+                                if (self.isPeekToken(Token.Id.LBrace)) {
+                                    fn_proto.return_type = ast.NodeFnProto.ReturnType {
+                                        .Explicit = &(try self.createLiteral(arena, ast.NodeErrorType, token)).base
+                                    };
+                                    continue;
+                                }
+                            }
+
                             self.putBackToken(token);
                             fn_proto.return_type = ast.NodeFnProto.ReturnType { .Explicit = undefined };
                             stack.append(State {
@@ -5182,6 +5192,16 @@ test "zig fmt: string identifier" {
     try testCanonical(
         \\const @"a b" = @"c d".@"e f";
         \\fn @"g h"() void {}
+        \\
+    );
+}
+
+test "zig fmt: error return" {
+    try testCanonical(
+        \\fn err() error {
+        \\    call();
+        \\    return error.InvalidArgs;
+        \\}
         \\
     );
 }
