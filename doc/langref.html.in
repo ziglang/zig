@@ -1947,8 +1947,24 @@ const Foo = extern enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       {#header_close#}
-      <p>TODO packed enum</p>
-      {#see_also|@memberName|@memberCount|@tagName#}
+      {#header_open|packed enum#}
+      <p>By default, the size of enums is not guaranteed.</p>
+      <p><code>packed enum</code> causes the size of the enum to be the same as the size of the integer tag type
+      of the enum:</p>
+      {#code_begin|test#}
+const std = @import("std");
+
+test "packed enum" {
+    const Number = packed enum(u8) {
+        One,
+        Two,
+        Three,
+    };
+    std.debug.assert(@sizeOf(Number) == @sizeOf(u8));
+}
+      {#code_end#}
+      {#header_close#}
+      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
       {#header_close#}
       {#header_open|union#}
       {#code_begin|test|union#}
@@ -2017,7 +2033,27 @@ test "union variant switch" {
     assert(mem.eql(u8, what_is_it, "this is a number"));
 }
 
-// TODO union methods
+// Unions can have methods just like structs and enums:
+
+const Variant = union(enum) {
+    Int: i32,
+    Bool: bool,
+
+    fn truthy(self: &const Variant) bool {
+        return switch (*self) {
+            Variant.Int => |x_int| x_int != 0,
+            Variant.Bool => |x_bool| x_bool,
+        };
+    }
+};
+
+test "union method" {
+    var v1 = Variant { .Int = 1 };
+    var v2 = Variant { .Bool = false };
+
+    assert(v1.truthy());
+    assert(!v2.truthy());
+}
 
 
 const Small = union {
@@ -2873,7 +2909,7 @@ const err = (error {FileNotFound}).FileNotFound;
       {#header_close#}
       {#header_open|Error Union Type#}
       <p>
-      An error set type and normal type can be combined with the <code>!<code>
+      An error set type and normal type can be combined with the <code>!</code>
       binary operator to form an error union type. You are likely to use an
       error union type more often than an error set type by itself.
       </p>

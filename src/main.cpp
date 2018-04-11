@@ -23,6 +23,7 @@ static int usage(const char *arg0) {
         "  build-exe [source]           create executable from source or object files\n"
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
+        "  run [source]                 create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
@@ -195,13 +196,6 @@ static int find_zig_lib_dir(Buf *out_path) {
         }
     }
 
-    if (ZIG_INSTALL_PREFIX != nullptr) {
-        if (test_zig_install_prefix(buf_create_from_str(ZIG_INSTALL_PREFIX), out_path)) {
-            return 0;
-        }
-    }
-
-
     return ErrorFileNotFound;
 }
 
@@ -227,6 +221,7 @@ static Buf *resolve_zig_lib_dir(const char *zig_install_prefix_arg) {
 enum Cmd {
     CmdInvalid,
     CmdBuild,
+    CmdRun,
     CmdTest,
     CmdVersion,
     CmdZen,
@@ -336,6 +331,8 @@ int main(int argc, char **argv) {
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
     ZigList<const char *> test_exec_args = {0};
+    int comptime_args_end = 0;
+    int runtime_args_start = argc;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -488,11 +485,15 @@ int main(int argc, char **argv) {
         return (term.how == TerminationIdClean) ? term.code : -1;
     }
 
-    for (int i = 1; i < argc; i += 1) {
+    for (int i = 1; i < argc; i += 1, comptime_args_end += 1) {
         char *arg = argv[i];
 
         if (arg[0] == '-') {
-            if (strcmp(arg, "--release-fast") == 0) {
+            if (strcmp(arg, "--") == 0) {
+                // ignore -- from both compile and runtime arg sets
+                runtime_args_start = i + 1;
+                break;
+            } else if (strcmp(arg, "--release-fast") == 0) {
                 build_mode = BuildModeFastRelease;
             } else if (strcmp(arg, "--release-safe") == 0) {
                 build_mode = BuildModeSafeRelease;
@@ -659,6 +660,9 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "build-lib") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeLib;
+            } else if (strcmp(arg, "run") == 0) {
+                cmd = CmdRun;
+                out_type = OutTypeExe;
             } else if (strcmp(arg, "version") == 0) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "zen") == 0) {
@@ -677,6 +681,7 @@ int main(int argc, char **argv) {
         } else {
             switch (cmd) {
                 case CmdBuild:
+                case CmdRun:
                 case CmdTranslateC:
                 case CmdTest:
                     if (!in_file) {
@@ -731,8 +736,8 @@ int main(int argc, char **argv) {
         }
     }
 
-
     switch (cmd) {
+    case CmdRun:
     case CmdBuild:
     case CmdTranslateC:
     case CmdTest:
@@ -740,7 +745,7 @@ int main(int argc, char **argv) {
             if (cmd == CmdBuild && !in_file && objects.length == 0 && asm_files.length == 0) {
                 fprintf(stderr, "Expected source file argument or at least one --object or --assembly argument.\n");
                 return usage(arg0);
-            } else if ((cmd == CmdTranslateC || cmd == CmdTest) && !in_file) {
+            } else if ((cmd == CmdTranslateC || cmd == CmdTest || cmd == CmdRun) && !in_file) {
                 fprintf(stderr, "Expected source file argument.\n");
                 return usage(arg0);
             } else if (cmd == CmdBuild && out_type == OutTypeObj && objects.length != 0) {
@@ -751,6 +756,10 @@ int main(int argc, char **argv) {
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
 
             bool need_name = (cmd == CmdBuild || cmd == CmdTranslateC);
+
+            if (cmd == CmdRun) {
+                out_name = "run";
+            }
 
             Buf *in_file_buf = nullptr;
 
@@ -776,9 +785,23 @@ int main(int argc, char **argv) {
             Buf *zig_root_source_file = (cmd == CmdTranslateC) ? nullptr : in_file_buf;
 
             Buf *full_cache_dir = buf_alloc();
-            os_path_resolve(buf_create_from_str("."),
-                    buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir),
-                    full_cache_dir);
+            Buf *run_exec_path = buf_alloc();
+            if (cmd == CmdRun) {
+                if (buf_out_name == nullptr) {
+                    buf_out_name = buf_create_from_str("run");
+                }
+
+                Buf *global_cache_dir = buf_alloc();
+                os_get_global_cache_directory(global_cache_dir);
+                os_path_join(global_cache_dir, buf_out_name, run_exec_path);
+                os_path_resolve(buf_create_from_str("."), global_cache_dir, full_cache_dir);
+
+                out_file = buf_ptr(run_exec_path);
+            } else {
+                os_path_resolve(buf_create_from_str("."),
+                        buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir),
+                        full_cache_dir);
+            }
 
             Buf *zig_lib_dir_buf = resolve_zig_lib_dir(zig_install_prefix);
 
@@ -862,7 +885,7 @@ int main(int argc, char **argv) {
 
             add_package(g, cur_pkg, g->root_package);
 
-            if (cmd == CmdBuild) {
+            if (cmd == CmdBuild || cmd == CmdRun) {
                 codegen_set_emit_file_type(g, emit_file_type);
 
                 for (size_t i = 0; i < objects.length; i += 1) {
@@ -875,6 +898,18 @@ int main(int argc, char **argv) {
                 codegen_link(g, out_file);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
+
+                if (cmd == CmdRun) {
+                    ZigList<const char*> args = {0};
+                    for (int i = runtime_args_start; i < argc; ++i) {
+                        args.append(argv[i]);
+                    }
+
+                    Termination term;
+                    os_spawn_process(buf_ptr(run_exec_path), args, &term);
+                    return term.code;
+                }
+
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTranslateC) {
                 codegen_translate_c(g, in_file_buf);

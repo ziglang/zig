@@ -468,10 +468,30 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
 
     TypeTableEntry *awaiter_handle_type = get_maybe_type(g, g->builtin_types.entry_promise);
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
-    const char *field_names[] = {AWAITER_HANDLE_FIELD_NAME, RESULT_FIELD_NAME, RESULT_PTR_FIELD_NAME};
-    TypeTableEntry *field_types[] = {awaiter_handle_type, return_type, result_ptr_type};
+
+    ZigList<const char *> field_names = {};
+    field_names.append(AWAITER_HANDLE_FIELD_NAME);
+    field_names.append(RESULT_FIELD_NAME);
+    field_names.append(RESULT_PTR_FIELD_NAME);
+    if (g->have_err_ret_tracing) {
+        field_names.append(ERR_RET_TRACE_PTR_FIELD_NAME);
+        field_names.append(ERR_RET_TRACE_FIELD_NAME);
+        field_names.append(RETURN_ADDRESSES_FIELD_NAME);
+    }
+
+    ZigList<TypeTableEntry *> field_types = {};
+    field_types.append(awaiter_handle_type);
+    field_types.append(return_type);
+    field_types.append(result_ptr_type);
+    if (g->have_err_ret_tracing) {
+        field_types.append(get_ptr_to_stack_trace_type(g));
+        field_types.append(g->stack_trace_type);
+        field_types.append(get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count));
+    }
+
+    assert(field_names.length == field_types.length);
     Buf *name = buf_sprintf("AsyncFramePromise(%s)", buf_ptr(&return_type->name));
-    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, 3);
+    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names.items, field_types.items, field_names.length);
 
     return_type->promise_frame_parent = entry;
     return entry;
@@ -3216,7 +3236,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
             break;
         case NodeTypeContainerDecl:
         case NodeTypeParamDecl:
-        case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
         case NodeTypeBlock:
@@ -4285,24 +4304,118 @@ static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
     return g->win_sdk;
 }
 
+
+Buf *get_linux_libc_lib_path(const char *o_file) {
+    const char *cc_exe = getenv("CC");
+    cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
+    ZigList<const char *> args = {};
+    args.append(buf_ptr(buf_sprintf("-print-file-name=%s", o_file)));
+    Termination term;
+    Buf *out_stderr = buf_alloc();
+    Buf *out_stdout = buf_alloc();
+    int err;
+    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
+        zig_panic("unable to determine libc lib path: executing C compiler: %s", err_str(err));
+    }
+    if (term.how != TerminationIdClean || term.code != 0) {
+        zig_panic("unable to determine libc lib path: executing C compiler command failed");
+    }
+    if (buf_ends_with_str(out_stdout, "\n")) {
+        buf_resize(out_stdout, buf_len(out_stdout) - 1);
+    }
+    if (buf_len(out_stdout) == 0 || buf_eql_str(out_stdout, o_file)) {
+        zig_panic("unable to determine libc lib path: C compiler could not find %s", o_file);
+    }
+    Buf *result = buf_alloc();
+    os_path_dirname(out_stdout, result);
+    return result;
+}
+
+Buf *get_linux_libc_include_path(void) {
+    const char *cc_exe = getenv("CC");
+    cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
+    ZigList<const char *> args = {};
+    args.append("-E");
+    args.append("-Wp,-v");
+    args.append("-xc");
+    args.append("/dev/null");
+    Termination term;
+    Buf *out_stderr = buf_alloc();
+    Buf *out_stdout = buf_alloc();
+    int err;
+    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
+        zig_panic("unable to determine libc include path: executing C compiler: %s", err_str(err));
+    }
+    if (term.how != TerminationIdClean || term.code != 0) {
+        zig_panic("unable to determine libc include path: executing C compiler command failed");
+    }
+    char *prev_newline = buf_ptr(out_stderr);
+    ZigList<const char *> search_paths = {};
+    bool found_search_paths = false;
+    for (;;) {
+        char *newline = strchr(prev_newline, '\n');
+        if (newline == nullptr) {
+            zig_panic("unable to determine libc include path: bad output from C compiler command");
+        }
+        *newline = 0;
+        if (found_search_paths) {
+            if (strcmp(prev_newline, "End of search list.") == 0) {
+                break;
+            }
+            search_paths.append(prev_newline);
+        } else {
+            if (strcmp(prev_newline, "#include <...> search starts here:") == 0) {
+                found_search_paths = true;
+            }
+        }
+        prev_newline = newline + 1;
+    }
+    if (search_paths.length == 0) {
+        zig_panic("unable to determine libc include path: even C compiler does not know where libc headers are");
+    }
+    for (size_t i = 0; i < search_paths.length; i += 1) {
+        // search in reverse order
+        const char *search_path = search_paths.items[search_paths.length - i - 1];
+        // cut off spaces
+        while (*search_path == ' ') {
+            search_path += 1;
+        }
+        Buf *stdlib_path = buf_sprintf("%s/stdlib.h", search_path);
+        bool exists;
+        if ((err = os_file_exists(stdlib_path, &exists))) {
+            exists = false;
+        }
+        if (exists) {
+            return buf_create_from_str(search_path);
+        }
+    }
+    zig_panic("unable to determine libc include path: stdlib.h not found in C compiler search paths");
+}
+
 void find_libc_include_path(CodeGen *g) {
-    if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
+    if (g->libc_include_dir == nullptr) {
 
         if (g->zig_target.os == OsWindows) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
+            g->libc_include_dir = buf_alloc();
             if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
                 zig_panic("Unable to determine libc include path.");
             }
+        } else if (g->zig_target.os == OsLinux) {
+            g->libc_include_dir = get_linux_libc_include_path();
+        } else if (g->zig_target.os == OsMacOSX) {
+            g->libc_include_dir = buf_create_from_str("/usr/include");
+        } else {
+            // TODO find libc at runtime for other operating systems
+            zig_panic("Unable to determine libc include path.");
         }
-
-        // TODO find libc at runtime for other operating systems
-        zig_panic("Unable to determine libc include path.");
     }
+    assert(buf_len(g->libc_include_dir) != 0);
 }
 
 void find_libc_lib_path(CodeGen *g) {
     // later we can handle this better by reporting an error via the normal mechanism
-    if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0 ||
+    if (g->libc_lib_dir == nullptr ||
         (g->zig_target.os == OsWindows && (g->msvc_lib_dir == nullptr || g->kernel32_lib_dir == nullptr)))
     {
         if (g->zig_target.os == OsWindows) {
@@ -4326,18 +4439,25 @@ void find_libc_lib_path(CodeGen *g) {
             g->msvc_lib_dir = vc_lib_dir;
             g->libc_lib_dir = ucrt_lib_path;
             g->kernel32_lib_dir = kern_lib_path;
+        } else if (g->zig_target.os == OsLinux) {
+            g->libc_lib_dir = get_linux_libc_lib_path("crt1.o");
         } else {
             zig_panic("Unable to determine libc lib path.");
         }
+    } else {
+        assert(buf_len(g->libc_lib_dir) != 0);
     }
 
-    if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
+    if (g->libc_static_lib_dir == nullptr) {
         if ((g->zig_target.os == OsWindows) && (g->msvc_lib_dir != NULL)) {
             return;
-        }
-        else {
+        } else if (g->zig_target.os == OsLinux) {
+            g->libc_static_lib_dir = get_linux_libc_lib_path("crtbegin.o");
+        } else {
             zig_panic("Unable to determine libc static lib path.");
         }
+    } else {
+        assert(buf_len(g->libc_static_lib_dir) != 0);
     }
 }
 

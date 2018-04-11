@@ -9,8 +9,6 @@ pub fn main() !void {
     var stdout_file_stream = io.FileOutStream.init(&stdout_file);
     const stdout = &stdout_file_stream.stream;
 
-    var stdin_file = try io.getStdIn();
-
     try stdout.print("Welcome to the Guess Number Game in Zig.\n");
 
     var seed_bytes: [@sizeOf(u64)]u8 = undefined;
@@ -27,12 +25,15 @@ pub fn main() !void {
         try stdout.print("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8 = undefined;
 
-        const line_len = stdin_file.read(line_buf[0..]) catch |err| {
-            try stdout.print("Unable to read from stdin: {}\n", @errorName(err));
-            return err;
+        const line_len = io.readLine(line_buf[0..]) catch |err| switch (err) {
+            error.InputTooLong => {
+                try stdout.print("Input too long.\n");
+                continue;
+            },
+            error.EndOfFile, error.StdInUnavailable => return err,
         };
 
-        const guess = fmt.parseUnsigned(u8, line_buf[0..line_len - 1], 10) catch {
+        const guess = fmt.parseUnsigned(u8, line_buf[0..line_len], 10) catch {
             try stdout.print("Invalid number.\n");
             continue;
         };
