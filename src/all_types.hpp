@@ -359,7 +359,6 @@ enum NodeType {
     NodeTypeRoot,
     NodeTypeFnProto,
     NodeTypeFnDef,
-    NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeBlock,
     NodeTypeGroupedExpr,
@@ -451,10 +450,6 @@ struct AstNodeFnProto {
 struct AstNodeFnDef {
     AstNode *fn_proto;
     AstNode *body;
-};
-
-struct AstNodeFnDecl {
-    AstNode *fn_proto;
 };
 
 struct AstNodeParamDecl {
@@ -713,10 +708,6 @@ struct AstNodeSwitchRange {
     AstNode *end;
 };
 
-struct AstNodeLabel {
-    Buf *name;
-};
-
 struct AstNodeCompTime {
     AstNode *expr;
 };
@@ -892,7 +883,6 @@ struct AstNode {
     union {
         AstNodeRoot root;
         AstNodeFnDef fn_def;
-        AstNodeFnDecl fn_decl;
         AstNodeFnProto fn_proto;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
@@ -917,7 +907,6 @@ struct AstNode {
         AstNodeSwitchExpr switch_expr;
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
-        AstNodeLabel label;
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
@@ -1654,6 +1643,8 @@ struct CodeGen {
     LLVMValueRef coro_save_fn_val;
     LLVMValueRef coro_promise_fn_val;
     LLVMValueRef coro_alloc_helper_fn_val;
+    LLVMValueRef merge_err_ret_traces_fn_val;
+    LLVMValueRef add_error_return_trace_addr_fn_val;
     bool error_during_imports;
 
     const char **clang_argv;
@@ -2052,6 +2043,8 @@ enum IrInstructionId {
     IrInstructionIdAwaitBookkeeping,
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
+    IrInstructionIdMergeErrRetTraces,
+    IrInstructionIdMarkErrRetTracePtr,
 };
 
 struct IrInstruction {
@@ -2890,6 +2883,11 @@ struct IrInstructionExport {
 
 struct IrInstructionErrorReturnTrace {
     IrInstruction base;
+
+    enum Nullable {
+        Null,
+        NonNull,
+    } nullable;
 };
 
 struct IrInstructionErrorUnion {
@@ -3022,6 +3020,20 @@ struct IrInstructionAddImplicitReturnType {
     IrInstruction *value;
 };
 
+struct IrInstructionMergeErrRetTraces {
+    IrInstruction base;
+
+    IrInstruction *coro_promise_ptr;
+    IrInstruction *src_err_ret_trace_ptr;
+    IrInstruction *dest_err_ret_trace_ptr;
+};
+
+struct IrInstructionMarkErrRetTracePtr {
+    IrInstruction base;
+
+    IrInstruction *err_ret_trace_ptr;
+};
+
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
 
@@ -3031,10 +3043,18 @@ static const size_t maybe_null_index = 1;
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
+// TODO call graph analysis to find out what this number needs to be for every function
+static const size_t stack_trace_ptr_count = 30;
+
+// these belong to the async function
+#define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
+#define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
+#define RESULT_FIELD_NAME "result"
 #define ASYNC_ALLOC_FIELD_NAME "allocFn"
 #define ASYNC_FREE_FIELD_NAME "freeFn"
 #define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
-#define RESULT_FIELD_NAME "result"
+// these point to data belonging to the awaiter
+#define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 #define RESULT_PTR_FIELD_NAME "result_ptr"
 
 

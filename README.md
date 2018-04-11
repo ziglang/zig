@@ -141,10 +141,10 @@ libc. Create demo games using Zig.
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
+cmake ..
 make
 make install
-./zig build --build-file ../build.zig test
+bin/zig build --build-file ../build.zig test
 ```
 
 ##### MacOS
@@ -154,9 +154,9 @@ brew install cmake llvm@7
 brew outdated llvm@7 || brew upgrade llvm@7
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@7/ -DCMAKE_INSTALL_PREFIX=$(pwd)
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@7/
 make install
-./zig build --build-file ../build.zig test
+bin/zig build --build-file ../build.zig test
 ```
 
 ##### Windows

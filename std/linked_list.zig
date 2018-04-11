@@ -161,6 +161,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
             }
 
             list.len -= 1;
+            assert(list.len == 0 or (list.first != null and list.last != null));
         }
 
         /// Remove and return the last node in the list.
