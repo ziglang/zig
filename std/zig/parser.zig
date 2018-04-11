@@ -3839,12 +3839,13 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.Else => {
                         const else_node = @fieldParentPtr(ast.NodeElse, "base", base);
-                        try stream.print("{} ", self.tokenizer.getTokenSlice(else_node.else_token));
+                        try stream.print("{}", self.tokenizer.getTokenSlice(else_node.else_token));
 
                         switch (else_node.body.id) {
                             ast.Node.Id.Block, ast.Node.Id.If,
                             ast.Node.Id.For, ast.Node.Id.While,
                             ast.Node.Id.Switch => {
+                                try stream.print(" ");
                                 try stack.append(RenderState { .Expression = else_node.body });
                             },
                             else => {
@@ -4804,6 +4805,11 @@ test "zig fmt: while" {
         \\    } else {
         \\        unreachable;
         \\    };
+        \\
+        \\    const res = while (0 < 10)
+        \\        break 7
+        \\    else
+        \\        unreachable;
         \\
         \\    var a: error!u8 = 0;
         \\    while (a) |v| {
