@@ -574,7 +574,7 @@ pub const ChildProcess = struct {
             const PATH = try os.getEnvVarOwned(self.allocator, "PATH");
             defer self.allocator.free(PATH);
 
-            var it = string.asciiSplit(PATH, ";");
+            var it = try string.asciiSplit(PATH, ";");
             while (it.nextBytes()) |search_path| {
                 const joined_path = try os.path.join(self.allocator, search_path, app_name);
                 defer self.allocator.free(joined_path);
