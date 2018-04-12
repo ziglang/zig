@@ -589,7 +589,7 @@ test "os.path.resolve" {
         if ((try windowsParsePath(cwd)).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
         }
-        assert(mem.eql(u8, try testResolveWindows([][]const u8{"."}), cwd));
+        assert(mem.eql(u8, testResolveWindows([][]const u8{"."}), cwd));
     } else {
         assert(mem.eql(u8, testResolvePosix([][]const u8{"a/b/c/", "../../.."}), cwd));
         assert(mem.eql(u8, testResolvePosix([][]const u8{"."}), cwd));
