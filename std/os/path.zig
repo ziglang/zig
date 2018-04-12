@@ -586,7 +586,7 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) ![]u8 {
 test "os.path.resolve" {
     const cwd = try os.getCwd(debug.global_allocator);
     if (is_windows) {
-        if ((try windowsParsePath(cwd).kind) == WindowsPath.Kind.Drive) {
+        if ((try windowsParsePath(cwd)).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
         }
         assert(mem.eql(u8, try testResolveWindows([][]const u8{"."}), cwd));
@@ -599,7 +599,7 @@ test "os.path.resolve" {
 test "os.path.resolveWindows" {
     if (is_windows) {
         const cwd = try os.getCwd(debug.global_allocator);
-        const parsed_cwd = windowsParsePath(cwd);
+        const parsed_cwd = try windowsParsePath(cwd);
         {
             const result = testResolveWindows([][]const u8{"/usr/local", "lib\\zig\\std\\array_list.zig"});
             const expected = try join(debug.global_allocator,
