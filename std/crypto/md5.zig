@@ -59,7 +59,7 @@ pub const Md5 = struct {
         }
 
         // Full middle blocks.
-        while (off + 64 < b.len) : (off += 64) {
+        while (off + 64 <= b.len) : (off += 64) {
             d.round(b[off..off + 64]);
         }
 
@@ -252,4 +252,13 @@ test "md5 streaming" {
     h.final(out[0..]);
 
     htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
+}
+
+test "md5 aligned final" {
+    var block = []u8 {0} ** Md5.block_size;
+    var out: [Md5.digest_size]u8 = undefined;
+
+    var h = Md5.init();
+    h.update(block);
+    h.final(out[0..]);
 }

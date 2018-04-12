@@ -217,6 +217,15 @@ test "sha3-256 streaming" {
     htest.assertEqual("3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532", out[0..]);
 }
 
+test "sha3-256 aligned final" {
+    var block = []u8 {0} ** Sha3_256.block_size;
+    var out: [Sha3_256.digest_size]u8 = undefined;
+
+    var h = Sha3_256.init();
+    h.update(block);
+    h.final(out[0..]);
+}
+
 test "sha3-384 single" {
     const h1 = "0c63a75b845e4f7d01107d852e4c2485c51a50aaaa94fc61995e71bbee983a2ac3713831264adb47fb6bd1e058d5f004";
     htest.assertEqualHash(Sha3_384, h1 , "");
@@ -277,4 +286,13 @@ test "sha3-512 streaming" {
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+}
+
+test "sha3-512 aligned final" {
+    var block = []u8 {0} ** Sha3_512.block_size;
+    var out: [Sha3_512.digest_size]u8 = undefined;
+
+    var h = Sha3_512.init();
+    h.update(block);
+    h.final(out[0..]);
 }

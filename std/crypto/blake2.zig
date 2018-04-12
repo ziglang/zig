@@ -84,7 +84,7 @@ fn Blake2s(comptime out_len: usize) type { return struct {
         }
 
         // Full middle blocks.
-        while (off + 64 < b.len) : (off += 64) {
+        while (off + 64 <= b.len) : (off += 64) {
             d.t += 64;
             d.round(b[off..off + 64], false);
         }
@@ -229,6 +229,15 @@ test "blake2s256 streaming" {
     htest.assertEqual(h2, out[0..]);
 }
 
+test "blake2s256 aligned final" {
+    var block = []u8 {0} ** Blake2s256.block_size;
+    var out: [Blake2s256.digest_size]u8 = undefined;
+
+    var h = Blake2s256.init();
+    h.update(block);
+    h.final(out[0..]);
+}
+
 
 /////////////////////
 // Blake2b
@@ -305,7 +314,7 @@ fn Blake2b(comptime out_len: usize) type { return struct {
         }
 
         // Full middle blocks.
-        while (off + 128 < b.len) : (off += 128) {
+        while (off + 128 <= b.len) : (off += 128) {
             d.t += 128;
             d.round(b[off..off + 128], false);
         }
@@ -446,4 +455,13 @@ test "blake2b512 streaming" {
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+}
+
+test "blake2b512 aligned final" {
+    var block = []u8 {0} ** Blake2b512.block_size;
+    var out: [Blake2b512.digest_size]u8 = undefined;
+
+    var h = Blake2b512.init();
+    h.update(block);
+    h.final(out[0..]);
 }

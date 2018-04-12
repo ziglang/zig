@@ -19,10 +19,16 @@ pub const Blake2s256 = blake2.Blake2s256;
 pub const Blake2b384 = blake2.Blake2b384;
 pub const Blake2b512 = blake2.Blake2b512;
 
+const hmac = @import("hmac.zig");
+pub const HmacMd5 = hmac.HmacMd5;
+pub const HmacSha1 = hmac.Sha1;
+pub const HmacSha256 = hmac.Sha256;
+
 test "crypto" {
     _ = @import("md5.zig");
     _ = @import("sha1.zig");
     _ = @import("sha2.zig");
     _ = @import("sha3.zig");
     _ = @import("blake2.zig");
+    _ = @import("hmac.zig");
 }

@@ -743,6 +743,7 @@ fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
         defer baf.destroy();
 
         try parser.renderSource(baf.stream(), tree.root_node);
+        try baf.finish();
     }
 }
 

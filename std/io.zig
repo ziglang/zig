@@ -486,6 +486,11 @@ pub fn readLine(buf: []u8) !usize {
     while (true) {
         const byte = stream.readByte() catch return error.EndOfFile;
         switch (byte) {
+            '\r' => {
+                // trash the following \n
+                _ = stream.readByte() catch return error.EndOfFile;
+               return index;
+            },
             '\n' => return index,
             else => {
                 if (index == buf.len) return error.InputTooLong;

@@ -301,6 +301,15 @@ template <class ELFT> void elf::markLive() {
   // Follow the graph to mark all live sections.
   doGcSections<ELFT>();
 
+  // If all references to a DSO happen to be weak, the DSO is removed from
+  // DT_NEEDED, which creates dangling shared symbols to non-existent DSO.
+  // We'll replace such symbols with undefined ones to fix it.
+  for (Symbol *Sym : Symtab->getSymbols())
+    if (auto *S = dyn_cast<SharedSymbol>(Sym))
+      if (S->isWeak() && !S->getFile<ELFT>().IsNeeded)
+        replaceSymbol<Undefined>(S, nullptr, S->getName(), STB_WEAK, S->StOther,
+                                 S->Type);
+
   // Report garbage-collected sections.
   if (Config->PrintGcSections)
     for (InputSectionBase *Sec : InputSections)
