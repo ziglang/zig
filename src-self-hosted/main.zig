@@ -106,7 +106,6 @@ const usage_build =
     \\   --cache-dir [path]           Override path to cache directory
     \\   --verbose                    Print commands before executing them
     \\   --prefix [path]              Override default install prefix
-    \\   --zig-install-prefix [path]  Override directory where zig thinks it is installed
     \\
     \\Project-Specific Options:
     \\
@@ -132,7 +131,6 @@ const args_build_spec = []Flag {
     Flag.Arg1("--cache-dir"),
     Flag.Bool("--verbose"),
     Flag.Arg1("--prefix"),
-    Flag.Arg1("--zig-install-prefix"),
 
     Flag.Arg1("--build-file"),
     Flag.Arg1("--cache-dir"),
@@ -163,7 +161,7 @@ fn cmdBuild(allocator: &Allocator, args: []const []const u8) !void {
         os.exit(0);
     }
 
-    const zig_lib_dir = try introspect.resolveZigLibDir(allocator, flags.single("zig-install-prefix") ?? null);
+    const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
     defer allocator.free(zig_lib_dir);
 
     const zig_std_dir = try os.path.join(allocator, zig_lib_dir, "std");
@@ -230,10 +228,6 @@ fn cmdBuild(allocator: &Allocator, args: []const []const u8) !void {
     try build_args.append(build_file_dirname);
     try build_args.append(full_cache_dir);
 
-    if (flags.single("zig-install-prefix")) |zig_install_prefix| {
-        try build_args.append(zig_install_prefix);
-    }
-
     var proc = try os.ChildProcess.init(build_args.toSliceConst(), allocator);
     defer proc.deinit();
 
@@ -296,7 +290,6 @@ const usage_build_generic =
     \\  --verbose-ir                 Turn on compiler debug output for Zig IR
     \\  --verbose-llvm-ir            Turn on compiler debug output for LLVM IR
     \\  --verbose-cimport            Turn on compiler debug output for C imports
-    \\  --zig-install-prefix [path]  Override directory where zig thinks it is installed
     \\  -dirafter [dir]              Same as -isystem but do it last
     \\  -isystem [dir]               Add additional search path for other .h files
     \\  -mllvm [arg]                 Additional arguments to forward to LLVM's option processing
@@ -357,7 +350,6 @@ const args_build_generic = []Flag {
     Flag.Bool("--verbose-ir"),
     Flag.Bool("--verbose-llvm-ir"),
     Flag.Bool("--verbose-cimport"),
-    Flag.Arg1("--zig-install-prefix"),
     Flag.Arg1("-dirafter"),
     Flag.ArgMergeN("-isystem", 1),
     Flag.Arg1("-mllvm"),
@@ -500,9 +492,7 @@ fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Mo
     };
     defer allocator.free(full_cache_dir);
 
-    const zig_lib_dir = introspect.resolveZigLibDir(allocator, flags.single("zig-install-prefix") ?? null) catch {
-        os.exit(1);
-    };
+    const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
     defer allocator.free(zig_lib_dir);
 
     var module =

@@ -39,33 +39,19 @@ pub fn findZigLibDir(allocator: &mem.Allocator) ![]u8 {
         };
     }
 
-    // TODO look in hard coded installation path from configuration
-    //if (ZIG_INSTALL_PREFIX != nullptr) {
-    //    if (test_zig_install_prefix(buf_create_from_str(ZIG_INSTALL_PREFIX), out_path)) {
-    //        return 0;
-    //    }
-    //}
-
     return error.FileNotFound;
 }
 
-pub fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const u8) ![]u8 {
-    if (zig_install_prefix_arg) |zig_install_prefix| {
-        return testZigInstallPrefix(allocator, zig_install_prefix) catch |err| {
-            warn("No Zig installation found at prefix {}: {}\n", zig_install_prefix_arg, @errorName(err));
-            return error.ZigInstallationNotFound;
-        };
-    } else {
-        return findZigLibDir(allocator) catch |err| {
-            warn(
-                \\Unable to find zig lib directory: {}.
-                \\Reinstall Zig or use --zig-install-prefix.
-                \\
-                ,
-                @errorName(err)
-            );
+pub fn resolveZigLibDir(allocator: &mem.Allocator) ![]u8 {
+    return findZigLibDir(allocator) catch |err| {
+        warn(
+            \\Unable to find zig lib directory: {}.
+            \\Reinstall Zig or use --zig-install-prefix.
+            \\
+            ,
+            @errorName(err)
+        );
 
-            return error.ZigLibDirNotFound;
-        };
-    }
+        return error.ZigLibDirNotFound;
+    };
 }
