@@ -2923,9 +2923,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.fn_def.fn_proto, visit, context);
             visit_field(&node->data.fn_def.body, visit, context);
             break;
-        case NodeTypeFnDecl:
-            visit_field(&node->data.fn_decl.fn_proto, visit, context);
-            break;
         case NodeTypeParamDecl:
             visit_field(&node->data.param_decl.type, visit, context);
             break;

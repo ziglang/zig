@@ -301,6 +301,9 @@ pub const timespec = c.timespec;
 pub const Stat = c.Stat;
 pub const dirent = c.dirent;
 
+pub const sa_family_t = c.sa_family_t;
+pub const sockaddr = c.sockaddr;
+
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {
     handler: extern fn(i32)void,

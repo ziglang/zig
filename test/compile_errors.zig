@@ -1723,7 +1723,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(bar)); }
-    , ".tmp_source.zig:10:16: error: parameter of type '(integer literal)' requires comptime");
+    , ".tmp_source.zig:10:16: error: compiler bug: integer and float literals in var args function must be casted");
 
     cases.add("assign too big number to u16",
         \\export fn foo() void {

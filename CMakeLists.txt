@@ -5,6 +5,11 @@ if(NOT CMAKE_BUILD_TYPE)
         "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif()
 
+if(NOT CMAKE_INSTALL_PREFIX)
+  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE STRING
+      "Directory to install zig to" FORCE)
+endif()
+
 project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
@@ -425,18 +430,24 @@ set(ZIG_STD_FILES
     "crypto/sha2.zig"
     "crypto/sha3.zig"
     "crypto/blake2.zig"
+    "crypto/hmac.zig"
     "cstr.zig"
     "debug/failing_allocator.zig"
     "debug/index.zig"
     "dwarf.zig"
     "elf.zig"
     "empty.zig"
-    "endian.zig"
+    "event.zig"
     "fmt/errol/enum3.zig"
     "fmt/errol/index.zig"
     "fmt/errol/lookup.zig"
     "fmt/index.zig"
     "hash_map.zig"
+    "hash/index.zig"
+    "hash/adler.zig"
+    "hash/crc.zig"
+    "hash/fnv.zig"
+    "hash/siphash.zig"
     "heap.zig"
     "index.zig"
     "io.zig"
@@ -501,7 +512,6 @@ set(ZIG_STD_FILES
     "os/get_user_id.zig"
     "os/index.zig"
     "os/linux/errno.zig"
-    "os/linux/i386.zig"
     "os/linux/index.zig"
     "os/linux/x86_64.zig"
     "os/path.zig"

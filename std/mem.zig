@@ -3,6 +3,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
 const builtin = @import("builtin");
+const mem = this;
 
 pub const Allocator = struct {
     const Error = error {OutOfMemory};
@@ -542,4 +543,29 @@ test "std.mem.rotate" {
     rotate(i32, arr[0..], 2);
 
     assert(eql(i32, arr, []i32{ 1, 2, 4, 5, 3 }));
+}
+
+// TODO: When https://github.com/zig-lang/zig/issues/649 is solved these can be done by
+// endian-casting the pointer and then dereferencing
+
+pub fn endianSwapIfLe(comptime T: type, x: T) T {
+    return endianSwapIf(builtin.Endian.Little, T, x);
+}
+
+pub fn endianSwapIfBe(comptime T: type, x: T) T {
+    return endianSwapIf(builtin.Endian.Big, T, x);
+}
+
+pub fn endianSwapIf(endian: builtin.Endian, comptime T: type, x: T) T {
+    return if (builtin.endian == endian) endianSwap(T, x) else x;
+}
+
+pub fn endianSwap(comptime T: type, x: T) T {
+    var buf: [@sizeOf(T)]u8 = undefined;
+    mem.writeInt(buf[0..], x, builtin.Endian.Little);
+    return mem.readInt(buf, T, builtin.Endian.Big);
+}
+
+test "std.mem.endianSwap" {
+    assert(endianSwap(u32, 0xDEADBEEF) == 0xEFBEADDE);
 }
