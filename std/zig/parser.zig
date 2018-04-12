@@ -1012,8 +1012,9 @@ pub const Parser = struct {
                     });
                 },
                 State.ParamDeclComma => |fn_proto| {
-                    var discard_end: Token = undefined;
-                    try self.commaOrEnd(&stack, Token.Id.RParen, &discard_end, State { .ParamDecl = fn_proto });
+                    if ((try self.expectCommaOrEnd(Token.Id.RParen)) == null) {
+                        stack.append(State { .ParamDecl = fn_proto }) catch unreachable;
+                    }
                     continue;
                 },
 
@@ -1394,7 +1395,11 @@ pub const Parser = struct {
                     try stack.append(State { .Expression = OptionalCtx { .Required = try list_state.list.addOne() } });
                 },
                 State.ExprListCommaOrEnd => |list_state| {
-                    try self.commaOrEnd(&stack, list_state.end, list_state.ptr, State { .ExprListItemOrEnd = list_state });
+                    if (try self.expectCommaOrEnd(list_state.end)) |end| {
+                        *list_state.ptr = end;
+                    } else {
+                        stack.append(State { .ExprListItemOrEnd = list_state }) catch unreachable;
+                    }
                     continue;
                 },
                 State.FieldInitListItemOrEnd => |list_state| {
@@ -1430,12 +1435,19 @@ pub const Parser = struct {
                     });
                 },
                 State.FieldInitListCommaOrEnd => |list_state| {
-                    try self.commaOrEnd(&stack, Token.Id.RBrace, list_state.ptr, State { .FieldInitListItemOrEnd = list_state });
+                    if (try self.expectCommaOrEnd(Token.Id.RBrace)) |end| {
+                        *list_state.ptr = end;
+                    } else {
+                        stack.append(State { .FieldInitListItemOrEnd = list_state }) catch unreachable;
+                    }
                     continue;
                 },
                 State.FieldListCommaOrEnd => |container_decl| {
-                    try self.commaOrEnd(&stack, Token.Id.RBrace, &container_decl.rbrace_token,
-                        State { .ContainerDecl = container_decl });
+                    if (try self.expectCommaOrEnd(Token.Id.RBrace)) |end| {
+                        container_decl.rbrace_token = end;
+                    } else {
+                        stack.append(State { .ContainerDecl = container_decl }) catch unreachable;
+                    }
                     continue;
                 },
                 State.IdentifierListItemOrEnd => |list_state| {
@@ -1448,7 +1460,11 @@ pub const Parser = struct {
                     try stack.append(State { .Identifier = OptionalCtx { .Required = try list_state.list.addOne() } });
                 },
                 State.IdentifierListCommaOrEnd => |list_state| {
-                    try self.commaOrEnd(&stack, Token.Id.RBrace, list_state.ptr, State { .IdentifierListItemOrEnd = list_state });
+                    if (try self.expectCommaOrEnd(Token.Id.RBrace)) |end| {
+                        *list_state.ptr = end;
+                    } else {
+                        stack.append(State { .IdentifierListItemOrEnd = list_state }) catch unreachable;
+                    }
                     continue;
                 },
                 State.SwitchCaseOrEnd => |list_state| {
@@ -1473,7 +1489,11 @@ pub const Parser = struct {
 
                 },
                 State.SwitchCaseCommaOrEnd => |list_state| {
-                    try self.commaOrEnd(&stack, Token.Id.RBrace, list_state.ptr, State { .SwitchCaseOrEnd = list_state });
+                    if (try self.expectCommaOrEnd(Token.Id.RBrace)) |end| {
+                        *list_state.ptr = end;
+                    } else {
+                        stack.append(State { .SwitchCaseOrEnd = list_state }) catch unreachable;
+                    }
                     continue;
                 },
                 State.SwitchCaseFirstItem => |case_items| {
@@ -1498,7 +1518,9 @@ pub const Parser = struct {
                     try stack.append(State { .RangeExpressionBegin = OptionalCtx { .Required = try case_items.addOne() } });
                 },
                 State.SwitchCaseItemCommaOrEnd => |case_items| {
-                    try self.commaOrEnd(&stack, Token.Id.EqualAngleBracketRight, null, State { .SwitchCaseItem = case_items });
+                    if ((try self.expectCommaOrEnd(Token.Id.EqualAngleBracketRight)) == null) {
+                        stack.append(State { .SwitchCaseItem = case_items }) catch unreachable;
+                    }
                     continue;
                 },
 
@@ -2986,22 +3008,16 @@ pub const Parser = struct {
         }
     }
 
-    fn commaOrEnd(self: &Parser, stack: &ArrayList(State), end: &const Token.Id, maybe_ptr: ?&Token, state_after_comma: &const State) !void {
+    fn expectCommaOrEnd(self: &Parser, end: @TagType(Token.Id)) !?Token {
         var token = self.getNextToken();
         switch (token.id) {
-            Token.Id.Comma => {
-                stack.append(state_after_comma) catch unreachable;
-            },
+            Token.Id.Comma => return null,
             else => {
-                const IdTag = @TagType(Token.Id);
-                if (IdTag(*end) == token.id) {
-                    if (maybe_ptr) |ptr| {
-                        *ptr = token;
-                    }
-                    return;
+                if (end == token.id) {
+                    return token;
                 }
 
-                return self.parseError(token, "expected ',' or {}, found {}", @tagName(*end), @tagName(token.id));
+                return self.parseError(token, "expected ',' or {}, found {}", @tagName(end), @tagName(token.id));
             },
         }
     }
