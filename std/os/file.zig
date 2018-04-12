@@ -85,6 +85,14 @@ pub const File = struct {
         };
     }
 
+    pub fn exists(allocator: &mem.Allocator, path: []const u8) bool {
+        if (openRead(allocator, path)) |*file| {
+            file.close();
+            return true;
+        } else |_| {
+            return false;
+        }
+    }
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
