@@ -2330,12 +2330,14 @@ pub const Parser = struct {
                 },
 
                 State.FnProtoAlign => |fn_proto| {
+                    stack.append(State { .FnProtoReturnType = fn_proto }) catch unreachable;
+
                     if (self.eatToken(Token.Id.Keyword_align)) |align_token| {
-                        @panic("TODO fn proto align");
+                        try stack.append(State { .ExpectToken = Token.Id.RParen });
+                        try stack.append(State { .Expression = DestPtr { .NullableField = &fn_proto.align_expr } });
+                        try stack.append(State { .ExpectToken = Token.Id.LParen });
                     }
-                    stack.append(State {
-                        .FnProtoReturnType = fn_proto,
-                    }) catch unreachable;
+
                     continue;
                 },
 
@@ -2347,10 +2349,6 @@ pub const Parser = struct {
                             stack.append(State {
                                 .TypeExprBegin = DestPtr {.Field = &fn_proto.return_type.InferErrorSet},
                             }) catch unreachable;
-                            continue;
-                        },
-                        Token.Id.Keyword_align => {
-                            @panic("TODO fn proto align");
                             continue;
                         },
                         else => {
@@ -3179,7 +3177,6 @@ pub const Parser = struct {
 
     const RenderState = union(enum) {
         TopLevelDecl: &ast.Node,
-        FnProtoRParen: &ast.NodeFnProto,
         ParamDecl: &ast.Node,
         Text: []const u8,
         Expression: &ast.Node,
@@ -3868,8 +3865,10 @@ pub const Parser = struct {
                             },
                         }
 
-                        if (fn_proto.align_expr != null) {
-                            @panic("TODO");
+                        if (fn_proto.align_expr) |align_expr| {
+                            try stack.append(RenderState { .Text = ") " });
+                            try stack.append(RenderState { .Expression = align_expr});
+                            try stack.append(RenderState { .Text = "align(" });
                         }
 
                         try stack.append(RenderState { .Text = ") " });
@@ -4271,26 +4270,6 @@ pub const Parser = struct {
                     ast.Node.Id.TestDecl,
                     ast.Node.Id.ParamDecl => unreachable,
                 },
-                RenderState.FnProtoRParen => |fn_proto| {
-                    try stream.print(")");
-                    if (fn_proto.align_expr != null) {
-                        @panic("TODO");
-                    }
-                    try stream.print(" ");
-                    if (fn_proto.body_node) |body_node| {
-                        try stack.append(RenderState { .Expression = body_node});
-                        try stack.append(RenderState { .Text = " "});
-                    }
-                    switch (fn_proto.return_type) {
-                        ast.NodeFnProto.ReturnType.Explicit => |node| {
-                            try stack.append(RenderState { .Expression = node});
-                        },
-                        ast.NodeFnProto.ReturnType.InferErrorSet => |node| {
-                            try stream.print("!");
-                            try stack.append(RenderState { .Expression = node});
-                        },
-                    }
-                },
                 RenderState.Statement => |base| {
                     if (base.comment) |comment| {
                         for (comment.lines.toSliceConst()) |line_token| {
@@ -4644,12 +4623,20 @@ test "zig fmt: var type" {
     );
 }
 
-test "zig fmt: extern function" {
+test "zig fmt: functions" {
     try testCanonical(
         \\extern fn puts(s: &const u8) c_int;
         \\extern "c" fn puts(s: &const u8) c_int;
         \\export fn puts(s: &const u8) c_int;
         \\inline fn puts(s: &const u8) c_int;
+        \\pub extern fn puts(s: &const u8) c_int;
+        \\pub extern "c" fn puts(s: &const u8) c_int;
+        \\pub export fn puts(s: &const u8) c_int;
+        \\pub inline fn puts(s: &const u8) c_int;
+        \\pub extern fn puts(s: &const u8) align(2 + 2) c_int;
+        \\pub extern "c" fn puts(s: &const u8) align(2 + 2) c_int;
+        \\pub export fn puts(s: &const u8) align(2 + 2) c_int;
+        \\pub inline fn puts(s: &const u8) align(2 + 2) c_int;
         \\
     );
 }
