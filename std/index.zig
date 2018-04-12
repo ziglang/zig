@@ -33,7 +33,6 @@ pub const ascii = representations.ascii; // For easy access
 pub const utf8 = representations.utf8; // ^^
 pub const zig = @import("zig/index.zig");
 pub const string = @import("string_utils.zig");
-pub const locale = @import("locale.zig");
 
 test "std" {
     // run tests from these
@@ -65,7 +64,6 @@ test "std" {
     _ = @import("rand/index.zig");
     _ = @import("sort.zig");
     _ = @import("representations/index.zig");
-    _ = @import("locale.zig");
     _ = @import("zig/index.zig");
     _ = @import("string_utils.zig");
 }

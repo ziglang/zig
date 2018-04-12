@@ -6,7 +6,6 @@ const Set = std.BufSet;
 const assert = std.debug.assert;
 const warn = std.debug.warn;
 const DebugAllocator = std.debug.global_allocator;
-const locale = std.locale;
 
 pub const Errors = error {
     InvalidCharacter,
@@ -117,100 +116,3 @@ pub const View = struct {
         return Iterator { .index = 0, .raw = self.characters };
     }
 };
-
-fn changeCase(view: &View, allocator: &mem.Allocator, lowercase: bool) MemoryErrors!View {
-    assert(view.characters.len > 0);
-    // Ascii so no need to do it 'right'
-    var newArray : []u8 = try allocator.alloc(u8, @sizeOf(u8) * view.characters.len);
-    var it = view.iterator();
-    var char = it.nextCodePoint();
-    var i : usize = 0;
-
-    while (char) |v| {
-        if (lowercase and Locale.isLowercaseLetter(v)) {
-            newArray[i] = v + ('a' - 'A');
-        } else if (!lowercase and Locale.isUppercaseLetter(v)) {
-            newArray[i] = v - ('a' - 'A');
-        } else {
-            newArray[i] = v;
-        }
-        char = it.nextCodePoint();
-        i += 1;
-    }
-
-    return View.initUnchecked(newArray);
-}
-
-fn changeCaseBuffer(view: &View, buffer: []u8, lowercase: bool) View {
-    assert(view.characters.len > 0 and view.characters.len <= buffer.len);
-    // Ascii so we can just write into the array directly without translating it back into bytes
-    // For unicode you would have to run an encode.
-    var it = view.iterator();
-    var char = it.nextCodePoint();
-    var i : usize = 0;
-
-    while (char) |v| {
-        if (lowercase and Locale.isLowercaseLetter(v)) {
-            buffer[i] = v + ('a' - 'A');
-        } else if (!lowercase and Locale.isUppercaseLetter(v)) {
-            buffer[i] = v - ('a' - 'A');
-        } else {
-            buffer[i] = v;
-        }
-        char = it.nextCodePoint();
-        i += 1;
-    }
-    return View.initUnchecked(buffer[0..i]);
-}
-
-fn toLower(view: &View, allocator: &mem.Allocator) MemoryErrors!View {
-    return changeCase(view, allocator, true);
-}
-
-fn toUpper(view: &View, allocator: &mem.Allocator) MemoryErrors!View {
-    return changeCase(view, allocator, false);
-}
-
-fn toUpperBuffer(view: &View, buffer: []u8) View {
-    return changeCaseBuffer(view, buffer, false);
-}
-
-fn toLowerBuffer(view: &View, buffer: []u8) View {
-    return changeCaseBuffer(view, buffer, true);
-}
-
-const Locale_Type = locale.CreateLocale(u8, View, Iterator);
-
-pub const Locale = Locale_Type {
-    .lowercaseLetters = View.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = View.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-    .whitespaceLetters = View.initUnchecked(" \t\r\n"), .numbers = View.initUnchecked("0123456789"), 
-    .formatter = Locale_Type.FormatterType {
-        .toLower = toLower, .toUpper = toUpper,
-        .toLowerBuffer = toLowerBuffer, .toUpperBuffer = toUpperBuffer,
-    }
-};
-
-test "Ascii Locale" {
-    // To be split up later
-    var views = [] View { Locale.lowercaseLetters, Locale.uppercaseLetters };
-    var it = Locale.iterator(views[0..]);
-    var i: usize = 0;
-    var lower = "abcdefghijklmnopqrstuvwxyz";
-    var higher = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-    while (i < lower.len) {
-        assert(?? it.nextCodePoint() == lower[i]);
-        i += 1;
-    }
-
-    i = 0;
-    while (i < higher.len) {
-        assert(?? it.nextCodePoint() == higher[i]);
-        i += 1;
-    }
-    
-    var view = try View.init("A");
-    view = try Locale.formatter.toLower(&view, DebugAllocator);
-    assert(view.characters[0] == 'a');
-    DebugAllocator.free(view.characters);
-}

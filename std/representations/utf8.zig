@@ -169,7 +169,7 @@ pub fn ValidateSlice(s: []const u8) bool {
 ///
 /// ```
 /// var utf8 = (try std.utf8.View.init("hi there")).iterator();
-/// while (utf8.nextCodepointSlice()) |codepoint| {
+/// while (utf8.nextCodepoint()) |codepoint| {
 ///   std.debug.warn("got codepoint {}\n", codepoint);
 /// }
 /// ```
@@ -328,10 +328,6 @@ pub const Iterator = struct {
         it.index = 0;
     }
 
-    pub fn next(it: &Iterator) ?[]const u {
-        return it.nextCodepointSlice();
-    }
-
     pub fn nextBytes(it: &Iterator) ?[]const u8 {
         if (it.index >= it.raw.len) {
             return null;
@@ -358,89 +354,6 @@ pub const Iterator = struct {
     }
 };
 
-fn changeCase(view: &View, allocator: &mem.Allocator, lowercase: bool) MemoryErrors!View {
-    assert(view.bytes.len > 0);
-    // Note: The unicode alphabet is currently just the english one
-    // I'll later have it as all the alphabets but for simplicity now it'll just be english
-    // Thus we can presume the byte length is the same.
-    var newArray : []u8 = try allocator.alloc(u8, @sizeOf(u8) * view.bytes.len);
-    var it = view.iterator();
-    var codepoint = it.nextCodepoint();
-    var i : usize = 0;
-
-    while (bytes) |v| {
-        var bytes = Encode(v);
-        if (lowercase and Locale.isLowercaseLetter(v)) {
-            for (view.buffer.bytes[i..i + bytes.len]) |byte| {
-                newArray[i] = v + ('a' - 'A');
-            }
-        } else if (!lowercase and Locale.isUppercaseLetter(v)) {
-            for (view.buffer.bytes[i..i + bytes.len]) |byte| {
-                newArray[i] = v - ('a' - 'A');
-            }
-        } else {
-            for (view.buffer.bytes[i..i + bytes.len]) |byte| {
-                newArray[i] = v;
-            }
-        }
-        char = it.nextCodePoint();
-        i += bytes.len;
-    }
-
-    return View.initUnchecked(newArray);
-}
-
-fn changeCaseBuffer(view: &View, buffer: []u8, lowercase: bool) View {
-    assert(view.bytes.len > 0 and view.bytes.len <= buffer.len);
-    var it = view.iterator();
-    var codepoint = it.nextCodepoint();
-    var i: usize = 0;
-    const diff: usize = comptime Decode('a') - Decode('A');
-
-    while (bytes) |v| {
-        // Forcing a safety check, we can't count how many
-        // codepoints prior sadly.
-        assert(buffer.len > i);
-
-        if (lowercase and Locale.isLowercaseLetter(v)) {
-            buffer[i] = v + diff;
-        } else if (!lowercase and Locale.isUppercaseLetter(v)) {
-            buffer[i] = v - diff;
-        } else {
-            buffer[i] = v;
-        }
-        char = it.nextCodePoint();
-        i += 1;
-    }
-
-    return View.initUnchecked(buffer[0..i]);
-}
-
-fn toLower(view: &View, allocator: &mem.Allocator) MemoryErrors!View {
-    return try changeCase(view, allocator, true);
-}
-
-fn toUpper(view: &View, allocator: &mem.Allocator) MemoryErrors!View {
-    return try changeCase(view, allocator, false);
-}
-
-fn toUpperBuffer(view: &View, buffer: []u32) View {
-    return try changeCaseBuffer(view, buffer, false);
-}
-
-fn toLowerBuffer(view: &View, buffer: []u32) View {
-    return try changeCaseBuffer(view, buffer, true);
-}
-
-pub const Locale = locale.CreateLocale(u8, View, Iterator) {
-    .lowercaseLetters = View.initUnchecked("abcdefghijklmnopqrstuvwxyz"), .uppercaseLetters = View.initUnchecked("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-    .whitespaceLetters = View.initUnchecked(" \t\r\n"), .numbers = View.initUnchecked("0123456789"), 
-    .formatter = Locale_Type.FormatterType {
-        .toLower = toLower, .toUpper = toUpper,
-        .toLowerBuffer = toLowerBuffer, .toUpperBuffer = toUpperBuffer,
-    }
-};
-
 test "utf8 encode" {
     // A few taken from wikipedia a few taken elsewhere
     var array: [4]u8 = undefined;
@@ -463,9 +376,19 @@ test "utf8 encode" {
     debug.assert(array[3] == 0b10001000);
 }
 
+test "utf8 iterator" {
+    var view = View.init("$¢") catch unreachable;
+    var it = view.iterator();
+    var buf = ?? it.nextBytes();
+    assert(buf[0] == 0b00100100);
+    buf = ?? it.nextBytes();
+    assert(buf[0] == 0b11000010);
+    assert(buf[1] == 0b10100010);
+}
+
 test "utf8 encode error" {
     var array: [4]u8 = undefined;
-    testErrorEncode(0x10FFFF, array[0..], error.CodepointTooLarge);
+    testErrorEncode(0xFFFFFF, array[0..], error.CodepointTooLarge);
     testErrorEncode(0xd900, array[0..], error.InvalidCodepoint);
 }
 

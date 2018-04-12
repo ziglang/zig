@@ -442,7 +442,6 @@ set(ZIG_STD_FILES
     "io.zig"
     "linked_list.zig"
     "string_utils.zig"
-    "locale.zig"
     "representations/utf8.zig"
     "representations/index.zig"
     "representations/ascii.zig"

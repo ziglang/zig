@@ -3,8 +3,8 @@ const unicode = std.utf8;
 const mem = std.mem;
 const math = std.math;
 const Set = std.BufSet;
-const assert = std.debug.assert;
-const locale = std.locale;
+const debug = std.debug;
+const assert = debug.assert;
 const ascii = std.ascii;
 const utf8 = std.utf8;
 
@@ -43,31 +43,29 @@ pub fn t_SplitIt(comptime viewType: type, comptime iterator_type: type, comptime
 
         const Self = this;
 
-        // Returns the next thing as a view
-        // You can obtain the data through the '.bytes' item.
-        pub fn next(self: &Self) ?viewType {
-            return if (self.nextBytes()) |bytes| viewType.initUnchecked(bytes) else null;
-        }
-
         // This shouldn't be like this :)
-        pub fn nextBytes(self: &Self) ?baseType {
+        pub fn nextBytes(self: &Self) ?[]const baseType {
             // move to beginning of token
             var nextSlice = self.buffer_it.nextBytes();
 
             while (nextSlice) |curSlice| {
-                if (!self.isSplitByte(&(viewType.initUnchecked(curSlice)))) break;
+                if (!self.isSplitByte(curSlice)) break;
                 nextSlice = self.buffer_it.nextBytes();
             }
 
-            if (nextSlice) |_| {
+            if (nextSlice) |next| {
                 // Go till we find another split
-                const start = self.buffer_it.index - 1;
+                const start = self.buffer_it.index - next.len;
                 nextSlice = self.buffer_it.nextBytes();
+
                 while (nextSlice) |cSlice| {
-                    if (self.isSplitByte(&(viewType.initUnchecked(cSlice)))) break;
+                    if (self.isSplitByte(cSlice)) break;
                     nextSlice = self.buffer_it.nextBytes();
                 }
-                const end = if (nextSlice != null) self.buffer_it.index - 1 else self.buffer_it.index;
+
+                if (nextSlice) |slice| self.buffer_it.index -= slice.len;
+
+                const end = self.buffer_it.index;
                 return self.buffer.sliceBytes(start, end);
             } else {
                 return null;
@@ -75,7 +73,7 @@ pub fn t_SplitIt(comptime viewType: type, comptime iterator_type: type, comptime
         }
 
         pub fn nextCodepoint(self: &Self) ?[]const codePoint {
-            return self.next().sliceCodepointToEndFrom(0);
+            return utf8.decode(self.nextBytes());
         }
 
         /// Returns a slice of the remaining bytes. Does not affect iterator state.
@@ -87,32 +85,31 @@ pub fn t_SplitIt(comptime viewType: type, comptime iterator_type: type, comptime
             return viewType.initUnchecked(self.restBytes());
         }
 
-        pub fn restBytes(self: &Self) ?baseType {
+        pub fn restBytes(self: &Self) ?[]const baseType {
             // move to beginning of token
             var index = self.buffer_it.index;
             defer self.buffer_it.index = index;
             var nextSlice = self.buffer_it.nextBytes();
 
             while (nextSlice) |curSlice| {
-                if (!self.isSplitByte(&(viewType.initUnchecked(curSlice)))) break;
+                if (!self.isSplitByte(curSlice)) break;
                 nextSlice = self.buffer_it.nextBytes();
             }
 
-            if (nextSlice != null) {
-                const iterator = self.buffer_it.index - 1;
+            if (nextSlice) |slice| {
+                const iterator = self.buffer_it.index - slice.len;
                 return self.buffer.sliceBytesToEndFrom(iterator);
             } else {
                 return null;
             }
         }
 
-        fn isSplitByte(self: &Self, toCheck: &viewType) bool {
+        fn isSplitByte(self: &Self, toCheck: []const baseType) bool {
             self.split_bytes_it.reset();
             var byte = self.split_bytes_it.nextBytes();
             
             while (byte) |split_byte| {
-                var viewByte = viewType.initUnchecked(split_byte);
-                if (toCheck.eql(viewByte)) {
+                if (mem.eql(baseType, split_byte, toCheck)) {
                     return true;
                 }
                 byte = self.split_bytes_it.nextBytes();
@@ -120,18 +117,19 @@ pub fn t_SplitIt(comptime viewType: type, comptime iterator_type: type, comptime
             return false;
         }
 
-        fn init(view: baseType, split_bytes: baseType) !Self {
+        fn init(view: []const baseType, split_bytes: []const baseType) !Self {
             return Self { .buffer = try viewType.init(view), .split_bytes_it = (try viewType.init(split_bytes)).iterator(), .buffer_it = (try viewType.init(view)).iterator() };
         }
     };
 }
 
 test "string_utils.split.ascii" {
-    var it = try asciiSplit("   abc def   ghi  ", " ");
+    var it = try asciiSplit("   abc def   ghi k ", " ");
     assert(mem.eql(u8, ?? it.nextBytes(), "abc"));
     assert(mem.eql(u8, ?? it.nextBytes(), "def"));
-    assert(mem.eql(u8, ?? it.restBytes(), "ghi  "));
+    assert(mem.eql(u8, ?? it.restBytes(), "ghi k "));
     assert(mem.eql(u8, ?? it.nextBytes(), "ghi"));
+    assert(mem.eql(u8, ?? it.nextBytes(), "k"));
     assert(it.nextBytes() == null);
 }
 
@@ -144,13 +142,13 @@ test "string_utils.split.unicode" {
     assert(it.nextBytes() == null);
 }
               
-pub const t_AsciiSplitIt = t_SplitIt(ascii.View, ascii.Iterator, []const u8, u8);
+pub const t_AsciiSplitIt = t_SplitIt(ascii.View, ascii.Iterator, u8, u8);
 
 pub fn asciiSplit(a: []const u8, splitBytes: []const u8) !t_AsciiSplitIt {
     return try t_AsciiSplitIt.init(a, splitBytes);
 }
 
-pub const t_Utf8SplitIt = t_SplitIt(utf8.View, utf8.Iterator, []const u8, u32);
+pub const t_Utf8SplitIt = t_SplitIt(utf8.View, utf8.Iterator, u8, u32);
 
 pub fn utf8Split(a: []const u8, splitBytes: []const u8) !t_Utf8SplitIt {
     return try t_Utf8SplitIt.init(a, splitBytes);
