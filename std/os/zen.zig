@@ -122,8 +122,9 @@ pub const Syscall = enum(usize) {
     receive       = 2,
     subscribeIRQ  = 3,
     inb           = 4,
-    map           = 5,
-    createThread  = 6,
+    outb          = 5,
+    map           = 6,
+    createThread  = 7,
 };
 
 
@@ -150,6 +151,10 @@ pub fn subscribeIRQ(irq: u8, mailbox_id: &const MailboxId) void {
 
 pub fn inb(port: u16) u8 {
     return u8(syscall1(Syscall.inb, port));
+}
+
+pub fn outb(port: u16, value: u8) void {
+    _ = syscall2(Syscall.outb, port, value);
 }
 
 pub fn map(v_addr: usize, p_addr: usize, size: usize, writable: bool) bool {
