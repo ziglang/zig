@@ -289,7 +289,7 @@ pub const NodeErrorSetDecl = struct {
     pub fn iterate(self: &NodeErrorSetDecl, index: usize) ?&Node {
         var i = index;
 
-        if (i < self.decls.len) return &self.decls.at(i).base;
+        if (i < self.decls.len) return self.decls.at(i);
         i -= self.decls.len;
 
         return null;
@@ -763,7 +763,7 @@ pub const NodeElse = struct {
         var i = index;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -823,7 +823,7 @@ pub const NodeSwitchCase = struct {
         i -= self.items.len;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -877,7 +877,7 @@ pub const NodeWhile = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -935,7 +935,7 @@ pub const NodeFor = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -986,7 +986,7 @@ pub const NodeIf = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -1076,7 +1076,7 @@ pub const NodeInfixOp = struct {
         switch (self.op) {
             InfixOp.Catch => |maybe_payload| {
                 if (maybe_payload) |payload| {
-                    if (i < 1) return &payload.base;
+                    if (i < 1) return payload;
                     i -= 1;
                 }
             },
@@ -1413,7 +1413,7 @@ pub const NodeSuspend = struct {
         var i = index;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
