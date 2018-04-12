@@ -221,3 +221,71 @@ test "stringUtils.ascii.joinBuffer" {
     assert(mem.eql(u8, asciiJoinBuffer(buf[0..], ", ", "a", "b", "c"), "a, b, c"));
     assert(mem.eql(u8, asciiJoinBuffer(buf[0..], ",", "a"), "a"));
 }
+
+pub fn asciiTrim(string: []const u8, trimChars: []const u8, side: Side)[]const u8 {
+    return trim(ascii.View, u8, &ascii.View.initUnchecked(string), &ascii.View.initUnchecked(trimChars), side);
+}
+
+pub fn utf8Trim(string: []const u8, trimChars: []const u8, side: Side)[]const u8 {
+    return trim(utf8.View, u8, &utf8.View.initUnchecked(string), &utf8.View.initUnchecked(trimChars), side);
+}
+
+pub const Side = enum { LEFT = 1, RIGHT = 2, BOTH = 3, };
+
+pub fn trim(comptime View: type, comptime BaseType: type, string: &View, trimCharacters: &View, side: Side) []const BaseType {
+    assert(side == Side.LEFT or side == Side.RIGHT or side == Side.BOTH);
+    var initialIndex : usize = 0;
+    var endIndex : usize = string.byteLen();
+    var it = string.iterator();
+
+    if (side == Side.LEFT or side == Side.BOTH) {
+        while (it.nextBytes()) |bytes| {
+            var trim_it = trimCharacters.iterator();
+            var found = false;
+            while (trim_it.nextBytes()) |trimBytes| {
+                if (mem.eql(BaseType, trimBytes, bytes)) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                initialIndex = it.index - bytes.len;
+                break;
+            }
+        }
+    }
+
+    if (side == Side.RIGHT or side == Side.BOTH) {
+        // Continue from where it started off but keep going till we hit the end keeping in track
+        // The length of the code points
+        var codePointLength : usize = 0;
+        while (it.nextBytes()) |bytes| {
+            var trim_it = trimCharacters.iterator();
+            var found = false;
+            while (trim_it.nextBytes()) |trimBytes| {
+                if (mem.eql(BaseType, trimBytes, bytes)) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                codePointLength += bytes.len;
+            } else {
+                codePointLength = 0;
+            }
+        }
+
+        endIndex -= codePointLength;
+    }
+
+    return string.sliceBytes(initialIndex, endIndex);
+}
+
+test "stringUtils.ascii.trim" {
+    // Copied from mem.trim
+    assert(mem.eql(u8, asciiTrim(" foo\n ", " \n", Side.BOTH), "foo"));
+    assert(mem.eql(u8, asciiTrim("foo", " \n", Side.BOTH), "foo"));
+    assert(mem.eql(u8, asciiTrim(" foo ", " ", Side.LEFT), "foo "));
+}
