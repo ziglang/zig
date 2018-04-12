@@ -214,7 +214,7 @@ pub const NodeVarDecl = struct {
     eq_token: Token,
     mut_token: Token,
     comptime_token: ?Token,
-    extern_token: ?Token,
+    extern_export_token: ?Token,
     lib_name: ?&Node,
     type_node: ?&Node,
     align_node: ?&Node,
@@ -245,7 +245,7 @@ pub const NodeVarDecl = struct {
     pub fn firstToken(self: &NodeVarDecl) Token {
         if (self.visib_token) |visib_token| return visib_token;
         if (self.comptime_token) |comptime_token| return comptime_token;
-        if (self.extern_token) |extern_token| return extern_token;
+        if (self.extern_export_token) |extern_export_token| return extern_export_token;
         assert(self.lib_name == null);
         return self.mut_token;
     }
@@ -360,6 +360,7 @@ pub const NodeContainerDecl = struct {
 
 pub const NodeStructField = struct {
     base: Node,
+    visib_token: ?Token,
     name_token: Token,
     type_expr: &Node,
 
@@ -373,6 +374,7 @@ pub const NodeStructField = struct {
     }
 
     pub fn firstToken(self: &NodeStructField) Token {
+        if (self.visib_token) |visib_token| return visib_token;
         return self.name_token;
     }
 
@@ -494,8 +496,7 @@ pub const NodeFnProto = struct {
     params: ArrayList(&Node),
     return_type: ReturnType,
     var_args_token: ?Token,
-    extern_token: ?Token,
-    inline_token: ?Token,
+    extern_export_inline_token: ?Token,
     cc_token: ?Token,
     async_attr: ?&NodeAsyncAttribute,
     body_node: ?&Node,
@@ -545,9 +546,8 @@ pub const NodeFnProto = struct {
 
     pub fn firstToken(self: &NodeFnProto) Token {
         if (self.visib_token) |visib_token| return visib_token;
-        if (self.extern_token) |extern_token| return extern_token;
+        if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
         assert(self.lib_name == null);
-        if (self.inline_token) |inline_token| return inline_token;
         if (self.cc_token) |cc_token| return cc_token;
         return self.fn_token;
     }
@@ -1606,7 +1606,7 @@ pub const NodeThisLiteral = struct {
 pub const NodeAsmOutput = struct {
     base: Node,
     symbolic_name: &NodeIdentifier,
-    constraint: &NodeStringLiteral,
+    constraint: &Node,
     kind: Kind,
 
     const Kind = union(enum) {
@@ -1620,7 +1620,7 @@ pub const NodeAsmOutput = struct {
         if (i < 1) return &self.symbolic_name.base;
         i -= 1;
 
-        if (i < 1) return &self.constraint.base;
+        if (i < 1) return self.constraint;
         i -= 1;
 
         switch (self.kind) {
@@ -1652,7 +1652,7 @@ pub const NodeAsmOutput = struct {
 pub const NodeAsmInput = struct {
     base: Node,
     symbolic_name: &NodeIdentifier,
-    constraint: &NodeStringLiteral,
+    constraint: &Node,
     expr: &Node,
 
     pub fn iterate(self: &NodeAsmInput, index: usize) ?&Node {
@@ -1661,7 +1661,7 @@ pub const NodeAsmInput = struct {
         if (i < 1) return &self.symbolic_name.base;
         i -= 1;
 
-        if (i < 1) return &self.constraint.base;
+        if (i < 1) return self.constraint;
         i -= 1;
 
         if (i < 1) return self.expr;
@@ -1683,11 +1683,11 @@ pub const NodeAsm = struct {
     base: Node,
     asm_token: Token,
     is_volatile: bool,
-    template: Token,
+    template: &Node,
     //tokens: ArrayList(AsmToken),
     outputs: ArrayList(&NodeAsmOutput),
     inputs: ArrayList(&NodeAsmInput),
-    cloppers: ArrayList(&NodeStringLiteral),
+    cloppers: ArrayList(&Node),
     rparen: Token,
 
     pub fn iterate(self: &NodeAsm, index: usize) ?&Node {
@@ -1699,7 +1699,7 @@ pub const NodeAsm = struct {
         if (i < self.inputs.len) return &self.inputs.at(index).base;
         i -= self.inputs.len;
 
-        if (i < self.cloppers.len) return &self.cloppers.at(index).base;
+        if (i < self.cloppers.len) return self.cloppers.at(index);
         i -= self.cloppers.len;
 
         return null;
