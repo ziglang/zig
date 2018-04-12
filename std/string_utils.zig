@@ -171,11 +171,14 @@ pub fn utf8JoinBuffer(buffer: []u8, sep: []const u8, strings: ...) []u8 {
 }
 
 fn calculateLength(comptime baseType: type,  sep: []const baseType, views: [][]const baseType, strings: ...) usize {
-    var totalLength: usize = sep.len * strings.len;
+    var totalLength: usize = 0;
     comptime var string_i = 0;
     inline while (string_i < strings.len) : (string_i += 1) {
         const arg = ([]const baseType)(strings[string_i]);
         totalLength += arg.len;
+        if (string_i < strings.len - 1 and (arg.len < sep.len or !mem.eql(baseType, arg[arg.len - sep.len..], sep))) {
+            totalLength += sep.len;
+        }
         views[string_i] = arg;
     }
     return totalLength;
@@ -204,14 +207,16 @@ pub fn joinViewsBuffer(comptime baseType: type, sep: []const baseType, strings: 
         mem.copy(baseType, buffer[buffer_i..], string);
         buffer_i += string.len;
         // As to not print the last one
-        if (buffer_i == totalLength) break;
-        mem.copy(baseType, buffer[buffer_i..], sep);
-        buffer_i += sep.len;
+        if (buffer_i >= totalLength) break;
+        if (buffer_i < sep.len or !mem.eql(baseType, buffer[buffer_i - sep.len..buffer_i], sep)) {
+            mem.copy(baseType, buffer[buffer_i..], sep);
+            buffer_i += sep.len;
+        }
     }
     return buffer[0..buffer_i];
 }
 
-test "ascii.joinBuffer" {
+test "stringUtils.ascii.joinBuffer" {
     var buf: [100]u8 = undefined;
     assert(mem.eql(u8, asciiJoinBuffer(buf[0..], ", ", "a", "b", "c"), "a, b, c"));
     assert(mem.eql(u8, asciiJoinBuffer(buf[0..], ",", "a"), "a"));
