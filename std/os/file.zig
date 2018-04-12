@@ -253,7 +253,9 @@ pub const File = struct {
                 };
             }
 
-            return stat.mode;
+            // TODO: we should be able to cast u16 to ModeError!u32, making this
+            // explicit cast not necessary
+            return os.FileMode(stat.mode);
         } else if (is_windows) {
             return {};
         } else {
