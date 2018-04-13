@@ -176,9 +176,9 @@ static int find_zig_lib_dir(Buf *out_path) {
     int err;
 
     Buf self_exe_path = BUF_INIT;
+    buf_resize(&self_exe_path, 0);
     if (!(err = os_self_exe_path(&self_exe_path))) {
         Buf *cur_path = &self_exe_path;
-        buf_resize(cur_path, 0);
 
         for (;;) {
             Buf *test_dir = buf_alloc();
