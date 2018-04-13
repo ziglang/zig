@@ -28,7 +28,6 @@ const usage =
     \\  build-exe   [source]         Create executable from source or object files
     \\  build-lib   [source]         Create library from source or object files
     \\  build-obj   [source]         Create object from source or assembly
-    \\  cc          [args]           Call the system c compiler and pass args through
     \\  fmt         [source]         Parse file and render in canonical zig format
     \\  run         [source]         Create executable and run immediately
     \\  targets                      List available compilation targets
@@ -69,7 +68,6 @@ pub fn main() !void {
         Command { .name = "build-exe",   .exec = cmdBuildExe   },
         Command { .name = "build-lib",   .exec = cmdBuildLib   },
         Command { .name = "build-obj",   .exec = cmdBuildObj   },
-        Command { .name = "cc",          .exec = cmdCc         },
         Command { .name = "fmt",         .exec = cmdFmt        },
         Command { .name = "run",         .exec = cmdRun        },
         Command { .name = "targets",     .exec = cmdTargets    },
@@ -630,42 +628,6 @@ fn cmdBuildObj(allocator: &Allocator, args: []const []const u8) !void {
     try buildOutputType(allocator, args, Module.Kind.Obj);
 }
 
-// cmd:cc //////////////////////////////////////////////////////////////////////////////////////////
-
-fn cmdCc(allocator: &Allocator, args: []const []const u8) !void {
-    // TODO: using libclang directly would be nice, but it may not expose argument parsing nicely
-    var command = ArrayList([]const u8).init(allocator);
-    defer command.deinit();
-
-    try command.append("cc");
-    try command.appendSlice(args);
-
-    var proc = try os.ChildProcess.init(command.toSliceConst(), allocator);
-    defer proc.deinit();
-
-    var term = try proc.spawnAndWait();
-    switch (term) {
-        os.ChildProcess.Term.Exited => |status| {
-            if (status != 0) {
-                try stderr.print("cc exited with status {}\n", status);
-                os.exit(1);
-            }
-        },
-        os.ChildProcess.Term.Signal => |signal| {
-            try stderr.print("cc killed by signal {}\n", signal);
-            os.exit(1);
-        },
-        os.ChildProcess.Term.Stopped => |signal| {
-            try stderr.print("cc stopped by signal {}\n", signal);
-            os.exit(1);
-        },
-        os.ChildProcess.Term.Unknown => |status| {
-            try stderr.print("cc encountered unknown failure {}\n", status);
-            os.exit(1);
-        },
-    }
-}
-
 // cmd:fmt /////////////////////////////////////////////////////////////////////////////////////////
 
 const usage_fmt =
@@ -966,7 +928,6 @@ fn cmdRun(allocator: &Allocator, args: []const []const u8) !void {
             break;
         }
     }
-
     var flags = try Args.parse(allocator, args_run_spec, compile_args);
     defer flags.deinit();
 
