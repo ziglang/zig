@@ -3972,7 +3972,8 @@ pub const Parser = struct {
                             try stack.append(RenderState { .Expression = items[i] });
 
                             if (i != 0) {
-                                try stack.append(RenderState { .Text = ", " });
+                                try stack.append(RenderState.PrintIndent);
+                                try stack.append(RenderState { .Text = ",\n" });
                             }
                         }
                     },
@@ -4878,7 +4879,8 @@ test "zig fmt: switch" {
         \\    switch (0) {
         \\        0 => {},
         \\        1 => unreachable,
-        \\        2, 3 => {},
+        \\        2,
+        \\        3 => {},
         \\        4 ... 7 => {},
         \\        1 + 4 * 3 + 22 => {},
         \\        else => {
