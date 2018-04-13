@@ -704,156 +704,46 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
 
 // cmd:targets /////////////////////////////////////////////////////////////////////////////////////
 
-// TODO: comptime '@fields' for iteration here instead so we are always in sync.
-const Os = builtin.Os;
-pub const os_list = []const Os {
-    Os.freestanding,
-    Os.ananas,
-    Os.cloudabi,
-    Os.dragonfly,
-    Os.freebsd,
-    Os.fuchsia,
-    Os.ios,
-    Os.kfreebsd,
-    Os.linux,
-    Os.lv2,
-    Os.macosx,
-    Os.netbsd,
-    Os.openbsd,
-    Os.solaris,
-    Os.windows,
-    Os.haiku,
-    Os.minix,
-    Os.rtems,
-    Os.nacl,
-    Os.cnk,
-    Os.aix,
-    Os.cuda,
-    Os.nvcl,
-    Os.amdhsa,
-    Os.ps4,
-    Os.elfiamcu,
-    Os.tvos,
-    Os.watchos,
-    Os.mesa3d,
-    Os.contiki,
-    Os.zen,
-};
-
-const Arch = builtin.Arch;
-pub const arch_list = []const Arch {
-    Arch.armv8_2a,
-    Arch.armv8_1a,
-    Arch.armv8,
-    Arch.armv8r,
-    Arch.armv8m_baseline,
-    Arch.armv8m_mainline,
-    Arch.armv7,
-    Arch.armv7em,
-    Arch.armv7m,
-    Arch.armv7s,
-    Arch.armv7k,
-    Arch.armv7ve,
-    Arch.armv6,
-    Arch.armv6m,
-    Arch.armv6k,
-    Arch.armv6t2,
-    Arch.armv5,
-    Arch.armv5te,
-    Arch.armv4t,
-    Arch.aarch64,
-    Arch.aarch64_be,
-    Arch.avr,
-    Arch.bpfel,
-    Arch.bpfeb,
-    Arch.hexagon,
-    Arch.mips,
-    Arch.mipsel,
-    Arch.mips64,
-    Arch.mips64el,
-    Arch.msp430,
-    Arch.nios2,
-    Arch.powerpc,
-    Arch.powerpc64,
-    Arch.powerpc64le,
-    Arch.r600,
-    Arch.amdgcn,
-    Arch.riscv32,
-    Arch.riscv64,
-    Arch.sparc,
-    Arch.sparcv9,
-    Arch.sparcel,
-    Arch.s390x,
-    Arch.tce,
-    Arch.tcele,
-    Arch.thumb,
-    Arch.thumbeb,
-    Arch.i386,
-    Arch.x86_64,
-    Arch.xcore,
-    Arch.nvptx,
-    Arch.nvptx64,
-    Arch.le32,
-    Arch.le64,
-    Arch.amdil,
-    Arch.amdil64,
-    Arch.hsail,
-    Arch.hsail64,
-    Arch.spir,
-    Arch.spir64,
-    Arch.kalimbav3,
-    Arch.kalimbav4,
-    Arch.kalimbav5,
-    Arch.shave,
-    Arch.lanai,
-    Arch.wasm32,
-    Arch.wasm64,
-    Arch.renderscript32,
-    Arch.renderscript64,
-};
-
-const Environ = builtin.Environ;
-pub const environ_list = []const Environ {
-    Environ.unknown,
-    Environ.gnu,
-    Environ.gnuabi64,
-    Environ.gnueabi,
-    Environ.gnueabihf,
-    Environ.gnux32,
-    Environ.code16,
-    Environ.eabi,
-    Environ.eabihf,
-    Environ.android,
-    Environ.musl,
-    Environ.musleabi,
-    Environ.musleabihf,
-    Environ.msvc,
-    Environ.itanium,
-    Environ.cygnus,
-    Environ.amdopencl,
-    Environ.coreclr,
-    Environ.opencl,
-};
-
 fn cmdTargets(allocator: &Allocator, args: []const []const u8) !void {
     try stdout.write("Architectures:\n");
-    for (arch_list) |arch_tag| {
-        const native_str = if (builtin.arch == arch_tag) " (native) " else "";
-        try stdout.print("  {}{}\n", @tagName(arch_tag), native_str);
+    {
+        comptime var i: usize = 0;
+        inline while (i < @memberCount(builtin.Arch)) : (i += 1) {
+            comptime const arch_tag = @memberName(builtin.Arch, i);
+            // NOTE: Cannot use empty string, see #918.
+            comptime const native_str =
+                if (comptime mem.eql(u8, arch_tag, @tagName(builtin.arch))) " (native)\n" else "\n";
+
+            try stdout.print("  {}{}", arch_tag, native_str);
+        }
     }
     try stdout.write("\n");
 
     try stdout.write("Operating Systems:\n");
-    for (os_list) |os_tag| {
-        const native_str = if (builtin.os == os_tag) " (native) " else "";
-        try stdout.print("  {}{}\n", @tagName(os_tag), native_str);
+    {
+        comptime var i: usize = 0;
+        inline while (i < @memberCount(builtin.Os)) : (i += 1) {
+            comptime const os_tag = @memberName(builtin.Os, i);
+            // NOTE: Cannot use empty string, see #918.
+            comptime const native_str =
+                if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
+
+            try stdout.print("  {}{}", os_tag, native_str);
+        }
     }
     try stdout.write("\n");
 
     try stdout.write("Environments:\n");
-    for (environ_list) |environ_tag| {
-        const native_str = if (builtin.environ == environ_tag) " (native) " else "";
-        try stdout.print("  {}{}\n", @tagName(environ_tag), native_str);
+    {
+        comptime var i: usize = 0;
+        inline while (i < @memberCount(builtin.Environ)) : (i += 1) {
+            comptime const environ_tag = @memberName(builtin.Environ, i);
+            // NOTE: Cannot use empty string, see #918.
+            comptime const native_str =
+                if (comptime mem.eql(u8, environ_tag, @tagName(builtin.environ))) " (native)\n" else "\n";
+
+            try stdout.print("  {}{}", environ_tag, native_str);
+        }
     }
 }
 
