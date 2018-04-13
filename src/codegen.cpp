@@ -467,7 +467,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
                     fn_table_entry->llvm_value, buf_ptr(&fn_export->name));
         }
     }
-    fn_table_entry->llvm_name = LLVMGetValueName(fn_table_entry->llvm_value);
+    fn_table_entry->llvm_name = strdup(LLVMGetValueName(fn_table_entry->llvm_value));
 
     switch (fn_table_entry->fn_inline) {
         case FnInlineAlways:
