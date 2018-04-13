@@ -283,13 +283,13 @@ pub const NodeUse = struct {
 pub const NodeErrorSetDecl = struct {
     base: Node,
     error_token: Token,
-    decls: ArrayList(&NodeIdentifier),
+    decls: ArrayList(&Node),
     rbrace_token: Token,
 
     pub fn iterate(self: &NodeErrorSetDecl, index: usize) ?&Node {
         var i = index;
 
-        if (i < self.decls.len) return &self.decls.at(i).base;
+        if (i < self.decls.len) return self.decls.at(i);
         i -= self.decls.len;
 
         return null;
@@ -676,13 +676,13 @@ pub const NodeComptime = struct {
 pub const NodePayload = struct {
     base: Node,
     lpipe: Token,
-    error_symbol: &NodeIdentifier,
+    error_symbol: &Node,
     rpipe: Token,
 
     pub fn iterate(self: &NodePayload, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.error_symbol.base;
+        if (i < 1) return self.error_symbol;
         i -= 1;
 
         return null;
@@ -700,14 +700,14 @@ pub const NodePayload = struct {
 pub const NodePointerPayload = struct {
     base: Node,
     lpipe: Token,
-    is_ptr: bool,
-    value_symbol: &NodeIdentifier,
+    ptr_token: ?Token,
+    value_symbol: &Node,
     rpipe: Token,
 
     pub fn iterate(self: &NodePointerPayload, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.value_symbol.base;
+        if (i < 1) return self.value_symbol;
         i -= 1;
 
         return null;
@@ -725,19 +725,19 @@ pub const NodePointerPayload = struct {
 pub const NodePointerIndexPayload = struct {
     base: Node,
     lpipe: Token,
-    is_ptr: bool,
-    value_symbol: &NodeIdentifier,
-    index_symbol: ?&NodeIdentifier,
+    ptr_token: ?Token,
+    value_symbol: &Node,
+    index_symbol: ?&Node,
     rpipe: Token,
 
     pub fn iterate(self: &NodePointerIndexPayload, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.value_symbol.base;
+        if (i < 1) return self.value_symbol;
         i -= 1;
 
         if (self.index_symbol) |index_symbol| {
-            if (i < 1) return &index_symbol.base;
+            if (i < 1) return index_symbol;
             i -= 1;
         }
 
@@ -756,14 +756,14 @@ pub const NodePointerIndexPayload = struct {
 pub const NodeElse = struct {
     base: Node,
     else_token: Token,
-    payload: ?&NodePayload,
+    payload: ?&Node,
     body: &Node,
 
     pub fn iterate(self: &NodeElse, index: usize) ?&Node {
         var i = index;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -813,7 +813,7 @@ pub const NodeSwitch = struct {
 pub const NodeSwitchCase = struct {
     base: Node,
     items: ArrayList(&Node),
-    payload: ?&NodePointerPayload,
+    payload: ?&Node,
     expr: &Node,
 
     pub fn iterate(self: &NodeSwitchCase, index: usize) ?&Node {
@@ -823,7 +823,7 @@ pub const NodeSwitchCase = struct {
         i -= self.items.len;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -865,7 +865,7 @@ pub const NodeWhile = struct {
     inline_token: ?Token,
     while_token: Token,
     condition: &Node,
-    payload: ?&NodePointerPayload,
+    payload: ?&Node,
     continue_expr: ?&Node,
     body: &Node,
     @"else": ?&NodeElse,
@@ -877,7 +877,7 @@ pub const NodeWhile = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -924,7 +924,7 @@ pub const NodeFor = struct {
     inline_token: ?Token,
     for_token: Token,
     array_expr: &Node,
-    payload: ?&NodePointerIndexPayload,
+    payload: ?&Node,
     body: &Node,
     @"else": ?&NodeElse,
 
@@ -935,7 +935,7 @@ pub const NodeFor = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -975,7 +975,7 @@ pub const NodeIf = struct {
     base: Node,
     if_token: Token,
     condition: &Node,
-    payload: ?&NodePointerPayload,
+    payload: ?&Node,
     body: &Node,
     @"else": ?&NodeElse,
 
@@ -986,7 +986,7 @@ pub const NodeIf = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -1048,7 +1048,7 @@ pub const NodeInfixOp = struct {
         BitXor,
         BoolAnd,
         BoolOr,
-        Catch: ?&NodePayload,
+        Catch: ?&Node,
         Div,
         EqualEqual,
         ErrorUnion,
@@ -1076,7 +1076,7 @@ pub const NodeInfixOp = struct {
         switch (self.op) {
             InfixOp.Catch => |maybe_payload| {
                 if (maybe_payload) |payload| {
-                    if (i < 1) return &payload.base;
+                    if (i < 1) return payload;
                     i -= 1;
                 }
             },
@@ -1344,13 +1344,29 @@ pub const NodeControlFlowExpression = struct {
     rhs: ?&Node,
 
     const Kind = union(enum) {
-        Break: ?Token,
-        Continue: ?Token,
+        Break: ?&Node,
+        Continue: ?&Node,
         Return,
     };
 
     pub fn iterate(self: &NodeControlFlowExpression, index: usize) ?&Node {
         var i = index;
+
+        switch (self.kind) {
+            Kind.Break => |maybe_label| {
+                if (maybe_label) |label| {
+                    if (i < 1) return label;
+                    i -= 1;
+                }
+            },
+            Kind.Continue => |maybe_label| {
+                if (maybe_label) |label| {
+                    if (i < 1) return label;
+                    i -= 1;
+                }
+            },
+            Kind.Return => {},
+        }
 
         if (self.rhs) |rhs| {
             if (i < 1) return rhs;
@@ -1370,14 +1386,14 @@ pub const NodeControlFlowExpression = struct {
         }
 
         switch (self.kind) {
-            Kind.Break => |maybe_blk_token| {
-                if (maybe_blk_token) |blk_token| {
-                    return blk_token;
+            Kind.Break => |maybe_label| {
+                if (maybe_label) |label| {
+                    return label.lastToken();
                 }
             },
-            Kind.Continue => |maybe_blk_token| {
-                if (maybe_blk_token) |blk_token| {
-                    return blk_token;
+            Kind.Continue => |maybe_label| {
+                if (maybe_label) |label| {
+                    return label.lastToken();
                 }
             },
             Kind.Return => return self.ltoken,
@@ -1390,14 +1406,14 @@ pub const NodeControlFlowExpression = struct {
 pub const NodeSuspend = struct {
     base: Node,
     suspend_token: Token,
-    payload: ?&NodePayload,
+    payload: ?&Node,
     body: ?&Node,
 
     pub fn iterate(self: &NodeSuspend, index: usize) ?&Node {
         var i = index;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -1605,7 +1621,7 @@ pub const NodeThisLiteral = struct {
 
 pub const NodeAsmOutput = struct {
     base: Node,
-    symbolic_name: &NodeIdentifier,
+    symbolic_name: &Node,
     constraint: &Node,
     kind: Kind,
 
@@ -1617,7 +1633,7 @@ pub const NodeAsmOutput = struct {
     pub fn iterate(self: &NodeAsmOutput, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.symbolic_name.base;
+        if (i < 1) return self.symbolic_name;
         i -= 1;
 
         if (i < 1) return self.constraint;
@@ -1651,14 +1667,14 @@ pub const NodeAsmOutput = struct {
 
 pub const NodeAsmInput = struct {
     base: Node,
-    symbolic_name: &NodeIdentifier,
+    symbolic_name: &Node,
     constraint: &Node,
     expr: &Node,
 
     pub fn iterate(self: &NodeAsmInput, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.symbolic_name.base;
+        if (i < 1) return self.symbolic_name;
         i -= 1;
 
         if (i < 1) return self.constraint;
@@ -1682,7 +1698,7 @@ pub const NodeAsmInput = struct {
 pub const NodeAsm = struct {
     base: Node,
     asm_token: Token,
-    is_volatile: bool,
+    volatile_token: ?Token,
     template: &Node,
     //tokens: ArrayList(AsmToken),
     outputs: ArrayList(&NodeAsmOutput),
