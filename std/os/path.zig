@@ -13,8 +13,8 @@ const windows = os.windows;
 const cstr = std.cstr;
 const string = std.string;
 
-pub const sep_windows = '\\';
-pub const sep_posix = '/';
+pub const sep_windows : u8 = '\\';
+pub const sep_posix : u8 = '/';
 pub const sep = if (is_windows) sep_windows else sep_posix;
 
 pub const delimiter_windows = ';';
@@ -37,27 +37,31 @@ pub fn join(allocator: &Allocator, paths: ...) ![]u8 {
     return string.join(u8, allocator, sep_array, paths);
 }
 
+fn testJoin(allocator: &Allocator, comptime win: bool, paths: ...) ![]u8 {
+    // Currently a work around for the expansion to allow string separators 
+    const sep_array = []const u8{ if (win) sep_windows else sep_posix };
+    return string.join(u8, allocator, sep_array, paths);
+}
+
 test "os.path.join" {
-    if (is_windows) {
-        assert(mem.eql(u8, try join(debug.global_allocator, "c:\\a\\b", "c"), "c:\\a\\b\\c"));
-        assert(mem.eql(u8, try join(debug.global_allocator, "c:\\a\\b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, true, "c:\\a\\b", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, true, "c:\\a\\b\\", "c"), "c:\\a\\b\\c"));
 
-        assert(mem.eql(u8, try join(debug.global_allocator, "c:\\", "a", "b\\", "c"), "c:\\a\\b\\c"));
-        assert(mem.eql(u8, try join(debug.global_allocator, "c:\\a\\", "b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, true, "c:\\", "a", "b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, true, "c:\\a\\", "b\\", "c"), "c:\\a\\b\\c"));
 
-        assert(mem.eql(u8, try join(debug.global_allocator,
-            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig"),
-            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig"));
-    } else {
-        assert(mem.eql(u8, try join(debug.global_allocator, "/a/b", "c"), "/a/b/c"));
-        assert(mem.eql(u8, try join(debug.global_allocator, "/a/b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, true,
+        "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig"),
+        "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig"));
 
-        assert(mem.eql(u8, try join(debug.global_allocator, "/", "a", "b/", "c"), "/a/b/c"));
-        assert(mem.eql(u8, try join(debug.global_allocator, "/a/", "b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, false, "/a/b", "c"), "/a/b/c"));
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, false, "/a/b/", "c"), "/a/b/c"));
 
-        assert(mem.eql(u8, try join(debug.global_allocator, "/home/andy/dev/zig/build/lib/zig/std", "io.zig"),
-            "/home/andy/dev/zig/build/lib/zig/std/io.zig"));
-    }
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, false, "/", "a", "b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, false, "/a/", "b/", "c"), "/a/b/c"));
+
+    assert(mem.eql(u8, try testJoin(debug.global_allocator, false, "/home/andy/dev/zig/build/lib/zig/std", "io.zig"),
+        "/home/andy/dev/zig/build/lib/zig/std/io.zig"));
 }
 
 pub fn isAbsolute(path: []const u8) bool {
