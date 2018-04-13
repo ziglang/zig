@@ -11395,7 +11395,19 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
                 }
                 break;
             case VarClassRequiredAny:
-                // OK
+                if (casted_init_value->value.special == ConstValSpecialStatic &&
+                    casted_init_value->value.type->id == TypeTableEntryIdFn &&
+                    casted_init_value->value.data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
+                {
+                    var_class_requires_const = true;
+                    if (!var->src_is_const && !is_comptime_var) {
+                        ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                            buf_sprintf("functions marked inline must be stored in const or comptime var"));
+                        AstNode *proto_node = casted_init_value->value.data.x_ptr.data.fn.fn_entry->proto_node;
+                        add_error_note(ira->codegen, msg, proto_node, buf_sprintf("declared here"));
+                        result_type = ira->codegen->builtin_types.entry_invalid;
+                    }
+                }
                 break;
         }
     }

@@ -3614,33 +3614,45 @@ pub const Parser = struct {
                                 try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                             ast.NodeSuffixOp.SuffixOp.StructInitializer => |field_inits| {
-                                try stack.append(RenderState { .Text = " }"});
+                                if (field_inits.len == 0) {
+                                    try stack.append(RenderState { .Text = "{}" });
+                                    try stack.append(RenderState { .Expression = suffix_op.lhs });
+                                    continue;
+                                }
+                                try stack.append(RenderState { .Text = "}"});
+                                try stack.append(RenderState.PrintIndent);
+                                try stack.append(RenderState { .Indent = indent });
                                 var i = field_inits.len;
                                 while (i != 0) {
                                     i -= 1;
                                     const field_init = field_inits.at(i);
+                                    try stack.append(RenderState { .Text = ",\n" });
                                     try stack.append(RenderState { .FieldInitializer = field_init });
-                                    try stack.append(RenderState { .Text = " " });
-                                    if (i != 0) {
-                                        try stack.append(RenderState { .Text = "," });
-                                    }
+                                    try stack.append(RenderState.PrintIndent);
                                 }
-                                try stack.append(RenderState { .Text = "{"});
+                                try stack.append(RenderState { .Indent = indent + indent_delta });
+                                try stack.append(RenderState { .Text = " {\n"});
                                 try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                             ast.NodeSuffixOp.SuffixOp.ArrayInitializer => |exprs| {
-                                try stack.append(RenderState { .Text = " }"});
+                                if (exprs.len == 0) {
+                                    try stack.append(RenderState { .Text = "{}" });
+                                    try stack.append(RenderState { .Expression = suffix_op.lhs });
+                                    continue;
+                                }
+                                try stack.append(RenderState { .Text = "}"});
+                                try stack.append(RenderState.PrintIndent);
+                                try stack.append(RenderState { .Indent = indent });
                                 var i = exprs.len;
                                 while (i != 0) {
                                     i -= 1;
                                     const expr = exprs.at(i);
+                                    try stack.append(RenderState { .Text = ",\n" });
                                     try stack.append(RenderState { .Expression = expr });
-                                    try stack.append(RenderState { .Text = " " });
-                                    if (i != 0) {
-                                        try stack.append(RenderState { .Text = "," });
-                                    }
+                                    try stack.append(RenderState.PrintIndent);
                                 }
-                                try stack.append(RenderState { .Text = "{"});
+                                try stack.append(RenderState { .Indent = indent + indent_delta });
+                                try stack.append(RenderState { .Text = " {\n"});
                                 try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                         }
@@ -3784,6 +3796,14 @@ pub const Parser = struct {
                         while (i != 0) {
                             i -= 1;
                             const node = fields_and_decls[i];
+                            switch (node.id) {
+                                ast.Node.Id.StructField,
+                                ast.Node.Id.UnionTag,
+                                ast.Node.Id.EnumTag => {
+                                    try stack.append(RenderState { .Text = "," });
+                                },
+                                else => { }
+                            }
                             try stack.append(RenderState { .TopLevelDecl = node});
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
@@ -3798,18 +3818,6 @@ pub const Parser = struct {
                                     break :blk "\n";
                                 },
                             });
-
-                            if (i != 0) {
-                                const prev_node = fields_and_decls[i - 1];
-                                switch (prev_node.id) {
-                                    ast.Node.Id.StructField,
-                                    ast.Node.Id.UnionTag,
-                                    ast.Node.Id.EnumTag => {
-                                        try stack.append(RenderState { .Text = "," });
-                                    },
-                                    else => { }
-                                }
-                            }
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
                         try stack.append(RenderState { .Text = "{"});
@@ -3838,6 +3846,7 @@ pub const Parser = struct {
                         while (i != 0) {
                             i -= 1;
                             const node = decls[i];
+                            try stack.append(RenderState { .Text = "," });
                             try stack.append(RenderState { .Expression = node });
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
@@ -3852,10 +3861,6 @@ pub const Parser = struct {
                                     break :blk "\n";
                                 },
                             });
-
-                            if (i != 0) {
-                                try stack.append(RenderState { .Text = "," });
-                            }
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
                         try stack.append(RenderState { .Text = "{"});
@@ -3968,6 +3973,7 @@ pub const Parser = struct {
                         while (i != 0) {
                             i -= 1;
                             const node = cases[i];
+                            try stack.append(RenderState { .Text = ","});
                             try stack.append(RenderState { .Expression = &node.base});
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
@@ -3982,10 +3988,6 @@ pub const Parser = struct {
                                     break :blk "\n";
                                 },
                             });
-
-                            if (i != 0) {
-                                try stack.append(RenderState { .Text = "," });
-                            }
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
                         try stack.append(RenderState { .Text = ") {"});
@@ -4008,7 +4010,8 @@ pub const Parser = struct {
                             try stack.append(RenderState { .Expression = items[i] });
 
                             if (i != 0) {
-                                try stack.append(RenderState { .Text = ", " });
+                                try stack.append(RenderState.PrintIndent);
+                                try stack.append(RenderState { .Text = ",\n" });
                             }
                         }
                     },
@@ -4600,10 +4603,10 @@ test "zig fmt: precedence" {
         \\    (a!b)();
         \\    !a!b;
         \\    !(a!b);
-        \\    !a{ };
-        \\    !(a{ });
-        \\    a + b{ };
-        \\    (a + b){ };
+        \\    !a{};
+        \\    !(a{});
+        \\    a + b{};
+        \\    (a + b){};
         \\    a << b + c;
         \\    (a << b) + c;
         \\    a & b << c;
@@ -4740,21 +4743,21 @@ test "zig fmt: struct declaration" {
         \\        return *self;
         \\    }
         \\
-        \\    f2: u8
+        \\    f2: u8,
         \\};
         \\
         \\const Ps = packed struct {
         \\    a: u8,
         \\    pub b: u8,
         \\
-        \\    c: u8
+        \\    c: u8,
         \\};
         \\
         \\const Es = extern struct {
         \\    a: u8,
         \\    pub b: u8,
         \\
-        \\    c: u8
+        \\    c: u8,
         \\};
         \\
     );
@@ -4764,25 +4767,25 @@ test "zig fmt: enum declaration" {
       try testCanonical(
         \\const E = enum {
         \\    Ok,
-        \\    SomethingElse = 0
+        \\    SomethingElse = 0,
         \\};
         \\
         \\const E2 = enum(u8) {
         \\    Ok,
         \\    SomethingElse = 255,
-        \\    SomethingThird
+        \\    SomethingThird,
         \\};
         \\
         \\const Ee = extern enum {
         \\    Ok,
         \\    SomethingElse,
-        \\    SomethingThird
+        \\    SomethingThird,
         \\};
         \\
         \\const Ep = packed enum {
         \\    Ok,
         \\    SomethingElse,
-        \\    SomethingThird
+        \\    SomethingThird,
         \\};
         \\
     );
@@ -4794,35 +4797,35 @@ test "zig fmt: union declaration" {
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
-        \\    Bool: bool
+        \\    Bool: bool,
         \\};
         \\
         \\const Ue = union(enum) {
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
-        \\    Bool: bool
+        \\    Bool: bool,
         \\};
         \\
         \\const E = enum {
         \\    Int,
         \\    Float,
         \\    None,
-        \\    Bool
+        \\    Bool,
         \\};
         \\
         \\const Ue2 = union(E) {
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
-        \\    Bool: bool
+        \\    Bool: bool,
         \\};
         \\
         \\const Eu = extern union {
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
-        \\    Bool: bool
+        \\    Bool: bool,
         \\};
         \\
     );
@@ -4834,7 +4837,7 @@ test "zig fmt: error set declaration" {
         \\    A,
         \\    B,
         \\
-        \\    C
+        \\    C,
         \\};
         \\
     );
@@ -4843,9 +4846,15 @@ test "zig fmt: error set declaration" {
 test "zig fmt: arrays" {
     try testCanonical(
         \\test "test array" {
-        \\    const a: [2]u8 = [2]u8{ 1, 2 };
-        \\    const a: [2]u8 = []u8{ 1, 2 };
-        \\    const a: [0]u8 = []u8{ };
+        \\    const a: [2]u8 = [2]u8 {
+        \\        1,
+        \\        2,
+        \\    };
+        \\    const a: [2]u8 = []u8 {
+        \\        1,
+        \\        2,
+        \\    };
+        \\    const a: [0]u8 = []u8{};
         \\}
         \\
     );
@@ -4853,10 +4862,18 @@ test "zig fmt: arrays" {
 
 test "zig fmt: container initializers" {
     try testCanonical(
-        \\const a1 = []u8{ };
-        \\const a2 = []u8{ 1, 2, 3, 4 };
-        \\const s1 = S{ };
-        \\const s2 = S{ .a = 1, .b = 2 };
+        \\const a1 = []u8{};
+        \\const a2 = []u8 {
+        \\    1,
+        \\    2,
+        \\    3,
+        \\    4,
+        \\};
+        \\const s1 = S{};
+        \\const s2 = S {
+        \\    .a = 1,
+        \\    .b = 2,
+        \\};
         \\
     );
 }
@@ -4900,31 +4917,34 @@ test "zig fmt: switch" {
         \\    switch (0) {
         \\        0 => {},
         \\        1 => unreachable,
-        \\        2, 3 => {},
+        \\        2,
+        \\        3 => {},
         \\        4 ... 7 => {},
         \\        1 + 4 * 3 + 22 => {},
         \\        else => {
         \\            const a = 1;
         \\            const b = a;
-        \\        }
+        \\        },
         \\    }
         \\
         \\    const res = switch (0) {
         \\        0 => 0,
         \\        1 => 2,
         \\        1 => a = 4,
-        \\        else => 4
+        \\        else => 4,
         \\    };
         \\
         \\    const Union = union(enum) {
         \\        Int: i64,
-        \\        Float: f64
+        \\        Float: f64,
         \\    };
         \\
-        \\    const u = Union{ .Int = 0 };
+        \\    const u = Union {
+        \\        .Int = 0,
+        \\    };
         \\    switch (u) {
         \\        Union.Int => |int| {},
-        \\        Union.Float => |*float| unreachable
+        \\        Union.Float => |*float| unreachable,
         \\    }
         \\}
         \\
@@ -5000,7 +5020,11 @@ test "zig fmt: while" {
 test "zig fmt: for" {
     try testCanonical(
         \\test "for" {
-        \\    const a = []u8{ 1, 2, 3 };
+        \\    const a = []u8 {
+        \\        1,
+        \\        2,
+        \\        3,
+        \\    };
         \\    for (a) |v| {
         \\        continue;
         \\    }
@@ -5227,6 +5251,15 @@ test "zig fmt: error return" {
         \\    call();
         \\    return error.InvalidArgs;
         \\}
+        \\
+    );
+}
+
+test "zig fmt: struct literals with fields on each line" {
+    try testCanonical(
+        \\var self = BufSet {
+        \\    .hash_map = BufSetHashMap.init(a),
+        \\};
         \\
     );
 }
