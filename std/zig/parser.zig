@@ -3579,33 +3579,45 @@ pub const Parser = struct {
                                 try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                             ast.NodeSuffixOp.SuffixOp.StructInitializer => |field_inits| {
-                                try stack.append(RenderState { .Text = " }"});
+                                if (field_inits.len == 0) {
+                                    try stack.append(RenderState { .Text = "{}" });
+                                    try stack.append(RenderState { .Expression = suffix_op.lhs });
+                                    continue;
+                                }
+                                try stack.append(RenderState { .Text = "}"});
+                                try stack.append(RenderState.PrintIndent);
+                                try stack.append(RenderState { .Indent = indent });
                                 var i = field_inits.len;
                                 while (i != 0) {
                                     i -= 1;
                                     const field_init = field_inits.at(i);
+                                    try stack.append(RenderState { .Text = ",\n" });
                                     try stack.append(RenderState { .FieldInitializer = field_init });
-                                    try stack.append(RenderState { .Text = " " });
-                                    if (i != 0) {
-                                        try stack.append(RenderState { .Text = "," });
-                                    }
+                                    try stack.append(RenderState.PrintIndent);
                                 }
-                                try stack.append(RenderState { .Text = "{"});
+                                try stack.append(RenderState { .Indent = indent + indent_delta });
+                                try stack.append(RenderState { .Text = " {\n"});
                                 try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                             ast.NodeSuffixOp.SuffixOp.ArrayInitializer => |exprs| {
-                                try stack.append(RenderState { .Text = " }"});
+                                if (exprs.len == 0) {
+                                    try stack.append(RenderState { .Text = "{}" });
+                                    try stack.append(RenderState { .Expression = suffix_op.lhs });
+                                    continue;
+                                }
+                                try stack.append(RenderState { .Text = "}"});
+                                try stack.append(RenderState.PrintIndent);
+                                try stack.append(RenderState { .Indent = indent });
                                 var i = exprs.len;
                                 while (i != 0) {
                                     i -= 1;
                                     const expr = exprs.at(i);
+                                    try stack.append(RenderState { .Text = ",\n" });
                                     try stack.append(RenderState { .Expression = expr });
-                                    try stack.append(RenderState { .Text = " " });
-                                    if (i != 0) {
-                                        try stack.append(RenderState { .Text = "," });
-                                    }
+                                    try stack.append(RenderState.PrintIndent);
                                 }
-                                try stack.append(RenderState { .Text = "{"});
+                                try stack.append(RenderState { .Indent = indent + indent_delta });
+                                try stack.append(RenderState { .Text = " {\n"});
                                 try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                         }
@@ -4562,10 +4574,10 @@ test "zig fmt: precedence" {
         \\    (a!b)();
         \\    !a!b;
         \\    !(a!b);
-        \\    !a{ };
-        \\    !(a{ });
-        \\    a + b{ };
-        \\    (a + b){ };
+        \\    !a{};
+        \\    !(a{});
+        \\    a + b{};
+        \\    (a + b){};
         \\    a << b + c;
         \\    (a << b) + c;
         \\    a & b << c;
@@ -4805,9 +4817,15 @@ test "zig fmt: error set declaration" {
 test "zig fmt: arrays" {
     try testCanonical(
         \\test "test array" {
-        \\    const a: [2]u8 = [2]u8{ 1, 2 };
-        \\    const a: [2]u8 = []u8{ 1, 2 };
-        \\    const a: [0]u8 = []u8{ };
+        \\    const a: [2]u8 = [2]u8 {
+        \\        1,
+        \\        2,
+        \\    };
+        \\    const a: [2]u8 = []u8 {
+        \\        1,
+        \\        2,
+        \\    };
+        \\    const a: [0]u8 = []u8{};
         \\}
         \\
     );
@@ -4815,10 +4833,18 @@ test "zig fmt: arrays" {
 
 test "zig fmt: container initializers" {
     try testCanonical(
-        \\const a1 = []u8{ };
-        \\const a2 = []u8{ 1, 2, 3, 4 };
-        \\const s1 = S{ };
-        \\const s2 = S{ .a = 1, .b = 2 };
+        \\const a1 = []u8{};
+        \\const a2 = []u8 {
+        \\    1,
+        \\    2,
+        \\    3,
+        \\    4,
+        \\};
+        \\const s1 = S{};
+        \\const s2 = S {
+        \\    .a = 1,
+        \\    .b = 2,
+        \\};
         \\
     );
 }
@@ -4883,7 +4909,9 @@ test "zig fmt: switch" {
         \\        Float: f64
         \\    };
         \\
-        \\    const u = Union{ .Int = 0 };
+        \\    const u = Union {
+        \\        .Int = 0,
+        \\    };
         \\    switch (u) {
         \\        Union.Int => |int| {},
         \\        Union.Float => |*float| unreachable
@@ -4962,7 +4990,11 @@ test "zig fmt: while" {
 test "zig fmt: for" {
     try testCanonical(
         \\test "for" {
-        \\    const a = []u8{ 1, 2, 3 };
+        \\    const a = []u8 {
+        \\        1,
+        \\        2,
+        \\        3,
+        \\    };
         \\    for (a) |v| {
         \\        continue;
         \\    }
@@ -5189,6 +5221,15 @@ test "zig fmt: error return" {
         \\    call();
         \\    return error.InvalidArgs;
         \\}
+        \\
+    );
+}
+
+test "zig fmt: struct literals with fields on each line" {
+    try testCanonical(
+        \\var self = BufSet {
+        \\    .hash_map = BufSetHashMap.init(a),
+        \\};
         \\
     );
 }
