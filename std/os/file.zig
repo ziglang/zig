@@ -85,12 +85,45 @@ pub const File = struct {
         };
     }
 
-    pub fn exists(allocator: &mem.Allocator, path: []const u8) bool {
-        if (openRead(allocator, path)) |*file| {
-            file.close();
+    pub fn access(allocator: &mem.Allocator, path: []const u8, file_mode: os.FileMode) !bool {
+        const path_with_null = try std.cstr.addNullByte(allocator, path);
+        defer allocator.free(path_with_null);
+
+        if (is_posix) {
+            // mode is ignored and is always F_OK for now
+            const result = posix.access(path_with_null.ptr, posix.F_OK);
+            const err = posix.getErrno(result);
+            if (err > 0) {
+                return switch (err) {
+                    posix.EACCES => error.PermissionDenied,
+                    posix.EROFS => error.PermissionDenied,
+                    posix.ELOOP => error.PermissionDenied,
+                    posix.ETXTBSY => error.PermissionDenied,
+                    posix.ENOTDIR => error.NotFound,
+                    posix.ENOENT => error.NotFound,
+
+                    posix.ENAMETOOLONG => error.NameTooLong,
+                    posix.EINVAL => error.BadMode,
+                    posix.EFAULT => error.BadPathName,
+                    posix.EIO => error.Io,
+                    posix.ENOMEM => error.SystemResources,
+                    else => os.unexpectedErrorPosix(err),
+                };
+            }
             return true;
-        } else |_| {
-            return false;
+        } else if (is_windows) {
+            if (os.windows.PathFileExists(path_with_null.ptr)) {
+                return true;
+            }
+
+            const err = windows.GetLastError();
+            return switch (err) {
+                windows.ERROR.FILE_NOT_FOUND => error.NotFound,
+                windows.ERROR.ACCESS_DENIED => error.PermissionDenied,
+                else => os.unexpectedErrorWindows(err),
+            };
+        } else {
+            @compileError("TODO implement access for this OS");
         }
     }
 

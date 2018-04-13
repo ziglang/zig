@@ -175,7 +175,7 @@ fn cmdBuild(allocator: &Allocator, args: []const []const u8) !void {
     const build_file_abs = try os.path.resolve(allocator, ".", build_file);
     defer allocator.free(build_file_abs);
 
-    const build_file_exists = os.File.exists(allocator, build_file_abs);
+    const build_file_exists = os.File.access(allocator, build_file_abs, os.default_file_mode) catch false;
 
     if (flags.present("init")) {
         if (build_file_exists) {
