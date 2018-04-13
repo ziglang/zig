@@ -1,3 +1,6 @@
+const std = @import("../index.zig");
+const assert = std.debug.assert;
+
 //////////////////////////
 ////  IPC structures  ////
 //////////////////////////
@@ -5,28 +8,36 @@
 pub const Message = struct {
     sender:   MailboxId,
     receiver: MailboxId,
-    type:     usize,
-    payload:  usize,
-    buffer:   ?[]const u8,
+    code:     usize,
+    args:     [5]usize,
+    payload:  ?[]const u8,
 
     pub fn from(mailbox_id: &const MailboxId) Message {
         return Message {
             .sender   = MailboxId.Undefined,
             .receiver = *mailbox_id,
-            .type     = 0,
-            .payload  = 0,
-            .buffer   = null,
+            .code     = undefined,
+            .args     = undefined,
+            .payload  = null,
         };
     }
 
-    pub fn to(mailbox_id: &const MailboxId, msg_type: usize) Message {
-        return Message {
+    pub fn to(mailbox_id: &const MailboxId, msg_code: usize, args: ...) Message {
+        var message = Message {
             .sender   = MailboxId.This,
             .receiver = *mailbox_id,
-            .type     = msg_type,
-            .payload  = 0,
-            .buffer   = null,
+            .code     = msg_code,
+            .args     = undefined,
+            .payload  = null,
         };
+
+        assert (args.len <= message.args.len);
+        comptime var i = 0;
+        inline while (i < args.len) : (i += 1) {
+            message.args[i] = args[i];
+        }
+
+        return message;
     }
 
     pub fn as(self: &const Message, sender: &const MailboxId) Message {
@@ -35,15 +46,9 @@ pub const Message = struct {
         return message;
     }
 
-    pub fn data(self: &const Message, var_data: var) Message {
+    pub fn withPayload(self: &const Message, payload: []const u8) Message {
         var message = *self;
-
-        if (@canImplicitCast([]const u8, var_data)) {
-            message.buffer = var_data;
-        } else {
-            message.payload = var_data;
-        }
-
+        message.payload = payload;
         return message;
     }
 };
@@ -91,7 +96,7 @@ pub fn read(fd: i32, buf: &u8, count: usize) usize {
                 var message = Message.from(MailboxId.This);
                 receive(&message);
 
-                buf[i] = u8(message.payload);
+                buf[i] = u8(message.args[0]);
             }
         },
         else => unreachable,
@@ -104,7 +109,7 @@ pub fn write(fd: i32, buf: &const u8, count: usize) usize {
     switch (fd) {
         STDOUT_FILENO, STDERR_FILENO => {
             send(Message.to(Server.Terminal, 1)
-                        .data(buf[0..count]));
+                        .withPayload(buf[0..count]));
         },
         else => unreachable,
     }
