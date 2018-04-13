@@ -28,6 +28,7 @@ pub extern "c" fn unlink(path: &const u8) c_int;
 pub extern "c" fn getcwd(buf: &u8, size: usize) ?&u8;
 pub extern "c" fn waitpid(pid: c_int, stat_loc: &c_int, options: c_int) c_int;
 pub extern "c" fn fork() c_int;
+pub extern "c" fn access(path: &const u8, mode: c_uint) c_int;
 pub extern "c" fn pipe(fds: &c_int) c_int;
 pub extern "c" fn mkdir(path: &const u8, mode: c_uint) c_int;
 pub extern "c" fn symlink(existing: &const u8, new: &const u8) c_int;

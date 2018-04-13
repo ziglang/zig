@@ -23,3 +23,20 @@ test "makePath, put some files in it, deleteTree" {
         assert(err == error.PathNotFound);
     }
 }
+
+test "access file" {
+    if (builtin.os == builtin.Os.windows) {
+        return;
+    }
+
+    try os.makePath(a, "os_test_tmp");
+    if (os.File.access(a, "os_test_tmp/file.txt", os.default_file_mode)) |ok| {
+        unreachable;
+    } else |err| {
+        assert(err == error.NotFound);
+    }
+
+    try io.writeFile(a, "os_test_tmp/file.txt", "");
+    assert((try os.File.access(a, "os_test_tmp/file.txt", os.default_file_mode)) == true);
+    try os.deleteTree(a, "os_test_tmp");
+}

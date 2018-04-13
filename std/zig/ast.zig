@@ -9,38 +9,34 @@ pub const Node = struct {
     comment: ?&NodeLineComment,
 
     pub const Id = enum {
+        // Top level
         Root,
-        VarDecl,
         Use,
-        ErrorSetDecl,
-        ContainerDecl,
-        StructField,
-        UnionTag,
-        EnumTag,
-        Identifier,
-        AsyncAttribute,
-        FnProto,
-        ParamDecl,
-        Block,
+        TestDecl,
+
+        // Statements
+        VarDecl,
         Defer,
-        Comptime,
-        Payload,
-        PointerPayload,
-        PointerIndexPayload,
-        Else,
-        Switch,
-        SwitchCase,
-        SwitchElse,
-        While,
-        For,
-        If,
+
+        // Operators
         InfixOp,
         PrefixOp,
         SuffixOp,
-        GroupedExpression,
+
+        // Control flow
+        Switch,
+        While,
+        For,
+        If,
         ControlFlowExpression,
         Suspend,
-        FieldInitializer,
+
+        // Type expressions
+        VarType,
+        ErrorType,
+        FnProto,
+
+        // Primary expressions
         IntegerLiteral,
         FloatLiteral,
         StringLiteral,
@@ -50,180 +46,143 @@ pub const Node = struct {
         NullLiteral,
         UndefinedLiteral,
         ThisLiteral,
+        Unreachable,
+        Identifier,
+        GroupedExpression,
+        BuiltinCall,
+        ErrorSetDecl,
+        ContainerDecl,
         Asm,
+        Comptime,
+        Block,
+
+        // Misc
+        LineComment,
+        SwitchCase,
+        SwitchElse,
+        Else,
+        Payload,
+        PointerPayload,
+        PointerIndexPayload,
+        StructField,
+        UnionTag,
+        EnumTag,
         AsmInput,
         AsmOutput,
-        Unreachable,
-        ErrorType,
-        VarType,
-        BuiltinCall,
-        LineComment,
-        TestDecl,
+        AsyncAttribute,
+        ParamDecl,
+        FieldInitializer,
     };
 
+    const IdTypePair = struct {
+        id: Id,
+        Type: type,
+    };
+
+    // TODO: When @field exists, we could generate this by iterating over all members of `Id`,
+    //       and making an array of `IdTypePair { .id = @field(Id, @memberName(Id, i)), .Type = @field(ast, "Node" ++ @memberName(Id, i)) }`
+    const idTypeTable = []IdTypePair {
+        IdTypePair { .id = Id.Root, .Type = NodeRoot },
+        IdTypePair { .id = Id.Use, .Type = NodeUse },
+        IdTypePair { .id = Id.TestDecl, .Type = NodeTestDecl },
+
+        IdTypePair { .id = Id.VarDecl, .Type = NodeVarDecl },
+        IdTypePair { .id = Id.Defer, .Type = NodeDefer },
+
+        IdTypePair { .id = Id.InfixOp, .Type = NodeInfixOp },
+        IdTypePair { .id = Id.PrefixOp, .Type = NodePrefixOp },
+        IdTypePair { .id = Id.SuffixOp, .Type = NodeSuffixOp },
+
+        IdTypePair { .id = Id.Switch, .Type = NodeSwitch },
+        IdTypePair { .id = Id.While, .Type = NodeWhile },
+        IdTypePair { .id = Id.For, .Type = NodeFor },
+        IdTypePair { .id = Id.If, .Type = NodeIf },
+        IdTypePair { .id = Id.ControlFlowExpression, .Type = NodeControlFlowExpression },
+        IdTypePair { .id = Id.Suspend, .Type = NodeSuspend },
+
+        IdTypePair { .id = Id.VarType, .Type = NodeVarType },
+        IdTypePair { .id = Id.ErrorType, .Type = NodeErrorType },
+        IdTypePair { .id = Id.FnProto, .Type = NodeFnProto },
+
+        IdTypePair { .id = Id.IntegerLiteral, .Type = NodeIntegerLiteral },
+        IdTypePair { .id = Id.FloatLiteral, .Type = NodeFloatLiteral },
+        IdTypePair { .id = Id.StringLiteral, .Type = NodeStringLiteral },
+        IdTypePair { .id = Id.MultilineStringLiteral, .Type = NodeMultilineStringLiteral },
+        IdTypePair { .id = Id.CharLiteral, .Type = NodeCharLiteral },
+        IdTypePair { .id = Id.BoolLiteral, .Type = NodeBoolLiteral },
+        IdTypePair { .id = Id.NullLiteral, .Type = NodeNullLiteral },
+        IdTypePair { .id = Id.UndefinedLiteral, .Type = NodeUndefinedLiteral },
+        IdTypePair { .id = Id.ThisLiteral, .Type = NodeThisLiteral },
+        IdTypePair { .id = Id.Unreachable, .Type = NodeUnreachable },
+        IdTypePair { .id = Id.Identifier, .Type = NodeIdentifier },
+        IdTypePair { .id = Id.GroupedExpression, .Type = NodeGroupedExpression },
+        IdTypePair { .id = Id.BuiltinCall, .Type = NodeBuiltinCall },
+        IdTypePair { .id = Id.ErrorSetDecl, .Type = NodeErrorSetDecl },
+        IdTypePair { .id = Id.ContainerDecl, .Type = NodeContainerDecl },
+        IdTypePair { .id = Id.Asm, .Type = NodeAsm },
+        IdTypePair { .id = Id.Comptime, .Type = NodeComptime },
+        IdTypePair { .id = Id.Block, .Type = NodeBlock },
+
+        IdTypePair { .id = Id.LineComment, .Type = NodeLineComment },
+        IdTypePair { .id = Id.SwitchCase, .Type = NodeSwitchCase },
+        IdTypePair { .id = Id.SwitchElse, .Type = NodeSwitchElse },
+        IdTypePair { .id = Id.Else, .Type = NodeElse },
+        IdTypePair { .id = Id.Payload, .Type = NodePayload },
+        IdTypePair { .id = Id.PointerPayload, .Type = NodePointerPayload },
+        IdTypePair { .id = Id.PointerIndexPayload, .Type = NodePointerIndexPayload },
+        IdTypePair { .id = Id.StructField, .Type = NodeStructField },
+        IdTypePair { .id = Id.UnionTag, .Type = NodeUnionTag },
+        IdTypePair { .id = Id.EnumTag, .Type = NodeEnumTag },
+        IdTypePair { .id = Id.AsmInput, .Type = NodeAsmInput },
+        IdTypePair { .id = Id.AsmOutput, .Type = NodeAsmOutput },
+        IdTypePair { .id = Id.AsyncAttribute, .Type = NodeAsyncAttribute },
+        IdTypePair { .id = Id.ParamDecl, .Type = NodeParamDecl },
+        IdTypePair { .id = Id.FieldInitializer, .Type = NodeFieldInitializer },
+    };
+
+    pub fn IdToType(comptime id: Id) type {
+        inline for (idTypeTable) |id_type_pair| {
+            if (id == id_type_pair.id)
+                return id_type_pair.Type;
+        }
+
+        unreachable;
+    }
+
+    pub fn typeToId(comptime T: type) Id {
+        inline for (idTypeTable) |id_type_pair| {
+            if (T == id_type_pair.Type)
+                return id_type_pair.id;
+        }
+
+        unreachable;
+    }
+
     pub fn iterate(base: &Node, index: usize) ?&Node {
-        return switch (base.id) {
-            Id.Root => @fieldParentPtr(NodeRoot, "base", base).iterate(index),
-            Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).iterate(index),
-            Id.Use => @fieldParentPtr(NodeUse, "base", base).iterate(index),
-            Id.ErrorSetDecl => @fieldParentPtr(NodeErrorSetDecl, "base", base).iterate(index),
-            Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).iterate(index),
-            Id.StructField => @fieldParentPtr(NodeStructField, "base", base).iterate(index),
-            Id.UnionTag => @fieldParentPtr(NodeUnionTag, "base", base).iterate(index),
-            Id.EnumTag => @fieldParentPtr(NodeEnumTag, "base", base).iterate(index),
-            Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).iterate(index),
-            Id.AsyncAttribute => @fieldParentPtr(NodeAsyncAttribute, "base", base).iterate(index),
-            Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).iterate(index),
-            Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).iterate(index),
-            Id.Block => @fieldParentPtr(NodeBlock, "base", base).iterate(index),
-            Id.Defer => @fieldParentPtr(NodeDefer, "base", base).iterate(index),
-            Id.Comptime => @fieldParentPtr(NodeComptime, "base", base).iterate(index),
-            Id.Payload => @fieldParentPtr(NodePayload, "base", base).iterate(index),
-            Id.PointerPayload => @fieldParentPtr(NodePointerPayload, "base", base).iterate(index),
-            Id.PointerIndexPayload => @fieldParentPtr(NodePointerIndexPayload, "base", base).iterate(index),
-            Id.Else => @fieldParentPtr(NodeSwitch, "base", base).iterate(index),
-            Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).iterate(index),
-            Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).iterate(index),
-            Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).iterate(index),
-            Id.While => @fieldParentPtr(NodeWhile, "base", base).iterate(index),
-            Id.For => @fieldParentPtr(NodeFor, "base", base).iterate(index),
-            Id.If => @fieldParentPtr(NodeIf, "base", base).iterate(index),
-            Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).iterate(index),
-            Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
-            Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).iterate(index),
-            Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).iterate(index),
-            Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).iterate(index),
-            Id.Suspend => @fieldParentPtr(NodeSuspend, "base", base).iterate(index),
-            Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).iterate(index),
-            Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
-            Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
-            Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
-            Id.MultilineStringLiteral => @fieldParentPtr(NodeMultilineStringLiteral, "base", base).iterate(index),
-            Id.CharLiteral => @fieldParentPtr(NodeCharLiteral, "base", base).iterate(index),
-            Id.BoolLiteral => @fieldParentPtr(NodeBoolLiteral, "base", base).iterate(index),
-            Id.NullLiteral => @fieldParentPtr(NodeNullLiteral, "base", base).iterate(index),
-            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).iterate(index),
-            Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).iterate(index),
-            Id.Asm => @fieldParentPtr(NodeAsm, "base", base).iterate(index),
-            Id.AsmInput => @fieldParentPtr(NodeAsmInput, "base", base).iterate(index),
-            Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).iterate(index),
-            Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).iterate(index),
-            Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).iterate(index),
-            Id.VarType => @fieldParentPtr(NodeVarType, "base", base).iterate(index),
-            Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
-            Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).iterate(index),
-            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).iterate(index),
-        };
+        inline for (idTypeTable) |id_type_pair| {
+            if (base.id == id_type_pair.id)
+                return @fieldParentPtr(id_type_pair.Type, "base", base).iterate(index);
+        }
+
+        unreachable;
     }
 
     pub fn firstToken(base: &Node) Token {
-        return switch (base.id) {
-            Id.Root => @fieldParentPtr(NodeRoot, "base", base).firstToken(),
-            Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).firstToken(),
-            Id.Use => @fieldParentPtr(NodeUse, "base", base).firstToken(),
-            Id.ErrorSetDecl => @fieldParentPtr(NodeErrorSetDecl, "base", base).firstToken(),
-            Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).firstToken(),
-            Id.StructField => @fieldParentPtr(NodeStructField, "base", base).firstToken(),
-            Id.UnionTag => @fieldParentPtr(NodeUnionTag, "base", base).firstToken(),
-            Id.EnumTag => @fieldParentPtr(NodeEnumTag, "base", base).firstToken(),
-            Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).firstToken(),
-            Id.AsyncAttribute => @fieldParentPtr(NodeAsyncAttribute, "base", base).firstToken(),
-            Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).firstToken(),
-            Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).firstToken(),
-            Id.Block => @fieldParentPtr(NodeBlock, "base", base).firstToken(),
-            Id.Defer => @fieldParentPtr(NodeDefer, "base", base).firstToken(),
-            Id.Comptime => @fieldParentPtr(NodeComptime, "base", base).firstToken(),
-            Id.Payload => @fieldParentPtr(NodePayload, "base", base).firstToken(),
-            Id.PointerPayload => @fieldParentPtr(NodePointerPayload, "base", base).firstToken(),
-            Id.PointerIndexPayload => @fieldParentPtr(NodePointerIndexPayload, "base", base).firstToken(),
-            Id.Else => @fieldParentPtr(NodeSwitch, "base", base).firstToken(),
-            Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).firstToken(),
-            Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).firstToken(),
-            Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).firstToken(),
-            Id.While => @fieldParentPtr(NodeWhile, "base", base).firstToken(),
-            Id.For => @fieldParentPtr(NodeFor, "base", base).firstToken(),
-            Id.If => @fieldParentPtr(NodeIf, "base", base).firstToken(),
-            Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).firstToken(),
-            Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).firstToken(),
-            Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).firstToken(),
-            Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).firstToken(),
-            Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).firstToken(),
-            Id.Suspend => @fieldParentPtr(NodeSuspend, "base", base).firstToken(),
-            Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).firstToken(),
-            Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).firstToken(),
-            Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
-            Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).firstToken(),
-            Id.MultilineStringLiteral => @fieldParentPtr(NodeMultilineStringLiteral, "base", base).firstToken(),
-            Id.CharLiteral => @fieldParentPtr(NodeCharLiteral, "base", base).firstToken(),
-            Id.BoolLiteral => @fieldParentPtr(NodeBoolLiteral, "base", base).firstToken(),
-            Id.NullLiteral => @fieldParentPtr(NodeNullLiteral, "base", base).firstToken(),
-            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).firstToken(),
-            Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).firstToken(),
-            Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).firstToken(),
-            Id.Asm => @fieldParentPtr(NodeAsm, "base", base).firstToken(),
-            Id.AsmInput => @fieldParentPtr(NodeAsmInput, "base", base).firstToken(),
-            Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).firstToken(),
-            Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).firstToken(),
-            Id.VarType => @fieldParentPtr(NodeVarType, "base", base).firstToken(),
-            Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
-            Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
-            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).firstToken(),
-        };
+        inline for (idTypeTable) |id_type_pair| {
+            if (base.id == id_type_pair.id)
+                return @fieldParentPtr(id_type_pair.Type, "base", base).firstToken();
+        }
+
+        unreachable;
     }
 
     pub fn lastToken(base: &Node) Token {
-        return switch (base.id) {
-            Id.Root => @fieldParentPtr(NodeRoot, "base", base).lastToken(),
-            Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).lastToken(),
-            Id.Use => @fieldParentPtr(NodeUse, "base", base).lastToken(),
-            Id.ErrorSetDecl => @fieldParentPtr(NodeErrorSetDecl, "base", base).lastToken(),
-            Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).lastToken(),
-            Id.StructField => @fieldParentPtr(NodeStructField, "base", base).lastToken(),
-            Id.UnionTag => @fieldParentPtr(NodeUnionTag, "base", base).lastToken(),
-            Id.EnumTag => @fieldParentPtr(NodeEnumTag, "base", base).lastToken(),
-            Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).lastToken(),
-            Id.AsyncAttribute => @fieldParentPtr(NodeAsyncAttribute, "base", base).lastToken(),
-            Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).lastToken(),
-            Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).lastToken(),
-            Id.Block => @fieldParentPtr(NodeBlock, "base", base).lastToken(),
-            Id.Defer => @fieldParentPtr(NodeDefer, "base", base).lastToken(),
-            Id.Comptime => @fieldParentPtr(NodeComptime, "base", base).lastToken(),
-            Id.Payload => @fieldParentPtr(NodePayload, "base", base).lastToken(),
-            Id.PointerPayload => @fieldParentPtr(NodePointerPayload, "base", base).lastToken(),
-            Id.PointerIndexPayload => @fieldParentPtr(NodePointerIndexPayload, "base", base).lastToken(),
-            Id.Else => @fieldParentPtr(NodeElse, "base", base).lastToken(),
-            Id.Switch => @fieldParentPtr(NodeSwitch, "base", base).lastToken(),
-            Id.SwitchCase => @fieldParentPtr(NodeSwitchCase, "base", base).lastToken(),
-            Id.SwitchElse => @fieldParentPtr(NodeSwitchElse, "base", base).lastToken(),
-            Id.While => @fieldParentPtr(NodeWhile, "base", base).lastToken(),
-            Id.For => @fieldParentPtr(NodeFor, "base", base).lastToken(),
-            Id.If => @fieldParentPtr(NodeIf, "base", base).lastToken(),
-            Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).lastToken(),
-            Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).lastToken(),
-            Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).lastToken(),
-            Id.GroupedExpression => @fieldParentPtr(NodeGroupedExpression, "base", base).lastToken(),
-            Id.ControlFlowExpression => @fieldParentPtr(NodeControlFlowExpression, "base", base).lastToken(),
-            Id.Suspend => @fieldParentPtr(NodeSuspend, "base", base).lastToken(),
-            Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).lastToken(),
-            Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).lastToken(),
-            Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
-            Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).lastToken(),
-            Id.MultilineStringLiteral => @fieldParentPtr(NodeMultilineStringLiteral, "base", base).lastToken(),
-            Id.CharLiteral => @fieldParentPtr(NodeCharLiteral, "base", base).lastToken(),
-            Id.BoolLiteral => @fieldParentPtr(NodeBoolLiteral, "base", base).lastToken(),
-            Id.NullLiteral => @fieldParentPtr(NodeNullLiteral, "base", base).lastToken(),
-            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).lastToken(),
-            Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).lastToken(),
-            Id.Asm => @fieldParentPtr(NodeAsm, "base", base).lastToken(),
-            Id.AsmInput => @fieldParentPtr(NodeAsmInput, "base", base).lastToken(),
-            Id.AsmOutput => @fieldParentPtr(NodeAsmOutput, "base", base).lastToken(),
-            Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).lastToken(),
-            Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).lastToken(),
-            Id.VarType => @fieldParentPtr(NodeVarType, "base", base).lastToken(),
-            Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
-            Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).lastToken(),
-            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).lastToken(),
-        };
+        inline for (idTypeTable) |id_type_pair| {
+            if (base.id == id_type_pair.id)
+                return @fieldParentPtr(id_type_pair.Type, "base", base).lastToken();
+        }
+
+        unreachable;
     }
 };
 
@@ -255,7 +214,7 @@ pub const NodeVarDecl = struct {
     eq_token: Token,
     mut_token: Token,
     comptime_token: ?Token,
-    extern_token: ?Token,
+    extern_export_token: ?Token,
     lib_name: ?&Node,
     type_node: ?&Node,
     align_node: ?&Node,
@@ -286,7 +245,7 @@ pub const NodeVarDecl = struct {
     pub fn firstToken(self: &NodeVarDecl) Token {
         if (self.visib_token) |visib_token| return visib_token;
         if (self.comptime_token) |comptime_token| return comptime_token;
-        if (self.extern_token) |extern_token| return extern_token;
+        if (self.extern_export_token) |extern_export_token| return extern_export_token;
         assert(self.lib_name == null);
         return self.mut_token;
     }
@@ -324,13 +283,13 @@ pub const NodeUse = struct {
 pub const NodeErrorSetDecl = struct {
     base: Node,
     error_token: Token,
-    decls: ArrayList(&NodeIdentifier),
+    decls: ArrayList(&Node),
     rbrace_token: Token,
 
     pub fn iterate(self: &NodeErrorSetDecl, index: usize) ?&Node {
         var i = index;
 
-        if (i < self.decls.len) return &self.decls.at(i).base;
+        if (i < self.decls.len) return self.decls.at(i);
         i -= self.decls.len;
 
         return null;
@@ -401,6 +360,7 @@ pub const NodeContainerDecl = struct {
 
 pub const NodeStructField = struct {
     base: Node,
+    visib_token: ?Token,
     name_token: Token,
     type_expr: &Node,
 
@@ -414,6 +374,7 @@ pub const NodeStructField = struct {
     }
 
     pub fn firstToken(self: &NodeStructField) Token {
+        if (self.visib_token) |visib_token| return visib_token;
         return self.name_token;
     }
 
@@ -482,18 +443,18 @@ pub const NodeEnumTag = struct {
 
 pub const NodeIdentifier = struct {
     base: Node,
-    name_token: Token,
+    token: Token,
 
     pub fn iterate(self: &NodeIdentifier, index: usize) ?&Node {
         return null;
     }
 
     pub fn firstToken(self: &NodeIdentifier) Token {
-        return self.name_token;
+        return self.token;
     }
 
     pub fn lastToken(self: &NodeIdentifier) Token {
-        return self.name_token;
+        return self.token;
     }
 };
 
@@ -535,8 +496,7 @@ pub const NodeFnProto = struct {
     params: ArrayList(&Node),
     return_type: ReturnType,
     var_args_token: ?Token,
-    extern_token: ?Token,
-    inline_token: ?Token,
+    extern_export_inline_token: ?Token,
     cc_token: ?Token,
     async_attr: ?&NodeAsyncAttribute,
     body_node: ?&Node,
@@ -586,9 +546,8 @@ pub const NodeFnProto = struct {
 
     pub fn firstToken(self: &NodeFnProto) Token {
         if (self.visib_token) |visib_token| return visib_token;
-        if (self.extern_token) |extern_token| return extern_token;
+        if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
         assert(self.lib_name == null);
-        if (self.inline_token) |inline_token| return inline_token;
         if (self.cc_token) |cc_token| return cc_token;
         return self.fn_token;
     }
@@ -717,13 +676,13 @@ pub const NodeComptime = struct {
 pub const NodePayload = struct {
     base: Node,
     lpipe: Token,
-    error_symbol: &NodeIdentifier,
+    error_symbol: &Node,
     rpipe: Token,
 
     pub fn iterate(self: &NodePayload, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.error_symbol.base;
+        if (i < 1) return self.error_symbol;
         i -= 1;
 
         return null;
@@ -741,14 +700,14 @@ pub const NodePayload = struct {
 pub const NodePointerPayload = struct {
     base: Node,
     lpipe: Token,
-    is_ptr: bool,
-    value_symbol: &NodeIdentifier,
+    ptr_token: ?Token,
+    value_symbol: &Node,
     rpipe: Token,
 
     pub fn iterate(self: &NodePointerPayload, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.value_symbol.base;
+        if (i < 1) return self.value_symbol;
         i -= 1;
 
         return null;
@@ -766,19 +725,19 @@ pub const NodePointerPayload = struct {
 pub const NodePointerIndexPayload = struct {
     base: Node,
     lpipe: Token,
-    is_ptr: bool,
-    value_symbol: &NodeIdentifier,
-    index_symbol: ?&NodeIdentifier,
+    ptr_token: ?Token,
+    value_symbol: &Node,
+    index_symbol: ?&Node,
     rpipe: Token,
 
     pub fn iterate(self: &NodePointerIndexPayload, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.value_symbol.base;
+        if (i < 1) return self.value_symbol;
         i -= 1;
 
         if (self.index_symbol) |index_symbol| {
-            if (i < 1) return &index_symbol.base;
+            if (i < 1) return index_symbol;
             i -= 1;
         }
 
@@ -797,14 +756,14 @@ pub const NodePointerIndexPayload = struct {
 pub const NodeElse = struct {
     base: Node,
     else_token: Token,
-    payload: ?&NodePayload,
+    payload: ?&Node,
     body: &Node,
 
     pub fn iterate(self: &NodeElse, index: usize) ?&Node {
         var i = index;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -854,7 +813,7 @@ pub const NodeSwitch = struct {
 pub const NodeSwitchCase = struct {
     base: Node,
     items: ArrayList(&Node),
-    payload: ?&NodePointerPayload,
+    payload: ?&Node,
     expr: &Node,
 
     pub fn iterate(self: &NodeSwitchCase, index: usize) ?&Node {
@@ -864,7 +823,7 @@ pub const NodeSwitchCase = struct {
         i -= self.items.len;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -906,7 +865,7 @@ pub const NodeWhile = struct {
     inline_token: ?Token,
     while_token: Token,
     condition: &Node,
-    payload: ?&NodePointerPayload,
+    payload: ?&Node,
     continue_expr: ?&Node,
     body: &Node,
     @"else": ?&NodeElse,
@@ -918,7 +877,7 @@ pub const NodeWhile = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -965,7 +924,7 @@ pub const NodeFor = struct {
     inline_token: ?Token,
     for_token: Token,
     array_expr: &Node,
-    payload: ?&NodePointerIndexPayload,
+    payload: ?&Node,
     body: &Node,
     @"else": ?&NodeElse,
 
@@ -976,7 +935,7 @@ pub const NodeFor = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -1016,7 +975,7 @@ pub const NodeIf = struct {
     base: Node,
     if_token: Token,
     condition: &Node,
-    payload: ?&NodePointerPayload,
+    payload: ?&Node,
     body: &Node,
     @"else": ?&NodeElse,
 
@@ -1027,7 +986,7 @@ pub const NodeIf = struct {
         i -= 1;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -1089,7 +1048,7 @@ pub const NodeInfixOp = struct {
         BitXor,
         BoolAnd,
         BoolOr,
-        Catch: ?&NodePayload,
+        Catch: ?&Node,
         Div,
         EqualEqual,
         ErrorUnion,
@@ -1117,7 +1076,7 @@ pub const NodeInfixOp = struct {
         switch (self.op) {
             InfixOp.Catch => |maybe_payload| {
                 if (maybe_payload) |payload| {
-                    if (i < 1) return &payload.base;
+                    if (i < 1) return payload;
                     i -= 1;
                 }
             },
@@ -1385,13 +1344,29 @@ pub const NodeControlFlowExpression = struct {
     rhs: ?&Node,
 
     const Kind = union(enum) {
-        Break: ?Token,
-        Continue: ?Token,
+        Break: ?&Node,
+        Continue: ?&Node,
         Return,
     };
 
     pub fn iterate(self: &NodeControlFlowExpression, index: usize) ?&Node {
         var i = index;
+
+        switch (self.kind) {
+            Kind.Break => |maybe_label| {
+                if (maybe_label) |label| {
+                    if (i < 1) return label;
+                    i -= 1;
+                }
+            },
+            Kind.Continue => |maybe_label| {
+                if (maybe_label) |label| {
+                    if (i < 1) return label;
+                    i -= 1;
+                }
+            },
+            Kind.Return => {},
+        }
 
         if (self.rhs) |rhs| {
             if (i < 1) return rhs;
@@ -1411,14 +1386,14 @@ pub const NodeControlFlowExpression = struct {
         }
 
         switch (self.kind) {
-            Kind.Break => |maybe_blk_token| {
-                if (maybe_blk_token) |blk_token| {
-                    return blk_token;
+            Kind.Break => |maybe_label| {
+                if (maybe_label) |label| {
+                    return label.lastToken();
                 }
             },
-            Kind.Continue => |maybe_blk_token| {
-                if (maybe_blk_token) |blk_token| {
-                    return blk_token;
+            Kind.Continue => |maybe_label| {
+                if (maybe_label) |label| {
+                    return label.lastToken();
                 }
             },
             Kind.Return => return self.ltoken,
@@ -1431,14 +1406,14 @@ pub const NodeControlFlowExpression = struct {
 pub const NodeSuspend = struct {
     base: Node,
     suspend_token: Token,
-    payload: ?&NodePayload,
+    payload: ?&Node,
     body: ?&Node,
 
     pub fn iterate(self: &NodeSuspend, index: usize) ?&Node {
         var i = index;
 
         if (self.payload) |payload| {
-            if (i < 1) return &payload.base;
+            if (i < 1) return payload;
             i -= 1;
         }
 
@@ -1646,8 +1621,8 @@ pub const NodeThisLiteral = struct {
 
 pub const NodeAsmOutput = struct {
     base: Node,
-    symbolic_name: &NodeIdentifier,
-    constraint: &NodeStringLiteral,
+    symbolic_name: &Node,
+    constraint: &Node,
     kind: Kind,
 
     const Kind = union(enum) {
@@ -1658,10 +1633,10 @@ pub const NodeAsmOutput = struct {
     pub fn iterate(self: &NodeAsmOutput, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.symbolic_name.base;
+        if (i < 1) return self.symbolic_name;
         i -= 1;
 
-        if (i < 1) return &self.constraint.base;
+        if (i < 1) return self.constraint;
         i -= 1;
 
         switch (self.kind) {
@@ -1692,17 +1667,17 @@ pub const NodeAsmOutput = struct {
 
 pub const NodeAsmInput = struct {
     base: Node,
-    symbolic_name: &NodeIdentifier,
-    constraint: &NodeStringLiteral,
+    symbolic_name: &Node,
+    constraint: &Node,
     expr: &Node,
 
     pub fn iterate(self: &NodeAsmInput, index: usize) ?&Node {
         var i = index;
 
-        if (i < 1) return &self.symbolic_name.base;
+        if (i < 1) return self.symbolic_name;
         i -= 1;
 
-        if (i < 1) return &self.constraint.base;
+        if (i < 1) return self.constraint;
         i -= 1;
 
         if (i < 1) return self.expr;
@@ -1723,12 +1698,12 @@ pub const NodeAsmInput = struct {
 pub const NodeAsm = struct {
     base: Node,
     asm_token: Token,
-    is_volatile: bool,
-    template: Token,
+    volatile_token: ?Token,
+    template: &Node,
     //tokens: ArrayList(AsmToken),
     outputs: ArrayList(&NodeAsmOutput),
     inputs: ArrayList(&NodeAsmInput),
-    cloppers: ArrayList(&NodeStringLiteral),
+    cloppers: ArrayList(&Node),
     rparen: Token,
 
     pub fn iterate(self: &NodeAsm, index: usize) ?&Node {
@@ -1740,7 +1715,7 @@ pub const NodeAsm = struct {
         if (i < self.inputs.len) return &self.inputs.at(index).base;
         i -= self.inputs.len;
 
-        if (i < self.cloppers.len) return &self.cloppers.at(index).base;
+        if (i < self.cloppers.len) return self.cloppers.at(index);
         i -= self.cloppers.len;
 
         return null;

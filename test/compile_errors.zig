@@ -1,6 +1,15 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("assign inline fn to non-comptime var",
+        \\export fn entry() void {
+        \\    var a = b;
+        \\}
+        \\inline fn b() void { }
+    ,
+        ".tmp_source.zig:2:5: error: functions marked inline must be stored in const or comptime var",
+        ".tmp_source.zig:4:8: note: declared here");
+
     cases.add("wrong type passed to @panic",
         \\export fn entry() void {
         \\    var e = error.Foo;
@@ -1723,7 +1732,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(bar)); }
-    , ".tmp_source.zig:10:16: error: parameter of type '(integer literal)' requires comptime");
+    , ".tmp_source.zig:10:16: error: compiler bug: integer and float literals in var args function must be casted");
 
     cases.add("assign too big number to u16",
         \\export fn foo() void {

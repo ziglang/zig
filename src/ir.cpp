@@ -11395,7 +11395,19 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
                 }
                 break;
             case VarClassRequiredAny:
-                // OK
+                if (casted_init_value->value.special == ConstValSpecialStatic &&
+                    casted_init_value->value.type->id == TypeTableEntryIdFn &&
+                    casted_init_value->value.data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
+                {
+                    var_class_requires_const = true;
+                    if (!var->src_is_const && !is_comptime_var) {
+                        ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                            buf_sprintf("functions marked inline must be stored in const or comptime var"));
+                        AstNode *proto_node = casted_init_value->value.data.x_ptr.data.fn.fn_entry->proto_node;
+                        add_error_note(ira->codegen, msg, proto_node, buf_sprintf("declared here"));
+                        result_type = ira->codegen->builtin_types.entry_invalid;
+                    }
+                }
                 break;
         }
     }
@@ -11804,7 +11816,8 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         }
     }
 
-    bool comptime_arg = param_decl_node->data.param_decl.is_inline;
+    bool comptime_arg = param_decl_node->data.param_decl.is_inline ||
+        casted_arg->value.type->id == TypeTableEntryIdNumLitInt || casted_arg->value.type->id == TypeTableEntryIdNumLitFloat;
 
     ConstExprValue *arg_val;
 
@@ -11829,6 +11842,12 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         var->shadowable = !comptime_arg;
 
         *next_proto_i += 1;
+    } else if (casted_arg->value.type->id == TypeTableEntryIdNumLitInt ||
+            casted_arg->value.type->id == TypeTableEntryIdNumLitFloat)
+    {
+        ir_add_error(ira, casted_arg,
+            buf_sprintf("compiler bug: integer and float literals in var args function must be casted. https://github.com/zig-lang/zig/issues/557"));
+        return false;
     }
 
     if (!comptime_arg) {

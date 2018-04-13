@@ -78,6 +78,8 @@ pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem
 pub extern "kernel32" stdcallcc fn MoveFileExA(lpExistingFileName: LPCSTR, lpNewFileName: LPCSTR,
     dwFlags: DWORD) BOOL;
 
+pub extern "kernel32" stdcallcc fn PathFileExists(pszPath: ?LPCTSTR) BOOL;
+
 pub extern "kernel32" stdcallcc fn ReadFile(in_hFile: HANDLE, out_lpBuffer: &c_void,
     in_nNumberOfBytesToRead: DWORD, out_lpNumberOfBytesRead: &DWORD,
     in_out_lpOverlapped: ?&OVERLAPPED) BOOL;
