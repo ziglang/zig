@@ -1,5 +1,4 @@
 const std = @import("../index.zig");
-const unicode = std.utf8;
 const mem = std.mem;
 const math = std.math;
 const Set = std.BufSet;

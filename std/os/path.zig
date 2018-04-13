@@ -33,7 +33,8 @@ pub fn isSep(byte: u8) bool {
 
 pub fn join(allocator: &Allocator, paths: ...) ![]u8 {
     // Currently a work around for the expansion to allow string separators 
-    const sep_array = []const u8{ if (is_windows) sep_windows else sep_posix };
+    const sep_array : [1]const u8;
+    sep_array[0] = sep;
     return string.join(u8, allocator, sep_array, paths);
 }
 
