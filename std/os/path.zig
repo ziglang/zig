@@ -181,7 +181,7 @@ pub fn windowsParsePath(path: []const u8) !WindowsPath {
             return WindowsPath {
                 .is_abs = isAbsoluteWindows(path),
                 .kind = WindowsPath.Kind.NetworkShare,
-                .disk_designator = path[0..it.buffer_it.index],
+                .disk_designator = path[0..it.bufferIt.index],
             };
         }
     }
@@ -199,7 +199,7 @@ pub fn windowsParsePath(path: []const u8) !WindowsPath {
             return WindowsPath {
                 .is_abs = isAbsoluteWindows(path),
                 .kind = WindowsPath.Kind.NetworkShare,
-                .disk_designator = path[0..it.buffer_it.index],
+                .disk_designator = path[0..it.bufferIt.index],
             };
         }
     }

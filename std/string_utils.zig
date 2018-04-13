@@ -235,9 +235,9 @@ pub fn trim(comptime View: type, comptime BaseType: type, string: &View, trimCha
 
     if (side == Side.LEFT or side == Side.BOTH) {
         while (it.nextBytes()) |bytes| {
-            var trim_it = trimCharacters.iterator();
+            var trimIt = trimCharacters.iterator();
             var found = false;
-            while (trim_it.nextBytes()) |trimBytes| {
+            while (trimIt.nextBytes()) |trimBytes| {
                 if (mem.eql(BaseType, trimBytes, bytes)) {
                     found = true;
                     break;
@@ -256,9 +256,9 @@ pub fn trim(comptime View: type, comptime BaseType: type, string: &View, trimCha
         // The length of the code points
         var codePointLength : usize = 0;
         while (it.nextBytes()) |bytes| {
-            var trim_it = trimCharacters.iterator();
+            var trimIt = trimCharacters.iterator();
             var found = false;
-            while (trim_it.nextBytes()) |trimBytes| {
+            while (trimIt.nextBytes()) |trimBytes| {
                 if (mem.eql(BaseType, trimBytes, bytes)) {
                     found = true;
                     break;
