@@ -3758,6 +3758,14 @@ pub const Parser = struct {
                         while (i != 0) {
                             i -= 1;
                             const node = fields_and_decls[i];
+                            switch (node.id) {
+                                ast.Node.Id.StructField,
+                                ast.Node.Id.UnionTag,
+                                ast.Node.Id.EnumTag => {
+                                    try stack.append(RenderState { .Text = "," });
+                                },
+                                else => { }
+                            }
                             try stack.append(RenderState { .TopLevelDecl = node});
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
@@ -3772,18 +3780,6 @@ pub const Parser = struct {
                                     break :blk "\n";
                                 },
                             });
-
-                            if (i != 0) {
-                                const prev_node = fields_and_decls[i - 1];
-                                switch (prev_node.id) {
-                                    ast.Node.Id.StructField,
-                                    ast.Node.Id.UnionTag,
-                                    ast.Node.Id.EnumTag => {
-                                        try stack.append(RenderState { .Text = "," });
-                                    },
-                                    else => { }
-                                }
-                            }
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
                         try stack.append(RenderState { .Text = "{"});
@@ -3812,6 +3808,7 @@ pub const Parser = struct {
                         while (i != 0) {
                             i -= 1;
                             const node = decls[i];
+                            try stack.append(RenderState { .Text = "," });
                             try stack.append(RenderState { .Expression = &node.base});
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
@@ -3826,10 +3823,6 @@ pub const Parser = struct {
                                     break :blk "\n";
                                 },
                             });
-
-                            if (i != 0) {
-                                try stack.append(RenderState { .Text = "," });
-                            }
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
                         try stack.append(RenderState { .Text = "{"});
@@ -3942,6 +3935,7 @@ pub const Parser = struct {
                         while (i != 0) {
                             i -= 1;
                             const node = cases[i];
+                            try stack.append(RenderState { .Text = ","});
                             try stack.append(RenderState { .Expression = &node.base});
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
@@ -3956,10 +3950,6 @@ pub const Parser = struct {
                                     break :blk "\n";
                                 },
                             });
-
-                            if (i != 0) {
-                                try stack.append(RenderState { .Text = "," });
-                            }
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
                         try stack.append(RenderState { .Text = ") {"});
@@ -4714,21 +4704,21 @@ test "zig fmt: struct declaration" {
         \\        return *self;
         \\    }
         \\
-        \\    f2: u8
+        \\    f2: u8,
         \\};
         \\
         \\const Ps = packed struct {
         \\    a: u8,
         \\    pub b: u8,
         \\
-        \\    c: u8
+        \\    c: u8,
         \\};
         \\
         \\const Es = extern struct {
         \\    a: u8,
         \\    pub b: u8,
         \\
-        \\    c: u8
+        \\    c: u8,
         \\};
         \\
     );
@@ -4738,25 +4728,25 @@ test "zig fmt: enum declaration" {
       try testCanonical(
         \\const E = enum {
         \\    Ok,
-        \\    SomethingElse = 0
+        \\    SomethingElse = 0,
         \\};
         \\
         \\const E2 = enum(u8) {
         \\    Ok,
         \\    SomethingElse = 255,
-        \\    SomethingThird
+        \\    SomethingThird,
         \\};
         \\
         \\const Ee = extern enum {
         \\    Ok,
         \\    SomethingElse,
-        \\    SomethingThird
+        \\    SomethingThird,
         \\};
         \\
         \\const Ep = packed enum {
         \\    Ok,
         \\    SomethingElse,
-        \\    SomethingThird
+        \\    SomethingThird,
         \\};
         \\
     );
@@ -4768,35 +4758,35 @@ test "zig fmt: union declaration" {
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
-        \\    Bool: bool
+        \\    Bool: bool,
         \\};
         \\
         \\const Ue = union(enum) {
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
-        \\    Bool: bool
+        \\    Bool: bool,
         \\};
         \\
         \\const E = enum {
         \\    Int,
         \\    Float,
         \\    None,
-        \\    Bool
+        \\    Bool,
         \\};
         \\
         \\const Ue2 = union(E) {
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
-        \\    Bool: bool
+        \\    Bool: bool,
         \\};
         \\
         \\const Eu = extern union {
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
-        \\    Bool: bool
+        \\    Bool: bool,
         \\};
         \\
     );
@@ -4808,7 +4798,7 @@ test "zig fmt: error set declaration" {
         \\    A,
         \\    B,
         \\
-        \\    C
+        \\    C,
         \\};
         \\
     );
@@ -4894,19 +4884,19 @@ test "zig fmt: switch" {
         \\        else => {
         \\            const a = 1;
         \\            const b = a;
-        \\        }
+        \\        },
         \\    }
         \\
         \\    const res = switch (0) {
         \\        0 => 0,
         \\        1 => 2,
         \\        1 => a = 4,
-        \\        else => 4
+        \\        else => 4,
         \\    };
         \\
         \\    const Union = union(enum) {
         \\        Int: i64,
-        \\        Float: f64
+        \\        Float: f64,
         \\    };
         \\
         \\    const u = Union {
@@ -4914,7 +4904,7 @@ test "zig fmt: switch" {
         \\    };
         \\    switch (u) {
         \\        Union.Int => |int| {},
-        \\        Union.Float => |*float| unreachable
+        \\        Union.Float => |*float| unreachable,
         \\    }
         \\}
         \\
