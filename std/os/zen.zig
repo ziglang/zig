@@ -93,6 +93,7 @@ pub fn read(fd: i32, buf: &u8, count: usize) usize {
             while (i < count) : (i += 1) {
                 send(Message.to(Server.Keyboard, 0));
 
+                // FIXME: we should be certain that we are receiving from Keyboard.
                 var message = Message.from(MailboxId.This);
                 receive(&message);
 
