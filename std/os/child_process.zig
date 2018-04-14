@@ -68,6 +68,7 @@ pub const ChildProcess = struct {
         InvalidExe,
         IsDir,
         FileBusy,
+        InvalidBytes,
     };
 
     pub const Term = union(enum) {
