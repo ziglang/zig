@@ -1,615 +1,167 @@
 const std = @import("std");
-const mem = std.mem;
-const io = std.io;
-const os = std.os;
-const heap = std.heap;
-const warn = std.debug.warn;
-const assert = std.debug.assert;
-const target = @import("target.zig");
-const Target = target.Target;
-const Module = @import("module.zig").Module;
-const ErrColor = Module.ErrColor;
-const Emit = Module.Emit;
 const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
 const c = @import("c.zig");
 const string = std.string;
 
-const default_zig_cache_name = "zig-cache";
+const os = std.os;
+const io = std.io;
+const mem = std.mem;
+const Allocator = mem.Allocator;
+const ArrayList = std.ArrayList;
+const Buffer = std.Buffer;
 
-const Cmd = enum {
-    None,
-    Build,
-    Test,
-    Version,
-    Zen,
-    TranslateC,
-    Targets,
+const arg = @import("arg.zig");
+const c = @import("c.zig");
+const introspect = @import("introspect.zig");
+const Args = arg.Args;
+const Flag = arg.Flag;
+const Module = @import("module.zig").Module;
+const Target = @import("target.zig").Target;
+
+var stderr: &io.OutStream(io.FileOutStream.Error) = undefined;
+var stdout: &io.OutStream(io.FileOutStream.Error) = undefined;
+
+const usage =
+    \\usage: zig [command] [options]
+    \\
+    \\Commands:
+    \\
+    \\  build                        Build project from build.zig
+    \\  build-exe   [source]         Create executable from source or object files
+    \\  build-lib   [source]         Create library from source or object files
+    \\  build-obj   [source]         Create object from source or assembly
+    \\  fmt         [source]         Parse file and render in canonical zig format
+    \\  run         [source]         Create executable and run immediately
+    \\  targets                      List available compilation targets
+    \\  test        [source]         Create and run a test build
+    \\  translate-c [source]         Convert c code to zig code
+    \\  version                      Print version number and exit
+    \\  zen                          Print zen of zig and exit
+    \\
+    \\
+    ;
+
+const Command = struct {
+    name: []const u8,
+    exec: fn(&Allocator, []const []const u8) error!void,
 };
 
-fn badArgs(comptime format: []const u8, args: ...) noreturn {
-    var stderr = io.getStdErr() catch std.os.exit(1);
-    var stderr_stream_adapter = io.FileOutStream.init(&stderr);
-    const stderr_stream = &stderr_stream_adapter.stream;
-    stderr_stream.print(format ++ "\n\n", args) catch std.os.exit(1);
-    printUsage(&stderr_stream_adapter.stream) catch std.os.exit(1);
-    std.os.exit(1);
-}
-
 pub fn main() !void {
-    const allocator = std.heap.c_allocator;
+    var allocator = std.heap.c_allocator;
+
+    var stdout_file = try std.io.getStdOut();
+    var stdout_out_stream = std.io.FileOutStream.init(&stdout_file);
+    stdout = &stdout_out_stream.stream;
+
+    var stderr_file = try std.io.getStdErr();
+    var stderr_out_stream = std.io.FileOutStream.init(&stderr_file);
+    stderr = &stderr_out_stream.stream;
 
     const args = try os.argsAlloc(allocator);
     defer os.argsFree(allocator, args);
 
-    if (args.len >= 2 and mem.eql(u8, args[1], "build")) {
-        return buildMain(allocator, args[2..]);
+    if (args.len <= 1) {
+        try stderr.write(usage);
+        os.exit(1);
     }
+    const commands = []Command {
+        Command { .name = "build",       .exec = cmdBuild      },
+        Command { .name = "build-exe",   .exec = cmdBuildExe   },
+        Command { .name = "build-lib",   .exec = cmdBuildLib   },
+        Command { .name = "build-obj",   .exec = cmdBuildObj   },
+        Command { .name = "fmt",         .exec = cmdFmt        },
+        Command { .name = "run",         .exec = cmdRun        },
+        Command { .name = "targets",     .exec = cmdTargets    },
+        Command { .name = "test",        .exec = cmdTest       },
+        Command { .name = "translate-c", .exec = cmdTranslateC },
+        Command { .name = "version",     .exec = cmdVersion    },
+        Command { .name = "zen",         .exec = cmdZen        },
 
-    if (args.len >= 2 and mem.eql(u8, args[1], "fmt")) {
-        return fmtMain(allocator, args[2..]);
-    }
+        // undocumented commands
+        Command { .name = "help",        .exec = cmdHelp       },
+        Command { .name = "internal",    .exec = cmdInternal   },
+    };
 
-    var cmd = Cmd.None;
-    var build_kind: Module.Kind = undefined;
-    var build_mode: builtin.Mode = builtin.Mode.Debug;
-    var color = ErrColor.Auto;
-    var emit_file_type = Emit.Binary;
-
-    var strip = false;
-    var is_static = false;
-    var verbose_tokenize = false;
-    var verbose_ast_tree = false;
-    var verbose_ast_fmt = false;
-    var verbose_link = false;
-    var verbose_ir = false;
-    var verbose_llvm_ir = false;
-    var verbose_cimport = false;
-    var mwindows = false;
-    var mconsole = false;
-    var rdynamic = false;
-    var each_lib_rpath = false;
-    var timing_info = false;
-
-    var in_file_arg: ?[]u8 = null;
-    var out_file: ?[]u8 = null;
-    var out_file_h: ?[]u8 = null;
-    var out_name_arg: ?[]u8 = null;
-    var libc_lib_dir_arg: ?[]u8 = null;
-    var libc_static_lib_dir_arg: ?[]u8 = null;
-    var libc_include_dir_arg: ?[]u8 = null;
-    var msvc_lib_dir_arg: ?[]u8 = null;
-    var kernel32_lib_dir_arg: ?[]u8 = null;
-    var zig_install_prefix: ?[]u8 = null;
-    var dynamic_linker_arg: ?[]u8 = null;
-    var cache_dir_arg: ?[]const u8 = null;
-    var target_arch: ?[]u8 = null;
-    var target_os: ?[]u8 = null;
-    var target_environ: ?[]u8 = null;
-    var mmacosx_version_min: ?[]u8 = null;
-    var mios_version_min: ?[]u8 = null;
-    var linker_script_arg: ?[]u8 = null;
-    var test_name_prefix_arg: ?[]u8 = null;
-
-    var test_filters = ArrayList([]const u8).init(allocator);
-    defer test_filters.deinit();
-
-    var lib_dirs = ArrayList([]const u8).init(allocator);
-    defer lib_dirs.deinit();
-
-    var clang_argv = ArrayList([]const u8).init(allocator);
-    defer clang_argv.deinit();
-
-    var llvm_argv = ArrayList([]const u8).init(allocator);
-    defer llvm_argv.deinit();
-
-    var link_libs = ArrayList([]const u8).init(allocator);
-    defer link_libs.deinit();
-
-    var frameworks = ArrayList([]const u8).init(allocator);
-    defer frameworks.deinit();
-
-    var objects = ArrayList([]const u8).init(allocator);
-    defer objects.deinit();
-
-    var asm_files = ArrayList([]const u8).init(allocator);
-    defer asm_files.deinit();
-
-    var rpath_list = ArrayList([]const u8).init(allocator);
-    defer rpath_list.deinit();
-
-    var ver_major: u32 = 0;
-    var ver_minor: u32 = 0;
-    var ver_patch: u32 = 0;
-
-    var arg_i: usize = 1;
-    while (arg_i < args.len) : (arg_i += 1) {
-        const arg = args[arg_i];
-
-        if (arg.len != 0 and arg[0] == '-') {
-            if (mem.eql(u8, arg, "--release-fast")) {
-                build_mode = builtin.Mode.ReleaseFast;
-            } else if (mem.eql(u8, arg, "--release-safe")) {
-                build_mode = builtin.Mode.ReleaseSafe;
-            } else if (mem.eql(u8, arg, "--strip")) {
-                strip = true;
-            } else if (mem.eql(u8, arg, "--static")) {
-                is_static = true;
-            } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
-                verbose_tokenize = true;
-            } else if (mem.eql(u8, arg, "--verbose-ast-tree")) {
-                verbose_ast_tree = true;
-            } else if (mem.eql(u8, arg, "--verbose-ast-fmt")) {
-                verbose_ast_fmt = true;
-            } else if (mem.eql(u8, arg, "--verbose-link")) {
-                verbose_link = true;
-            } else if (mem.eql(u8, arg, "--verbose-ir")) {
-                verbose_ir = true;
-            } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
-                verbose_llvm_ir = true;
-            } else if (mem.eql(u8, arg, "--verbose-cimport")) {
-                verbose_cimport = true;
-            } else if (mem.eql(u8, arg, "-mwindows")) {
-                mwindows = true;
-            } else if (mem.eql(u8, arg, "-mconsole")) {
-                mconsole = true;
-            } else if (mem.eql(u8, arg, "-rdynamic")) {
-                rdynamic = true;
-            } else if (mem.eql(u8, arg, "--each-lib-rpath")) {
-                each_lib_rpath = true;
-            } else if (mem.eql(u8, arg, "--enable-timing-info")) {
-                timing_info = true;
-            } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
-                @panic("TODO --test-cmd-bin");
-            } else if (arg[1] == 'L' and arg.len > 2) {
-                // alias for --library-path
-                try lib_dirs.append(arg[1..]);
-            } else if (mem.eql(u8, arg, "--pkg-begin")) {
-                @panic("TODO --pkg-begin");
-            } else if (mem.eql(u8, arg, "--pkg-end")) {
-                @panic("TODO --pkg-end");
-            } else if (arg_i + 1 >= args.len) {
-                badArgs("expected another argument after {}", arg);
-            } else {
-                arg_i += 1;
-                if (mem.eql(u8, arg, "--output")) {
-                    out_file = args[arg_i];
-                } else if (mem.eql(u8, arg, "--output-h")) {
-                    out_file_h = args[arg_i];
-                } else if (mem.eql(u8, arg, "--color")) {
-                    if (mem.eql(u8, args[arg_i], "auto")) {
-                        color = ErrColor.Auto;
-                    } else if (mem.eql(u8, args[arg_i], "on")) {
-                        color = ErrColor.On;
-                    } else if (mem.eql(u8, args[arg_i], "off")) {
-                        color = ErrColor.Off;
-                    } else {
-                        badArgs("--color options are 'auto', 'on', or 'off'");
-                    }
-                } else if (mem.eql(u8, arg, "--emit")) {
-                    if (mem.eql(u8, args[arg_i], "asm")) {
-                        emit_file_type = Emit.Assembly;
-                    } else if (mem.eql(u8, args[arg_i], "bin")) {
-                        emit_file_type = Emit.Binary;
-                    } else if (mem.eql(u8, args[arg_i], "llvm-ir")) {
-                        emit_file_type = Emit.LlvmIr;
-                    } else {
-                        badArgs("--emit options are 'asm', 'bin', or 'llvm-ir'");
-                    }
-                } else if (mem.eql(u8, arg, "--name")) {
-                    out_name_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "--libc-lib-dir")) {
-                    libc_lib_dir_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "--libc-static-lib-dir")) {
-                    libc_static_lib_dir_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "--libc-include-dir")) {
-                    libc_include_dir_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "--msvc-lib-dir")) {
-                    msvc_lib_dir_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "--kernel32-lib-dir")) {
-                    kernel32_lib_dir_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "--zig-install-prefix")) {
-                    zig_install_prefix = args[arg_i];
-                } else if (mem.eql(u8, arg, "--dynamic-linker")) {
-                    dynamic_linker_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "-isystem")) {
-                    try clang_argv.append("-isystem");
-                    try clang_argv.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "-dirafter")) {
-                    try clang_argv.append("-dirafter");
-                    try clang_argv.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "-mllvm")) {
-                    try clang_argv.append("-mllvm");
-                    try clang_argv.append(args[arg_i]);
-
-                    try llvm_argv.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "--library-path") or mem.eql(u8, arg, "-L")) {
-                    try lib_dirs.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "--library")) {
-                    try link_libs.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "--object")) {
-                    try objects.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "--assembly")) {
-                    try asm_files.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "--cache-dir")) {
-                    cache_dir_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "--target-arch")) {
-                    target_arch = args[arg_i];
-                } else if (mem.eql(u8, arg, "--target-os")) {
-                    target_os = args[arg_i];
-                } else if (mem.eql(u8, arg, "--target-environ")) {
-                    target_environ = args[arg_i];
-                } else if (mem.eql(u8, arg, "-mmacosx-version-min")) {
-                    mmacosx_version_min = args[arg_i];
-                } else if (mem.eql(u8, arg, "-mios-version-min")) {
-                    mios_version_min = args[arg_i];
-                } else if (mem.eql(u8, arg, "-framework")) {
-                    try frameworks.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "--linker-script")) {
-                    linker_script_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "-rpath")) {
-                    try rpath_list.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "--test-filter")) {
-                    try test_filters.append(args[arg_i]);
-                } else if (mem.eql(u8, arg, "--test-name-prefix")) {
-                    test_name_prefix_arg = args[arg_i];
-                } else if (mem.eql(u8, arg, "--ver-major")) {
-                    ver_major = try std.fmt.parseUnsigned(u32, args[arg_i], 10);
-                } else if (mem.eql(u8, arg, "--ver-minor")) {
-                    ver_minor = try std.fmt.parseUnsigned(u32, args[arg_i], 10);
-                } else if (mem.eql(u8, arg, "--ver-patch")) {
-                    ver_patch = try std.fmt.parseUnsigned(u32, args[arg_i], 10);
-                } else if (mem.eql(u8, arg, "--test-cmd")) {
-                    @panic("TODO --test-cmd");
-                } else {
-                    badArgs("invalid argument: {}", arg);
-                }
-            }
-        } else if (cmd == Cmd.None) {
-            if (mem.eql(u8, arg, "build-obj")) {
-                cmd = Cmd.Build;
-                build_kind = Module.Kind.Obj;
-            } else if (mem.eql(u8, arg, "build-exe")) {
-                cmd = Cmd.Build;
-                build_kind = Module.Kind.Exe;
-            } else if (mem.eql(u8, arg, "build-lib")) {
-                cmd = Cmd.Build;
-                build_kind = Module.Kind.Lib;
-            } else if (mem.eql(u8, arg, "version")) {
-                cmd = Cmd.Version;
-            } else if (mem.eql(u8, arg, "zen")) {
-                cmd = Cmd.Zen;
-            } else if (mem.eql(u8, arg, "translate-c")) {
-                cmd = Cmd.TranslateC;
-            } else if (mem.eql(u8, arg, "test")) {
-                cmd = Cmd.Test;
-                build_kind = Module.Kind.Exe;
-            } else {
-                badArgs("unrecognized command: {}", arg);
-            }
-        } else switch (cmd) {
-            Cmd.Build, Cmd.TranslateC, Cmd.Test => {
-                if (in_file_arg == null) {
-                    in_file_arg = arg;
-                } else {
-                    badArgs("unexpected extra parameter: {}", arg);
-                }
-            },
-            Cmd.Version, Cmd.Zen, Cmd.Targets => {
-                badArgs("unexpected extra parameter: {}", arg);
-            },
-            Cmd.None => unreachable,
+    for (commands) |command| {
+        if (mem.eql(u8, command.name, args[1])) {
+            try command.exec(allocator, args[2..]);
+            return;
         }
     }
 
-    target.initializeAll();
-
-    // TODO
-//    ZigTarget alloc_target;
-//    ZigTarget *target;
-//    if (!target_arch && !target_os && !target_environ) {
-//        target = nullptr;
-//    } else {
-//        target = &alloc_target;
-//        get_unknown_target(target);
-//        if (target_arch) {
-//            if (parse_target_arch(target_arch, &target->arch)) {
-//                fprintf(stderr, "invalid --target-arch argument\n");
-//                return usage(arg0);
-//            }
-//        }
-//        if (target_os) {
-//            if (parse_target_os(target_os, &target->os)) {
-//                fprintf(stderr, "invalid --target-os argument\n");
-//                return usage(arg0);
-//            }
-//        }
-//        if (target_environ) {
-//            if (parse_target_environ(target_environ, &target->env_type)) {
-//                fprintf(stderr, "invalid --target-environ argument\n");
-//                return usage(arg0);
-//            }
-//        }
-//    }
-
-    switch (cmd) {
-        Cmd.None => badArgs("expected command"),
-        Cmd.Zen => return printZen(),
-        Cmd.Build, Cmd.Test, Cmd.TranslateC => {
-            if (cmd == Cmd.Build and in_file_arg == null and objects.len == 0 and asm_files.len == 0) {
-                badArgs("expected source file argument or at least one --object or --assembly argument");
-            } else if ((cmd == Cmd.TranslateC or cmd == Cmd.Test) and in_file_arg == null) {
-                badArgs("expected source file argument");
-            } else if (cmd == Cmd.Build and build_kind == Module.Kind.Obj and objects.len != 0) {
-                badArgs("When building an object file, --object arguments are invalid");
-            }
-
-            const root_name = switch (cmd) {
-                Cmd.Build, Cmd.TranslateC => x: {
-                    if (out_name_arg) |out_name| {
-                        break :x out_name;
-                    } else if (in_file_arg) |in_file_path| {
-                        const basename = os.path.basename(in_file_path);
-                        var it = try string.asciiSplit(basename, ".");
-                        var next = it.nextBytes();
-                        break :x next ?? badArgs("file name cannot be empty");
-                    } else {
-                        badArgs("--name [name] not provided and unable to infer");
-                    }
-                },
-                Cmd.Test => "test",
-                else => unreachable,
-            };
-
-            const zig_root_source_file = if (cmd == Cmd.TranslateC) null else in_file_arg;
-
-            const chosen_cache_dir = cache_dir_arg ?? default_zig_cache_name;
-            const full_cache_dir = try os.path.resolve(allocator, ".", chosen_cache_dir);
-            defer allocator.free(full_cache_dir);
-
-            const zig_lib_dir = try resolveZigLibDir(allocator, zig_install_prefix);
-            errdefer allocator.free(zig_lib_dir);
-
-            const module = try Module.create(allocator, root_name, zig_root_source_file,
-                Target.Native, build_kind, build_mode, zig_lib_dir, full_cache_dir);
-            defer module.destroy();
-
-            module.version_major = ver_major;
-            module.version_minor = ver_minor;
-            module.version_patch = ver_patch;
-
-            module.is_test = cmd == Cmd.Test;
-            if (linker_script_arg) |linker_script| {
-                module.linker_script = linker_script;
-            }
-            module.each_lib_rpath = each_lib_rpath;
-            module.clang_argv = clang_argv.toSliceConst();
-            module.llvm_argv = llvm_argv.toSliceConst();
-            module.strip = strip;
-            module.is_static = is_static;
-
-            if (libc_lib_dir_arg) |libc_lib_dir| {
-                module.libc_lib_dir = libc_lib_dir;
-            }
-            if (libc_static_lib_dir_arg) |libc_static_lib_dir| {
-                module.libc_static_lib_dir = libc_static_lib_dir;
-            }
-            if (libc_include_dir_arg) |libc_include_dir| {
-                module.libc_include_dir = libc_include_dir;
-            }
-            if (msvc_lib_dir_arg) |msvc_lib_dir| {
-                module.msvc_lib_dir = msvc_lib_dir;
-            }
-            if (kernel32_lib_dir_arg) |kernel32_lib_dir| {
-                module.kernel32_lib_dir = kernel32_lib_dir;
-            }
-            if (dynamic_linker_arg) |dynamic_linker| {
-                module.dynamic_linker = dynamic_linker;
-            }
-            module.verbose_tokenize = verbose_tokenize;
-            module.verbose_ast_tree = verbose_ast_tree;
-            module.verbose_ast_fmt = verbose_ast_fmt;
-            module.verbose_link = verbose_link;
-            module.verbose_ir = verbose_ir;
-            module.verbose_llvm_ir = verbose_llvm_ir;
-            module.verbose_cimport = verbose_cimport;
-
-            module.err_color = color;
-
-            module.lib_dirs = lib_dirs.toSliceConst();
-            module.darwin_frameworks = frameworks.toSliceConst();
-            module.rpath_list = rpath_list.toSliceConst();
-
-            for (link_libs.toSliceConst()) |name| {
-                _ = try module.addLinkLib(name, true);
-            }
-
-            module.windows_subsystem_windows = mwindows;
-            module.windows_subsystem_console = mconsole;
-            module.linker_rdynamic = rdynamic;
-
-            if (mmacosx_version_min != null and mios_version_min != null) {
-                badArgs("-mmacosx-version-min and -mios-version-min options not allowed together");
-            }
-
-            if (mmacosx_version_min) |ver| {
-                module.darwin_version_min = Module.DarwinVersionMin { .MacOS = ver };
-            } else if (mios_version_min) |ver| {
-                module.darwin_version_min = Module.DarwinVersionMin { .Ios = ver };
-            }
-
-            module.test_filters = test_filters.toSliceConst();
-            module.test_name_prefix = test_name_prefix_arg;
-            module.out_h_path = out_file_h;
-
-            // TODO
-            //add_package(g, cur_pkg, g->root_package);
-
-            switch (cmd) {
-                Cmd.Build => {
-                    module.emit_file_type = emit_file_type;
-
-                    module.link_objects = objects.toSliceConst();
-                    module.assembly_files = asm_files.toSliceConst();
-
-                    try module.build();
-                    try module.link(out_file);
-                },
-                Cmd.TranslateC => @panic("TODO translate-c"),
-                Cmd.Test => @panic("TODO test cmd"),
-                else => unreachable,
-            }
-        },
-        Cmd.Version => {
-            var stdout_file = try io.getStdErr();
-            try stdout_file.write(std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
-            try stdout_file.write("\n");
-        },
-        Cmd.Targets => @panic("TODO zig targets"),
-    }
+    try stderr.print("unknown command: {}\n\n", args[1]);
+    try stderr.write(usage);
 }
 
-fn printUsage(stream: var) !void {
-    try stream.write(
-        \\Usage: zig [command] [options]
-        \\
-        \\Commands:
-        \\  build                        build project from build.zig
-        \\  build-exe [source]           create executable from source or object files
-        \\  build-lib [source]           create library from source or object files
-        \\  build-obj [source]           create object from source or assembly
-        \\  fmt [file]                   parse file and render in canonical zig format
-        \\  translate-c [source]         convert c code to zig code
-        \\  targets                      list available compilation targets
-        \\  test [source]                create and run a test build
-        \\  version                      print version number and exit
-        \\  zen                          print zen of zig and exit
-        \\Compile Options:
-        \\  --assembly [source]          add assembly file to build
-        \\  --cache-dir [path]           override the cache directory
-        \\  --color [auto|off|on]        enable or disable colored error messages
-        \\  --emit [filetype]            emit a specific file format as compilation output
-        \\  --enable-timing-info         print timing diagnostics
-        \\  --libc-include-dir [path]    directory where libc stdlib.h resides
-        \\  --name [name]                override output name
-        \\  --output [file]              override destination path
-        \\  --output-h [file]            override generated header file path
-        \\  --pkg-begin [name] [path]    make package available to import and push current pkg
-        \\  --pkg-end                    pop current pkg
-        \\  --release-fast               build with optimizations on and safety off
-        \\  --release-safe               build with optimizations on and safety on
-        \\  --static                     output will be statically linked
-        \\  --strip                      exclude debug symbols
-        \\  --target-arch [name]         specify target architecture
-        \\  --target-environ [name]      specify target environment
-        \\  --target-os [name]           specify target operating system
-        \\  --verbose-tokenize           enable compiler debug info: tokenization
-        \\  --verbose-ast-tree           enable compiler debug info: parsing into an AST (treeview)
-        \\  --verbose-ast-fmt            enable compiler debug info: parsing into an AST (render source)
-        \\  --verbose-cimport            enable compiler debug info: C imports
-        \\  --verbose-ir                 enable compiler debug info: Zig IR
-        \\  --verbose-llvm-ir            enable compiler debug info: LLVM IR
-        \\  --verbose-link               enable compiler debug info: linking
-        \\  --zig-install-prefix [path]  override directory where zig thinks it is installed
-        \\  -dirafter [dir]              same as -isystem but do it last
-        \\  -isystem [dir]               add additional search path for other .h files
-        \\  -mllvm [arg]                 additional arguments to forward to LLVM's option processing
-        \\Link Options:
-        \\  --ar-path [path]             set the path to ar
-        \\  --dynamic-linker [path]      set the path to ld.so
-        \\  --each-lib-rpath             add rpath for each used dynamic library
-        \\  --libc-lib-dir [path]        directory where libc crt1.o resides
-        \\  --libc-static-lib-dir [path] directory where libc crtbegin.o resides
-        \\  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides
-        \\  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides
-        \\  --library [lib]              link against lib
-        \\  --library-path [dir]         add a directory to the library search path
-        \\  --linker-script [path]       use a custom linker script
-        \\  --object [obj]               add object file to build
-        \\  -L[dir]                      alias for --library-path
-        \\  -rdynamic                    add all symbols to the dynamic symbol table
-        \\  -rpath [path]                add directory to the runtime library search path
-        \\  -mconsole                    (windows) --subsystem console to the linker
-        \\  -mwindows                    (windows) --subsystem windows to the linker
-        \\  -framework [name]            (darwin) link against framework
-        \\  -mios-version-min [ver]      (darwin) set iOS deployment target
-        \\  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target
-        \\  --ver-major [ver]            dynamic library semver major version
-        \\  --ver-minor [ver]            dynamic library semver minor version
-        \\  --ver-patch [ver]            dynamic library semver patch version
-        \\Test Options:
-        \\  --test-filter [text]         skip tests that do not match filter
-        \\  --test-name-prefix [text]    add prefix to all tests
-        \\  --test-cmd [arg]             specify test execution command one arg at a time
-        \\  --test-cmd-bin               appends test binary path to test cmd args
-        \\
-    );
-}
+// cmd:build ///////////////////////////////////////////////////////////////////////////////////////
 
-fn printZen() !void {
-    var stdout_file = try io.getStdErr();
-    try stdout_file.write(
-        \\
-        \\ * Communicate intent precisely.
-        \\ * Edge cases matter.
-        \\ * Favor reading code over writing code.
-        \\ * Only one obvious way to do things.
-        \\ * Runtime crashes are better than bugs.
-        \\ * Compile errors are better than runtime crashes.
-        \\ * Incremental improvements.
-        \\ * Avoid local maximums.
-        \\ * Reduce the amount one must remember.
-        \\ * Minimize energy spent on coding style.
-        \\ * Together we serve end users.
-        \\
-        \\
-    );
-}
+const usage_build =
+    \\usage: zig build <options>
+    \\
+    \\General Options:
+    \\   --help                       Print this help and exit
+    \\   --init                       Generate a build.zig template
+    \\   --build-file [file]          Override path to build.zig
+    \\   --cache-dir [path]           Override path to cache directory
+    \\   --verbose                    Print commands before executing them
+    \\   --prefix [path]              Override default install prefix
+    \\
+    \\Project-Specific Options:
+    \\
+    \\   Project-specific options become available when the build file is found.
+    \\
+    \\Advanced Options:
+    \\   --build-file [file]          Override path to build.zig
+    \\   --cache-dir [path]           Override path to cache directory
+    \\   --verbose-tokenize           Enable compiler debug output for tokenization
+    \\   --verbose-ast                Enable compiler debug output for parsing into an AST
+    \\   --verbose-link               Enable compiler debug output for linking
+    \\   --verbose-ir                 Enable compiler debug output for Zig IR
+    \\   --verbose-llvm-ir            Enable compiler debug output for LLVM IR
+    \\   --verbose-cimport            Enable compiler debug output for C imports
+    \\
+    \\
+    ;
 
-fn buildMain(allocator: &mem.Allocator, argv: []const []const u8) !void {
-    var build_file: [] const u8 = "build.zig";
-    var cache_dir: ?[] const u8 = null;
-    var zig_install_prefix: ?[] const u8 = null;
-    var asked_for_help = false;
-    var asked_for_init = false;
+const args_build_spec = []Flag {
+    Flag.Bool("--help"),
+    Flag.Bool("--init"),
+    Flag.Arg1("--build-file"),
+    Flag.Arg1("--cache-dir"),
+    Flag.Bool("--verbose"),
+    Flag.Arg1("--prefix"),
 
-    var args = ArrayList([] const u8).init(allocator);
-    defer args.deinit();
+    Flag.Arg1("--build-file"),
+    Flag.Arg1("--cache-dir"),
+    Flag.Bool("--verbose-tokenize"),
+    Flag.Bool("--verbose-ast"),
+    Flag.Bool("--verbose-link"),
+    Flag.Bool("--verbose-ir"),
+    Flag.Bool("--verbose-llvm-ir"),
+    Flag.Bool("--verbose-cimport"),
+};
 
-    var zig_exe_path = try os.selfExePath(allocator);
-    defer allocator.free(zig_exe_path);
+const missing_build_file =
+    \\No 'build.zig' file found.
+    \\
+    \\Initialize a 'build.zig' template file with `zig build --init`,
+    \\or build an executable directly with `zig build-exe $FILENAME.zig`.
+    \\
+    \\See: `zig build --help` or `zig help` for more options.
+    \\
+    ;
 
-    try args.append("");  // Placeholder for zig-cache/build
-    try args.append("");  // Placeholder for zig_exe_path
-    try args.append("");  // Placeholder for build_file_dirname
-    try args.append("");  // Placeholder for full_cache_dir
+fn cmdBuild(allocator: &Allocator, args: []const []const u8) !void {
+    var flags = try Args.parse(allocator, args_build_spec, args);
+    defer flags.deinit();
 
-    var i: usize = 0;
-    while (i < argv.len) : (i += 1) {
-        var arg = argv[i];
-        if (mem.eql(u8, arg, "--help")) {
-            asked_for_help = true;
-            try args.append(argv[i]);
-        } else if (mem.eql(u8, arg, "--init")) {
-            asked_for_init = true;
-            try args.append(argv[i]);
-        } else if (i + 1 < argv.len and mem.eql(u8, arg, "--build-file")) {
-            build_file = argv[i + 1];
-            i += 1;
-        } else if (i + 1 < argv.len and mem.eql(u8, arg, "--cache-dir")) {
-            cache_dir = argv[i + 1];
-            i += 1;
-        } else if (i + 1 < argv.len and mem.eql(u8, arg, "--zig-install-prefix")) {
-            try args.append(arg);
-            i += 1;
-            zig_install_prefix = argv[i];
-            try args.append(argv[i]);
-        } else {
-            try args.append(arg);
-        }
+    if (flags.present("help")) {
+        try stderr.write(usage_build);
+        os.exit(0);
     }
 
-    const zig_lib_dir = try resolveZigLibDir(allocator, zig_install_prefix);
+    const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
     defer allocator.free(zig_lib_dir);
 
     const zig_std_dir = try os.path.join(allocator, zig_lib_dir, "std");
@@ -621,113 +173,502 @@ fn buildMain(allocator: &mem.Allocator, argv: []const []const u8) !void {
     const build_runner_path = try os.path.join(allocator, special_dir, "build_runner.zig");
     defer allocator.free(build_runner_path);
 
-    // g = codegen_create(build_runner_path, ...)
-    // codegen_set_out_name(g, "build")
-
+    const build_file = flags.single("build-file") ?? "build.zig";
     const build_file_abs = try os.path.resolve(allocator, ".", build_file);
     defer allocator.free(build_file_abs);
+
+    const build_file_exists = os.File.access(allocator, build_file_abs, os.default_file_mode) catch false;
+
+    if (flags.present("init")) {
+        if (build_file_exists) {
+            try stderr.print("build.zig already exists\n");
+            os.exit(1);
+        }
+
+        // need a new scope for proper defer scope finalization on exit
+        {
+            const build_template_path = try os.path.join(allocator, special_dir, "build_file_template.zig");
+            defer allocator.free(build_template_path);
+
+            try os.copyFile(allocator, build_template_path, build_file_abs);
+            try stderr.print("wrote build.zig template\n");
+        }
+
+        os.exit(0);
+    }
+
+    if (!build_file_exists) {
+        try stderr.write(missing_build_file);
+        os.exit(1);
+    }
+
+    // TODO: Invoke build.zig entrypoint directly?
+    var zig_exe_path = try os.selfExePath(allocator);
+    defer allocator.free(zig_exe_path);
+
+    var build_args = ArrayList([]const u8).init(allocator);
+    defer build_args.deinit();
 
     const build_file_basename = os.path.basename(build_file_abs);
     const build_file_dirname = os.path.dirname(build_file_abs);
 
     var full_cache_dir: []u8 = undefined;
-    if (cache_dir == null) {
-        full_cache_dir = try os.path.join(allocator, build_file_dirname, "zig-cache");
+    if (flags.single("cache-dir")) |cache_dir| {
+        full_cache_dir = try os.path.resolve(allocator, ".", cache_dir, full_cache_dir);
     } else {
-        full_cache_dir = try os.path.resolve(allocator, ".", ??cache_dir, full_cache_dir);
+        full_cache_dir = try os.path.join(allocator, build_file_dirname, "zig-cache");
     }
     defer allocator.free(full_cache_dir);
 
     const path_to_build_exe = try os.path.join(allocator, full_cache_dir, "build");
     defer allocator.free(path_to_build_exe);
-    // codegen_set_cache_dir(g, full_cache_dir)
 
-    args.items[0] = path_to_build_exe;
-    args.items[1] = zig_exe_path;
-    args.items[2] = build_file_dirname;
-    args.items[3] = full_cache_dir;
+    try build_args.append(path_to_build_exe);
+    try build_args.append(zig_exe_path);
+    try build_args.append(build_file_dirname);
+    try build_args.append(full_cache_dir);
 
-    var build_file_exists: bool = undefined;
-    if (os.File.openRead(allocator, build_file_abs)) |*file| {
-        file.close();
-        build_file_exists = true;
-    } else |_| {
-        build_file_exists = false;
-    }
-
-    if (!build_file_exists and asked_for_help) {
-        // TODO(bnoordhuis) Print help message from std/special/build_runner.zig
-        return;
-    }
-
-    if (!build_file_exists and asked_for_init) {
-        const build_template_path = try os.path.join(allocator, special_dir, "build_file_template.zig");
-        defer allocator.free(build_template_path);
-
-        var srcfile = try os.File.openRead(allocator, build_template_path);
-        defer srcfile.close();
-
-        var dstfile = try os.File.openWrite(allocator, build_file_abs);
-        defer dstfile.close();
-
-        while (true) {
-            var buffer: [4096]u8 = undefined;
-            const n = try srcfile.read(buffer[0..]);
-            if (n == 0) break;
-            try dstfile.write(buffer[0..n]);
-        }
-
-        return;
-    }
-
-    if (!build_file_exists) {
-        warn(
-            \\No 'build.zig' file found.
-            \\Initialize a 'build.zig' template file with `zig build --init`,
-            \\or build an executable directly with `zig build-exe $FILENAME.zig`.
-            \\See: `zig build --help` or `zig help` for more options.
-            \\
-        );
-        os.exit(1);
-    }
-
-    // codegen_build(g)
-    // codegen_link(g, path_to_build_exe)
-    // codegen_destroy(g)
-
-    var proc = try os.ChildProcess.init(args.toSliceConst(), allocator);
+    var proc = try os.ChildProcess.init(build_args.toSliceConst(), allocator);
     defer proc.deinit();
 
     var term = try proc.spawnAndWait();
     switch (term) {
         os.ChildProcess.Term.Exited => |status| {
             if (status != 0) {
-                warn("{} exited with status {}\n", args.at(0), status);
+                try stderr.print("{} exited with status {}\n", build_args.at(0), status);
                 os.exit(1);
             }
         },
         os.ChildProcess.Term.Signal => |signal| {
-            warn("{} killed by signal {}\n", args.at(0), signal);
+            try stderr.print("{} killed by signal {}\n", build_args.at(0), signal);
             os.exit(1);
         },
         os.ChildProcess.Term.Stopped => |signal| {
-            warn("{} stopped by signal {}\n", args.at(0), signal);
+            try stderr.print("{} stopped by signal {}\n", build_args.at(0), signal);
             os.exit(1);
         },
         os.ChildProcess.Term.Unknown => |status| {
-            warn("{} encountered unknown failure {}\n", args.at(0), status);
+            try stderr.print("{} encountered unknown failure {}\n", build_args.at(0), status);
             os.exit(1);
         },
     }
 }
 
-fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
-    for (file_paths) |file_path| {
+// cmd:build-exe ///////////////////////////////////////////////////////////////////////////////////
+
+const usage_build_generic =
+    \\usage: zig build-exe <options> [file]
+    \\       zig build-lib <options> [file]
+    \\       zig build-obj <options> [file]
+    \\
+    \\General Options:
+    \\  --help                       Print this help and exit
+    \\  --color [auto|off|on]        Enable or disable colored error messages
+    \\
+    \\Compile Options:
+    \\  --assembly [source]          Add assembly file to build
+    \\  --cache-dir [path]           Override the cache directory
+    \\  --emit [filetype]            Emit a specific file format as compilation output
+    \\  --enable-timing-info         Print timing diagnostics
+    \\  --libc-include-dir [path]    Directory where libc stdlib.h resides
+    \\  --name [name]                Override output name
+    \\  --output [file]              Override destination path
+    \\  --output-h [file]            Override generated header file path
+    \\  --pkg-begin [name] [path]    Make package available to import and push current pkg
+    \\  --pkg-end                    Pop current pkg
+    \\  --release-fast               Build with optimizations on and safety off
+    \\  --release-safe               Build with optimizations on and safety on
+    \\  --static                     Output will be statically linked
+    \\  --strip                      Exclude debug symbols
+    \\  --target-arch [name]         Specify target architecture
+    \\  --target-environ [name]      Specify target environment
+    \\  --target-os [name]           Specify target operating system
+    \\  --verbose-tokenize           Turn on compiler debug output for tokenization
+    \\  --verbose-ast-tree           Turn on compiler debug output for parsing into an AST (tree view)
+    \\  --verbose-ast-fmt            Turn on compiler debug output for parsing into an AST (render source)
+    \\  --verbose-link               Turn on compiler debug output for linking
+    \\  --verbose-ir                 Turn on compiler debug output for Zig IR
+    \\  --verbose-llvm-ir            Turn on compiler debug output for LLVM IR
+    \\  --verbose-cimport            Turn on compiler debug output for C imports
+    \\  -dirafter [dir]              Same as -isystem but do it last
+    \\  -isystem [dir]               Add additional search path for other .h files
+    \\  -mllvm [arg]                 Additional arguments to forward to LLVM's option processing
+    \\
+    \\Link Options:
+    \\  --ar-path [path]             Set the path to ar
+    \\  --dynamic-linker [path]      Set the path to ld.so
+    \\  --each-lib-rpath             Add rpath for each used dynamic library
+    \\  --libc-lib-dir [path]        Directory where libc crt1.o resides
+    \\  --libc-static-lib-dir [path] Directory where libc crtbegin.o resides
+    \\  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides
+    \\  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides
+    \\  --library [lib]              Link against lib
+    \\  --forbid-library [lib]       Make it an error to link against lib
+    \\  --library-path [dir]         Add a directory to the library search path
+    \\  --linker-script [path]       Use a custom linker script
+    \\  --object [obj]               Add object file to build
+    \\  -rdynamic                    Add all symbols to the dynamic symbol table
+    \\  -rpath [path]                Add directory to the runtime library search path
+    \\  -mconsole                    (windows) --subsystem console to the linker
+    \\  -mwindows                    (windows) --subsystem windows to the linker
+    \\  -framework [name]            (darwin) link against framework
+    \\  -mios-version-min [ver]      (darwin) set iOS deployment target
+    \\  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target
+    \\  --ver-major [ver]            Dynamic library semver major version
+    \\  --ver-minor [ver]            Dynamic library semver minor version
+    \\  --ver-patch [ver]            Dynamic library semver patch version
+    \\
+    \\
+    ;
+
+const args_build_generic = []Flag {
+    Flag.Bool("--help"),
+    Flag.Option("--color", []const []const u8 { "auto", "off", "on" }),
+
+    Flag.ArgMergeN("--assembly", 1),
+    Flag.Arg1("--cache-dir"),
+    Flag.Option("--emit", []const []const u8 { "asm", "bin", "llvm-ir" }),
+    Flag.Bool("--enable-timing-info"),
+    Flag.Arg1("--libc-include-dir"),
+    Flag.Arg1("--name"),
+    Flag.Arg1("--output"),
+    Flag.Arg1("--output-h"),
+    // NOTE: Parsed manually after initial check
+    Flag.ArgN("--pkg-begin", 2),
+    Flag.Bool("--pkg-end"),
+    Flag.Bool("--release-fast"),
+    Flag.Bool("--release-safe"),
+    Flag.Bool("--static"),
+    Flag.Bool("--strip"),
+    Flag.Arg1("--target-arch"),
+    Flag.Arg1("--target-environ"),
+    Flag.Arg1("--target-os"),
+    Flag.Bool("--verbose-tokenize"),
+    Flag.Bool("--verbose-ast-tree"),
+    Flag.Bool("--verbose-ast-fmt"),
+    Flag.Bool("--verbose-link"),
+    Flag.Bool("--verbose-ir"),
+    Flag.Bool("--verbose-llvm-ir"),
+    Flag.Bool("--verbose-cimport"),
+    Flag.Arg1("-dirafter"),
+    Flag.ArgMergeN("-isystem", 1),
+    Flag.Arg1("-mllvm"),
+
+    Flag.Arg1("--ar-path"),
+    Flag.Arg1("--dynamic-linker"),
+    Flag.Bool("--each-lib-rpath"),
+    Flag.Arg1("--libc-lib-dir"),
+    Flag.Arg1("--libc-static-lib-dir"),
+    Flag.Arg1("--msvc-lib-dir"),
+    Flag.Arg1("--kernel32-lib-dir"),
+    Flag.ArgMergeN("--library", 1),
+    Flag.ArgMergeN("--forbid-library", 1),
+    Flag.ArgMergeN("--library-path", 1),
+    Flag.Arg1("--linker-script"),
+    Flag.ArgMergeN("--object", 1),
+    // NOTE: Removed -L since it would need to be special-cased and we have an alias in library-path
+    Flag.Bool("-rdynamic"),
+    Flag.Arg1("-rpath"),
+    Flag.Bool("-mconsole"),
+    Flag.Bool("-mwindows"),
+    Flag.ArgMergeN("-framework", 1),
+    Flag.Arg1("-mios-version-min"),
+    Flag.Arg1("-mmacosx-version-min"),
+    Flag.Arg1("--ver-major"),
+    Flag.Arg1("--ver-minor"),
+    Flag.Arg1("--ver-patch"),
+};
+
+fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Module.Kind) !void {
+    var flags = try Args.parse(allocator, args_build_generic, args);
+    defer flags.deinit();
+
+    if (flags.present("help")) {
+        try stderr.write(usage_build_generic);
+        os.exit(0);
+    }
+
+    var build_mode = builtin.Mode.Debug;
+    if (flags.present("release-fast")) {
+        build_mode = builtin.Mode.ReleaseFast;
+    } else if (flags.present("release-safe")) {
+        build_mode = builtin.Mode.ReleaseSafe;
+    }
+
+    var color = Module.ErrColor.Auto;
+    if (flags.single("color")) |color_flag| {
+        if (mem.eql(u8, color_flag, "auto")) {
+            color = Module.ErrColor.Auto;
+        } else if (mem.eql(u8, color_flag, "on")) {
+            color = Module.ErrColor.On;
+        } else if (mem.eql(u8, color_flag, "off")) {
+            color = Module.ErrColor.Off;
+        } else {
+            unreachable;
+        }
+    }
+
+    var emit_type = Module.Emit.Binary;
+    if (flags.single("emit")) |emit_flag| {
+        if (mem.eql(u8, emit_flag, "asm")) {
+            emit_type = Module.Emit.Assembly;
+        } else if (mem.eql(u8, emit_flag, "bin")) {
+            emit_type = Module.Emit.Binary;
+        } else if (mem.eql(u8, emit_flag, "llvm-ir")) {
+            emit_type = Module.Emit.LlvmIr;
+        } else {
+            unreachable;
+        }
+    }
+
+    var cur_pkg = try Module.CliPkg.init(allocator, "", "", null); // TODO: Need a path, name?
+    defer cur_pkg.deinit();
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg_name = args[i];
+        if (mem.eql(u8, "--pkg-begin", arg_name)) {
+            // following two arguments guaranteed to exist due to arg parsing
+            i += 1;
+            const new_pkg_name = args[i];
+            i += 1;
+            const new_pkg_path = args[i];
+
+            var new_cur_pkg = try Module.CliPkg.init(allocator, new_pkg_name, new_pkg_path, cur_pkg);
+            try cur_pkg.children.append(new_cur_pkg);
+            cur_pkg = new_cur_pkg;
+        } else if (mem.eql(u8, "--pkg-end", arg_name)) {
+            if (cur_pkg.parent == null) {
+                try stderr.print("encountered --pkg-end with no matching --pkg-begin\n");
+                os.exit(1);
+            }
+            cur_pkg = ??cur_pkg.parent;
+        }
+    }
+
+    if (cur_pkg.parent != null) {
+        try stderr.print("unmatched --pkg-begin\n");
+        os.exit(1);
+    }
+
+    var in_file: ?[]const u8 = undefined;
+    switch (flags.positionals.len) {
+        0 => {
+            try stderr.write("--name [name] not provided and unable to infer\n");
+            os.exit(1);
+        },
+        1 => {
+            in_file = flags.positionals.at(0);
+        },
+        else => {
+            try stderr.write("only one zig input file is accepted during build\n");
+            os.exit(1);
+        },
+    }
+
+    const basename = os.path.basename(??in_file);
+    var it = mem.split(basename, ".");
+    const root_name = it.next() ?? {
+        try stderr.write("file name cannot be empty\n");
+        os.exit(1);
+    };
+
+    const asm_a= flags.many("assembly");
+    const obj_a = flags.many("object");
+    if (in_file == null and (obj_a == null or (??obj_a).len == 0) and (asm_a == null or (??asm_a).len == 0)) {
+        try stderr.write("Expected source file argument or at least one --object or --assembly argument\n");
+        os.exit(1);
+    }
+
+    if (out_type == Module.Kind.Obj and (obj_a != null and (??obj_a).len != 0)) {
+        try stderr.write("When building an object file, --object arguments are invalid\n");
+        os.exit(1);
+    }
+
+    const zig_root_source_file = in_file;
+
+    const full_cache_dir = os.path.resolve(allocator, ".", flags.single("cache-dir") ?? "zig-cache"[0..]) catch {
+        os.exit(1);
+    };
+    defer allocator.free(full_cache_dir);
+
+    const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
+    defer allocator.free(zig_lib_dir);
+
+    var module =
+        try Module.create(
+            allocator,
+            root_name,
+            zig_root_source_file,
+            Target.Native,
+            out_type,
+            build_mode,
+            zig_lib_dir,
+            full_cache_dir
+        );
+    defer module.destroy();
+
+    module.version_major = try std.fmt.parseUnsigned(u32, flags.single("ver-major") ?? "0", 10);
+    module.version_minor = try std.fmt.parseUnsigned(u32, flags.single("ver-minor") ?? "0", 10);
+    module.version_patch = try std.fmt.parseUnsigned(u32, flags.single("ver-patch") ?? "0", 10);
+
+    module.is_test = false;
+
+    if (flags.single("linker-script")) |linker_script| {
+        module.linker_script = linker_script;
+    }
+
+    module.each_lib_rpath = flags.present("each-lib-rpath");
+
+    var clang_argv_buf = ArrayList([]const u8).init(allocator);
+    defer clang_argv_buf.deinit();
+    if (flags.many("mllvm")) |mllvm_flags| {
+        for (mllvm_flags) |mllvm| {
+            try clang_argv_buf.append("-mllvm");
+            try clang_argv_buf.append(mllvm);
+        }
+
+        module.llvm_argv = mllvm_flags;
+        module.clang_argv = clang_argv_buf.toSliceConst();
+    }
+
+    module.strip = flags.present("strip");
+    module.is_static = flags.present("static");
+
+    if (flags.single("libc-lib-dir")) |libc_lib_dir| {
+        module.libc_lib_dir = libc_lib_dir;
+    }
+    if (flags.single("libc-static-lib-dir")) |libc_static_lib_dir| {
+        module.libc_static_lib_dir = libc_static_lib_dir;
+    }
+    if (flags.single("libc-include-dir")) |libc_include_dir| {
+        module.libc_include_dir = libc_include_dir;
+    }
+    if (flags.single("msvc-lib-dir")) |msvc_lib_dir| {
+        module.msvc_lib_dir = msvc_lib_dir;
+    }
+    if (flags.single("kernel32-lib-dir")) |kernel32_lib_dir| {
+        module.kernel32_lib_dir = kernel32_lib_dir;
+    }
+    if (flags.single("dynamic-linker")) |dynamic_linker| {
+        module.dynamic_linker = dynamic_linker;
+    }
+
+    module.verbose_tokenize = flags.present("verbose-tokenize");
+    module.verbose_ast_tree = flags.present("verbose-ast-tree");
+    module.verbose_ast_fmt = flags.present("verbose-ast-fmt");
+    module.verbose_link = flags.present("verbose-link");
+    module.verbose_ir = flags.present("verbose-ir");
+    module.verbose_llvm_ir = flags.present("verbose-llvm-ir");
+    module.verbose_cimport = flags.present("verbose-cimport");
+
+    module.err_color = color;
+
+    if (flags.many("library-path")) |lib_dirs| {
+        module.lib_dirs = lib_dirs;
+    }
+
+    if (flags.many("framework")) |frameworks| {
+        module.darwin_frameworks = frameworks;
+    }
+
+    if (flags.many("rpath")) |rpath_list| {
+        module.rpath_list = rpath_list;
+    }
+
+    if (flags.single("output-h")) |output_h| {
+        module.out_h_path = output_h;
+    }
+
+    module.windows_subsystem_windows = flags.present("mwindows");
+    module.windows_subsystem_console = flags.present("mconsole");
+    module.linker_rdynamic = flags.present("rdynamic");
+
+    if (flags.single("mmacosx-version-min") != null and flags.single("mios-version-min") != null) {
+        try stderr.write("-mmacosx-version-min and -mios-version-min options not allowed together\n");
+        os.exit(1);
+    }
+
+    if (flags.single("mmacosx-version-min")) |ver| {
+        module.darwin_version_min = Module.DarwinVersionMin { .MacOS = ver };
+    }
+    if (flags.single("mios-version-min")) |ver| {
+        module.darwin_version_min = Module.DarwinVersionMin { .Ios = ver };
+    }
+
+    module.emit_file_type = emit_type;
+    if (flags.many("object")) |objects| {
+        module.link_objects = objects;
+    }
+    if (flags.many("assembly")) |assembly_files| {
+        module.assembly_files = assembly_files;
+    }
+
+    try module.build();
+    try module.link(flags.single("out-file") ?? null);
+
+    if (flags.present("print-timing-info")) {
+        // codegen_print_timing_info(g, stderr);
+    }
+
+    try stderr.print("building {}: {}\n", @tagName(out_type), in_file);
+}
+
+fn cmdBuildExe(allocator: &Allocator, args: []const []const u8) !void {
+    try buildOutputType(allocator, args, Module.Kind.Exe);
+}
+
+// cmd:build-lib ///////////////////////////////////////////////////////////////////////////////////
+
+fn cmdBuildLib(allocator: &Allocator, args: []const []const u8) !void {
+    try buildOutputType(allocator, args, Module.Kind.Lib);
+}
+
+// cmd:build-obj ///////////////////////////////////////////////////////////////////////////////////
+
+fn cmdBuildObj(allocator: &Allocator, args: []const []const u8) !void {
+    try buildOutputType(allocator, args, Module.Kind.Obj);
+}
+
+// cmd:fmt /////////////////////////////////////////////////////////////////////////////////////////
+
+const usage_fmt =
+    \\usage: zig fmt [file]...
+    \\
+    \\   Formats the input files and modifies them in-place.
+    \\
+    \\Options:
+    \\   --help                 Print this help and exit
+    \\   --keep-backups         Retain backup entries for every file
+    \\
+    \\
+    ;
+
+const args_fmt_spec = []Flag {
+    Flag.Bool("--help"),
+    Flag.Bool("--keep-backups"),
+};
+
+fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
+    var flags = try Args.parse(allocator, args_fmt_spec, args);
+    defer flags.deinit();
+
+    if (flags.present("help")) {
+        try stderr.write(usage_fmt);
+        os.exit(0);
+    }
+
+    if (flags.positionals.len == 0) {
+        try stderr.write("expected at least one source file argument\n");
+        os.exit(1);
+    }
+
+    for (flags.positionals.toSliceConst()) |file_path| {
         var file = try os.File.openRead(allocator, file_path);
         defer file.close();
 
         const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
-            warn("unable to open '{}': {}", file_path, err);
+            try stderr.print("unable to open '{}': {}", file_path, err);
             continue;
         };
         defer allocator.free(source_code);
@@ -736,72 +677,312 @@ fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
         var parser = std.zig.Parser.init(&tokenizer, allocator, file_path);
         defer parser.deinit();
 
-        var tree = try parser.parse();
-        defer tree.deinit();
-
-        const baf = try io.BufferedAtomicFile.create(allocator, file_path);
-        defer baf.destroy();
-
-        try parser.renderSource(baf.stream(), tree.root_node);
-        try baf.finish();
-    }
-}
-
-/// Caller must free result
-fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const u8) ![]u8 {
-    if (zig_install_prefix_arg) |zig_install_prefix| {
-        return testZigInstallPrefix(allocator, zig_install_prefix) catch |err| {
-            warn("No Zig installation found at prefix {}: {}\n", zig_install_prefix_arg, @errorName(err));
-            return error.ZigInstallationNotFound;
-        };
-    } else {
-        return findZigLibDir(allocator) catch |err| {
-            warn("Unable to find zig lib directory: {}.\nReinstall Zig or use --zig-install-prefix.\n",
-                @errorName(err));
-            return error.ZigLibDirNotFound;
-        };
-    }
-}
-
-/// Caller must free result
-fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) ![]u8 {
-    const test_zig_dir = try os.path.join(allocator, test_path, "lib", "zig");
-    errdefer allocator.free(test_zig_dir);
-
-    const test_index_file = try os.path.join(allocator, test_zig_dir, "std", "index.zig");
-    defer allocator.free(test_index_file);
-
-    var file = try os.File.openRead(allocator, test_index_file);
-    file.close();
-
-    return test_zig_dir;
-}
-
-/// Caller must free result
-fn findZigLibDir(allocator: &mem.Allocator) ![]u8 {
-    const self_exe_path = try os.selfExeDirPath(allocator);
-    defer allocator.free(self_exe_path);
-
-    var cur_path: []const u8 = self_exe_path;
-    while (true) {
-        const test_dir = os.path.dirname(cur_path);
-
-        if (mem.eql(u8, test_dir, cur_path)) {
-            break;
-        }
-
-        return testZigInstallPrefix(allocator, test_dir) catch |err| {
-            cur_path = test_dir;
+        var tree = parser.parse() catch |err| {
+            try stderr.print("error parsing file '{}': {}\n", file_path, err);
             continue;
         };
+        defer tree.deinit();
+
+        var original_file_backup = try Buffer.init(allocator, file_path);
+        defer original_file_backup.deinit();
+        try original_file_backup.append(".backup");
+
+        try os.rename(allocator, file_path, original_file_backup.toSliceConst());
+
+        try stderr.print("{}\n", file_path);
+
+        // TODO: BufferedAtomicFile has some access problems.
+        var out_file = try os.File.openWrite(allocator, file_path);
+        defer out_file.close();
+
+        var out_file_stream = io.FileOutStream.init(&out_file);
+        try parser.renderSource(out_file_stream.stream, tree.root_node);
+
+        if (!flags.present("keep-backups")) {
+            try os.deleteFile(allocator, original_file_backup.toSliceConst());
+        }
+    }
+}
+
+// cmd:targets /////////////////////////////////////////////////////////////////////////////////////
+
+fn cmdTargets(allocator: &Allocator, args: []const []const u8) !void {
+    try stdout.write("Architectures:\n");
+    {
+        comptime var i: usize = 0;
+        inline while (i < @memberCount(builtin.Arch)) : (i += 1) {
+            comptime const arch_tag = @memberName(builtin.Arch, i);
+            // NOTE: Cannot use empty string, see #918.
+            comptime const native_str =
+                if (comptime mem.eql(u8, arch_tag, @tagName(builtin.arch))) " (native)\n" else "\n";
+
+            try stdout.print("  {}{}", arch_tag, native_str);
+        }
+    }
+    try stdout.write("\n");
+
+    try stdout.write("Operating Systems:\n");
+    {
+        comptime var i: usize = 0;
+        inline while (i < @memberCount(builtin.Os)) : (i += 1) {
+            comptime const os_tag = @memberName(builtin.Os, i);
+            // NOTE: Cannot use empty string, see #918.
+            comptime const native_str =
+                if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
+
+            try stdout.print("  {}{}", os_tag, native_str);
+        }
+    }
+    try stdout.write("\n");
+
+    try stdout.write("Environments:\n");
+    {
+        comptime var i: usize = 0;
+        inline while (i < @memberCount(builtin.Environ)) : (i += 1) {
+            comptime const environ_tag = @memberName(builtin.Environ, i);
+            // NOTE: Cannot use empty string, see #918.
+            comptime const native_str =
+                if (comptime mem.eql(u8, environ_tag, @tagName(builtin.environ))) " (native)\n" else "\n";
+
+            try stdout.print("  {}{}", environ_tag, native_str);
+        }
+    }
+}
+
+// cmd:version /////////////////////////////////////////////////////////////////////////////////////
+
+fn cmdVersion(allocator: &Allocator, args: []const []const u8) !void {
+    try stdout.print("{}\n", std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
+}
+
+// cmd:test ////////////////////////////////////////////////////////////////////////////////////////
+
+const usage_test =
+    \\usage: zig test [file]...
+    \\
+    \\Options:
+    \\   --help                 Print this help and exit
+    \\
+    \\
+    ;
+
+const args_test_spec = []Flag {
+    Flag.Bool("--help"),
+};
+
+
+fn cmdTest(allocator: &Allocator, args: []const []const u8) !void {
+    var flags = try Args.parse(allocator, args_build_spec, args);
+    defer flags.deinit();
+
+    if (flags.present("help")) {
+        try stderr.write(usage_test);
+        os.exit(0);
     }
 
-    // TODO look in hard coded installation path from configuration
-    //if (ZIG_INSTALL_PREFIX != nullptr) {
-    //    if (test_zig_install_prefix(buf_create_from_str(ZIG_INSTALL_PREFIX), out_path)) {
-    //        return 0;
-    //    }
-    //}
+    if (flags.positionals.len != 1) {
+        try stderr.write("expected exactly one zig source file\n");
+        os.exit(1);
+    }
 
-    return error.FileNotFound;
+    // compile the test program into the cache and run
+
+    // NOTE: May be overlap with buildOutput, take the shared part out.
+    try stderr.print("testing file {}\n", flags.positionals.at(0));
+}
+
+// cmd:run /////////////////////////////////////////////////////////////////////////////////////////
+
+// Run should be simple and not expose the full set of arguments provided by build-exe. If specific
+// build requirements are need, the user should `build-exe` then `run` manually.
+const usage_run =
+    \\usage: zig run [file] -- <runtime args>
+    \\
+    \\Options:
+    \\   --help                 Print this help and exit
+    \\
+    \\
+    ;
+
+const args_run_spec = []Flag {
+    Flag.Bool("--help"),
+};
+
+
+fn cmdRun(allocator: &Allocator, args: []const []const u8) !void {
+    var compile_args = args;
+    var runtime_args: []const []const u8 = []const []const u8 {};
+
+    for (args) |argv, i| {
+        if (mem.eql(u8, argv, "--")) {
+            compile_args = args[0..i];
+            runtime_args = args[i+1..];
+            break;
+        }
+    }
+    var flags = try Args.parse(allocator, args_run_spec, compile_args);
+    defer flags.deinit();
+
+    if (flags.present("help")) {
+        try stderr.write(usage_run);
+        os.exit(0);
+    }
+
+    if (flags.positionals.len != 1) {
+        try stderr.write("expected exactly one zig source file\n");
+        os.exit(1);
+    }
+
+    try stderr.print("runtime args:\n");
+    for (runtime_args) |cargs| {
+        try stderr.print("{}\n", cargs);
+    }
+}
+
+// cmd:translate-c /////////////////////////////////////////////////////////////////////////////////
+
+const usage_translate_c =
+    \\usage: zig translate-c [file]
+    \\
+    \\Options:
+    \\  --help                       Print this help and exit
+    \\  --enable-timing-info         Print timing diagnostics
+    \\  --output [path]              Output file to write generated zig file (default: stdout)
+    \\
+    \\
+    ;
+
+const args_translate_c_spec = []Flag {
+    Flag.Bool("--help"),
+    Flag.Bool("--enable-timing-info"),
+    Flag.Arg1("--libc-include-dir"),
+    Flag.Arg1("--output"),
+};
+
+fn cmdTranslateC(allocator: &Allocator, args: []const []const u8) !void {
+    var flags = try Args.parse(allocator, args_translate_c_spec, args);
+    defer flags.deinit();
+
+    if (flags.present("help")) {
+        try stderr.write(usage_translate_c);
+        os.exit(0);
+    }
+
+    if (flags.positionals.len != 1) {
+        try stderr.write("expected exactly one c source file\n");
+        os.exit(1);
+    }
+
+    // set up codegen
+
+    const zig_root_source_file = null;
+
+    // NOTE: translate-c shouldn't require setting up the full codegen instance as it does in
+    // the C++ compiler.
+
+    // codegen_create(g);
+    // codegen_set_out_name(g, null);
+    // codegen_translate_c(g, flags.positional.at(0))
+
+    var output_stream = stdout;
+    if (flags.single("output")) |output_file| {
+        var file = try os.File.openWrite(allocator, output_file);
+        defer file.close();
+
+        var file_stream = io.FileOutStream.init(&file);
+        // TODO: Not being set correctly, still stdout
+        output_stream = &file_stream.stream;
+    }
+
+    // ast_render(g, output_stream, g->root_import->root, 4);
+    try output_stream.write("pub const example = 10;\n");
+
+    if (flags.present("enable-timing-info")) {
+        // codegen_print_timing_info(g, stdout);
+        try stderr.write("printing timing info for translate-c\n");
+    }
+}
+
+// cmd:help ////////////////////////////////////////////////////////////////////////////////////////
+
+fn cmdHelp(allocator: &Allocator, args: []const []const u8) !void {
+    try stderr.write(usage);
+}
+
+// cmd:zen /////////////////////////////////////////////////////////////////////////////////////////
+
+const info_zen =
+    \\
+    \\ * Communicate intent precisely.
+    \\ * Edge cases matter.
+    \\ * Favor reading code over writing code.
+    \\ * Only one obvious way to do things.
+    \\ * Runtime crashes are better than bugs.
+    \\ * Compile errors are better than runtime crashes.
+    \\ * Incremental improvements.
+    \\ * Avoid local maximums.
+    \\ * Reduce the amount one must remember.
+    \\ * Minimize energy spent on coding style.
+    \\ * Together we serve end users.
+    \\
+    \\
+    ;
+
+fn cmdZen(allocator: &Allocator, args: []const []const u8) !void {
+    try stdout.write(info_zen);
+}
+
+// cmd:internal ////////////////////////////////////////////////////////////////////////////////////
+
+const usage_internal =
+    \\usage: zig internal [subcommand]
+    \\
+    \\Sub-Commands:
+    \\  build-info                   Print static compiler build-info
+    \\
+    \\
+    ;
+
+fn cmdInternal(allocator: &Allocator, args: []const []const u8) !void {
+    if (args.len == 0) {
+        try stderr.write(usage_internal);
+        os.exit(1);
+    }
+
+    const sub_commands = []Command {
+        Command { .name = "build-info", .exec = cmdInternalBuildInfo },
+    };
+
+    for (sub_commands) |sub_command| {
+        if (mem.eql(u8, sub_command.name, args[0])) {
+            try sub_command.exec(allocator, args[1..]);
+            return;
+        }
+    }
+
+    try stderr.print("unknown sub command: {}\n\n", args[0]);
+    try stderr.write(usage_internal);
+}
+
+fn cmdInternalBuildInfo(allocator: &Allocator, args: []const []const u8) !void {
+    try stdout.print(
+        \\ZIG_CMAKE_BINARY_DIR {}
+        \\ZIG_CXX_COMPILER     {}
+        \\ZIG_LLVM_CONFIG_EXE  {}
+        \\ZIG_LLD_INCLUDE_PATH {}
+        \\ZIG_LLD_LIBRARIES    {}
+        \\ZIG_STD_FILES        {}
+        \\ZIG_C_HEADER_FILES   {}
+        \\ZIG_DIA_GUIDS_LIB    {}
+        \\
+        ,
+        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
+        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
+        std.cstr.toSliceConst(c.ZIG_LLVM_CONFIG_EXE),
+        std.cstr.toSliceConst(c.ZIG_LLD_INCLUDE_PATH),
+        std.cstr.toSliceConst(c.ZIG_LLD_LIBRARIES),
+        std.cstr.toSliceConst(c.ZIG_STD_FILES),
+        std.cstr.toSliceConst(c.ZIG_C_HEADER_FILES),
+        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
+    );
 }

@@ -38,6 +38,11 @@ pub const MAP_STACK      = 0x20000;
 pub const MAP_HUGETLB    = 0x40000;
 pub const MAP_FILE       = 0;
 
+pub const F_OK = 0;
+pub const X_OK = 1;
+pub const W_OK = 2;
+pub const R_OK = 4;
+
 pub const WNOHANG    = 1;
 pub const WUNTRACED  = 2;
 pub const WSTOPPED   = 2;
@@ -703,6 +708,10 @@ pub fn symlink(existing: &const u8, new: &const u8) usize {
 
 pub fn pread(fd: i32, buf: &u8, count: usize, offset: usize) usize {
     return syscall4(SYS_pread, usize(fd), @ptrToInt(buf), count, offset);
+}
+
+pub fn access(path: &const u8, mode: u32) usize {
+    return syscall2(SYS_access, @ptrToInt(path), mode);
 }
 
 pub fn pipe(fd: &[2]i32) usize {
