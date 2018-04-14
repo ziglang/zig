@@ -926,7 +926,7 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
     var from_it = try string.utf8Split(resolved_from, "/\\");
     var to_it = try string.utf8Split(resolved_to, "/\\");
     while (true) {
-        const from_component = from_it.nextBytes() ?? return mem.dupe(allocator, u8, "");
+        const from_component = from_it.nextBytes() ?? return mem.dupe(allocator, u8, to_it.restBytes() ?? "");
         const to_rest = to_it.restBytes() ?? "";
 
         if (to_it.nextBytes()) |to_component| {
@@ -963,7 +963,6 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
             mem.copy(u8, result[result_index..], to_component);
             result_index += to_component.len;
         }
-
         return result[0..result_index];
     }
 
@@ -980,8 +979,8 @@ pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) ![
     var from_it = try string.utf8Split(resolved_from, "/");
     var to_it = try string.utf8Split(resolved_to, "/");
     while (true) {
-        const from_component = from_it.nextBytes() ?? return mem.dupe(allocator, u8, ?? to_it.restBytes());
-        const to_rest = ?? to_it.restBytes();
+        const from_component = from_it.nextBytes() ?? return mem.dupe(allocator, u8, to_it.restBytes() ?? "");
+        const to_rest = to_it.restBytes() ?? "";
         if (to_it.nextBytes()) |to_component| {
             if (mem.eql(u8, from_component, to_component))
                 continue;
@@ -1018,41 +1017,41 @@ pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) ![
 test "os.path.relative" {
     testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
-    // testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
-    // testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/bbbb", "");
-    // testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/cccc", "..\\cccc");
-    // testRelativeWindows("c:/aaaa/", "c:/aaaa/cccc", "cccc");
-    // testRelativeWindows("c:/", "c:\\aaaa\\bbbb", "aaaa\\bbbb");
-    // testRelativeWindows("c:/aaaa/bbbb", "d:\\", "D:\\");
-    // testRelativeWindows("c:/AaAa/bbbb", "c:/aaaa/bbbb", "");
-    // testRelativeWindows("c:/aaaaa/", "c:/aaaa/cccc", "..\\aaaa\\cccc");
-    // testRelativeWindows("C:\\foo\\bar\\baz\\quux", "C:\\", "..\\..\\..\\..");
-    // testRelativeWindows("C:\\foo\\test", "C:\\foo\\test\\bar\\package.json", "bar\\package.json");
-    // testRelativeWindows("C:\\foo\\bar\\baz-quux", "C:\\foo\\bar\\baz", "..\\baz");
-    // testRelativeWindows("C:\\foo\\bar\\baz", "C:\\foo\\bar\\baz-quux", "..\\baz-quux");
-    // testRelativeWindows("\\\\foo\\bar", "\\\\foo\\bar\\baz", "baz");
-    // testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar", "..");
-    // testRelativeWindows("\\\\foo\\bar\\baz-quux", "\\\\foo\\bar\\baz", "..\\baz");
-    // testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz-quux", "..\\baz-quux");
-    // testRelativeWindows("C:\\baz-quux", "C:\\baz", "..\\baz");
-    // testRelativeWindows("C:\\baz", "C:\\baz-quux", "..\\baz-quux");
-    // testRelativeWindows("\\\\foo\\baz-quux", "\\\\foo\\baz", "..\\baz");
-    // testRelativeWindows("\\\\foo\\baz", "\\\\foo\\baz-quux", "..\\baz-quux");
-    // testRelativeWindows("C:\\baz", "\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz");
-    // testRelativeWindows("\\\\foo\\bar\\baz", "C:\\baz", "C:\\baz");
+    testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
+    testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/bbbb", "");
+    testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/cccc", "..\\cccc");
+    testRelativeWindows("c:/aaaa/", "c:/aaaa/cccc", "cccc");
+    testRelativeWindows("c:/", "c:\\aaaa\\bbbb", "aaaa\\bbbb");
+    testRelativeWindows("c:/aaaa/bbbb", "d:\\", "D:\\");
+    testRelativeWindows("c:/AaAa/bbbb", "c:/aaaa/bbbb", "");
+    testRelativeWindows("c:/aaaaa/", "c:/aaaa/cccc", "..\\aaaa\\cccc");
+    testRelativeWindows("C:\\foo\\bar\\baz\\quux", "C:\\", "..\\..\\..\\..");
+    testRelativeWindows("C:\\foo\\test", "C:\\foo\\test\\bar\\package.json", "bar\\package.json");
+    testRelativeWindows("C:\\foo\\bar\\baz-quux", "C:\\foo\\bar\\baz", "..\\baz");
+    testRelativeWindows("C:\\foo\\bar\\baz", "C:\\foo\\bar\\baz-quux", "..\\baz-quux");
+    testRelativeWindows("\\\\foo\\bar", "\\\\foo\\bar\\baz", "baz");
+    testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar", "..");
+    testRelativeWindows("\\\\foo\\bar\\baz-quux", "\\\\foo\\bar\\baz", "..\\baz");
+    testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz-quux", "..\\baz-quux");
+    testRelativeWindows("C:\\baz-quux", "C:\\baz", "..\\baz");
+    testRelativeWindows("C:\\baz", "C:\\baz-quux", "..\\baz-quux");
+    testRelativeWindows("\\\\foo\\baz-quux", "\\\\foo\\baz", "..\\baz");
+    testRelativeWindows("\\\\foo\\baz", "\\\\foo\\baz-quux", "..\\baz-quux");
+    testRelativeWindows("C:\\baz", "\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz");
+    testRelativeWindows("\\\\foo\\bar\\baz", "C:\\baz", "C:\\baz");
 
-    // testRelativePosix("/var/lib", "/var", "..");
-    // testRelativePosix("/var/lib", "/bin", "../../bin");
-    // testRelativePosix("/var/lib", "/var/lib", "");
-    // testRelativePosix("/var/lib", "/var/apache", "../apache");
-    // testRelativePosix("/var/", "/var/lib", "lib");
-    // testRelativePosix("/", "/var/lib", "var/lib");
-    // testRelativePosix("/foo/test", "/foo/test/bar/package.json", "bar/package.json");
-    // testRelativePosix("/Users/a/web/b/test/mails", "/Users/a/web/b", "../..");
-    // testRelativePosix("/foo/bar/baz-quux", "/foo/bar/baz", "../baz");
-    // testRelativePosix("/foo/bar/baz", "/foo/bar/baz-quux", "../baz-quux");
-    // testRelativePosix("/baz-quux", "/baz", "../baz");
-    // testRelativePosix("/baz", "/baz-quux", "../baz-quux");
+    testRelativePosix("/var/lib", "/var", "..");
+    testRelativePosix("/var/lib", "/bin", "../../bin");
+    testRelativePosix("/var/lib", "/var/lib", "");
+    testRelativePosix("/var/lib", "/var/apache", "../apache");
+    testRelativePosix("/var/", "/var/lib", "lib");
+    testRelativePosix("/", "/var/lib", "var/lib");
+    testRelativePosix("/foo/test", "/foo/test/bar/package.json", "bar/package.json");
+    testRelativePosix("/Users/a/web/b/test/mails", "/Users/a/web/b", "../..");
+    testRelativePosix("/foo/bar/baz-quux", "/foo/bar/baz", "../baz");
+    testRelativePosix("/foo/bar/baz", "/foo/bar/baz-quux", "../baz-quux");
+    testRelativePosix("/baz-quux", "/baz", "../baz");
+    testRelativePosix("/baz", "/baz-quux", "../baz-quux");
 }
 
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) void {
