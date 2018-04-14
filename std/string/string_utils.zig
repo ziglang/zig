@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("../index.zig");
 const mem = std.mem;
 const math = std.math;
 const Set = std.BufSet;

@@ -5,7 +5,7 @@ const os = std.os;
 const warn = std.debug.warn;
 const mem = std.mem;
 const assert = std.debug.assert;
-const string = std.string;
+const string = std.string.utils;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
