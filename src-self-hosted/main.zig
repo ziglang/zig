@@ -1,7 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const ArrayList = std.ArrayList;
-const c = @import("c.zig");
 const string = std.string;
 
 const os = std.os;
@@ -65,6 +63,7 @@ pub fn main() !void {
         try stderr.write(usage);
         os.exit(1);
     }
+
     const commands = []Command {
         Command { .name = "build",       .exec = cmdBuild      },
         Command { .name = "build-exe",   .exec = cmdBuildExe   },
