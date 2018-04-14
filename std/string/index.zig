@@ -5,8 +5,9 @@ const assert = debug.assert;
 
 pub const utf8 = @import("utf8.zig");
 pub const ascii = @import("ascii.zig");
+pub const utils = @import("string_utils.zig");
 
-test "Representations" {
+test "Strings" {
     _ = @import("utf8.zig");
     _ = @import("ascii.zig");
 }

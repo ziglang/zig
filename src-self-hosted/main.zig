@@ -13,7 +13,7 @@ const Emit = Module.Emit;
 const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
 const c = @import("c.zig");
-const string = std.string;
+const string = std.string.utils;
 
 const default_zig_cache_name = "zig-cache";
 

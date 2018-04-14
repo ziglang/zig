@@ -4,8 +4,8 @@ const math = std.math;
 const Set = std.BufSet;
 const debug = std.debug;
 const assert = debug.assert;
-const ascii = std.ascii;
-const utf8 = std.utf8;
+const ascii = std.string.ascii;
+const utf8 = std.string.utf8;
 
 // Handles a series of string utilities that are focused around handling and manipulating strings
 

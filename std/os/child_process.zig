@@ -12,7 +12,7 @@ const Buffer = std.Buffer;
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const LinkedList = std.LinkedList;
-const string = std.string;
+const string = std.string.utils;
 
 const is_windows = builtin.os == Os.windows;
 

@@ -1041,23 +1041,23 @@ pub const Tokenizer = struct {
             return 0;
         } else {
             // check utf8-encoded character.
-            const length = std.utf8.ByteSequenceLength(c0) catch return 1;
+            const length = std.string.utf8.ByteSequenceLength(c0) catch return 1;
             if (self.index + length > self.buffer.len) {
                 return u3(self.buffer.len - self.index);
             }
             const bytes = self.buffer[self.index..self.index + length];
             switch (length) {
                 2 => {
-                    const value = std.utf8.Decode2(bytes) catch return length;
+                    const value = std.string.utf8.Decode2(bytes) catch return length;
                     if (value == 0x85) return length; // U+0085 (NEL)
                 },
                 3 => {
-                    const value = std.utf8.Decode3(bytes) catch return length;
+                    const value = std.string.utf8.Decode3(bytes) catch return length;
                     if (value == 0x2028) return length; // U+2028 (LS)
                     if (value == 0x2029) return length; // U+2029 (PS)
                 },
                 4 => {
-                    _ = std.utf8.Decode4(bytes) catch return length;
+                    _ = std.string.utf8.Decode4(bytes) catch return length;
                 },
                 else => unreachable,
             }

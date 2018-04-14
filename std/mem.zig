@@ -360,7 +360,7 @@ pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) void {
 /// any of the bytes in `split_bytes`.
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
-/// DON'T USE THIS FOR UNICODE OR CODE POINT STRINGS, USE `std.string.Split` instead!
+/// DON'T USE THIS FOR UNICODE OR CODE POINT STRINGS, USE `std.string.utils.Split` instead!
 pub fn split(buffer: []const u8, split_bytes: []const u8) SplitIterator {
     return SplitIterator {
         .index = 0,

@@ -29,11 +29,8 @@ pub const net = @import("net.zig");
 pub const os = @import("os/index.zig");
 pub const rand = @import("rand/index.zig");
 pub const sort = @import("sort.zig");
-pub const representations = @import("representations/index.zig");
-pub const ascii = representations.ascii; // For easy access
-pub const utf8 = representations.utf8; // ^^
+pub const string = @import("string/index.zig");
 pub const zig = @import("zig/index.zig");
-pub const string = @import("string_utils.zig");
 
 test "std" {
     // run tests from these
