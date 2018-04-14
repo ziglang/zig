@@ -2,7 +2,7 @@ const std = @import("index.zig");
 const HashMap = std.HashMap;
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const string = @import("string_utils.zig");
+const string = std.string;
 const assert = std.debug.assert;
 
 /// BufMap copies keys and values before they go into the map, and

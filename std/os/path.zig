@@ -11,7 +11,7 @@ const math = std.math;
 const posix = os.posix;
 const windows = os.windows;
 const cstr = std.cstr;
-const string = std.string.utils;
+const string = std.string;
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';
@@ -32,16 +32,11 @@ pub fn isSep(byte: u8) bool {
 }
 
 pub fn join(allocator: &Allocator, paths: ...) ![]u8 {
-    // Currently a work around for the expansion to allow string separators
-    var sep_array : [1]u8 = undefined;
-    sep_array[0] = sep;
-    return string.join(u8, allocator, sep_array, paths);
+    return string.joinCharSep(u8, allocator, sep, paths);
 }
 
 fn testJoin(allocator: &Allocator, comptime win: bool, paths: ...) ![]u8 {
-    // Currently a work around for the expansion to allow string separators 
-    const sep_array = []const u8{ if (win) sep_windows else sep_posix };
-    return string.join(u8, allocator, sep_array, paths);
+    return string.joinCharSep(u8, allocator, if (win) sep_windows else sep_posix, paths);
 }
 
 test "os.path.join" {

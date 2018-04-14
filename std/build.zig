@@ -14,7 +14,7 @@ const Term = os.ChildProcess.Term;
 const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
-const string = std.string.utils;
+const string = std.string;
 
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,

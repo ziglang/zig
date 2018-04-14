@@ -9,7 +9,7 @@ const mem = std.mem;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const io = std.io;
-const string = std.string.utils;
+const string = std.string;
 
 pub fn build(b: &Builder) !void {
     const mode = b.standardReleaseOptions();

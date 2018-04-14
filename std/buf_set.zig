@@ -1,7 +1,8 @@
-const HashMap = @import("hash_map.zig").HashMap;
-const mem = @import("mem.zig");
+const std = @import("index.zig");
+const HashMap = std.HashMap;
+const mem = std.mem;
 const Allocator = mem.Allocator;
-const string = @import("string_utils.zig");
+const string = std.string;
 
 pub const BufSet = struct {
     hash_map: BufSetHashMap,

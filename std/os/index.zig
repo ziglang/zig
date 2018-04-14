@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
 const os = this;
-const string = std.string.utils;
+const string = std.string;
 
 test "std.os" {
     _ = @import("child_process.zig");

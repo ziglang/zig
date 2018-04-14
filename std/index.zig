@@ -62,7 +62,6 @@ test "std" {
     _ = @import("os/index.zig");
     _ = @import("rand/index.zig");
     _ = @import("sort.zig");
-    _ = @import("representations/index.zig");
+    _ = @import("string/index.zig");
     _ = @import("zig/index.zig");
-    _ = @import("string_utils.zig");
 }
