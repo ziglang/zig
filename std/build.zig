@@ -689,7 +689,7 @@ pub const Builder = struct {
                     return name;
                 }
                 var it = try string.utf8Split(PATH, []u8{os.path.delimiter});
-                while (tit.nextBytes()) |path| {
+                while (it.nextBytes()) |path| {
                     const full_path = try os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                     if (os.path.real(self.allocator, full_path)) |real_path| {
                         return real_path;
