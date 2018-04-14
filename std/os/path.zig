@@ -175,7 +175,7 @@ pub fn windowsParsePath(path: []const u8) !WindowsPath {
                 return relative_path;
             }
 
-            var it = try string.asciiSplit(path, []u8{this_sep});
+            var it = try string.utf8Split(path, []u8{this_sep});
             _ = ((it.nextBytes()) ?? return relative_path);
             _ = ((it.nextBytes()) ?? return relative_path);
             return WindowsPath {
@@ -193,7 +193,7 @@ pub fn windowsParsePath(path: []const u8) !WindowsPath {
                 return relative_path;
             }
 
-            var it = try string.asciiSplit(path, []u8{this_sep});
+            var it = try string.utf8Split(path, []u8{this_sep});
             _ = ((it.nextBytes()) ?? return relative_path);
             _ = ((it.nextBytes()) ?? return relative_path);
             return WindowsPath {
@@ -255,10 +255,9 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) !bool {
     const sep1 = ns1[0];
     const sep2 = ns2[0];
 
-    var it1 = try string.asciiSplit(ns1, []u8{sep1});
-    var it2 = try string.asciiSplit(ns2, []u8{sep2});
+    var it1 = try string.utf8Split(ns1, []u8{sep1});
+    var it2 = try string.utf8Split(ns2, []u8{sep2});
 
-    // TODO ASCII is wrong, we actually need full unicode support to compare paths.
     return asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.nextBytes());
 }
 
@@ -276,17 +275,17 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             const sep1 = p1[0];
             const sep2 = p2[0];
 
-            var it1 = try string.asciiSplit(p1, []const u8{sep1});
-            var it2 = try string.asciiSplit(p2, []const u8{sep2});
+            var it1 = try string.utf8Split(p1, []const u8{sep1});
+            var it2 = try string.utf8Split(p2, []const u8{sep2});
 
-            // TODO ASCII is wrong, we actually need full unicode support to compare paths.
-            // OOOOH full Ascii support is here, someone just needs to implement this :)
-            // TODO: Come back here later and use the proper split
             return asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.nextBytes()) and asciiEqlIgnoreCase(?? it1.nextBytes(), ?? it2.nextBytes());
         },
     }
 }
 
+// NOTE: When toUpper becomes a real thing (locales)
+// this should be replaced with a unicode to upper
+// so that it supports other languages
 fn asciiUpper(byte: u8) u8 {
     // Replace later with proper localise checks see asciiEqlIgnoreCase for explanation
     return switch (byte) {
@@ -295,12 +294,9 @@ fn asciiUpper(byte: u8) u8 {
     };
 }
 
+// NOTE: When toUpper becomes a real thing (locales)
+// this should use it rather than ascii upper
 fn asciiEqlIgnoreCase(s1: []const u8, s2: []const u8) bool {
-    // Fix this later
-    // TODO: When implementing the special windows unicode format for paths, you can implement
-    // The upper case function obviously and then the comparison becomes
-    // trivial; keep in mind you don't have to implement all of them you can choose to just
-    // Uppercase english characters??  Perhaps?  More research needed
     if (s1.len != s2.len)
         return false;
     var i: usize = 0;
@@ -417,7 +413,7 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) ![]u8 {
             },
             WindowsPath.Kind.NetworkShare => {
                 result = try allocator.alloc(u8, max_size);
-                var it = try string.asciiSplit(paths[first_index], "/\\");
+                var it = try string.utf8Split(paths[first_index], "/\\");
                 const server_name = ?? it.nextBytes();
                 const other_name = ?? it.nextBytes();
 
@@ -486,7 +482,7 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) ![]u8 {
             continue;
         }
 
-        var it = try string.asciiSplit(p[parsed.disk_designator.len..], "/\\");
+        var it = try string.utf8Split(p[parsed.disk_designator.len..], "/\\");
         while (it.nextBytes()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
@@ -554,7 +550,7 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) ![]u8 {
     errdefer allocator.free(result);
 
     for (paths[first_index..]) |p, i| {
-        var it = try string.asciiSplit(p, "/");
+        var it = try string.utf8Split(p, "/");
         while (it.nextBytes()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
@@ -927,8 +923,8 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
         return resolved_to;
     }
 
-    var from_it = try string.asciiSplit(resolved_from, "/\\");
-    var to_it = try string.asciiSplit(resolved_to, "/\\");
+    var from_it = try string.utf8Split(resolved_from, "/\\");
+    var to_it = try string.utf8Split(resolved_to, "/\\");
     while (true) {
         const from_component = from_it.nextBytes() ?? return mem.dupe(allocator, u8, "");
         const to_rest = to_it.restBytes() ?? "";
@@ -960,7 +956,7 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
         // shave off the trailing slash
         result_index -= 1;
 
-        var rest_it = try string.asciiSplit(to_rest, "/\\");
+        var rest_it = try string.utf8Split(to_rest, "/\\");
         while (rest_it.nextBytes()) |to_component| {
             result[result_index] = '\\';
             result_index += 1;
@@ -981,8 +977,8 @@ pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) ![
     const resolved_to = try resolvePosix(allocator, [][]const u8{to});
     defer allocator.free(resolved_to);
 
-    var from_it = try string.asciiSplit(resolved_from, "/");
-    var to_it = try string.asciiSplit(resolved_to, "/");
+    var from_it = try string.utf8Split(resolved_from, "/");
+    var to_it = try string.utf8Split(resolved_to, "/");
     while (true) {
         const from_component = from_it.nextBytes() ?? return mem.dupe(allocator, u8, ?? to_it.restBytes());
         const to_rest = ?? to_it.restBytes();

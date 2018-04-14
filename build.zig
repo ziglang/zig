@@ -56,7 +56,7 @@ pub fn build(b: &Builder) !void {
     addCppLib(b, exe, cmake_binary_dir, "zig_cpp");
     if (lld_include_dir.len != 0) {
         exe.addIncludeDir(lld_include_dir);
-        var it = try string.asciiSplit(lld_libraries, ";");
+        var it = try string.utf8Split(lld_libraries, ";");
         while (it.nextBytes()) |lib| {
             exe.addObjectFile(lib);
         }
@@ -69,7 +69,7 @@ pub fn build(b: &Builder) !void {
 
     if (exe.target.getOs() == builtin.Os.linux) {
         const libstdcxx_path_padded = try b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
-        const libstdcxx_path = ??(try string.asciiSplit(libstdcxx_path_padded, "\r\n")).nextBytes();
+        const libstdcxx_path = ??(try string.utf8Split(libstdcxx_path_padded, "\r\n")).nextBytes();
         if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
             warn(
                 \\Unable to determine path to libstdc++.a
@@ -173,7 +173,7 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
         .libdirs = ArrayList([]const u8).init(b.allocator),
     };
     {
-        var it = try string.asciiSplit(libs_output, " \r\n");
+        var it = try string.utf8Split(libs_output, " \r\n");
         while (it.nextBytes()) |lib_arg| {
             if (mem.startsWith(u8, lib_arg, "-l")) {
                 try result.system_libs.append(lib_arg[2..]);
@@ -187,7 +187,7 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
         }
     }
     {
-        var it = try string.asciiSplit(includes_output, " \r\n");
+        var it = try string.utf8Split(includes_output, " \r\n");
         while (it.nextBytes()) |include_arg| {
             if (mem.startsWith(u8, include_arg, "-I")) {
                 try result.includes.append(include_arg[2..]);
@@ -197,7 +197,7 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
         }
     }
     {
-        var it = try string.asciiSplit(libdir_output, " \r\n");
+        var it = try string.utf8Split(libdir_output, " \r\n");
         while (it.nextBytes()) |libdir| {
             if (mem.startsWith(u8, libdir, "-L")) {
                 try result.libdirs.append(libdir[2..]);
@@ -210,7 +210,7 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
 }
 
 pub fn installStdLib(b: &Builder, stdlib_files: []const u8) void {
-    var it = string.asciiSplit(stdlib_files, ";") catch unreachable;
+    var it = string.utf8Split(stdlib_files, ";") catch unreachable;
     while (it.nextBytes()) |stdlib_file| {
         const src_path = os.path.join(b.allocator, "std", stdlib_file) catch unreachable;
         const dest_path = os.path.join(b.allocator, "lib", "zig", "std", stdlib_file) catch unreachable;
@@ -219,7 +219,7 @@ pub fn installStdLib(b: &Builder, stdlib_files: []const u8) void {
 }
 
 pub fn installCHeaders(b: &Builder, c_header_files: []const u8) void {
-    var it = string.asciiSplit(c_header_files, ";") catch unreachable;
+    var it = string.utf8Split(c_header_files, ";") catch unreachable;
     while (it.nextBytes()) |c_header_file| {
         const src_path = os.path.join(b.allocator, "c_headers", c_header_file) catch unreachable;
         const dest_path = os.path.join(b.allocator, "lib", "zig", "include", c_header_file) catch unreachable;

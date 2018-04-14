@@ -319,7 +319,7 @@ pub const Builder = struct {
 
     fn processNixOSEnvVars(self: &Builder) void {
         if (os.getEnvVarOwned(self.allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
-            var it = string.asciiSplit(nix_cflags_compile, " ") catch unreachable;
+            var it = string.utf8Split(nix_cflags_compile, " ") catch unreachable;
             while (true) {
                 const word = it.nextBytes() ?? break;
                 if (mem.eql(u8, word, "-isystem")) {
@@ -337,7 +337,7 @@ pub const Builder = struct {
             assert(err == error.EnvironmentVariableNotFound);
         }
         if (os.getEnvVarOwned(self.allocator, "NIX_LDFLAGS")) |nix_ldflags| {
-            var it = string.asciiSplit(nix_ldflags, " ") catch unreachable;
+            var it = string.utf8Split(nix_ldflags, " ") catch unreachable;
             while (true) {
                 const word = it.nextBytes() ?? break;
                 if (mem.eql(u8, word, "-rpath")) {
@@ -688,7 +688,7 @@ pub const Builder = struct {
                 if (os.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = try string.asciiSplit(PATH, []u8{os.path.delimiter});
+                var it = try string.utf8Split(PATH, []u8{os.path.delimiter});
                 while (tit.nextBytes()) |path| {
                     const full_path = try os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                     if (os.path.real(self.allocator, full_path)) |real_path| {
