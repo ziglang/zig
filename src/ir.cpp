@@ -18407,6 +18407,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAddImplicitReturnType:
         case IrInstructionIdMergeErrRetTraces:
         case IrInstructionIdMarkErrRetTracePtr:
+        case IrInstructionIdAtomicRmw:
             return true;
 
         case IrInstructionIdPhi:
@@ -18487,7 +18488,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroSize:
         case IrInstructionIdCoroSuspend:
         case IrInstructionIdCoroFree:
-        case IrInstructionIdAtomicRmw:
         case IrInstructionIdCoroPromise:
         case IrInstructionIdPromiseResultType:
             return false;

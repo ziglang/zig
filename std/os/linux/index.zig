@@ -14,6 +14,22 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
+pub const FUTEX_WAIT = 0;
+pub const FUTEX_WAKE = 1;
+pub const FUTEX_FD = 2;
+pub const FUTEX_REQUEUE = 3;
+pub const FUTEX_CMP_REQUEUE = 4;
+pub const FUTEX_WAKE_OP = 5;
+pub const FUTEX_LOCK_PI = 6;
+pub const FUTEX_UNLOCK_PI = 7;
+pub const FUTEX_TRYLOCK_PI = 8;
+pub const FUTEX_WAIT_BITSET = 9;
+
+pub const FUTEX_PRIVATE_FLAG = 128;
+
+pub const FUTEX_CLOCK_REALTIME = 256;
+
+
 pub const PROT_NONE      = 0;
 pub const PROT_READ      = 1;
 pub const PROT_WRITE     = 2;
@@ -652,6 +668,10 @@ pub fn fork() usize {
     return syscall0(SYS_fork);
 }
 
+pub fn futex_wait(uaddr: usize, futex_op: u32, val: i32, timeout: ?&timespec) usize {
+    return syscall4(SYS_futex, uaddr, futex_op, @bitCast(u32, val), @ptrToInt(timeout));
+}
+
 pub fn getcwd(buf: &u8, size: usize) usize {
     return syscall2(SYS_getcwd, @ptrToInt(buf), size);
 }
@@ -744,6 +764,16 @@ pub fn create(path: &const u8, perm: usize) usize {
 
 pub fn openat(dirfd: i32, path: &const u8, flags: usize, mode: usize) usize {
     return syscall4(SYS_openat, usize(dirfd), @ptrToInt(path), flags, mode);
+}
+
+/// See also `clone` (from the arch-specific include)
+pub fn clone5(flags: usize, child_stack_ptr: usize, parent_tid: &i32, child_tid: &i32, newtls: usize) usize {
+    return syscall5(SYS_clone, flags, child_stack_ptr, @ptrToInt(parent_tid), @ptrToInt(child_tid), newtls);
+}
+
+/// See also `clone` (from the arch-specific include)
+pub fn clone2(flags: usize, child_stack_ptr: usize) usize {
+    return syscall2(SYS_clone, flags, child_stack_ptr);
 }
 
 pub fn close(fd: i32) usize {
