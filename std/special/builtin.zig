@@ -57,9 +57,44 @@ comptime {
     if (builtin.mode != builtin.Mode.ReleaseFast and builtin.os != builtin.Os.windows) {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
+    if (builtin.os == builtin.Os.linux and builtin.arch == builtin.Arch.x86_64) {
+        @export("clone", clone, builtin.GlobalLinkage.Strong);
+    }
 }
 extern fn __stack_chk_fail() noreturn {
     @panic("stack smashing detected");
+}
+
+// TODO we should be able to put this directly in std/linux/x86_64.zig but
+// it causes a segfault in release mode. this is a workaround of calling it
+// across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
+nakedcc fn clone() void {
+    asm volatile (
+        \\      xor %%eax,%%eax
+        \\      mov $56,%%al
+        \\      mov %%rdi,%%r11
+        \\      mov %%rdx,%%rdi
+        \\      mov %%r8,%%rdx
+        \\      mov %%r9,%%r8
+        \\      mov 8(%%rsp),%%r10
+        \\      mov %%r11,%%r9
+        \\      and $-16,%%rsi
+        \\      sub $8,%%rsi
+        \\      mov %%rcx,(%%rsi)
+        \\      syscall
+        \\      test %%eax,%%eax
+        \\      jnz 1f
+        \\      xor %%ebp,%%ebp
+        \\      pop %%rdi
+        \\      call *%%r9
+        \\      mov %%eax,%%edi
+        \\      xor %%eax,%%eax
+        \\      mov $60,%%al
+        \\      syscall
+        \\      hlt
+        \\1:    ret
+        \\
+    );
 }
 
 const math = @import("../math/index.zig");

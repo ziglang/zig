@@ -8,25 +8,25 @@ const errol3 = @import("errol/index.zig").errol3;
 
 const max_int_digits = 65;
 
-const State = enum { // TODO put inside format function and make sure the name and debug info is correct
-    Start,
-    OpenBrace,
-    CloseBrace,
-    Integer,
-    IntegerWidth,
-    Float,
-    FloatWidth,
-    Character,
-    Buf,
-    BufWidth,
-};
-
 /// Renders fmt string with args, calling output with slices of bytes.
 /// If `output` returns an error, the error is returned from `format` and
 /// `output` is not called again.
 pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void,
     comptime fmt: []const u8, args: ...) Errors!void
 {
+    const State = enum {
+        Start,
+        OpenBrace,
+        CloseBrace,
+        Integer,
+        IntegerWidth,
+        Float,
+        FloatWidth,
+        Character,
+        Buf,
+        BufWidth,
+    };
+
     comptime var start_index = 0;
     comptime var state = State.Start;
     comptime var next_arg = 0;
