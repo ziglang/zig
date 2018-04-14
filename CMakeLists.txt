@@ -515,6 +515,7 @@ set(ZIG_STD_FILES
     "os/windows/util.zig"
     "os/zen.zig"
     "rand/index.zig"
+    "rand/ziggurat.zig"
     "sort.zig"
     "special/bootstrap.zig"
     "special/bootstrap_lib.zig"
