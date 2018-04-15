@@ -1172,6 +1172,24 @@ static void ir_print_atomic_rmw(IrPrint *irp, IrInstructionAtomicRmw *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_atomic_load(IrPrint *irp, IrInstructionAtomicLoad *instruction) {
+    fprintf(irp->f, "@atomicLoad(");
+    if (instruction->operand_type != nullptr) {
+        ir_print_other_instruction(irp, instruction->operand_type);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ",");
+    if (instruction->ordering != nullptr) {
+        ir_print_other_instruction(irp, instruction->ordering);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_await_bookkeeping(IrPrint *irp, IrInstructionAwaitBookkeeping *instruction) {
     fprintf(irp->f, "@awaitBookkeeping(");
     ir_print_other_instruction(irp, instruction->promise_result_type);
@@ -1604,6 +1622,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSqrt:
             ir_print_sqrt(irp, (IrInstructionSqrt *)instruction);
+            break;
+        case IrInstructionIdAtomicLoad:
+            ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

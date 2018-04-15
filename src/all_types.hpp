@@ -1347,6 +1347,7 @@ enum BuiltinFnId {
     BuiltinFnIdExport,
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
+    BuiltinFnIdAtomicLoad,
 };
 
 struct BuiltinFnEntry {
@@ -2043,6 +2044,7 @@ enum IrInstructionId {
     IrInstructionIdCoroPromise,
     IrInstructionIdCoroAllocHelper,
     IrInstructionIdAtomicRmw,
+    IrInstructionIdAtomicLoad,
     IrInstructionIdPromiseResultType,
     IrInstructionIdAwaitBookkeeping,
     IrInstructionIdSaveErrRetAddr,
@@ -2999,6 +3001,15 @@ struct IrInstructionAtomicRmw {
     IrInstruction *op;
     AtomicRmwOp resolved_op;
     IrInstruction *operand;
+    IrInstruction *ordering;
+    AtomicOrder resolved_ordering;
+};
+
+struct IrInstructionAtomicLoad {
+    IrInstruction base;
+
+    IrInstruction *operand_type;
+    IrInstruction *ptr;
     IrInstruction *ordering;
     AtomicOrder resolved_ordering;
 };
