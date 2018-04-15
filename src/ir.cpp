@@ -733,6 +733,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionMarkErrRetTraceP
     return IrInstructionIdMarkErrRetTracePtr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSqrt *) {
+    return IrInstructionIdSqrt;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2731,6 +2735,17 @@ static IrInstruction *ir_build_mark_err_ret_trace_ptr(IrBuilder *irb, Scope *sco
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_sqrt(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type, IrInstruction *op) {
+    IrInstructionSqrt *instruction = ir_build_instruction<IrInstructionSqrt>(irb, scope, source_node);
+    instruction->type = type;
+    instruction->op = op;
+
+    if (type != nullptr) ir_ref_instruction(type, irb->current_basic_block);
+    ir_ref_instruction(op, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -3844,6 +3859,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_bin_op(irb, scope, node, IrBinOpRemMod, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdSqrt:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_sqrt(irb, scope, node, arg0_value, arg1_value);
             }
         case BuiltinFnIdTruncate:
             {
@@ -18031,6 +18060,68 @@ static TypeTableEntry *ir_analyze_instruction_mark_err_ret_trace_ptr(IrAnalyze *
     return result->value.type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_sqrt(IrAnalyze *ira, IrInstructionSqrt *instruction) {
+    TypeTableEntry *float_type = ir_resolve_type(ira, instruction->type->other);
+    if (type_is_invalid(float_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *op = instruction->op->other;
+    if (type_is_invalid(op->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    bool ok_type = float_type->id == TypeTableEntryIdNumLitFloat || float_type->id == TypeTableEntryIdFloat;
+    if (!ok_type) {
+        ir_add_error(ira, instruction->type, buf_sprintf("@sqrt does not support type '%s'", buf_ptr(&float_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *casted_op = ir_implicit_cast(ira, op, float_type);
+    if (type_is_invalid(casted_op->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (instr_is_comptime(casted_op)) {
+        ConstExprValue *val = ir_resolve_const(ira, casted_op, UndefBad);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+
+        if (float_type->id == TypeTableEntryIdNumLitFloat) {
+            bigfloat_sqrt(&out_val->data.x_bigfloat, &val->data.x_bigfloat);
+        } else if (float_type->id == TypeTableEntryIdFloat) {
+            switch (float_type->data.floating.bit_count) {
+                case 32:
+                    out_val->data.x_f32 = sqrtf(val->data.x_f32);
+                    break;
+                case 64:
+                    out_val->data.x_f64 = sqrt(val->data.x_f64);
+                    break;
+                case 128:
+                    f128M_sqrt(&val->data.x_f128, &out_val->data.x_f128);
+                    break;
+                default:
+                    zig_unreachable();
+            }
+        } else {
+            zig_unreachable();
+        }
+
+        return float_type;
+    }
+
+    assert(float_type->id == TypeTableEntryIdFloat);
+    if (float_type->data.floating.bit_count != 32 && float_type->data.floating.bit_count != 64) {
+        ir_add_error(ira, instruction->type, buf_sprintf("compiler TODO: add implementation of sqrt for '%s'", buf_ptr(&float_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *result = ir_build_sqrt(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, casted_op);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = float_type;
+    return result->value.type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -18278,6 +18369,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_merge_err_ret_traces(ira, (IrInstructionMergeErrRetTraces *)instruction);
         case IrInstructionIdMarkErrRetTracePtr:
             return ir_analyze_instruction_mark_err_ret_trace_ptr(ira, (IrInstructionMarkErrRetTracePtr *)instruction);
+        case IrInstructionIdSqrt:
+            return ir_analyze_instruction_sqrt(ira, (IrInstructionSqrt *)instruction);
     }
     zig_unreachable();
 }
@@ -18490,6 +18583,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroFree:
         case IrInstructionIdCoroPromise:
         case IrInstructionIdPromiseResultType:
+        case IrInstructionIdSqrt:
             return false;
 
         case IrInstructionIdAsm:

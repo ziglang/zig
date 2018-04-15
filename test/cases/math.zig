@@ -402,3 +402,19 @@ test "comptime float rem int" {
         assert(x == 1.0);
     }
 }
+
+test "@sqrt" {
+    testSqrt(f64, 12.0);
+    comptime testSqrt(f64, 12.0);
+    testSqrt(f32, 13.0);
+    comptime testSqrt(f32, 13.0);
+
+    const x = 14.0;
+    const y = x * x;
+    const z = @sqrt(@typeOf(y), y);
+    comptime assert(z == x);
+}
+
+fn testSqrt(comptime T: type, x: T) void {
+    assert(@sqrt(T, x * x) == x);
+}

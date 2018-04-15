@@ -1317,6 +1317,7 @@ enum BuiltinFnId {
     BuiltinFnIdDivFloor,
     BuiltinFnIdRem,
     BuiltinFnIdMod,
+    BuiltinFnIdSqrt,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
@@ -1413,6 +1414,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
+    ZigLLVMFnIdSqrt,
 };
 
 enum AddSubMul {
@@ -1433,7 +1435,7 @@ struct ZigLLVMFnKey {
         } clz;
         struct {
             uint32_t bit_count;
-        } floor_ceil;
+        } floating;
         struct {
             AddSubMul add_sub_mul;
             uint32_t bit_count;
@@ -2047,6 +2049,7 @@ enum IrInstructionId {
     IrInstructionIdAddImplicitReturnType,
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
+    IrInstructionIdSqrt,
 };
 
 struct IrInstruction {
@@ -3034,6 +3037,13 @@ struct IrInstructionMarkErrRetTracePtr {
     IrInstruction base;
 
     IrInstruction *err_ret_trace_ptr;
+};
+
+struct IrInstructionSqrt {
+    IrInstruction base;
+
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 static const size_t slice_ptr_index = 0;
