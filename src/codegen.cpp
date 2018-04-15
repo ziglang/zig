@@ -6337,7 +6337,8 @@ static void define_builtin_compile_vars(CodeGen *g) {
     int err;
     Buf *abs_full_path = buf_alloc();
     if ((err = os_path_real(builtin_zig_path, abs_full_path))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(builtin_zig_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s", buf_ptr(builtin_zig_path), err_str(err));
+        exit(1);
     }
 
     assert(g->root_package);
