@@ -38,7 +38,7 @@ pub fn getSelfDebugInfo() !&ElfStackTrace {
     if (self_debug_info) |info| {
         return info;
     } else {
-        const info = try openSelfDebugInfo(global_allocator);
+        const info = try openSelfDebugInfo(getDebugInfoAllocator());
         self_debug_info = info;
         return info;
     }
@@ -51,7 +51,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
-    writeCurrentStackTrace(stderr, global_allocator, debug_info, stderr_file.isTty(), start_addr) catch |err| {
+    writeCurrentStackTrace(stderr, getDebugInfoAllocator(), debug_info, stderr_file.isTty(), start_addr) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
         return;
     };
@@ -64,7 +64,7 @@ pub fn dumpStackTrace(stack_trace: &const builtin.StackTrace) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
-    writeStackTrace(stack_trace, stderr, global_allocator, debug_info, stderr_file.isTty()) catch |err| {
+    writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, stderr_file.isTty()) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
         return;
     };
@@ -592,8 +592,8 @@ fn getString(st: &ElfStackTrace, offset: u64) ![]u8 {
 }
 
 fn readAllocBytes(allocator: &mem.Allocator, in_stream: var, size: usize) ![]u8 {
-    const buf = try global_allocator.alloc(u8, size);
-    errdefer global_allocator.free(buf);
+    const buf = try allocator.alloc(u8, size);
+    errdefer allocator.free(buf);
     if ((try in_stream.read(buf)) < size) return error.EndOfFile;
     return buf;
 }
@@ -1126,6 +1126,21 @@ fn readILeb128(in_stream: var) !i64 {
     }
 }
 
+/// This should only be used in temporary test programs.
 pub const global_allocator = &global_fixed_allocator.allocator;
 var global_fixed_allocator = std.heap.FixedBufferAllocator.init(global_allocator_mem[0..]);
 var global_allocator_mem: [100 * 1024]u8 = undefined;
+
+
+// TODO make thread safe
+var debug_info_allocator: ?&mem.Allocator = null;
+var debug_info_direct_allocator: std.heap.DirectAllocator = undefined;
+var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
+fn getDebugInfoAllocator() &mem.Allocator {
+    if (debug_info_allocator) |a| return a;
+
+    debug_info_direct_allocator = std.heap.DirectAllocator.init();
+    debug_info_arena_allocator = std.heap.ArenaAllocator.init(&debug_info_direct_allocator.allocator);
+    debug_info_allocator = &debug_info_arena_allocator.allocator;
+    return &debug_info_arena_allocator.allocator;
+}
