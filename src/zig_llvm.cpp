@@ -100,7 +100,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         return true;
     }
     PMBuilder->OptLevel = target_machine->getOptLevel();
-    PMBuilder->SizeLevel = is_small ? 1 : 0;
+    PMBuilder->SizeLevel = is_small ? 2 : 0;
 
     PMBuilder->DisableTailCalls = is_debug;
     PMBuilder->DisableUnitAtATime = is_debug;
