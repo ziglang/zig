@@ -583,6 +583,7 @@ pub const CompileErrorContext = struct {
                 Mode.Debug => {},
                 Mode.ReleaseSafe => zig_args.append("--release-safe") catch unreachable,
                 Mode.ReleaseFast => zig_args.append("--release-fast") catch unreachable,
+                Mode.ReleaseSmall => zig_args.append("--release-small") catch unreachable,
             }
 
             warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
