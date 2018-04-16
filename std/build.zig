@@ -426,15 +426,18 @@ pub const Builder = struct {
 
         const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") ?? false;
         const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") ?? false;
+        const release_small = self.option(bool, "release-small", "size optimizations on and safety off") ?? false;
 
-        const mode = if (release_safe and !release_fast)
+        const mode = if (release_safe and !release_fast and !release_small)
             builtin.Mode.ReleaseSafe
-        else if (release_fast and !release_safe)
+        else if (release_fast and !release_safe and !release_small)
             builtin.Mode.ReleaseFast
-        else if (!release_fast and !release_safe)
+        else if (release_small and !release_fast and !release_safe)
+            builtin.Mode.ReleaseSmall
+        else if (!release_fast and !release_safe and !release_small)
             builtin.Mode.Debug
         else x: {
-            warn("Both -Drelease-safe and -Drelease-fast specified");
+            warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)");
             self.markInvalidUserInput();
             break :x builtin.Mode.Debug;
         };
@@ -1229,6 +1232,7 @@ pub const LibExeObjStep = struct {
             builtin.Mode.Debug => {},
             builtin.Mode.ReleaseSafe => zig_args.append("--release-safe") catch unreachable,
             builtin.Mode.ReleaseFast => zig_args.append("--release-fast") catch unreachable,
+            builtin.Mode.ReleaseSmall => zig_args.append("--release-small") catch unreachable,
         }
 
         zig_args.append("--cache-dir") catch unreachable;
@@ -1369,7 +1373,7 @@ pub const LibExeObjStep = struct {
                     args.append("ssp-buffer-size=4") catch unreachable;
                 }
             },
-            builtin.Mode.ReleaseFast => {
+            builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => {
                 args.append("-O2") catch unreachable;
                 args.append("-fno-stack-protector") catch unreachable;
             },
@@ -1706,6 +1710,7 @@ pub const TestStep = struct {
             builtin.Mode.Debug => {},
             builtin.Mode.ReleaseSafe => try zig_args.append("--release-safe"),
             builtin.Mode.ReleaseFast => try zig_args.append("--release-fast"),
+            builtin.Mode.ReleaseSmall => try zig_args.append("--release-small"),
         }
 
         switch (self.target) {

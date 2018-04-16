@@ -1457,6 +1457,7 @@ enum BuildMode {
     BuildModeDebug,
     BuildModeFastRelease,
     BuildModeSafeRelease,
+    BuildModeSmallRelease,
 };
 
 enum EmitFileType {

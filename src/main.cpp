@@ -43,6 +43,7 @@ static int usage(const char *arg0) {
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
         "  --release-safe               build with optimizations on and safety on\n"
+        "  --release-small              build with size optimizations on and safety off\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
         "  --target-arch [name]         specify target architecture\n"
@@ -482,6 +483,8 @@ int main(int argc, char **argv) {
                 build_mode = BuildModeFastRelease;
             } else if (strcmp(arg, "--release-safe") == 0) {
                 build_mode = BuildModeSafeRelease;
+            } else if (strcmp(arg, "--release-small") == 0) {
+                build_mode = BuildModeSmallRelease;
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
             } else if (strcmp(arg, "--static") == 0) {

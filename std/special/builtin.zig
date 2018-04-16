@@ -54,7 +54,9 @@ export fn memmove(dest: ?&u8, src: ?&const u8, n: usize) ?&u8 {
 }
 
 comptime {
-    if (builtin.mode != builtin.Mode.ReleaseFast and builtin.os != builtin.Os.windows) {
+    if (builtin.mode != builtin.Mode.ReleaseFast and
+        builtin.mode != builtin.Mode.ReleaseSmall and
+        builtin.os != builtin.Os.windows) {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
     if (builtin.os == builtin.Os.linux and builtin.arch == builtin.Arch.x86_64) {
