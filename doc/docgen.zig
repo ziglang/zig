@@ -749,6 +749,10 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var
                                 try build_args.append("--release-fast");
                                 try out.print(" --release-fast");
                             },
+                            builtin.Mode.ReleaseSmall => {
+                                try build_args.append("--release-small");
+                                try out.print(" --release-small");
+                            },
                         }
                         for (code.link_objects) |link_object| {
                             const name_with_ext = try std.fmt.allocPrint(allocator, "{}{}", link_object, obj_ext);
@@ -810,6 +814,10 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var
                                 try test_args.append("--release-fast");
                                 try out.print(" --release-fast");
                             },
+                            builtin.Mode.ReleaseSmall => {
+                                try test_args.append("--release-small");
+                                try out.print(" --release-small");
+                            },
                         }
                         if (code.target_windows) {
                             try test_args.appendSlice([][]const u8{
@@ -839,6 +847,10 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var
                             builtin.Mode.ReleaseFast => {
                                 try test_args.append("--release-fast");
                                 try out.print(" --release-fast");
+                            },
+                            builtin.Mode.ReleaseSmall => {
+                                try test_args.append("--release-small");
+                                try out.print(" --release-small");
                             },
                         }
                         const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, null, max_doc_file_size);
@@ -874,6 +886,7 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var
                             builtin.Mode.Debug => {},
                             builtin.Mode.ReleaseSafe => try test_args.append("--release-safe"),
                             builtin.Mode.ReleaseFast => try test_args.append("--release-fast"),
+                            builtin.Mode.ReleaseSmall => try test_args.append("--release-small"),
                         }
 
                         const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, null, max_doc_file_size);
@@ -925,6 +938,12 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var
                                 try build_args.append("--release-fast");
                                 if (!code.is_inline) {
                                     try out.print(" --release-fast");
+                                }
+                            },
+                            builtin.Mode.ReleaseSmall => {
+                                try build_args.append("--release-small");
+                                if (!code.is_inline) {
+                                    try out.print(" --release-small");
                                 }
                             },
                         }

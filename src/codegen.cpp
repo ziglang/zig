@@ -512,7 +512,9 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     if (fn_table_entry->body_node != nullptr) {
-        bool want_fn_safety = g->build_mode != BuildModeFastRelease && !fn_table_entry->def_scope->safety_off;
+        bool want_fn_safety = g->build_mode != BuildModeFastRelease &&
+                              g->build_mode != BuildModeSmallRelease &&
+                              !fn_table_entry->def_scope->safety_off;
         if (want_fn_safety) {
             if (g->libc_link_lib != nullptr) {
                 addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
@@ -817,7 +819,7 @@ static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
 }
 
 static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
-    if (g->build_mode == BuildModeFastRelease)
+    if (g->build_mode == BuildModeFastRelease || g->build_mode == BuildModeSmallRelease)
         return false;
 
     // TODO memoize
@@ -5747,10 +5749,12 @@ static void do_code_gen(CodeGen *g) {
     os_path_join(g->cache_dir, o_basename, output_path);
     ensure_cache_dir(g);
 
+    bool is_small = g->build_mode == BuildModeSmallRelease;
+
     switch (g->emit_file_type) {
         case EmitFileTypeBinary:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug))
+                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small))
             {
                 zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -5760,7 +5764,7 @@ static void do_code_gen(CodeGen *g) {
 
         case EmitFileTypeAssembly:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug))
+                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug, is_small))
             {
                 zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -5769,7 +5773,7 @@ static void do_code_gen(CodeGen *g) {
 
         case EmitFileTypeLLVMIr:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug))
+                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug, is_small))
             {
                 zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -6160,6 +6164,7 @@ static const char *build_mode_to_str(BuildMode build_mode) {
         case BuildModeDebug: return "Mode.Debug";
         case BuildModeSafeRelease: return "Mode.ReleaseSafe";
         case BuildModeFastRelease: return "Mode.ReleaseFast";
+        case BuildModeSmallRelease: return "Mode.ReleaseSmall";
     }
     zig_unreachable();
 }
@@ -6300,6 +6305,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    Debug,\n"
             "    ReleaseSafe,\n"
             "    ReleaseFast,\n"
+            "    ReleaseSmall,\n"
             "};\n\n");
     }
     {
@@ -6471,7 +6477,7 @@ static void init(CodeGen *g) {
         }
     }
 
-    g->have_err_ret_tracing = g->build_mode != BuildModeFastRelease;
+    g->have_err_ret_tracing = g->build_mode != BuildModeFastRelease && g->build_mode != BuildModeSmallRelease;
 
     define_builtin_fns(g);
     define_builtin_compile_vars(g);
