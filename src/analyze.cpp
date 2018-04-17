@@ -4421,24 +4421,30 @@ void find_libc_lib_path(CodeGen *g) {
         if (g->zig_target.os == OsWindows) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
 
-            Buf* vc_lib_dir = buf_alloc();
-            if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine vcruntime path.");
+            if (g->msvc_lib_dir == nullptr) {
+                Buf* vc_lib_dir = buf_alloc();
+                if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
+                    zig_panic("Unable to determine vcruntime path.");
+                }
+                g->msvc_lib_dir = vc_lib_dir;
             }
 
-            Buf* ucrt_lib_path = buf_alloc();
-            if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine ucrt path.");
+            if (g->libc_lib_dir == nullptr) {
+                Buf* ucrt_lib_path = buf_alloc();
+                if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
+                    zig_panic("Unable to determine ucrt path.");
+                }
+                g->libc_lib_dir = ucrt_lib_path;
             }
 
-            Buf* kern_lib_path = buf_alloc();
-            if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine kernel32 path.");
+            if (g->kernel32_lib_dir == nullptr) {
+                Buf* kern_lib_path = buf_alloc();
+                if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
+                    zig_panic("Unable to determine kernel32 path.");
+                }
+                g->kernel32_lib_dir = kern_lib_path;
             }
 
-            g->msvc_lib_dir = vc_lib_dir;
-            g->libc_lib_dir = ucrt_lib_path;
-            g->kernel32_lib_dir = kern_lib_path;
         } else if (g->zig_target.os == OsLinux) {
             g->libc_lib_dir = get_linux_libc_lib_path("crt1.o");
         } else {
