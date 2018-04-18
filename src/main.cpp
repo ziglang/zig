@@ -74,6 +74,7 @@ static int usage(const char *arg0) {
         "  -L[dir]                      alias for --library-path\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
+        "  --no-rosegment               compromise security to workaround valgrind bug\n"
         "  -mconsole                    (windows) --subsystem console to the linker\n"
         "  -mwindows                    (windows) --subsystem windows to the linker\n"
         "  -framework [name]            (darwin) link against framework\n"
@@ -324,6 +325,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> test_exec_args = {0};
     int comptime_args_end = 0;
     int runtime_args_start = argc;
+    bool no_rosegment_workaround = false;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -507,6 +509,8 @@ int main(int argc, char **argv) {
                 mconsole = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
+            } else if (strcmp(arg, "--no-rosegment") == 0) {
+                no_rosegment_workaround = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
                 each_lib_rpath = true;
             } else if (strcmp(arg, "--enable-timing-info") == 0) {
@@ -844,6 +848,7 @@ int main(int argc, char **argv) {
 
             codegen_set_windows_subsystem(g, mwindows, mconsole);
             codegen_set_rdynamic(g, rdynamic);
+            g->no_rosegment_workaround = no_rosegment_workaround;
             if (mmacosx_version_min && mios_version_min) {
                 fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
                 return EXIT_FAILURE;

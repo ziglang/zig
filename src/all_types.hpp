@@ -1705,6 +1705,8 @@ struct CodeGen {
     ZigList<ZigLLVMDIType **> error_di_types;
 
     ZigList<Buf *> forbidden_libs;
+
+    bool no_rosegment_workaround;
 };
 
 enum VarLinkage {
