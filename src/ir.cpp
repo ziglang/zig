@@ -110,6 +110,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
     IrInstruction *source_instr, IrInstruction *container_ptr, TypeTableEntry *container_type);
 static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         VariableTableEntry *var, bool is_const_ptr, bool is_volatile_ptr);
+static TypeTableEntry *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op);
 
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == TypeTableEntryIdPointer);
@@ -1832,36 +1833,32 @@ static IrInstruction *ir_build_embed_file(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_cmpxchg(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *ptr,
-    IrInstruction *cmp_value, IrInstruction *new_value, IrInstruction *success_order_value, IrInstruction *failure_order_value,
-    AtomicOrder success_order, AtomicOrder failure_order)
+static IrInstruction *ir_build_cmpxchg(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value,
+    IrInstruction *ptr, IrInstruction *cmp_value, IrInstruction *new_value,
+    IrInstruction *success_order_value, IrInstruction *failure_order_value,
+    bool is_weak,
+    TypeTableEntry *type, AtomicOrder success_order, AtomicOrder failure_order)
 {
     IrInstructionCmpxchg *instruction = ir_build_instruction<IrInstructionCmpxchg>(irb, scope, source_node);
+    instruction->type_value = type_value;
     instruction->ptr = ptr;
     instruction->cmp_value = cmp_value;
     instruction->new_value = new_value;
     instruction->success_order_value = success_order_value;
     instruction->failure_order_value = failure_order_value;
+    instruction->is_weak = is_weak;
+    instruction->type = type;
     instruction->success_order = success_order;
     instruction->failure_order = failure_order;
 
+    if (type_value != nullptr) ir_ref_instruction(type_value, irb->current_basic_block);
     ir_ref_instruction(ptr, irb->current_basic_block);
     ir_ref_instruction(cmp_value, irb->current_basic_block);
     ir_ref_instruction(new_value, irb->current_basic_block);
-    ir_ref_instruction(success_order_value, irb->current_basic_block);
-    ir_ref_instruction(failure_order_value, irb->current_basic_block);
+    if (type_value != nullptr) ir_ref_instruction(success_order_value, irb->current_basic_block);
+    if (type_value != nullptr) ir_ref_instruction(failure_order_value, irb->current_basic_block);
 
     return &instruction->base;
-}
-
-static IrInstruction *ir_build_cmpxchg_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *ptr,
-    IrInstruction *cmp_value, IrInstruction *new_value, IrInstruction *success_order_value, IrInstruction *failure_order_value,
-    AtomicOrder success_order, AtomicOrder failure_order)
-{
-    IrInstruction *new_instruction = ir_build_cmpxchg(irb, old_instruction->scope, old_instruction->source_node,
-        ptr, cmp_value, new_value, success_order_value, failure_order_value, success_order, failure_order);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
 }
 
 static IrInstruction *ir_build_fence(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *order_value, AtomicOrder order) {
@@ -3771,7 +3768,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_embed_file(irb, scope, node, arg0_value);
             }
-        case BuiltinFnIdCmpExchange:
+        case BuiltinFnIdCmpxchgWeak:
+        case BuiltinFnIdCmpxchgStrong:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
@@ -3798,9 +3796,14 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg4_value == irb->codegen->invalid_instruction)
                     return arg4_value;
 
+                AstNode *arg5_node = node->data.fn_call_expr.params.at(5);
+                IrInstruction *arg5_value = ir_gen_node(irb, arg5_node, scope);
+                if (arg5_value == irb->codegen->invalid_instruction)
+                    return arg5_value;
+
                 return ir_build_cmpxchg(irb, scope, node, arg0_value, arg1_value,
-                    arg2_value, arg3_value, arg4_value,
-                    AtomicOrderUnordered, AtomicOrderUnordered);
+                    arg2_value, arg3_value, arg4_value, arg5_value, (builtin_fn->id == BuiltinFnIdCmpxchgWeak),
+                    nullptr, AtomicOrderUnordered, AtomicOrderUnordered);
             }
         case BuiltinFnIdFence:
             {
@@ -15730,8 +15733,18 @@ static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstr
 }
 
 static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructionCmpxchg *instruction) {
+    TypeTableEntry *operand_type = ir_resolve_atomic_operand_type(ira, instruction->type_value->other);
+    if (type_is_invalid(operand_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
     IrInstruction *ptr = instruction->ptr->other;
     if (type_is_invalid(ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    // TODO let this be volatile
+    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, operand_type, false);
+    IrInstruction *casted_ptr = ir_implicit_cast(ira, ptr, ptr_type);
+    if (type_is_invalid(casted_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *cmp_value = instruction->cmp_value->other;
@@ -15758,28 +15771,11 @@ static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstruct
     if (!ir_resolve_atomic_order(ira, failure_order_value, &failure_order))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (ptr->value.type->id != TypeTableEntryIdPointer) {
-        ir_add_error(ira, instruction->ptr,
-            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&ptr->value.type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    TypeTableEntry *child_type = ptr->value.type->data.pointer.child_type;
-
-    uint32_t align_bytes = ptr->value.type->data.pointer.alignment;
-    uint64_t size_bytes = type_size(ira->codegen, child_type);
-    if (align_bytes < size_bytes) {
-        ir_add_error(ira, instruction->ptr,
-            buf_sprintf("expected pointer alignment of at least %" ZIG_PRI_u64 ", found %" PRIu32,
-                size_bytes, align_bytes));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    IrInstruction *casted_cmp_value = ir_implicit_cast(ira, cmp_value, child_type);
+    IrInstruction *casted_cmp_value = ir_implicit_cast(ira, cmp_value, operand_type);
     if (type_is_invalid(casted_cmp_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_new_value = ir_implicit_cast(ira, new_value, child_type);
+    IrInstruction *casted_new_value = ir_implicit_cast(ira, new_value, operand_type);
     if (type_is_invalid(casted_new_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -15804,9 +15800,17 @@ static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstruct
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    ir_build_cmpxchg_from(&ira->new_irb, &instruction->base, ptr, casted_cmp_value, casted_new_value,
-        success_order_value, failure_order_value, success_order, failure_order);
-    return ira->codegen->builtin_types.entry_bool;
+    if (instr_is_comptime(casted_ptr) && instr_is_comptime(casted_cmp_value) && instr_is_comptime(casted_new_value)) {
+        zig_panic("TODO compile-time execution of cmpxchg");
+    }
+
+    IrInstruction *result = ir_build_cmpxchg(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            nullptr, casted_ptr, casted_cmp_value, casted_new_value, nullptr, nullptr, instruction->is_weak,
+            operand_type, success_order, failure_order);
+    result->value.type = get_maybe_type(ira->codegen, operand_type);
+    ir_link_new_instruction(result, &instruction->base);
+    ir_add_alloca(ira, result, result->value.type);
+    return result->value.type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_fence(IrAnalyze *ira, IrInstructionFence *instruction) {
@@ -17981,6 +17985,7 @@ static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstr
     if (type_is_invalid(ptr_inst->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    // TODO let this be volatile
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, operand_type, false);
     IrInstruction *casted_ptr = ir_implicit_cast(ira, ptr_inst, ptr_type);
     if (type_is_invalid(casted_ptr->value.type))

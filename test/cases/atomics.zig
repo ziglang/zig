@@ -1,12 +1,24 @@
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "cmpxchg" {
     var x: i32 = 1234;
-    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
+    if (@cmpxchgWeak(i32, &x, 99, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) |x1| {
+        assert(x1 == 1234);
+    } else {
+        @panic("cmpxchg should have failed");
+    }
+
+    while (@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) |x1| {
+        assert(x1 == 1234);
+    }
     assert(x == 5678);
+
+    assert(@cmpxchgStrong(i32, &x, 5678, 42, AtomicOrder.SeqCst, AtomicOrder.SeqCst) == null);
+    assert(x == 42);
 }
 
 test "fence" {

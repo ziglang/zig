@@ -1394,17 +1394,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn f() void {
         \\    var x: i32 = 1234;
-        \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
         \\}
-    , ".tmp_source.zig:4:72: error: failure atomic ordering must be no stricter than success");
+    , ".tmp_source.zig:4:81: error: failure atomic ordering must be no stricter than success");
 
     cases.add("atomic orderings of cmpxchg - success Monotonic or stricter",
         \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn f() void {
         \\    var x: i32 = 1234;
-        \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
         \\}
-    , ".tmp_source.zig:4:49: error: success atomic ordering must be Monotonic or stricter");
+    , ".tmp_source.zig:4:58: error: success atomic ordering must be Monotonic or stricter");
 
     cases.add("negation overflow in function evaluation",
         \\const y = neg(-128);
@@ -2460,11 +2460,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn entry() bool {
         \\    var x: i32 align(1) = 1234;
-        \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
         \\    return x == 5678;
         \\}
     ,
-        ".tmp_source.zig:4:23: error: expected pointer alignment of at least 4, found 1");
+        ".tmp_source.zig:4:32: error: expected type '&i32', found '&align(1) i32'");
 
     cases.add("wrong size to an array literal",
         \\comptime {
@@ -2534,10 +2534,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add("wrong types given to atomic order args in cmpxchg",
         \\export fn entry() void {
         \\    var x: i32 = 1234;
-        \\    while (!@cmpxchg(&x, 1234, 5678, u32(1234), u32(1234))) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, u32(1234), u32(1234))) {}
         \\}
     ,
-        ".tmp_source.zig:3:41: error: expected type 'AtomicOrder', found 'u32'");
+        ".tmp_source.zig:3:50: error: expected type 'AtomicOrder', found 'u32'");
 
     cases.add("wrong types given to @export",
         \\extern fn entry() void { }

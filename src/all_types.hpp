@@ -1310,7 +1310,8 @@ enum BuiltinFnId {
     BuiltinFnIdReturnAddress,
     BuiltinFnIdFrameAddress,
     BuiltinFnIdEmbedFile,
-    BuiltinFnIdCmpExchange,
+    BuiltinFnIdCmpxchgWeak,
+    BuiltinFnIdCmpxchgStrong,
     BuiltinFnIdFence,
     BuiltinFnIdDivExact,
     BuiltinFnIdDivTrunc,
@@ -2528,6 +2529,7 @@ struct IrInstructionEmbedFile {
 struct IrInstructionCmpxchg {
     IrInstruction base;
 
+    IrInstruction *type_value;
     IrInstruction *ptr;
     IrInstruction *cmp_value;
     IrInstruction *new_value;
@@ -2535,8 +2537,13 @@ struct IrInstructionCmpxchg {
     IrInstruction *failure_order_value;
 
     // if this instruction gets to runtime then we know these values:
+    TypeTableEntry *type;
     AtomicOrder success_order;
     AtomicOrder failure_order;
+
+    bool is_weak;
+
+    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionFence {

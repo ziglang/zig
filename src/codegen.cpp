@@ -3558,9 +3558,20 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
     LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering(instruction->failure_order);
 
     LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
-            success_order, failure_order);
+            success_order, failure_order, instruction->is_weak);
 
-    return LLVMBuildExtractValue(g->builder, result_val, 1, "");
+    assert(instruction->tmp_ptr != nullptr);
+    assert(type_has_bits(instruction->type));
+
+    LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
+    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_child_index, "");
+    gen_assign_raw(g, val_ptr, get_pointer_to_type(g, instruction->type, false), payload_val);
+
+    LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
+    LLVMValueRef nonnull_bit = LLVMBuildNot(g->builder, success_bit, "");
+    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_null_index, "");
+    gen_store_untyped(g, nonnull_bit, maybe_ptr, 0, false);
+    return instruction->tmp_ptr;
 }
 
 static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInstructionFence *instruction) {
@@ -5588,6 +5599,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdErrWrapCode) {
                 IrInstructionErrWrapCode *err_wrap_code_instruction = (IrInstructionErrWrapCode *)instruction;
                 slot = &err_wrap_code_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdCmpxchg) {
+                IrInstructionCmpxchg *cmpxchg_instruction = (IrInstructionCmpxchg *)instruction;
+                slot = &cmpxchg_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }
@@ -6115,7 +6129,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdTypeName, "typeName", 1);
     create_builtin_fn(g, BuiltinFnIdCanImplicitCast, "canImplicitCast", 2);
     create_builtin_fn(g, BuiltinFnIdEmbedFile, "embedFile", 1);
-    create_builtin_fn(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
+    create_builtin_fn(g, BuiltinFnIdCmpxchgWeak, "cmpxchgWeak", 6);
+    create_builtin_fn(g, BuiltinFnIdCmpxchgStrong, "cmpxchgStrong", 6);
     create_builtin_fn(g, BuiltinFnIdFence, "fence", 1);
     create_builtin_fn(g, BuiltinFnIdTruncate, "truncate", 2);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
