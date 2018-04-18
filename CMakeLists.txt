@@ -507,6 +507,8 @@ set(ZIG_STD_FILES
     "os/linux/index.zig"
     "os/linux/x86_64.zig"
     "os/path.zig"
+    "os/time.zig"
+    "os/epoch.zig"
     "os/windows/error.zig"
     "os/windows/index.zig"
     "os/windows/util.zig"

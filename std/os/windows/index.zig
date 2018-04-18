@@ -61,6 +61,8 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(hFile: HANDLE, lpsz
 
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 
+pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(?&FILETIME) void;
+
 pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
 pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
 pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: &c_void, dwBytes: SIZE_T) ?&c_void;
@@ -77,6 +79,10 @@ pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem
 
 pub extern "kernel32" stdcallcc fn MoveFileExA(lpExistingFileName: LPCSTR, lpNewFileName: LPCSTR,
     dwFlags: DWORD) BOOL;
+    
+pub extern "kernel32" stdcallcc fn QueryPerformanceCounter(lpPerformanceCount: &LARGE_INTEGER) BOOL;
+
+pub extern "kernel32" stdcallcc fn QueryPerformanceFrequency(lpFrequency: &LARGE_INTEGER) BOOL;
 
 pub extern "kernel32" stdcallcc fn ReadFile(in_hFile: HANDLE, out_lpBuffer: &c_void,
     in_nNumberOfBytesToRead: DWORD, out_lpNumberOfBytesRead: &DWORD,
@@ -137,6 +143,7 @@ pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const LARGE_INTEGER = i64;
+pub const FILETIME = i64;
 
 pub const TRUE = 1;
 pub const FALSE = 0;

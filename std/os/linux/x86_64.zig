@@ -489,6 +489,16 @@ pub const timespec = extern struct {
     tv_nsec: isize,
 };
 
+pub const timeval = extern struct {
+    tv_sec: isize,
+    tv_usec: isize,
+};
+
+pub const timezone = extern struct {
+    tz_minuteswest: i32,
+    tz_dsttime: i32,
+};
+
 pub const dirent = extern struct {
     d_ino: usize,
     d_off: usize,

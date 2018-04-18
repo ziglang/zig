@@ -495,6 +495,26 @@ pub fn waitpid(pid: i32, status: &i32, options: i32) usize {
     return syscall4(SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), @bitCast(usize, isize(options)), 0);
 }
 
+pub fn clock_gettime(clk_id: i32, tp: &timespec) usize {
+    return syscall2(SYS_clock_gettime, @bitCast(usize, isize(clk_id)), @ptrToInt(tp));
+}
+
+pub fn clock_getres(clk_id: i32, tp: &timespec) usize {
+    return syscall2(SYS_clock_getres, @bitCast(usize, isize(clk_id)), @ptrToInt(tp));
+}
+
+pub fn clock_settime(clk_id: i32, tp: &const timespec) usize {
+    return syscall2(SYS_clock_settime, @bitCast(usize, isize(clk_id)), @ptrToInt(tp));
+}
+
+pub fn gettimeofday(tv: &timeval, tz: &timezone) usize {
+    return syscall2(SYS_gettimeofday, @ptrToInt(tv), @ptrToInt(tz));
+}
+
+pub fn settimeofdat(tv: &const timeval, tz: &const timezone) usize {
+    return syscall2(SYS_settimeofday, @ptrToInt(tv), @ptrToInt(tz));
+}
+
 pub fn nanosleep(req: &const timespec, rem: ?&timespec) usize {
     return syscall2(SYS_nanosleep, @ptrToInt(req), @ptrToInt(rem));
 }

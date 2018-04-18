@@ -251,6 +251,10 @@ pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) u
     return errnoWrap(c.readlink(path, buf_ptr, buf_len));
 }
 
+pub fn gettimeofday(&timeval, ?&timezone) usize {
+    return errnoWrap(c.gettimeofday(timeval, timezone));
+}
+
 pub fn nanosleep(req: &const timespec, rem: ?&timespec) usize {
     return errnoWrap(c.nanosleep(req, rem));
 }
