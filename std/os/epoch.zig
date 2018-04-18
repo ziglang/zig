@@ -9,7 +9,7 @@ pub const windows     = -11644473600;     //Jan 01, 1601 AD
 pub const amiga       = 252460800;        //Jan 01, 1978 AD
 pub const pickos      = -63244800;        //Dec 31, 1967 AD
 pub const gps         = 315964800;        //Jan 06, 1980 AD
-pub const clr         = 62135769600;      //Jan 01, 0001 AD
+pub const clr         = -62135769600;      //Jan 01, 0001 AD
 
 pub const unix      = posix;
 pub const android   = posix;
