@@ -79,8 +79,9 @@ fn miliTimestampDarwin() u64 {
     var tv: darwin.timeval = undefined;
     var err = darwin.gettimeofday(&tv, null);
     debug.assert(err == 0);
-    return tv.tv_sec * ms_per_s + ts.tv_usec
-        * (us_per_s / ms_per_s);
+    const sec_ms = tv.tv_sec * ms_per_s;
+    const usec_ms = @divFloor(tv.tv_usec, (us_per_s / ms_per_s));
+    return  u64(sec_ms) + u64(usec_ms); 
 }
 
 fn miliTimestampPosix() u64 {
@@ -136,7 +137,8 @@ pub const Timer = struct {
     //  impossible here barring cosmic rays or other such occurances of
     //  incredibly bad luck.
     //On Darwin: This cannot fail, as far as I am able to tell.
-    pub fn start() !Timer {
+    const TimerError = error{TimerUnsupported};
+    pub fn start() TimerError!Timer {
         var self: Timer = undefined;
         
         switch(builtin.os) {
@@ -163,9 +165,9 @@ pub const Timer = struct {
                 self.start_time = u64(ts.tv_sec * ns_per_s + ts.tv_nsec);
             },
             Os.macosx, Os.ios => {
-                darwin.c.mach_timebase_info(&self.frequency);
-                self.resolution = @divFloor(self.frequency.numer, self.denom);
-                self.start_time = darwin.c.mach_absolute_time();
+                darwin.mach_timebase_info(&self.frequency);
+                self.resolution = @divFloor(self.frequency.numer, self.frequency.denom);
+                self.start_time = darwin.mach_absolute_time();
             },
             else => @compileError("Unsupported OS"),
         }
@@ -213,9 +215,7 @@ pub const Timer = struct {
     }
     
     fn clockDarwin() u64 {
-        var result: u64 = undefined;
-        darwin.c.mach_absolute_time(&result);
-        return result;
+        return darwin.mach_absolute_time();
     }
     
     fn clockLinux() u64 {

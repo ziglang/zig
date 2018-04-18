@@ -251,8 +251,8 @@ pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) u
     return errnoWrap(c.readlink(path, buf_ptr, buf_len));
 }
 
-pub fn gettimeofday(&timeval, ?&timezone) usize {
-    return errnoWrap(c.gettimeofday(timeval, timezone));
+pub fn gettimeofday(tv: ?&timeval, tz: ?&timezone) usize {
+    return errnoWrap(c.gettimeofday(tv, tz));
 }
 
 pub fn nanosleep(req: &const timespec, rem: ?&timespec) usize {
@@ -322,3 +322,11 @@ pub fn sigaddset(set: &sigset_t, signo: u5) void {
 fn errnoWrap(value: isize) usize {
     return @bitCast(usize, if (value == -1) -isize(*c._errno()) else value);
 }
+
+
+pub const timezone = c.timezone;
+pub const timeval = c.timeval;
+pub const mach_timebase_info_data = c.mach_timebase_info_data;
+
+pub const mach_absolute_time = c.mach_absolute_time;
+pub const mach_timebase_info = c.mach_timebase_info;
