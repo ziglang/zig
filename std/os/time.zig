@@ -52,18 +52,18 @@ pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
 
 /// Get the posix timestamp, UTC, in seconds
 pub fn timestamp() u64 {
-    return @divFloor(miliTimestamp(), ms_per_s);
+    return @divFloor(milliTimestamp(), ms_per_s);
 }
 
 /// Get the posix timestamp, UTC, in nanoseconds
-pub const miliTimestamp = switch(builtin.os) {
-    Os.windows => miliTimestampWindows,
-    Os.linux => miliTimestampPosix,
-    Os.macosx, Os.ios => miliTimestampDarwin,
+pub const milliTimestamp = switch(builtin.os) {
+    Os.windows => milliTimestampWindows,
+    Os.linux => milliTimestampPosix,
+    Os.macosx, Os.ios => milliTimestampDarwin,
     else => @compileError("Unsupported OS"),
 };
 
-fn miliTimestampWindows() u64 {
+fn milliTimestampWindows() u64 {
     //FileTime has a granularity of 100 nanoseconds
     //  and uses the NTFS/Windows epoch
     var ft: i64 = undefined;
@@ -73,7 +73,7 @@ fn miliTimestampWindows() u64 {
     return u64(@divFloor(ft, hns_per_ms) + epoch_adj);
 }
 
-fn miliTimestampDarwin() u64 {
+fn milliTimestampDarwin() u64 {
     //Sources suggest MacOS 10.12 has support for
     //  posix clock_gettime.
     var tv: darwin.timeval = undefined;
@@ -84,7 +84,7 @@ fn miliTimestampDarwin() u64 {
     return  u64(sec_ms) + u64(usec_ms); 
 }
 
-fn miliTimestampPosix() u64 {
+fn milliTimestampPosix() u64 {
     //From what I can tell there's no reason clock_gettime
     //  should ever fail for us with CLOCK_REALTIME
     var ts: posix.timespec = undefined;
@@ -238,9 +238,9 @@ test "os.time.timestamp" {
     const ns_per_ms = (ns_per_s / ms_per_s);
     const margin = 50;
     
-    const time_0 = miliTimestamp();
+    const time_0 = milliTimestamp();
     sleep(0, ns_per_ms);
-    const time_1 = miliTimestamp();
+    const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
     debug.assert(interval > 0 and interval < margin);
 }

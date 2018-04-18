@@ -511,7 +511,7 @@ pub fn gettimeofday(tv: &timeval, tz: &timezone) usize {
     return syscall2(SYS_gettimeofday, @ptrToInt(tv), @ptrToInt(tz));
 }
 
-pub fn settimeofdat(tv: &const timeval, tz: &const timezone) usize {
+pub fn settimeofday(tv: &const timeval, tz: &const timezone) usize {
     return syscall2(SYS_settimeofday, @ptrToInt(tv), @ptrToInt(tz));
 }
 
