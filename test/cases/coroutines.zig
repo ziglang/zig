@@ -224,3 +224,21 @@ async fn printTrace(p: promise->error!void) void {
         }
     };
 }
+
+test "break from suspend" {
+    var buf: [500]u8 = undefined;
+    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    var my_result: i32 = 1;
+    const p = try async<a> testBreakFromSuspend(&my_result);
+    cancel p;
+    std.debug.assert(my_result == 2);
+}
+
+async fn testBreakFromSuspend(my_result: &i32) void {
+    s: suspend |p| {
+        break :s;
+    }
+    *my_result += 1;
+    suspend;
+    *my_result += 1;
+}

@@ -156,6 +156,14 @@ ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
+ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeSuspend);
+    ScopeSuspend *scope = allocate<ScopeSuspend>(1);
+    init_scope(&scope->base, ScopeIdSuspend, node, parent);
+    scope->name = node->data.suspend.name;
+    return scope;
+}
+
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
     ScopeFnDef *scope = allocate<ScopeFnDef>(1);
     init_scope(&scope->base, ScopeIdFnDef, node, parent);
@@ -3616,6 +3624,7 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope) {
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdLoop:
+            case ScopeIdSuspend:
             case ScopeIdCompTime:
             case ScopeIdCoroPrelude:
                 scope = scope->parent;

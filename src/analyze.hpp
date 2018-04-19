@@ -104,6 +104,7 @@ ScopeDeferExpr *create_defer_expr_scope(AstNode *node, Scope *parent);
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
 ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);
 ScopeLoop *create_loop_scope(AstNode *node, Scope *parent);
+ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
 ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import);
 Scope *create_comptime_scope(AstNode *node, Scope *parent);

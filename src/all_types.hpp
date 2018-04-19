@@ -867,6 +867,7 @@ struct AstNodeAwaitExpr {
 };
 
 struct AstNodeSuspend {
+    Buf *name;
     AstNode *block;
     AstNode *promise_symbol;
 };
@@ -1757,6 +1758,7 @@ enum ScopeId {
     ScopeIdVarDecl,
     ScopeIdCImport,
     ScopeIdLoop,
+    ScopeIdSuspend,
     ScopeIdFnDef,
     ScopeIdCompTime,
     ScopeIdCoroPrelude,
@@ -1850,6 +1852,17 @@ struct ScopeLoop {
     IrInstruction *is_comptime;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
+};
+
+// This scope is created for a suspend block in order to have labeled
+// suspend for breaking out of a suspend and for detecting if a suspend
+// block is inside a suspend block.
+struct ScopeSuspend {
+    Scope base;
+
+    Buf *name;
+    IrBasicBlock *resume_block;
+    bool reported_err;
 };
 
 // This scope is created for a comptime expression.

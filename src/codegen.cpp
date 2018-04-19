@@ -654,6 +654,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         }
         case ScopeIdDeferExpr:
         case ScopeIdLoop:
+        case ScopeIdSuspend:
         case ScopeIdCompTime:
         case ScopeIdCoroPrelude:
             return get_di_scope(g, scope->parent);

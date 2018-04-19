@@ -2829,6 +2829,18 @@ static void ir_set_cursor_at_end_and_append_block(IrBuilder *irb, IrBasicBlock *
     ir_set_cursor_at_end(irb, basic_block);
 }
 
+static ScopeSuspend *get_scope_suspend(Scope *scope) {
+    while (scope) {
+        if (scope->id == ScopeIdSuspend)
+            return (ScopeSuspend *)scope;
+        if (scope->id == ScopeIdFnDef)
+            return nullptr;
+
+        scope = scope->parent;
+    }
+    return nullptr;
+}
+
 static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdDeferExpr)
@@ -5665,6 +5677,15 @@ static IrInstruction *ir_gen_return_from_block(IrBuilder *irb, Scope *break_scop
     return ir_build_br(irb, break_scope, node, dest_block, is_comptime);
 }
 
+static IrInstruction *ir_gen_break_from_suspend(IrBuilder *irb, Scope *break_scope, AstNode *node, ScopeSuspend *suspend_scope) {
+    IrInstruction *is_comptime = ir_build_const_bool(irb, break_scope, node, false);
+
+    IrBasicBlock *dest_block = suspend_scope->resume_block;
+    ir_gen_defers_for_block(irb, break_scope, dest_block->scope, false);
+
+    return ir_build_br(irb, break_scope, node, dest_block, is_comptime);
+}
+
 static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *node) {
     assert(node->type == NodeTypeBreak);
 
@@ -5703,6 +5724,13 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *
             {
                 assert(this_block_scope->end_block != nullptr);
                 return ir_gen_return_from_block(irb, break_scope, node, this_block_scope);
+            }
+        } else if (search_scope->id == ScopeIdSuspend) {
+            ScopeSuspend *this_suspend_scope = (ScopeSuspend *)search_scope;
+            if (node->data.break_expr.name != nullptr &&
+                (this_suspend_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_suspend_scope->name)))
+            {
+                return ir_gen_break_from_suspend(irb, break_scope, node, this_suspend_scope);
             }
         }
         search_scope = search_scope->parent;
@@ -6290,14 +6318,26 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(parent_scope);
     if (scope_defer_expr) {
         if (!scope_defer_expr->reported_err) {
-            add_node_error(irb->codegen, node, buf_sprintf("cannot suspend inside defer expression"));
+            ErrorMsg *msg = add_node_error(irb->codegen, node, buf_sprintf("cannot suspend inside defer expression"));
+            add_error_note(irb->codegen, msg, scope_defer_expr->base.source_node, buf_sprintf("defer here"));
             scope_defer_expr->reported_err = true;
+        }
+        return irb->codegen->invalid_instruction;
+    }
+    ScopeSuspend *existing_suspend_scope = get_scope_suspend(parent_scope);
+    if (existing_suspend_scope) {
+        if (!existing_suspend_scope->reported_err) {
+            ErrorMsg *msg = add_node_error(irb->codegen, node, buf_sprintf("cannot suspend inside suspend block"));
+            add_error_note(irb->codegen, msg, existing_suspend_scope->base.source_node, buf_sprintf("other suspend block here"));
+            existing_suspend_scope->reported_err = true;
         }
         return irb->codegen->invalid_instruction;
     }
 
     Scope *outer_scope = irb->exec->begin_scope;
 
+    IrBasicBlock *cleanup_block = ir_create_basic_block(irb, parent_scope, "SuspendCleanup");
+    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
 
     IrInstruction *suspend_code;
     IrInstruction *const_bool_false = ir_build_const_bool(irb, parent_scope, node, false);
@@ -6316,28 +6356,28 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
         } else {
             child_scope = parent_scope;
         }
+        ScopeSuspend *suspend_scope = create_suspend_scope(node, child_scope);
+        suspend_scope->resume_block = resume_block;
+        child_scope = &suspend_scope->base;
         IrInstruction *save_token = ir_build_coro_save(irb, child_scope, node, irb->exec->coro_handle);
         ir_gen_node(irb, node->data.suspend.block, child_scope);
-        suspend_code = ir_build_coro_suspend(irb, parent_scope, node, save_token, const_bool_false);
+        suspend_code = ir_mark_gen(ir_build_coro_suspend(irb, parent_scope, node, save_token, const_bool_false));
     }
 
-    IrBasicBlock *cleanup_block = ir_create_basic_block(irb, parent_scope, "SuspendCleanup");
-    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
-
     IrInstructionSwitchBrCase *cases = allocate<IrInstructionSwitchBrCase>(2);
-    cases[0].value = ir_build_const_u8(irb, parent_scope, node, 0);
+    cases[0].value = ir_mark_gen(ir_build_const_u8(irb, parent_scope, node, 0));
     cases[0].block = resume_block;
-    cases[1].value = ir_build_const_u8(irb, parent_scope, node, 1);
+    cases[1].value = ir_mark_gen(ir_build_const_u8(irb, parent_scope, node, 1));
     cases[1].block = cleanup_block;
-    ir_build_switch_br(irb, parent_scope, node, suspend_code, irb->exec->coro_suspend_block,
-            2, cases, const_bool_false);
+    ir_mark_gen(ir_build_switch_br(irb, parent_scope, node, suspend_code, irb->exec->coro_suspend_block,
+            2, cases, const_bool_false));
 
     ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
     ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
     ir_mark_gen(ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false));
 
     ir_set_cursor_at_end_and_append_block(irb, resume_block);
-    return ir_build_const_void(irb, parent_scope, node);
+    return ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
