@@ -358,9 +358,18 @@ static void ir_print_ptr_type_child(IrPrint *irp, IrInstructionPtrTypeChild *ins
 }
 
 static void ir_print_field_ptr(IrPrint *irp, IrInstructionFieldPtr *instruction) {
-    fprintf(irp->f, "fieldptr ");
-    ir_print_other_instruction(irp, instruction->container_ptr);
-    fprintf(irp->f, ".%s", buf_ptr(instruction->field_name));
+    if (instruction->field_name_buffer) {
+        fprintf(irp->f, "fieldptr ");
+        ir_print_other_instruction(irp, instruction->container_ptr);
+        fprintf(irp->f, ".%s", buf_ptr(instruction->field_name_buffer));
+    } else {
+        assert(instruction->field_name_expr);
+        fprintf(irp->f, "@field(");
+        ir_print_other_instruction(irp, instruction->container_ptr);
+        fprintf(irp->f, ", ");
+        ir_print_other_instruction(irp, instruction->field_name_expr);
+        fprintf(irp->f, ")");
+    }
 }
 
 static void ir_print_struct_field_ptr(IrPrint *irp, IrInstructionStructFieldPtr *instruction) {
