@@ -1710,18 +1710,21 @@ fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const 
     assert(it.next(debug.global_allocator) == null);
 }
 
-test "std.os" {
-    _ = @import("child_process.zig");
-    _ = @import("darwin_errno.zig");
-    _ = @import("darwin.zig");
-    _ = @import("get_user_id.zig");
-    _ = @import("linux/errno.zig");
-    //_ = @import("linux_i386.zig");
-    _ = @import("linux/x86_64.zig");
-    _ = @import("linux/index.zig");
-    _ = @import("path.zig");
-    _ = @import("windows/index.zig");
-    _ = @import("test.zig");
+comptime {
+    if(builtin.is_test) {
+        _ = @import("child_process.zig");
+        _ = @import("darwin_errno.zig");
+        _ = @import("darwin.zig");
+        _ = @import("get_user_id.zig");
+        _ = @import("linux/errno.zig");
+        //_ = @import("linux_i386.zig");
+        _ = @import("linux/x86_64.zig");
+        _ = @import("linux/index.zig");
+        _ = @import("path.zig");
+        _ = @import("time.zig");
+        _ = @import("windows/index.zig");
+        _ = @import("test.zig");
+    }
 }
 
 

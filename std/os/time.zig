@@ -4,6 +4,7 @@ const Os = builtin.Os;
 const debug = std.debug;
 
 const windows = std.os.windows;
+const linux = std.os.linux;
 const darwin = std.os.darwin;
 const posix = std.os.posix;
 
@@ -119,8 +120,8 @@ pub const s_per_week = s_per_day * 7;
 pub const Timer = struct {
     
     //if we used resolution's value when performing the
-    //  performance counter calc on windows, it would be
-    //  less precise
+    //  performance counter calc on windows/darwin, it would
+    //  be less precise
     frequency: switch(builtin.os) {
         Os.windows => u64,
         Os.macosx, Os.ios => darwin.mach_timebase_info_data,
@@ -129,9 +130,20 @@ pub const Timer = struct {
     resolution: u64,
     start_time: u64,
     
+    
+    //At some point we may change our minds on RAW, but for now we're
+    //  sticking with posix standard MONOTONIC. For more information, see: 
+    //  https://github.com/zig-lang/zig/pull/933
+    //
+    //const monotonic_clock_id = switch(builtin.os) {
+    //    Os.linux => linux.CLOCK_MONOTONIC_RAW,
+    //    else => posix.CLOCK_MONOTONIC,
+    //};
+    const monotonic_clock_id = posix.CLOCK_MONOTONIC;
+    
     //Initialize the timer structure.
     //This gives us an oportunity to grab the counter frequency in windows.
-    //On Windows: QueryPerformanceCounter will succeed on anything > XP.
+    //On Windows: QueryPerformanceCounter will succeed on anything >= XP/2000.
     //On Posix: CLOCK_MONOTONIC will only fail if the monotonic counter is not 
     //  supported, or if the timespec pointer is out of bounds, which should be 
     //  impossible here barring cosmic rays or other such occurances of
@@ -154,14 +166,14 @@ pub const Timer = struct {
             },
             Os.linux => {
                 var ts: posix.timespec = undefined;
-                var result = posix.clock_getres(posix.CLOCK_MONOTONIC, &ts);
+                var result = posix.clock_getres(monotonic_clock_id, &ts);
                 switch(posix.getErrno(result)) {
                     0 => {},
                     posix.EINVAL => return error.TimerUnsupported,
                     else => unreachable,
                 }
                 self.resolution = u64(ts.tv_sec * ns_per_s + ts.tv_nsec);
-                _ = posix.clock_gettime(posix.CLOCK_MONOTONIC, &ts);
+                _ = posix.clock_gettime(monotonic_clock_id, &ts);
                 self.start_time = u64(ts.tv_sec * ns_per_s + ts.tv_nsec);
             },
             Os.macosx, Os.ios => {
@@ -220,7 +232,7 @@ pub const Timer = struct {
     
     fn clockLinux() u64 {
         var ts: posix.timespec = undefined;
-        var result = posix.clock_gettime(posix.CLOCK_MONOTONIC, &ts);
+        var result = posix.clock_gettime(monotonic_clock_id, &ts);
         debug.assert(posix.getErrno(result) == 0);
         return u64(ts.tv_sec * ns_per_s + ts.tv_nsec);
     }
