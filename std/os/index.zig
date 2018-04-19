@@ -1711,7 +1711,7 @@ fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const 
 }
 
 comptime {
-    if(builtin.is_test) {
+    if (builtin.is_test) {
         _ = @import("child_process.zig");
         _ = @import("darwin_errno.zig");
         _ = @import("darwin.zig");
