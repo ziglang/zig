@@ -56,7 +56,7 @@ pub fn timestamp() u64 {
     return @divFloor(milliTimestamp(), ms_per_s);
 }
 
-/// Get the posix timestamp, UTC, in nanoseconds
+/// Get the posix timestamp, UTC, in milliseconds
 pub const milliTimestamp = switch(builtin.os) {
     Os.windows => milliTimestampWindows,
     Os.linux => milliTimestampPosix,
