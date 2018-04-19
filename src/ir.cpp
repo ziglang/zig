@@ -1033,16 +1033,24 @@ static IrInstruction *ir_build_elem_ptr_from(IrBuilder *irb, IrInstruction *old_
     return new_instruction;
 }
 
-static IrInstruction *ir_build_field_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *container_ptr, Buf *field_name)
+static IrInstruction *ir_build_field_ptr_inner(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *container_ptr, IrInstruction *field_name_expr)
 {
     IrInstructionFieldPtr *instruction = ir_build_instruction<IrInstructionFieldPtr>(irb, scope, source_node);
     instruction->container_ptr = container_ptr;
-    instruction->field_name = field_name;
+    instruction->field_name_expr = field_name_expr;
 
     ir_ref_instruction(container_ptr, irb->current_basic_block);
+    ir_ref_instruction(field_name_expr, irb->current_basic_block);
 
     return &instruction->base;
+}
+
+static IrInstruction *ir_build_field_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *container_ptr, Buf *field_name)
+{
+    IrInstruction *field_name_expr = ir_build_const_str_lit(irb, scope, source_node, field_name);
+    return ir_build_field_ptr_inner(irb, scope, source_node, container_ptr, field_name_expr);
 }
 
 static IrInstruction *ir_build_struct_field_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -4014,6 +4022,24 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
 
                 return ir_build_member_name(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdField:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node_extra(irb, arg0_node, scope, LVAL_PTR);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *ptr_instruction = ir_build_field_ptr_inner(irb, scope, node, arg0_value, arg1_value);
+                //if (lval.is_ptr)
+                //    return ptr_instruction;
+
+                return ir_build_load_ptr(irb, scope, node, ptr_instruction);
             }
         case BuiltinFnIdBreakpoint:
             return ir_build_breakpoint(irb, scope, node);
@@ -13458,7 +13484,11 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         zig_unreachable();
     }
 
-    Buf *field_name = field_ptr_instruction->field_name;
+    IrInstruction *field_name_expr = field_ptr_instruction->field_name_expr->other;
+    Buf *field_name = ir_resolve_str(ira, field_name_expr);
+    if (!field_name)
+        return ira->codegen->builtin_types.entry_invalid;
+
     AstNode *source_node = field_ptr_instruction->base.source_node;
 
     if (type_is_invalid(container_type)) {

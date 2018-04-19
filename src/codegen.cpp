@@ -6114,6 +6114,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
     create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
+    create_builtin_fn(g, BuiltinFnIdField, "field", 2);
     create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
@@ -7185,4 +7186,3 @@ PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, 
     }
     return pkg;
 }
-

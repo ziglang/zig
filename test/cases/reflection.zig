@@ -1,5 +1,6 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
+const reflection = this;
 
 test "reflection: array, pointer, nullable, error union type child" {
     comptime {
@@ -56,7 +57,30 @@ test "reflection: enum member types and names" {
 
 }
 
+test "reflection: @field" {
+    const f = Foo {
+        .one = 42,
+        .two = true,
+        .three = void{},
+    };
+
+    assert(f.one == f.one);
+    assert(@field(f, "o" ++ "ne") == f.one);
+    assert(@field(f, "t" ++ "wo") == f.two);
+    assert(@field(f, "th" ++ "ree") == f.three);
+    assert(@field(Foo, "const" ++ "ant") == Foo.constant);
+    assert(@field(Bar, "O" ++ "ne") == Bar.One);
+    assert(@field(Bar, "O" ++ "ne") == Bar.One);
+    assert(@field(Bar, "O" ++ "ne") == Bar.One);
+    assert(@field(Bar, "T" ++ "wo") == Bar.Two);
+    assert(@field(Bar, "Th" ++ "ree") == Bar.Three);
+    assert(@field(Bar, "F" ++ "our") == Bar.Four);
+    assert(@field(reflection, "dum" ++ "my")(true, 1, 2) == dummy(true, 1, 2));
+}
+
 const Foo = struct {
+    const constant = 52;
+
     one: i32,
     two: bool,
     three: void,

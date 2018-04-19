@@ -1292,6 +1292,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemberCount,
     BuiltinFnIdMemberType,
     BuiltinFnIdMemberName,
+    BuiltinFnIdField,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
@@ -2225,7 +2226,7 @@ struct IrInstructionFieldPtr {
     IrInstruction base;
 
     IrInstruction *container_ptr;
-    Buf *field_name;
+    IrInstruction *field_name_expr;
     bool is_const;
 };
 
