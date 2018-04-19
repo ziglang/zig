@@ -152,7 +152,7 @@ pub const Timer = struct {
     //  impossible here barring cosmic rays or other such occurances of
     //  incredibly bad luck.
     //On Darwin: This cannot fail, as far as I am able to tell.
-    const TimerError = error{TimerUnsupported, UnexpectedErrnoValue};
+    const TimerError = error{TimerUnsupported, Unexpected};
     pub fn start() TimerError!Timer {
         var self: Timer = undefined;
         
@@ -177,14 +177,17 @@ pub const Timer = struct {
                 //  seccomp is going to block us it will at least do so consistently
                 var ts: posix.timespec = undefined;
                 var result = posix.clock_getres(monotonic_clock_id, &ts);
-                switch (posix.getErrno(result)) {
+                var errno = posix.getErrno(result);
+                switch (errno) {
                     0 => {},
                     posix.EINVAL => return error.TimerUnsupported,
-                    else => return error.UnexpectedErrnoValue,
+                    else => return std.os.unexpectedErrorPosix(errno),
                 }
                 self.resolution = u64(ts.tv_sec) * u64(ns_per_s) + u64(ts.tv_nsec);
+                
                 result = posix.clock_gettime(monotonic_clock_id, &ts);
-                if (posix.getErrno(result) != 0) return error.UnexpectedErrnoValue;
+                errno = posix.getErrno(result);
+                if (errno != 0) return std.os.unexpectedErrorPosix(errno);
                 self.start_time = u64(ts.tv_sec) * u64(ns_per_s) + u64(ts.tv_nsec);
             },
             Os.macosx, Os.ios => {
