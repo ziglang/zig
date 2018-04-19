@@ -58,7 +58,7 @@ test "reflection: enum member types and names" {
 }
 
 test "reflection: @field" {
-    const f = Foo {
+    var f = Foo {
         .one = 42,
         .two = true,
         .three = void{},
@@ -70,12 +70,12 @@ test "reflection: @field" {
     assert(@field(f, "th" ++ "ree") == f.three);
     assert(@field(Foo, "const" ++ "ant") == Foo.constant);
     assert(@field(Bar, "O" ++ "ne") == Bar.One);
-    assert(@field(Bar, "O" ++ "ne") == Bar.One);
-    assert(@field(Bar, "O" ++ "ne") == Bar.One);
     assert(@field(Bar, "T" ++ "wo") == Bar.Two);
     assert(@field(Bar, "Th" ++ "ree") == Bar.Three);
     assert(@field(Bar, "F" ++ "our") == Bar.Four);
     assert(@field(reflection, "dum" ++ "my")(true, 1, 2) == dummy(true, 1, 2));
+    @field(f, "o" ++ "ne") = 4;
+    assert(f.one == 4);
 }
 
 const Foo = struct {
