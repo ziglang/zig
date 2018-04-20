@@ -7,16 +7,15 @@
 // zig build-exe --release-fast --library c throughput_test.zig
 // ./throughput_test
 // ```
-const HashFunction = @import("md5.zig").Md5;
-const BytesToHash  = 1024 * Mb;
 
 const std = @import("std");
-
 const c = @cImport({
     @cInclude("time.h");
 });
+const HashFunction = @import("md5.zig").Md5;
 
-const Mb = 1024 * 1024;
+const MB = 1024 * 1024;
+const BytesToHash  = 1024 * MB;
 
 pub fn main() !void {
     var stdout_file = try std.io.getStdOut();
@@ -35,9 +34,9 @@ pub fn main() !void {
     }
     const end = c.clock();
 
-    const elapsed_s = f64((end - start) * c.CLOCKS_PER_SEC) / 1000000;
+    const elapsed_s = f64(end - start) / f64(c.CLOCKS_PER_SEC);
     const throughput = u64(BytesToHash / elapsed_s);
 
     try stdout.print("{}: ", @typeName(HashFunction));
-    try stdout.print("{} Mb/s\n", throughput);
+    try stdout.print("{} MB/s\n", throughput / (1 * MB));
 }
