@@ -6523,6 +6523,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeFieldAccessExpr:
             {
                 IrInstruction *ptr_instruction = ir_gen_field_access(irb, scope, node);
+                if (ptr_instruction == irb->codegen->invalid_instruction)
+                    return ptr_instruction;
                 if (lval.is_ptr)
                     return ptr_instruction;
 
@@ -15556,6 +15558,8 @@ static TypeTableEntry *ir_analyze_instruction_field_parent_ptr(IrAnalyze *ira,
     }
 
     ensure_complete_type(ira->codegen, container_type);
+    if (type_is_invalid(container_type))
+        return ira->codegen->builtin_types.entry_invalid;
 
     TypeStructField *field = find_struct_type_field(container_type, field_name);
     if (field == nullptr) {
