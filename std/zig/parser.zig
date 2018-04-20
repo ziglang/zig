@@ -18,7 +18,6 @@ pub const Parser = struct {
     put_back_tokens: [2]Token,
     put_back_count: usize,
     source_file_name: []const u8,
-    pending_line_comment_node: ?&ast.Node.LineComment,
 
     pub const Tree = struct {
         root_node: &ast.Node.Root,
@@ -44,7 +43,6 @@ pub const Parser = struct {
             .put_back_count = 0,
             .source_file_name = source_file_name,
             .utility_bytes = []align(utility_bytes_align) u8{},
-            .pending_line_comment_node = null,
         };
     }
 
