@@ -14,8 +14,8 @@ const c = @cImport({
 });
 const HashFunction = @import("md5.zig").Md5;
 
-const MB = 1024 * 1024;
-const BytesToHash  = 1024 * MB;
+const MiB = 1024 * 1024;
+const BytesToHash  = 1024 * MiB;
 
 pub fn main() !void {
     var stdout_file = try std.io.getStdOut();
@@ -37,6 +37,5 @@ pub fn main() !void {
     const elapsed_s = f64(end - start) / f64(c.CLOCKS_PER_SEC);
     const throughput = u64(BytesToHash / elapsed_s);
 
-    try stdout.print("{}: ", @typeName(HashFunction));
-    try stdout.print("{} MB/s\n", throughput / (1 * MB));
+    try stdout.print("{}: {} MiB/s\n", @typeName(HashFunction), throughput / (1 * MiB));
 }
