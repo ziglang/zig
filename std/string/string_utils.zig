@@ -8,7 +8,7 @@ const ascii = std.string.ascii;
 const utf8 = std.string.utf8;
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
-/// any of the bytes in `split_bytes`.
+/// any of the code points in `split_bytes`.
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
 /// This one is intended for use with strings
@@ -118,7 +118,6 @@ const Side = std.string.Side;
 /// Note: you have to provide both a View and a BaseType
 /// but don't have to supply an iterator, however `View.iterator` has to exist.
 pub fn trim(comptime View: type, comptime BaseType: type, string: &View, trimCharacters: &View, side: Side) []const BaseType {
-    assert(side == Side.LEFT or side == Side.RIGHT or side == Side.BOTH);
     var initialIndex : usize = 0;
     var endIndex : usize = string.byteLen();
     var it = string.iterator();

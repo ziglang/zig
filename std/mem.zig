@@ -130,16 +130,6 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     for (source) |s, i| dest[i] = s;
 }
 
-pub fn copyRange(comptime T: type, dest: []T, destStart: usize, destEnd: usize, source: []const T, sourceStart: usize, sourceEnd: usize) void {
-    assert(destEnd < dest.len and sourceEnd < dest.len);
-    assert(destStart < destEnd and sourceStart < sourceEnd and sourceEnd - sourceStart == destEnd - destStart);
-    var i: usize = sourceStart;
-    const diff: usize = destStart - sourceStart;
-    while (i < sourceEnd) : (i += 1) {
-        dest[i] = source[i];
-    }
-}
-
 pub fn set(comptime T: type, dest: []T, value: T) void {
     for (dest) |*d| *d = value;
 }
@@ -184,8 +174,6 @@ pub const Side = enum { LEFT = 1, RIGHT = 2, BOTH = 3, };
 
 /// Remove values from the beginning and end of a slice.
 pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T, side: Side) []const T {
-    // Asserting 
-    assert(side == Side.LEFT or side == Side.RIGHT or side == Side.BOTH);
     var begin: usize = 0;
     var end: usize = slice.len;
 

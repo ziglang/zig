@@ -64,11 +64,9 @@ pub const ChildProcess = struct {
         PermissionDenied,
         InvalidUserId,
         ResourceLimitReached,
-        InvalidCharacter,
         InvalidExe,
         IsDir,
         FileBusy,
-        InvalidBytes,
     };
 
     pub const Term = union(enum) {
@@ -378,7 +376,6 @@ pub const ChildProcess = struct {
         }
         if (pid_result == 0) {
             // we are the child
-
             setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch
                 |err| forkChildErrReport(err_pipe[1], err);
             setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch
