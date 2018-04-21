@@ -1,6 +1,11 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("invalid field access in comptime",
+        \\comptime { var x = doesnt_exist.whatever; }
+    ,
+        ".tmp_source.zig:1:20: error: use of undeclared identifier 'doesnt_exist'");
+
     cases.add("suspend inside suspend block",
         \\const std = @import("std");
         \\
