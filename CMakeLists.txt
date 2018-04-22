@@ -508,6 +508,7 @@ set(ZIG_STD_FILES
     "os/index.zig"
     "os/linux/errno.zig"
     "os/linux/index.zig"
+    "os/linux/vdso.zig"
     "os/linux/x86_64.zig"
     "os/path.zig"
     "os/time.zig"

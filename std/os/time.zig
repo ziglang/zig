@@ -160,13 +160,13 @@ pub const Timer = struct {
             Os.windows => {
                 var freq: i64 = undefined;
                 var err = windows.QueryPerformanceFrequency(&freq);
-                if (err == 0) return error.TimerUnsupported;
+                if (err == windows.FALSE) return error.TimerUnsupported;
                 self.frequency = u64(freq);
                 self.resolution = @divFloor(ns_per_s, self.frequency);
                 
                 var start_time: i64 = undefined;
                 err = windows.QueryPerformanceCounter(&start_time);
-                debug.assert(err != 0);
+                debug.assert(err != windows.FALSE);
                 self.start_time = u64(start_time);
             },
             Os.linux => {
@@ -236,7 +236,7 @@ pub const Timer = struct {
     fn clockWindows() u64 {
         var result: i64 = undefined;
         var err = windows.QueryPerformanceCounter(&result);
-        debug.assert(err != 0);
+        debug.assert(err != windows.FALSE);
         return u64(result);
     }
     

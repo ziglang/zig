@@ -478,6 +478,7 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     };
 }
 
+pub var linux_aux_raw = []usize{0} ** 38;
 pub var posix_environ_raw: []&u8 = undefined;
 
 /// Caller must free result when done.
