@@ -15,3 +15,10 @@ the CI script should just fetch this image from an s3 bucket.
 ## vmbuild
 
 This script is what gets run on the openbsd virtual machine as the ci action.
+
+## TODO
+
+- Shift the openbsd image download to zig controlled infrastructure.
+- Try with -smp 2, does travis have 2 cores? Will need a new image because openbsd detects
+  how many cores there are at install time and uses that to choose the kernel.
+- Find ways to make the build faster.

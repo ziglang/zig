@@ -13,7 +13,7 @@ cleanup() {
 
 trap cleanup EXIT INT
 
-curl -L https://storage.googleapis.com/acha-ninja_0u74abej/openbsd.qcow2.bz2 | bzcat > $tmp/openbsd.qcow2
+curl -s -S -L https://storage.googleapis.com/acha-ninja_0u74abej/openbsd.qcow2.bz2 | bzcat > $tmp/openbsd.qcow2
 
 qemu-system-x86_64 -nographic \
   -drive if=virtio,file=$tmp/openbsd.qcow2 \
