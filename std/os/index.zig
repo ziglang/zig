@@ -4,8 +4,7 @@ const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
 const os = this;
 
-comptime {
-    if (!builtin.is_test) return;
+test "std.os" {
     _ = @import("child_process.zig");
     _ = @import("darwin.zig");
     _ = @import("darwin_errno.zig");

@@ -4,8 +4,6 @@ const linux = std.os.linux;
 const assert = std.debug.assert;
 
 test "timer" {
-    if (builtin.os != builtin.Os.linux) return;
-
     const epoll_fd = linux.epoll_create();
     var err = linux.getErrno(epoll_fd);
     assert(err == 0);

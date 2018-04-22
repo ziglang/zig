@@ -1,10 +1,3 @@
-const builtin = @import("builtin");
-comptime {
-    if (!builtin.is_test) return;
-    _ = @import("util.zig");
-}
-
-
 pub const ERROR = @import("error.zig");
 
 pub extern "advapi32" stdcallcc fn CryptAcquireContextA(phProv: &HCRYPTPROV, pszContainer: ?LPCSTR,
@@ -324,3 +317,7 @@ pub const FILE_END = 2;
 pub const HEAP_CREATE_ENABLE_EXECUTE = 0x00040000;
 pub const HEAP_GENERATE_EXCEPTIONS = 0x00000004;
 pub const HEAP_NO_SERIALIZE = 0x00000001;
+
+test "import" {
+    _ = @import("util.zig");
+}

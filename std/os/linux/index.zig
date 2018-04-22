@@ -1309,7 +1309,8 @@ pub fn capset(hdrp: &cap_user_header_t, datap: &const cap_user_data_t) usize {
     return syscall2(SYS_capset, @ptrToInt(hdrp), @ptrToInt(datap));
 }
 
-comptime {
-    if (!builtin.is_test) return;
-    _ = @import("test.zig");
+test "import" {
+    if (builtin.os == builtin.Os.linux) {
+        _ = @import("test.zig");
+    }
 }
