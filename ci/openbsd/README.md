@@ -22,3 +22,4 @@ This script is what gets run on the openbsd virtual machine as the ci action.
 - Try with -smp 2, does travis have 2 cores? Will need a new image because openbsd detects
   how many cores there are at install time and uses that to choose the kernel.
 - Find ways to make the build faster.
+- Actually run tests, will need openbsd syscalls.
