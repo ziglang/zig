@@ -12,7 +12,7 @@ mirror=https://cloudflare.cdn.openbsd.org
 tmp=`mktemp -d -p /tmp/`
 
 cleanup() {
-	rm -rf $tmp
+  rm -rf $tmp
 }
 
 trap cleanup EXIT INT

@@ -7,8 +7,8 @@ set -u
 tmp=`mktemp -d`
 
 cleanup() {
-	rm -rf $tmp
-	pkill -P $$
+  rm -rf $tmp
+  pkill -P $$
 }
 
 trap cleanup EXIT INT
@@ -29,20 +29,20 @@ vmssh="ssh -o StrictHostKeyChecking=no -i ./ci/openbsd/insecure_ed25519 -p 5555 
 errcount=0
 while true
 do
-	sleep 10s
+  sleep 10s
 
-	if timeout 5s $vmssh true
-	then
-		break
-	fi
+  if timeout 5s $vmssh true
+  then
+    break
+  fi
 
-	errcount=$(($errcount + 1))
+  errcount=$(($errcount + 1))
 
-	if test $errcount -eq 10
-	then
-		echo "giving up, ssh never came up"
-		exit 1
-	fi
+  if test $errcount -eq 10
+  then
+    echo "giving up, ssh never came up"
+    exit 1
+  fi
 done
 
 
