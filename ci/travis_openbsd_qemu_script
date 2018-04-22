@@ -1,0 +1,70 @@
+#! /bin/sh
+
+set -x
+set -e
+set -u
+
+tmp=`mktemp -d`
+
+cleanup() {
+  set +e
+  rm -rf $tmp
+  pkill -P $$
+}
+
+trap cleanup EXIT INT
+
+curl -s -S -L https://storage.googleapis.com/acha-ninja_0u74abej/openbsd.qcow2.bz2 | bzcat > $tmp/openbsd.qcow2
+
+qemu-system-x86_64 -nographic \
+  -drive if=virtio,file=$tmp/openbsd.qcow2 \
+  -net nic,model=virtio -net user -boot once=d -smp 1 -m 2048 \
+  -redir tcp:5555::22 > /dev/null &
+
+qemupid=$!
+
+# travis or git was not respecting this, but ssh requires it.
+chmod 600 ./ci/openbsd/insecure_ed25519
+vmssh="ssh -o StrictHostKeyChecking=no -i ./ci/openbsd/insecure_ed25519 -p 5555 root@127.0.0.1"
+
+errcount=0
+while true
+do
+  sleep 10s
+
+  if timeout 5s $vmssh true
+  then
+    break
+  fi
+
+  errcount=$(($errcount + 1))
+
+  if test $errcount -eq 10
+  then
+    echo "giving up, ssh never came up"
+    exit 1
+  fi
+done
+
+mkdir -p ~/openbsd_amd64_ccache/
+$vmssh rm -rf zig
+$vmssh rm -rf .ccache
+$vmssh mkdir .ccache
+$vmssh mkdir zig
+tar cf - -C ~/openbsd_amd64_ccache/ . | $vmssh tar xf - -C .ccache
+tar cf - . | $vmssh tar xf - -C zig
+
+set +e
+# timeout before travis does, this gives ccache
+# a chance to speed everything up.
+timeout $((60*30))s $vmssh '(cd zig && ./ci/openbsd/vmbuild)'
+rc=$?
+set -e
+# Sleep in case the compilation doesn't terminate as soon as ssh disconnects.
+# I have no idea if taring the ccache dir while it is still running
+# is a problem, just avoid that with a sleep so it can stop.
+sleep 5
+rm -rf ~/openbsd_amd64_ccache/*
+$vmssh tar cf - -C .ccache . | tar xf - -C ~/openbsd_amd64_ccache/
+
+exit $rc

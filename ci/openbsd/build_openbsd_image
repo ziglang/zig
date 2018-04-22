@@ -1,0 +1,95 @@
+#! /usr/bin/env nix-shell
+#! nix-shell -i bash -p expect dvdplusrwtools cdrtools qemu
+
+set -x
+set -e
+set -u
+
+mirror=https://cloudflare.cdn.openbsd.org
+
+# On nixos nix-shell
+# was not using /tmp/ and failing due to space. 
+tmp=`mktemp -d -p /tmp/`
+
+cleanup() {
+  rm -rf $tmp
+}
+
+trap cleanup EXIT INT
+
+# TODO: When we are not using the snapshot url, we can verify a shasum
+curl -L -o $tmp/install.iso $mirror/pub/OpenBSD/snapshots/amd64/install63.iso
+
+# https://man.openbsd.org/autoinstall
+cat <<EOF > $tmp/autoinstall.conf
+System hostname = zig 
+Password for root = root
+Change the default console to com0 = yes 
+Which speed should com0 use = 115200
+Do you expect to run the X Window System? = no
+What timezone are you in = UTC
+Directory does not contain SHA256.sig. Continue without verification? = yes
+Set name(s) = +* -x* -game* done
+Public ssh key for root = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGy11O3xuMN+DI5k/iyUFfxEhThTFddxcBjs/u80j0Vf
+Allow root ssh login? = yes
+disklabel = file:///disklabeltemplate
+EOF
+
+# https://man.openbsd.org/disklabel.8#AUTOMATIC_DISK_ALLOCATION
+cat <<EOF > $tmp/disklabeltemplate
+/ 16G
+swap 1G-* 10%
+EOF
+
+echo 'set tty com0' > $tmp/boot.conf
+
+growisofs -M "$tmp/install.iso" -l -R -graft-points \
+  /autoinstall.conf="$tmp/autoinstall.conf" \
+  /disklabeltemplate="$tmp/disklabeltemplate" \
+  /etc/boot.conf="$tmp/boot.conf"
+
+# The disk is lazily allocated, so not really 20 gigs.
+qemu-img create -f qcow2 $tmp/openbsd.qcow2 20G
+
+# Install openbsd
+
+expect <<EOF
+set timeout 2000
+spawn qemu-system-x86_64 -nographic \
+  -drive if=virtio,file=$tmp/openbsd.qcow2 -cdrom "$tmp/install.iso" \
+  -net nic,model=virtio -net user -boot once=d -smp 1 -m 2048
+expect timeout { exit 1 } "\(I\)nstall, \(U\)pgrade, \(A\)utoinstall or \(S\)hell\?"
+send "S\n"
+expect timeout { exit 1 } "# "
+send "mount /dev/cd0c /mnt\n"
+send "cp /mnt/autoinstall.conf /\n"
+send "cp /mnt/disklabeltemplate /\n"
+send "umount /mnt\n"
+send "install -af /autoinstall.conf\n"
+expect timeout { exit 1 } "CONGRATULATIONS"
+expect timeout { exit 1 } "# "
+send "halt -p\n"
+expect timeout { exit 1 } "The operating system has halted"
+EOF
+
+# Install the zig dependencies
+
+expect <<EOF
+set timeout 2000
+spawn qemu-system-x86_64 -nographic \
+  -drive if=virtio,file=$tmp/openbsd.qcow2 \
+  -net nic,model=virtio -net user -boot once=d -smp 1 -m 2048
+expect timeout { exit 1 } "login:"
+send "root\n"
+expect timeout { exit 1 } "Password:"
+send "root\n"
+expect timeout { exit 1 } "# "
+send "echo '$mirror/pub/OpenBSD/' > /etc/installurl\n"
+expect timeout { exit 1 } "# "
+send "pkg_add gmake ccache cmake libxml llvm\n"
+expect timeout { exit 1 } "zig# "
+send "halt -p\n"
+expect timeout { exit 1 } "The operating system has halted"
+EOF
+
+cat $tmp/openbsd.qcow2 | bzip2 -9 > ./openbsd.qcow2.bz2

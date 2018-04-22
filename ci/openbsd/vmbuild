@@ -1,0 +1,14 @@
+#! /bin/sh
+
+set -x
+set -e
+set -u
+
+mkdir build
+cd build
+export CXX="ccache clang++"
+export CC="ccache clang"
+ccache --set-config=max_size=1.0G
+cmake ..
+gmake VERBOSE=1
+gmake install
