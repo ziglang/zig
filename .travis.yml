@@ -4,6 +4,12 @@ services:
 os:
   - linux
   - osx
+env:
+  - QEMU_OS=none
+matrix:
+  include:
+  - os: linux
+    env: QEMU_OS=openbsd
 dist: trusty
 osx_image: xcode8.3
 language: cpp
@@ -14,5 +20,6 @@ install:
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_install; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ci/travis_osx_install; fi
 script:
-  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_script; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" && "$QEMU_OS" == "none" ]]; then ci/travis_linux_script; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" && "$QEMU_OS" == "openbsd" ]]; then ci/travis_openbsd_qemu_script; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ci/travis_osx_script; fi

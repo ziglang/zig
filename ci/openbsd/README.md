@@ -1,4 +1,4 @@
-# Openbsd CI
+# Openbsd CI scripts
 
 
 ## build_openbsd_image
@@ -11,3 +11,7 @@ ready to run the CI script. Currently it uses the unreleased openbsd
 snapshot because that is the version with llvm 6.0 . In the future this
 should be changed to a stable release if possible. Until this is stable,
 the CI script should just fetch this image from an s3 bucket.
+
+## vmbuild
+
+This script is what gets run on the openbsd virtual machine as the ci action.
