@@ -4,7 +4,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const mem = std.mem;
 
-pub fn map(comptime listType: type, comptime outType: type, func: fn (listType)outType, list: []const listType, buffer: []outType) []outType {
+pub fn map(func: var, list: []const @ArgType(@typeOf(func), 0), buffer: []@typeOf(func).ReturnType) []@typeOf(func).ReturnType {
     assert(buffer.len >= list.len);
     for (list) |item, i| {
         buffer[i] = func(item);
@@ -13,18 +13,18 @@ pub fn map(comptime listType: type, comptime outType: type, func: fn (listType)o
 }
 
 // You have to free the result
-pub fn mapAlloc(comptime listType: type, comptime outType: type, func: fn (listType)outType, list: []const listType, allocator: &mem.Allocator) ![]outType {
-    var buf = try allocator.alloc(outType, list.len);
-    return map(listType, outType, func, list, buf);
+pub fn mapAlloc(func: var, list: []const @ArgType(@typeOf(func), 0), allocator: &mem.Allocator) ![]@typeOf(func).ReturnType {
+    var buf = try allocator.alloc(@typeOf(func).ReturnType, list.len);
+    return map(func, list, buf);
 }
 
 test "functional.map" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
-    assert(mem.eql(i32, try mapAlloc(i32, i32, test_pow, ([]i32{ 1, 4, 5, 2, 8 })[0..], &direct_allocator.allocator), []i32{ 1, 16, 25, 4, 64 }));
+    assert(mem.eql(i32, try mapAlloc(test_pow, ([]i32{ 1, 4, 5, 2, 8 })[0..], &direct_allocator.allocator), []i32{ 1, 16, 25, 4, 64 }));
 }
 
-pub fn filter(comptime listType: type, func: fn(listType)bool, list: []const listType, buffer: []listType) []listType {
+pub fn filter(func: var, list: []const @ArgType(@typeOf(func), 0), buffer: []@ArgType(@typeOf(func), 0)) []@ArgType(@typeOf(func), 0) {
     // You have to be prepared that the reduce will match all
     assert(buffer.len >= list.len);
     var count : usize = 0;
@@ -38,23 +38,23 @@ pub fn filter(comptime listType: type, func: fn(listType)bool, list: []const lis
 }
 
 // You have to free the result
-pub fn filterAlloc(comptime listType: type, func: fn (listType)bool, list: []const listType, allocator: &mem.Allocator) ![]listType {
+pub fn filterAlloc(func: var, list: []const @ArgType(@typeOf(func), 0), allocator: &mem.Allocator) ![]@ArgType(@typeOf(func), 0) {
     // We can't know how much to allocate so we will over allocate
     // Then shrink to prevent annoyance for developer
-    var buf = try allocator.alloc(listType, list.len);
-    var out = filter(listType, func, list, buf);
+    var buf = try allocator.alloc(@ArgType(@typeOf(func), 0), list.len);
+    var out = filter(func, list, buf);
     // Actual size we needed
-    return allocator.shrink(listType, buf, out.len);
+    return allocator.shrink(@ArgType(@typeOf(func), 0), buf, out.len);
 }
 
 test "functional.filter" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
-    assert(mem.eql(i32, try filterAlloc(i32, test_is_even, ([]i32{ 1, 4, 5, 2, 8 })[0..], &direct_allocator.allocator), []i32{ 4, 2, 8 }));
+    assert(mem.eql(i32, try filterAlloc(test_is_even, ([]i32{ 1, 4, 5, 2, 8 })[0..], &direct_allocator.allocator), []i32{ 4, 2, 8 }));
 }
 
-pub fn reduce(comptime listType: type, func: fn(listType, listType)listType, list: []const listType) listType {
-    var out : listType = list[0];
+pub fn reduce(func: var, list: []const @typeOf(func).ReturnType) @typeOf(func).ReturnType {
+    var out = list[0];
     for (list[1..]) |item| {
         out = func(out, item);
     }
@@ -62,7 +62,7 @@ pub fn reduce(comptime listType: type, func: fn(listType, listType)listType, lis
 }
 
 test "functional.reduce" {
-    assert(reduce(i32, test_add, ([]i32{ 1, 3, 14 })[0..]) == 42);
+    assert(reduce(test_add, ([]i32{ 1, 3, 14 })[0..]) == 42);
 }
 
 fn test_is_even(a: i32)bool {
