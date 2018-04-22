@@ -86,7 +86,8 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                 },
                 's' => {
                     state = State.Buf;
-                },'.' => {
+                },
+                '.' => {
                     state = State.Float;
                 },
                 else => @compileError("Unknown format character: " ++ []u8{c}),

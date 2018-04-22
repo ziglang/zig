@@ -1,4 +1,5 @@
 const std = @import("../../index.zig");
+const builtin = @import("builtin");
 const linux = std.os.linux;
 const assert = std.debug.assert;
 

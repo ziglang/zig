@@ -9,11 +9,10 @@ test "std.os" {
     _ = @import("darwin.zig");
     _ = @import("darwin_errno.zig");
     _ = @import("get_user_id.zig");
-    _ = @import("linux/errno.zig");
     _ = @import("linux/index.zig");
-    _ = @import("linux/x86_64.zig");
     _ = @import("path.zig");
     _ = @import("test.zig");
+    _ = @import("time.zig");
     _ = @import("windows/index.zig");
 }
 
@@ -32,6 +31,7 @@ pub const net = @import("net.zig");
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
 pub const File = @import("file.zig").File;
+pub const time = @import("time.zig");
 
 pub const FileMode = switch (builtin.os) {
     Os.windows => void,
@@ -478,6 +478,7 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     };
 }
 
+pub var linux_aux_raw = []usize{0} ** 38;
 pub var posix_environ_raw: []&u8 = undefined;
 
 /// Caller must free result when done.
@@ -1377,50 +1378,6 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) ![]u8 {
         }
         return allocator.shrink(u8, result_buf, ret_val);
     }
-}
-
-pub fn sleep(seconds: usize, nanoseconds: usize) void {
-    switch(builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
-            posixSleep(u63(seconds), u63(nanoseconds));
-        },
-        Os.windows => {
-            const milliseconds = seconds * 1000 + nanoseconds / 1000000;
-            windows.Sleep(windows.DWORD(milliseconds));
-        },
-        else => @compileError("Unsupported OS"),
-    }
-}
-
-const u63 = @IntType(false, 63);
-pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
-    var req = posix.timespec {
-        .tv_sec = seconds,
-        .tv_nsec = nanoseconds,
-    };
-    var rem: posix.timespec = undefined;
-    while (true) {
-        const ret_val = posix.nanosleep(&req, &rem);
-        const err = posix.getErrno(ret_val);
-        if (err == 0) return;
-        switch (err) {
-            posix.EFAULT => unreachable,
-            posix.EINVAL => {
-                // Sometimes Darwin returns EINVAL for no reason.
-                // We treat it as a spurious wakeup.
-                return;
-            },
-            posix.EINTR => {
-                req = rem;
-                continue;
-            },
-            else => return,
-        }
-    }
-}
-
-test "os.sleep" {
-    sleep(0, 1);
 }
 
 pub fn posix_setuid(uid: u32) !void {
