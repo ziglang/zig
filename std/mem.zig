@@ -174,65 +174,90 @@ pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) ![]T {
     return new_buf;
 }
 
+pub const Side = enum { LEFT = 1, RIGHT = 2, BOTH = 3, };
+
 /// Remove values from the beginning and end of a slice.
-pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T, side: Side) []const T {
     var begin: usize = 0;
     var end: usize = slice.len;
-    while (begin < end and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
-    while (end > begin and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+
+    // Replace later with bitwise, Zig seems to require cast for enum bitwise?
+    if (side == Side.LEFT or side == Side.BOTH) {
+        while (begin < end and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
+    }
+
+    if (side == Side.RIGHT or side == Side.BOTH) {
+        while (end > begin and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+    }
+
     return slice[begin..end];
 }
 
 test "mem.trim" {
-    assert(eql(u8, trim(u8, " foo\n ", " \n"), "foo"));
-    assert(eql(u8, trim(u8, "foo", " \n"), "foo"));
+    assert(eql(u8, trim(u8, " foo\n ", " \n", Side.BOTH), "foo"));
+    assert(eql(u8, trim(u8, "foo", " \n", Side.BOTH), "foo"));
+    assert(eql(u8, trim(u8, " foo ", " ", Side.LEFT), "foo "));
 }
 
 /// Linear search for the index of a scalar value inside a slice.
 pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
-    return indexOfScalarPos(T, slice, 0, value);
+    return indexOfScalarPos(T, slice, 0, value, false);
 }
 
-pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
+pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T, highest: bool) ?usize {
     var i: usize = start_index;
+    var out: ?usize = null;
+
     while (i < slice.len) : (i += 1) {
-        if (slice[i] == value)
-            return i;
+        if (slice[i] == value) {
+            out = i;
+            if (!highest) break;
+        }
     }
-    return null;
+
+    return out;
 }
 
 pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
-    return indexOfAnyPos(T, slice, 0, values);
+    return indexOfAnyPos(T, slice, 0, values, false);
 }
 
-pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
+pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T, highest: bool) ?usize {
     var i: usize = start_index;
+    var out: ?usize = null;
+
     while (i < slice.len) : (i += 1) {
         for (values) |value| {
-            if (slice[i] == value)
-                return i;
+            if (slice[i] == value) {
+                out = i;
+                if (!highest) break;
+            }
         }
     }
-    return null;
+
+    return out;
 }
 
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
-    return indexOfPos(T, haystack, 0, needle);
+    return indexOfPos(T, haystack, 0, needle, false);
 }
 
 // TODO boyer-moore algorithm
-pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T, highest: bool) ?usize {
     if (needle.len > haystack.len)
         return null;
 
+    var out : ?usize = null;
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle))
-            return i;
+        if (eql(T, haystack[i .. i + needle.len], needle)) {
+            out = i;
+            if (!highest) break;
+        }
     }
-    return null;
+
+    return out;
 }
 
 test "mem.indexOf" {
@@ -240,6 +265,8 @@ test "mem.indexOf" {
     assert(indexOf(u8, "one two three four", "gour") == null);
     assert(??indexOf(u8, "foo", "foo") == 0);
     assert(indexOf(u8, "foo", "fool") == null);
+    assert(??indexOf(u8, "foo foo", "foo") == 0);
+    assert(??indexOfPos(u8, "foo foo", 0, "foo", true) == 4);
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -321,24 +348,11 @@ pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) void {
     assert(bits == 0);
 }
 
-
-pub fn hash_slice_u8(k: []const u8) u32 {
-    // FNV 32-bit hash
-    var h: u32 = 2166136261;
-    for (k) |b| {
-        h = (h ^ b) *% 16777619;
-    }
-    return h;
-}
-
-pub fn eql_slice_u8(a: []const u8, b: []const u8) bool {
-    return eql(u8, a, b);
-}
-
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the bytes in `split_bytes`.
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
+/// DON'T USE THIS FOR UNICODE OR CODE POINT STRINGS, USE `std.string.utils.Split` instead!
 pub fn split(buffer: []const u8, split_bytes: []const u8) SplitIterator {
     return SplitIterator {
         .index = 0,
@@ -353,10 +367,6 @@ test "mem.split" {
     assert(eql(u8, ??it.next(), "def"));
     assert(eql(u8, ??it.next(), "ghi"));
     assert(it.next() == null);
-}
-
-pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
-    return if (needle.len > haystack.len) false else eql(T, haystack[0 .. needle.len], needle);
 }
 
 pub const SplitIterator = struct {
@@ -397,42 +407,12 @@ pub const SplitIterator = struct {
     }
 };
 
-/// Naively combines a series of strings with a separator.
-/// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: &Allocator, sep: u8, strings: ...) ![]u8 {
-    comptime assert(strings.len >= 1);
-    var total_strings_len: usize = strings.len; // 1 sep per string
-    {
-        comptime var string_i = 0;
-        inline while (string_i < strings.len) : (string_i += 1) {
-            const arg = ([]const u8)(strings[string_i]);
-            total_strings_len += arg.len;
-        }
-    }
-
-    const buf = try allocator.alloc(u8, total_strings_len);
-    errdefer allocator.free(buf);
-
-    var buf_index: usize = 0;
-    comptime var string_i = 0;
-    inline while (true) {
-        const arg = ([]const u8)(strings[string_i]);
-        string_i += 1;
-        copy(u8, buf[buf_index..], arg);
-        buf_index += arg.len;
-        if (string_i >= strings.len) break;
-        if (buf[buf_index - 1] != sep) {
-            buf[buf_index] = sep;
-            buf_index += 1;
-        }
-    }
-
-    return buf[0..buf_index];
+pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
+    return if (needle.len > haystack.len) false else eql(T, haystack[0 .. needle.len], needle);
 }
 
-test "mem.join" {
-    assert(eql(u8, try join(debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
-    assert(eql(u8, try join(debug.global_allocator, ',', "a"), "a"));
+pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
+    return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len - 1..], needle);
 }
 
 test "testStringEquality" {
@@ -445,6 +425,7 @@ test "testReadInt" {
     testReadIntImpl();
     comptime testReadIntImpl();
 }
+
 fn testReadIntImpl() void {
     {
         const bytes = []u8{ 0x12, 0x34, 0x56, 0x78 };

@@ -14,6 +14,7 @@ const Term = os.ChildProcess.Term;
 const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
+const string = std.string;
 
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,
@@ -48,8 +49,8 @@ pub const Builder = struct {
     cache_root: []const u8,
     release_mode: ?builtin.Mode,
 
-    const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
-    const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
+    const UserInputOptionsMap = HashMap([]const u8, UserInputOption, string.hashStr, string.strEql);
+    const AvailableOptionsMap = HashMap([]const u8, AvailableOption, string.hashStr, string.strEql);
 
     const AvailableOption = struct {
         name: []const u8,
@@ -318,11 +319,11 @@ pub const Builder = struct {
 
     fn processNixOSEnvVars(self: &Builder) void {
         if (os.getEnvVarOwned(self.allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
-            var it = mem.split(nix_cflags_compile, " ");
+            var it = string.utf8Split(nix_cflags_compile, " ") catch unreachable;
             while (true) {
-                const word = it.next() ?? break;
+                const word = it.nextBytes() ?? break;
                 if (mem.eql(u8, word, "-isystem")) {
-                    const include_path = it.next() ?? {
+                    const include_path = it.nextBytes() ?? {
                         warn("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n");
                         break;
                     };
@@ -336,11 +337,11 @@ pub const Builder = struct {
             assert(err == error.EnvironmentVariableNotFound);
         }
         if (os.getEnvVarOwned(self.allocator, "NIX_LDFLAGS")) |nix_ldflags| {
-            var it = mem.split(nix_ldflags, " ");
+            var it = string.utf8Split(nix_ldflags, " ") catch unreachable;
             while (true) {
-                const word = it.next() ?? break;
+                const word = it.nextBytes() ?? break;
                 if (mem.eql(u8, word, "-rpath")) {
-                    const rpath = it.next() ?? {
+                    const rpath = it.nextBytes() ?? {
                         warn("Expected argument after -rpath in NIX_LDFLAGS\n");
                         break;
                     };
@@ -690,8 +691,8 @@ pub const Builder = struct {
                 if (os.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = mem.split(PATH, []u8{os.path.delimiter});
-                while (it.next()) |path| {
+                var it = try string.utf8Split(PATH, []u8{os.path.delimiter});
+                while (it.nextBytes()) |path| {
                     const full_path = try os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                     if (os.path.real(self.allocator, full_path)) |real_path| {
                         return real_path;

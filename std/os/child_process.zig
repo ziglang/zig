@@ -12,6 +12,7 @@ const Buffer = std.Buffer;
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const LinkedList = std.LinkedList;
+const string = std.string;
 
 const is_windows = builtin.os == Os.windows;
 
@@ -375,7 +376,6 @@ pub const ChildProcess = struct {
         }
         if (pid_result == 0) {
             // we are the child
-
             setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch
                 |err| forkChildErrReport(err_pipe[1], err);
             setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch
@@ -572,8 +572,8 @@ pub const ChildProcess = struct {
             const PATH = try os.getEnvVarOwned(self.allocator, "PATH");
             defer self.allocator.free(PATH);
 
-            var it = mem.split(PATH, ";");
-            while (it.next()) |search_path| {
+            var it = try string.utf8Split(PATH, ";");
+            while (it.nextBytes()) |search_path| {
                 const joined_path = try os.path.join(self.allocator, search_path, app_name);
                 defer self.allocator.free(joined_path);
 
@@ -622,7 +622,6 @@ pub const ChildProcess = struct {
             StdIo.Ignore => try os.posixDup2(dev_null_fd, std_fileno),
         }
     }
-
 };
 
 fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?&u8,

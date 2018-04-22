@@ -74,7 +74,7 @@ fn readFlagArguments(allocator: &Allocator, args: []const []const u8, required: 
     }
 }
 
-const HashMapFlags = HashMap([]const u8, FlagArg, std.hash.Fnv1a_32.hash, mem.eql_slice_u8);
+const HashMapFlags = HashMap([]const u8, FlagArg, std.hash.Fnv1a_32.hash, std.string.strEql);
 
 // A store for querying found flags and positional arguments.
 pub const Args = struct {

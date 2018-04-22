@@ -2,6 +2,7 @@ const std = @import("index.zig");
 const HashMap = std.HashMap;
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const string = std.string;
 const assert = std.debug.assert;
 
 /// BufMap copies keys and values before they go into the map, and
@@ -9,7 +10,7 @@ const assert = std.debug.assert;
 pub const BufMap = struct {
     hash_map: BufMapHashMap,
 
-    const BufMapHashMap = HashMap([]const u8, []const u8, mem.hash_slice_u8, mem.eql_slice_u8);
+    const BufMapHashMap = HashMap([]const u8, []const u8, string.hashStr, string.strEql);
 
     pub fn init(allocator: &Allocator) BufMap {
         var self = BufMap {

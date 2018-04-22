@@ -5,6 +5,7 @@ const os = std.os;
 const warn = std.debug.warn;
 const mem = std.mem;
 const assert = std.debug.assert;
+const string = std.string;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -309,7 +310,7 @@ const Node = union(enum) {
 const Toc = struct {
     nodes: []Node,
     toc: []u8,
-    urls: std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8),
+    urls: std.HashMap([]const u8, Token, string.hashStr, string.strEql),
 };
 
 const Action = enum {
@@ -318,7 +319,7 @@ const Action = enum {
 };
 
 fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) !Toc {
-    var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
+    var urls = std.HashMap([]const u8, Token, string.hashStr, string.strEql).init(allocator);
     errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
@@ -600,7 +601,7 @@ const TermState = enum {
 test "term color" {
     const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
     const result = try termColor(std.debug.global_allocator, input_bytes);
-    assert(mem.eql(u8, result, "A<span class=\"t32\">green</span>B"));
+    assert(mem.eql(u8, result, "A<span class=\"t32_1\">green</span>B"));
 }
 
 fn termColor(allocator: &mem.Allocator, input: []const u8) ![]u8 {
@@ -718,7 +719,7 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var
                 warn("docgen example code {}/{}...", code_progress_index, tokenizer.code_node_count);
 
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
-                const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
+                const trimmed_raw_source = mem.trim(u8, raw_source, " \n", mem.Side.BOTH);
                 const escaped_source = try escapeHtml(allocator, trimmed_raw_source);
                 if (!code.is_inline) {
                     try out.print("<p class=\"file\">{}.zig</p>", code.name);

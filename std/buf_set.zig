@@ -1,11 +1,13 @@
-const HashMap = @import("hash_map.zig").HashMap;
-const mem = @import("mem.zig");
+const std = @import("index.zig");
+const HashMap = std.HashMap;
+const mem = std.mem;
 const Allocator = mem.Allocator;
+const string = std.string;
 
 pub const BufSet = struct {
     hash_map: BufSetHashMap,
 
-    const BufSetHashMap = HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
+    const BufSetHashMap = HashMap([]const u8, void, string.hashStr, string.strEql);
 
     pub fn init(a: &Allocator) BufSet {
         var self = BufSet {
