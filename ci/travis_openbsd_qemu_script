@@ -22,6 +22,8 @@ qemu-system-x86_64 -nographic \
 
 qemupid=$!
 
+# travis or git was not respecting this, but ssh requires it.
+chmod 600 ./ci/openbsd/insecure_ed25519
 vmssh="ssh -o StrictHostKeyChecking=no -i ./ci/openbsd/insecure_ed25519 -p 5555 root@127.0.0.1"
 
 errcount=0
