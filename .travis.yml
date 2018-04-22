@@ -1,18 +1,22 @@
 sudo: required
 services:
-  - docker
+- docker
 os:
-  - linux
-  - osx
+- linux
+- osx
 dist: trusty
 osx_image: xcode8.3
 language: cpp
 before_install:
-  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_before_install; fi
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ci/travis_osx_before_install; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_before_install; fi
+- if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ci/travis_osx_before_install; fi
 install:
-  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_install; fi
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ci/travis_osx_install; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_install; fi
+- if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ci/travis_osx_install; fi
 script:
-  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_script; fi
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ci/travis_osx_script; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ci/travis_linux_script; fi
+- if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ci/travis_osx_script; fi
+env:
+  global:
+  - secure: QmJ+eLOxj3Irl5SHxt6lQvrj7++1AIz8bYri6RScAQGHQPIztkmbpBjAkpFgYaWPkZ04ROtamFXdS7oHtJHSECesgPoqM/CHIychQkgpDq30+TsFyYbBpDGHY+N6r2WnQTvg+9EuAp6P365us6qFS0D5zQ3P40c56uMbazFu3J4W1HZP+pLWlLjEXaN88ePhHWqNZyvwGMkLpYl3ghcrE9H4vGZQ7jenRW4UmskLEkuhUPJbQiow3Td8arJiRmLVISzWqneqNraLUpGyUVr4F3Rbjzacfoo3r9ZZynhY0mFsEye82x6TMGgH2xsNGkd91zpQuckWUT+pQv/G6FXpnEnjIJSO2Z5WAxXrx6xB1k2HZ17/4NWLF3fJVhdQJm3mS6odeGzUjgGrl1A42evxU+7VbcofEJq1aMiLgU1jUT2pt+pefCwmKJYLpEsSzuyrVxgvskQz0QpC053TAYSNf2Jj6Qhg9YDWyOeemYmDgffTqErF7AYhc6NKH0s0XKkIiNFSxorkEsfG/Ck1o+15slHNmWZXlmXToxDqFkLDoPvfGKg7koU5YTGvci/F9ZKb1juhGLxZbwap/18zN40BqA+Ip2yDBJAKxsIiwSjSIguy6g/Z1I50s0xNGOr36urfRRQX5H+rqr/xCZ63B6WSe6qBcZboWAQMDn8HLS9Xiwc=
+  - secure: dnb7r5guUeMOX9e7XlPUSZzmga8VW3G9Q1aa7LxEKiTjSnWhu5KpPDe8o1X3Rj6nc5iXDqmBH/C/7eNXPDyXJJWPvpE2YRpGymyUkRaakul0QBKJEaMvwy2SuAfS69CWC+TSzfGRvtSYkdpBhhLvs0h5S819S5jYbCNSCmOKfFucaP5NsHNIZ/I19oIeTPTa0/UnVm7DLFZXZjvbS+czkdyH1DhbT85sLj+XqNTzLePImE68efrjaHnlSy/CzBVJzj55UgD5i9fxNCQWzGWim/SD5xZ0zKtLycSOf6wQN2lCo0lkjw9rDlYz69mM5L9ikfYL9oHDPZnh84oXKglQ5miOHCgqs/qs4439I05lIu8i/EfbFA55YG4NyO3rL9YVOOt5gwiwvJYhDcnkVVzSl0o5bsoZgQfYvPWaIQKNkl3C53zfDQjgqS54CeDzlZpFrQTDQ1RrH8oeVC1gfYAeMabMDadox5rfZmLIN5JTf/F8iD/QdxGcoUvkEENcQgfP9PnubExtexgHGsEmqbm6ORSZ1MkEh2m3fo0f8KE6TbN1UigmcQ8nTkWBHsSmfHnB8HwJQp8mwQmDamXA+Hl3e3w4LOdYkJVlNW1/TTyJJOOvjMQCjF8SJmPHuh+QpqKbSaT9XM/vBhxbIZEufH8kawJKCBBcCNspGMNjhXfNjM0=
