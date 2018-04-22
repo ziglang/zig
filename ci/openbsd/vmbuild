@@ -1,0 +1,11 @@
+#! /bin/sh
+
+set -x
+set -e
+set -u
+
+mkdir build
+cd build
+cmake ..
+gmake
+gmake install

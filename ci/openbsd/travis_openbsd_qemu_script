@@ -1,0 +1,55 @@
+#! /bin/sh
+
+set -x
+set -e
+set -u
+
+tmp=`mktemp -d`
+
+cleanup() {
+	rm -rf $tmp
+	pkill -P $$
+}
+
+trap cleanup EXIT INT
+
+#curl -L https://storage.googleapis.com/acha-ninja_0u74abej/openbsd.qcow2.bz2 | bzcat > $tmp/openbsd.qcow2
+
+cp ~/Downloads/openbsd.qcow2 $tmp/openbsd.qcow2
+
+qemu-system-x86_64 -nographic \
+  -drive if=virtio,file=$tmp/openbsd.qcow2 \
+  -net nic,model=virtio -net user -boot once=d -smp 1 -m 2048 \
+  -redir tcp:5555::22 > /dev/null &
+
+qemupid=$!
+
+vmssh="ssh -o StrictHostKeyChecking=no -i ./ci/openbsd/insecure_ed25519 -p 5555 root@127.0.0.1"
+
+errcount=0
+while true
+do
+	sleep 10s
+
+	if timeout 5s $vmssh true
+	then
+		break
+	fi
+
+	errcount=$(($errcount + 1))
+
+	if test $errcount -eq 10
+	then
+		echo "giving up, ssh never came up"
+		exit 1
+	fi
+done
+
+
+$vmssh rm -rf zig
+$vmssh mkdir zig
+tar cf - . | $vmssh tar xf - -C zig
+$vmssh '(cd zig && ./ci/openbsd/vmbuild)'
+
+set +e
+$vmssh halt -p
