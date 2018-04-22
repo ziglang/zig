@@ -544,6 +544,7 @@ set(ZIG_STD_FILES
     "special/panic.zig"
     "special/test_runner.zig"
     "unicode.zig"
+    "functional.zig"
     "zig/ast.zig"
     "zig/index.zig"
     "zig/parser.zig"
