@@ -11,6 +11,8 @@ pub const Allocator = struct {
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
     /// The returned newly allocated memory is undefined.
+    /// `alignment` is guaranteed to be >= 1
+    /// `alignment` is guaranteed to be a power of 2
     allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) Error![]u8,
 
     /// If `new_byte_count > old_mem.len`:
@@ -22,6 +24,8 @@ pub const Allocator = struct {
     /// * alignment <= alignment of old_mem.ptr
     ///
     /// The returned newly allocated memory is undefined.
+    /// `alignment` is guaranteed to be >= 1
+    /// `alignment` is guaranteed to be a power of 2
     reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
