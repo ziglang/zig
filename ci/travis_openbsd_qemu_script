@@ -62,8 +62,8 @@ rc=$?
 set -e
 # Sleep in case the compilation doesn't terminate as soon as ssh disconnects.
 # I have no idea if taring the ccache dir while it is still running
-# is a problem, just avoid that with a sleep, has ended.
-sleep 2
+# is a problem, just avoid that with a sleep so it can stop.
+sleep 5
 rm -rf ~/openbsd_amd64_ccache/*
 $vmssh tar cf - -C .ccache . | tar xf - -C ~/openbsd_amd64_ccache/
 
