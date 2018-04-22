@@ -10,6 +10,9 @@ matrix:
   include:
   - os: linux
     env: QEMU_OS=openbsd
+cache:
+  directories:
+  - $HOME/openbsd_amd64_ccache
 dist: trusty
 osx_image: xcode8.3
 language: cpp

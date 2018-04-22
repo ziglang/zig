@@ -86,10 +86,10 @@ send "root\n"
 expect timeout { exit 1 } "# "
 send "echo '$mirror/pub/OpenBSD/' > /etc/installurl\n"
 expect timeout { exit 1 } "# "
-send "pkg_add rsync-- gmake cmake libxml llvm\n"
+send "pkg_add gmake ccache cmake libxml llvm\n"
 expect timeout { exit 1 } "zig# "
 send "halt -p\n"
 expect timeout { exit 1 } "The operating system has halted"
 EOF
 
-mv $tmp/openbsd.qcow2 ./
+cat $tmp/openbsd.qcow2 | bzip2 -9 > ./openbsd.qcow2.bz2

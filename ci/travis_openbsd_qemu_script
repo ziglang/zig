@@ -7,6 +7,7 @@ set -u
 tmp=`mktemp -d`
 
 cleanup() {
+  set +e
   rm -rf $tmp
   pkill -P $$
 }
@@ -45,11 +46,20 @@ do
   fi
 done
 
-
+mkdir -p ~/openbsd_amd64_ccache/
 $vmssh rm -rf zig
+$vmssh rm -rf .ccache
+$vmssh mkdir .ccache
 $vmssh mkdir zig
+tar cf - -C ~/openbsd_amd64_ccache/ . | $vmssh tar xf - -C .ccache
 tar cf - . | $vmssh tar xf - -C zig
-$vmssh '(cd zig && ./ci/openbsd/vmbuild)'
 
 set +e
-$vmssh halt -p
+$vmssh '(cd zig && ./ci/openbsd/vmbuild)'
+rc=$?
+set -e
+
+rm -rf ~/openbsd_amd64_ccache/*
+$vmssh tar cf - -C .ccache . | tar xf - -C ~/openbsd_amd64_ccache/
+
+exit $rc
