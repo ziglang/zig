@@ -6,5 +6,6 @@ set -u
 
 mkdir build
 cd build
+cmake ..
 gmake VERBOSE=1
 gmake install
