@@ -55,7 +55,9 @@ tar cf - -C ~/openbsd_amd64_ccache/ . | $vmssh tar xf - -C .ccache
 tar cf - . | $vmssh tar xf - -C zig
 
 set +e
-$vmssh '(cd zig && ./ci/openbsd/vmbuild)'
+# timeout before travis does, this gives ccache
+# a chance to speed everything up.
+timeout $((60*30))s $vmssh '(cd zig && ./ci/openbsd/vmbuild)'
 rc=$?
 set -e
 
