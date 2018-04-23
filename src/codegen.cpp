@@ -6638,12 +6638,14 @@ static void gen_root_source(CodeGen *g) {
     Buf *abs_full_path = buf_alloc();
     int err;
     if ((err = os_path_real(rel_full_path, abs_full_path))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        exit(1);
     }
 
     Buf *source_code = buf_alloc();
     if ((err = os_fetch_file_path(rel_full_path, source_code, true))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        exit(1);
     }
 
     g->root_import = add_source_file(g, g->root_package, abs_full_path, source_code);

@@ -4306,7 +4306,8 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
     if (g->win_sdk == nullptr) {
         if (os_find_windows_sdk(&g->win_sdk)) {
-            zig_panic("Unable to determine Windows SDK path.");
+            fprintf(stderr, "unable to determine windows sdk path\n");
+            exit(1);
         }
     }
     assert(g->win_sdk != nullptr);
@@ -4408,7 +4409,8 @@ void find_libc_include_path(CodeGen *g) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
             g->libc_include_dir = buf_alloc();
             if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
-                zig_panic("Unable to determine libc include path.");
+                fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
+                exit(1);
             }
         } else if (g->zig_target.os == OsLinux) {
             g->libc_include_dir = get_linux_libc_include_path();

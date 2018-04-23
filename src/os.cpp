@@ -1334,9 +1334,6 @@ com_done:;
 
 int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
 #if defined(ZIG_OS_WINDOWS)
-    if (buf_len(&sdk->path10) == 0 || buf_len(&sdk->version10) == 0) {
-        return ErrorFileNotFound;
-    }
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
     switch (platform_type) {
