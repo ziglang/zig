@@ -966,6 +966,12 @@ static void ir_print_offset_of(IrPrint *irp, IrInstructionOffsetOf *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_type_info(IrPrint *irp, IrInstructionTypeInfo *instruction) {
+    fprintf(irp->f, "@typeInfo(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_type_id(IrPrint *irp, IrInstructionTypeId *instruction) {
     fprintf(irp->f, "@typeId(");
     ir_print_other_instruction(irp, instruction->type_value);
@@ -1535,6 +1541,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdOffsetOf:
             ir_print_offset_of(irp, (IrInstructionOffsetOf *)instruction);
+            break;
+        case IrInstructionIdTypeInfo:
+            ir_print_type_info(irp, (IrInstructionTypeInfo *)instruction);
             break;
         case IrInstructionIdTypeId:
             ir_print_type_id(irp, (IrInstructionTypeId *)instruction);

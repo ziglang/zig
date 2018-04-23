@@ -615,6 +615,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionOffsetOf *) {
     return IrInstructionIdOffsetOf;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeInfo *) {
+    return IrInstructionIdTypeInfo;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeId *) {
     return IrInstructionIdTypeId;
 }
@@ -2440,6 +2444,16 @@ static IrInstruction *ir_build_offset_of(IrBuilder *irb, Scope *scope, AstNode *
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_type_info(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *type_value) {
+    IrInstructionTypeInfo *instruction = ir_build_instruction<IrInstructionTypeInfo>(irb, scope, source_node);
+    instruction->type_value = type_value;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+
+    return &instruction->base;    
+}
+
 static IrInstruction *ir_build_type_id(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *type_value)
 {
@@ -4079,6 +4093,16 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return ptr_instruction;
 
                 return ir_build_load_ptr(irb, scope, node, ptr_instruction);
+            }
+        case BuiltinFnIdTypeInfo:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                IrInstruction *type_info = ir_build_type_info(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, type_info, lval);
             }
         case BuiltinFnIdBreakpoint:
             return ir_lval_wrap(irb, scope, ir_build_breakpoint(irb, scope, node), lval);
@@ -15669,6 +15693,26 @@ static TypeTableEntry *ir_analyze_instruction_offset_of(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_num_lit_int;
 }
 
+static TypeTableEntry *ir_analyze_instruction_type_info(IrAnalyze *ira,
+        IrInstructionTypeInfo *instruction)
+{
+    IrInstruction *type_value = instruction->type_value->other;
+    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
+    if (type_is_invalid(type_entry))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *var_value = get_builtin_value(ira->codegen, "TypeInfo");
+    assert(var_value->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *result_type = var_value->data.x_type;
+
+    // TODO: Check if we need to explicitely make a &const TypeInfo here, I think we don't.
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->data.x_struct.fields = create_const_vals(1);
+    // TODO: Fill the struct
+    zig_panic("Building TypeInfo...");
+    return result_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_type_id(IrAnalyze *ira,
         IrInstructionTypeId *instruction)
 {
@@ -18555,6 +18599,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_field_parent_ptr(ira, (IrInstructionFieldParentPtr *)instruction);
         case IrInstructionIdOffsetOf:
             return ir_analyze_instruction_offset_of(ira, (IrInstructionOffsetOf *)instruction);
+        case IrInstructionIdTypeInfo:
+            return ir_analyze_instruction_type_info(ira, (IrInstructionTypeInfo *) instruction);
         case IrInstructionIdTypeId:
             return ir_analyze_instruction_type_id(ira, (IrInstructionTypeId *)instruction);
         case IrInstructionIdSetEvalBranchQuota:
@@ -18821,6 +18867,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTagName:
         case IrInstructionIdFieldParentPtr:
         case IrInstructionIdOffsetOf:
+        case IrInstructionIdTypeInfo:
         case IrInstructionIdTypeId:
         case IrInstructionIdAlignCast:
         case IrInstructionIdOpaqueType:

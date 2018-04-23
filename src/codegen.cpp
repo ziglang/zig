@@ -4502,6 +4502,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdOffsetOf:
+        case IrInstructionIdTypeInfo:
         case IrInstructionIdTypeId:
         case IrInstructionIdSetEvalBranchQuota:
         case IrInstructionIdPtrTypeOf:
@@ -6125,6 +6126,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
     create_builtin_fn(g, BuiltinFnIdField, "field", 2);
+    create_builtin_fn(g, BuiltinFnIdTypeInfo, "typeInfo", 1);
     create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
@@ -6343,6 +6345,157 @@ static void define_builtin_compile_vars(CodeGen *g) {
             buf_appendf(contents, "    %s,\n", type_id_name(id));
         }
         buf_appendf(contents, "};\n\n");
+    }
+    {
+        buf_appendf(contents,
+            "pub const IntInfo = struct {\n"
+            "    is_signed: bool,\n"
+            "    bits: u8,\n"
+            "};\n"
+            "\n"
+            "pub const FloatInfo = struct {\n"
+            "    bits: u8,\n"
+            "};\n"
+            "\n"
+            "pub const PointerInfo = struct {\n"
+            "    is_const: bool,\n"
+            "    is_volatile: bool,\n"
+            "    alignment: u32,\n"
+            "    child: &TypeInfo,\n"
+            "};\n"
+            "\n"
+            "pub const ArrayInfo = struct {\n"
+            "    len: u64,\n"
+            "    child: &TypeInfo,\n"
+            "};\n"
+            "\n"
+            "pub const ContainerLayout = enum {\n"
+            "    Auto,\n"
+            "    Extern,\n"
+            "    Packed,\n"
+            "};\n"
+            "\n"
+            "pub const StructFieldInfo = struct {\n"
+            "    name: []const u8,\n"
+            "    offset: usize,\n"
+            "    type_info: TypeInfo,\n"
+            "};\n"
+            "\n"
+            "pub const StructInfo = struct {\n"
+            "    layout: ContainerLayout,\n"
+            "    fields: []StructFieldInfo,\n"
+            "};\n"
+            "\n"
+            "pub const NullableInfo = struct {\n"
+            "    child: &TypeInfo,\n"
+            "};\n"
+            "\n"
+            "pub const ErrorUnionInfo = struct {\n"
+            "    error_set: ErrorSetInfo,\n"
+            "    payload: &TypeInfo,\n"
+            "};\n"
+            "\n"
+            "pub const ErrorInfo = struct {\n"
+            "    name: []const u8,\n"
+            "    value: usize,\n"
+            "};\n"
+            "\n"
+            "pub const ErrorSetInfo = struct {\n"
+            "    errors: []ErrorInfo,\n"
+            "};\n"
+            "\n"
+            "pub const EnumFieldInfo = struct {\n"
+            "    name: []const u8,\n"
+            "    value: usize,\n"
+            "};\n"
+            "\n"
+            "pub const EnumInfo = struct {\n"
+            "    layout: ContainerLayout,\n"
+            "    tag_type: IntInfo,\n"
+            "    fields: []EnumFieldInfo,\n"
+            "};\n"
+            "\n"
+            "pub const UnionFieldInfo = struct {\n"
+            "    name: []const u8,\n"
+            "    enum_field: EnumFieldInfo,\n"
+            "    type_info: TypeInfo,\n"
+            "};\n"
+            "\n"
+            "pub const UnionInfo = struct {\n"
+            "    layout: ContainerLayout,\n"
+            "    tag_type: ?EnumInfo,\n"
+            "    fields: []UnionFieldInfo,\n"
+            "};\n"
+            "\n"
+            "pub const CallingConvention = enum {\n"
+            "    Unspecified,\n"
+            "    C,\n"
+            "    Cold,\n"
+            "    Naked,\n"
+            "    Stdcall,\n"
+            "    Async,\n"
+            "};\n"
+            "\n"
+            "pub const FnArgInfo = struct {\n"
+            "    is_comptime: bool,\n"
+            "    name: []const u8,\n"
+            "    type_info: TypeInfo,\n"
+            "};\n"
+            "\n"
+            "pub const FnInfo = struct {\n"
+            "    calling_convention: CallingConvention,\n"
+            "    is_generic: bool,\n"
+            "    is_varargs: bool,\n"
+            "    return_type: &TypeInfo,\n"
+            "    args: []FnArgInfo,\n"
+            "};\n"
+            "\n"
+            "pub const BoundFnInfo = struct {\n"
+            "    bound_type: &TypeInfo,\n"
+            "    fn_info: FnInfo,\n"
+            "};\n"
+            "\n"
+            "pub const PromiseInfo = struct {\n"
+            "    child: ?&TypeInfo,\n"
+            "};\n"
+            "\n"
+            "pub const TypeInfo = union(TypeId) {\n"
+            "    Type: void,\n"
+            "    Void: void,\n"
+            "    Bool: void,\n"
+            "    NoReturn: void,\n"
+            "    Int: IntInfo,\n"
+            "    Float: FloatInfo,\n"
+            "    Pointer: PointerInfo,\n"
+            "    Array: ArrayInfo,\n"
+            "    Struct: StructInfo,\n"
+            "    FloatLiteral: void,\n"
+            "    IntLiteral: void,\n"
+            "    UndefinedLiteral: void,\n"
+            "    NullLiteral: void,\n"
+            "    Nullable: NullableInfo,\n"
+            "    ErrorUnion: ErrorUnionInfo,\n"
+            "    ErrorSet: ErrorSetInfo,\n"
+            "    Enum: EnumInfo,\n"
+            "    Union: UnionInfo,\n"
+            "    Fn: FnInfo,\n"
+            "    Namespace: void,\n"
+            "    Block: void,\n"
+            "    BoundFn: BoundFnInfo,\n"
+            "    ArgTuple: void,\n"
+            "    Opaque: void,\n"
+            "    Promise: PromiseInfo,\n"
+            "};\n\n");
+        assert(ContainerLayoutAuto == 0);
+        assert(ContainerLayoutExtern == 1);
+        assert(ContainerLayoutPacked == 2);
+    
+        assert(CallingConventionUnspecified == 0);
+        assert(CallingConventionC == 1);
+        assert(CallingConventionCold == 2);
+        assert(CallingConventionNaked == 3);
+        assert(CallingConventionStdcall == 4);
+        assert(CallingConventionAsync == 5);
     }
     {
         buf_appendf(contents,
