@@ -4433,7 +4433,8 @@ void find_libc_lib_path(CodeGen *g) {
             if (g->msvc_lib_dir == nullptr) {
                 Buf* vc_lib_dir = buf_alloc();
                 if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
-                    zig_panic("Unable to determine vcruntime path.");
+                    fprintf(stderr, "Unable to determine vcruntime path. --msvc-lib-dir");
+                    exit(1);
                 }
                 g->msvc_lib_dir = vc_lib_dir;
             }
@@ -4441,7 +4442,8 @@ void find_libc_lib_path(CodeGen *g) {
             if (g->libc_lib_dir == nullptr) {
                 Buf* ucrt_lib_path = buf_alloc();
                 if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
-                    zig_panic("Unable to determine ucrt path.");
+                    fprintf(stderr, "Unable to determine ucrt path. --libc-lib-dir");
+                    exit(1);
                 }
                 g->libc_lib_dir = ucrt_lib_path;
             }
@@ -4449,7 +4451,8 @@ void find_libc_lib_path(CodeGen *g) {
             if (g->kernel32_lib_dir == nullptr) {
                 Buf* kern_lib_path = buf_alloc();
                 if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
-                    zig_panic("Unable to determine kernel32 path.");
+                    fprintf(stderr, "Unable to determine kernel32 path. --kernel32-lib-dir");
+                    exit(1);
                 }
                 g->kernel32_lib_dir = kern_lib_path;
             }
