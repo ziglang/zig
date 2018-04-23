@@ -14782,7 +14782,10 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         return out_val->type;
     }
 
-    assert(target_value_ptr->value.type->id == TypeTableEntryIdPointer);
+    if (target_value_ptr->value.type->id != TypeTableEntryIdPointer) {
+        ir_add_error(ira, target_value_ptr, buf_sprintf("invalid deref on switch target"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
     TypeTableEntry *target_type = target_value_ptr->value.type->data.pointer.child_type;
     ConstExprValue *pointee_val = nullptr;
