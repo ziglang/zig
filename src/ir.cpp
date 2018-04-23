@@ -3147,6 +3147,9 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         if (block_node->data.block.name == nullptr || incoming_blocks.length == 0) {
             return noreturn_return_value;
         }
+
+        ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
+        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
     } else {
         incoming_blocks.append(irb->current_basic_block);
         incoming_values.append(ir_mark_gen(ir_build_const_void(irb, parent_scope, block_node)));
