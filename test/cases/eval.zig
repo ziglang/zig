@@ -513,3 +513,19 @@ test "array concat of slices gives slice" {
         assert(std.mem.eql(u8, c, "aoeuasdf"));
     }
 }
+
+test "comptime shlWithOverflow" {
+    const ct_shifted: u64 = comptime amt: {
+        var amt = u64(0);
+        _ = @shlWithOverflow(u64, ~u64(0), 16, &amt);
+        break :amt amt;
+    };
+
+    const rt_shifted: u64 = amt: {
+        var amt = u64(0);
+        _ = @shlWithOverflow(u64, ~u64(0), 16, &amt);
+        break :amt amt;
+    };
+
+    assert(ct_shifted == rt_shifted);
+}
