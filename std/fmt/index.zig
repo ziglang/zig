@@ -779,212 +779,210 @@ test "fmt.format" {
         const result = try bufPrint(buf1[0..], "pointer: {}\n", &value);
         assert(mem.startsWith(u8, result, "pointer: Struct@"));
     }
-
-    // TODO get these tests passing in release modes
-    // https://github.com/zig-lang/zig/issues/564
-    if (builtin.mode == builtin.Mode.Debug) {
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f32 = 1.34;
-            const result = try bufPrint(buf1[0..], "f32: {e}\n", value);
-            assert(mem.eql(u8, result, "f32: 1.34000003e+00\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f32 = 12.34;
-            const result = try bufPrint(buf1[0..], "f32: {e}\n", value);
-            assert(mem.eql(u8, result, "f32: 1.23400001e+01\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = -12.34e10;
-            const result = try bufPrint(buf1[0..], "f64: {e}\n", value);
-            assert(mem.eql(u8, result, "f64: -1.234e+11\n"));
-        }
-        {
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f32 = 1.34;
+        const result = try bufPrint(buf1[0..], "f32: {e}\n", value);
+        assert(mem.eql(u8, result, "f32: 1.34000003e+00\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f32 = 12.34;
+        const result = try bufPrint(buf1[0..], "f32: {e}\n", value);
+        assert(mem.eql(u8, result, "f32: 1.23400001e+01\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = -12.34e10;
+        const result = try bufPrint(buf1[0..], "f64: {e}\n", value);
+        assert(mem.eql(u8, result, "f64: -1.234e+11\n"));
+    }
+    {
+        // This fails on release due to a minor rounding difference.
+        // --release-fast outputs 9.999960000000001e-40 vs. the expected.
+        if (builtin.mode == builtin.Mode.Debug) {
             var buf1: [32]u8 = undefined;
             const value: f64 = 9.999960e-40;
             const result = try bufPrint(buf1[0..], "f64: {e}\n", value);
             assert(mem.eql(u8, result, "f64: 9.99996e-40\n"));
         }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 1.409706e-42;
-            const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
-            assert(mem.eql(u8, result, "f64: 1.40971e-42\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = @bitCast(f32, u32(814313563));
-            const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
-            assert(mem.eql(u8, result, "f64: 1.00000e-09\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = @bitCast(f32, u32(1006632960));
-            const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
-            assert(mem.eql(u8, result, "f64: 7.81250e-03\n"));
-        }
-        {
-            // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
-            // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
-            var buf1: [32]u8 = undefined;
-            const value: f64 = @bitCast(f32, u32(1203982400));
-            const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
-            assert(mem.eql(u8, result, "f64: 1.00001e+05\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const result = try bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
-            assert(mem.eql(u8, result, "f64: nan\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const result = try bufPrint(buf1[0..], "f64: {}\n", -math.nan_f64);
-            assert(mem.eql(u8, result, "f64: -nan\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const result = try bufPrint(buf1[0..], "f64: {}\n", math.inf_f64);
-            assert(mem.eql(u8, result, "f64: inf\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const result = try bufPrint(buf1[0..], "f64: {}\n", -math.inf_f64);
-            assert(mem.eql(u8, result, "f64: -inf\n"));
-        }
-        {
-            var buf1: [64]u8 = undefined;
-            const value: f64 = 1.52314e+29;
-            const result = try bufPrint(buf1[0..], "f64: {.}\n", value);
-            assert(mem.eql(u8, result, "f64: 152314000000000000000000000000\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f32 = 1.1234;
-            const result = try bufPrint(buf1[0..], "f32: {.1}\n", value);
-            assert(mem.eql(u8, result, "f32: 1.1\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f32 = 1234.567;
-            const result = try bufPrint(buf1[0..], "f32: {.2}\n", value);
-            assert(mem.eql(u8, result, "f32: 1234.57\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f32 = -11.1234;
-            const result = try bufPrint(buf1[0..], "f32: {.4}\n", value);
-            // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
-            // -11.12339... is rounded back up to -11.1234
-            assert(mem.eql(u8, result, "f32: -11.1234\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f32 = 91.12345;
-            const result = try bufPrint(buf1[0..], "f32: {.5}\n", value);
-            assert(mem.eql(u8, result, "f32: 91.12345\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 91.12345678901235;
-            const result = try bufPrint(buf1[0..], "f64: {.10}\n", value);
-            assert(mem.eql(u8, result, "f64: 91.1234567890\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 0.0;
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 0.00000\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 5.700;
-            const result = try bufPrint(buf1[0..], "f64: {.0}\n", value);
-            assert(mem.eql(u8, result, "f64: 6\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 9.999;
-            const result = try bufPrint(buf1[0..], "f64: {.1}\n", value);
-            assert(mem.eql(u8, result, "f64: 10.0\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 1.0;
-            const result = try bufPrint(buf1[0..], "f64: {.3}\n", value);
-            assert(mem.eql(u8, result, "f64: 1.000\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 0.0003;
-            const result = try bufPrint(buf1[0..], "f64: {.8}\n", value);
-            assert(mem.eql(u8, result, "f64: 0.00030000\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 1.40130e-45;
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 0.00000\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = 9.999960e-40;
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 0.00000\n"));
-        }
-        // libc checks
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = f64(@bitCast(f32, u32(916964781)));
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 0.00001\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = f64(@bitCast(f32, u32(925353389)));
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 0.00001\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = f64(@bitCast(f32, u32(1036831278)));
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 0.10000\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = f64(@bitCast(f32, u32(1065353133)));
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 1.00000\n"));
-        }
-        {
-            var buf1: [32]u8 = undefined;
-            const value: f64 = f64(@bitCast(f32, u32(1092616192)));
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 10.00000\n"));
-        }
-        // libc differences
-        {
-            var buf1: [32]u8 = undefined;
-            // This is 0.015625 exactly according to gdb. We thus round down,
-            // however glibc rounds up for some reason. This occurs for all
-            // floats of the form x.yyyy25 on a precision point.
-            const value: f64 = f64(@bitCast(f32, u32(1015021568)));
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 0.01563\n"));
-        }
-
-        // std-windows-x86_64-Debug-bare test case fails
-        {
-            // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
-            // also rounds to 630 so I'm inclined to believe libc is not
-            // optimal here.
-            var buf1: [32]u8 = undefined;
-            const value: f64 = f64(@bitCast(f32, u32(1518338049)));
-            const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-            assert(mem.eql(u8, result, "f64: 18014400656965630.00000\n"));
-        }
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 1.409706e-42;
+        const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
+        assert(mem.eql(u8, result, "f64: 1.40971e-42\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = @bitCast(f32, u32(814313563));
+        const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
+        assert(mem.eql(u8, result, "f64: 1.00000e-09\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = @bitCast(f32, u32(1006632960));
+        const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
+        assert(mem.eql(u8, result, "f64: 7.81250e-03\n"));
+    }
+    {
+        // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
+        // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
+        var buf1: [32]u8 = undefined;
+        const value: f64 = @bitCast(f32, u32(1203982400));
+        const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
+        assert(mem.eql(u8, result, "f64: 1.00001e+05\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const result = try bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
+        assert(mem.eql(u8, result, "f64: nan\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const result = try bufPrint(buf1[0..], "f64: {}\n", -math.nan_f64);
+        assert(mem.eql(u8, result, "f64: -nan\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const result = try bufPrint(buf1[0..], "f64: {}\n", math.inf_f64);
+        assert(mem.eql(u8, result, "f64: inf\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const result = try bufPrint(buf1[0..], "f64: {}\n", -math.inf_f64);
+        assert(mem.eql(u8, result, "f64: -inf\n"));
+    }
+    {
+        var buf1: [64]u8 = undefined;
+        const value: f64 = 1.52314e+29;
+        const result = try bufPrint(buf1[0..], "f64: {.}\n", value);
+        assert(mem.eql(u8, result, "f64: 152314000000000000000000000000\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f32 = 1.1234;
+        const result = try bufPrint(buf1[0..], "f32: {.1}\n", value);
+        assert(mem.eql(u8, result, "f32: 1.1\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f32 = 1234.567;
+        const result = try bufPrint(buf1[0..], "f32: {.2}\n", value);
+        assert(mem.eql(u8, result, "f32: 1234.57\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f32 = -11.1234;
+        const result = try bufPrint(buf1[0..], "f32: {.4}\n", value);
+        // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
+        // -11.12339... is rounded back up to -11.1234
+        assert(mem.eql(u8, result, "f32: -11.1234\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f32 = 91.12345;
+        const result = try bufPrint(buf1[0..], "f32: {.5}\n", value);
+        assert(mem.eql(u8, result, "f32: 91.12345\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 91.12345678901235;
+        const result = try bufPrint(buf1[0..], "f64: {.10}\n", value);
+        assert(mem.eql(u8, result, "f64: 91.1234567890\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 0.0;
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 0.00000\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 5.700;
+        const result = try bufPrint(buf1[0..], "f64: {.0}\n", value);
+        assert(mem.eql(u8, result, "f64: 6\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 9.999;
+        const result = try bufPrint(buf1[0..], "f64: {.1}\n", value);
+        assert(mem.eql(u8, result, "f64: 10.0\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 1.0;
+        const result = try bufPrint(buf1[0..], "f64: {.3}\n", value);
+        assert(mem.eql(u8, result, "f64: 1.000\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 0.0003;
+        const result = try bufPrint(buf1[0..], "f64: {.8}\n", value);
+        assert(mem.eql(u8, result, "f64: 0.00030000\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 1.40130e-45;
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 0.00000\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = 9.999960e-40;
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 0.00000\n"));
+    }
+    // libc checks
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = f64(@bitCast(f32, u32(916964781)));
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 0.00001\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = f64(@bitCast(f32, u32(925353389)));
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 0.00001\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = f64(@bitCast(f32, u32(1036831278)));
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 0.10000\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = f64(@bitCast(f32, u32(1065353133)));
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 1.00000\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: f64 = f64(@bitCast(f32, u32(1092616192)));
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 10.00000\n"));
+    }
+    // libc differences
+    {
+        var buf1: [32]u8 = undefined;
+        // This is 0.015625 exactly according to gdb. We thus round down,
+        // however glibc rounds up for some reason. This occurs for all
+        // floats of the form x.yyyy25 on a precision point.
+        const value: f64 = f64(@bitCast(f32, u32(1015021568)));
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 0.01563\n"));
+    }
+    // std-windows-x86_64-Debug-bare test case fails
+    {
+        // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
+        // also rounds to 630 so I'm inclined to believe libc is not
+        // optimal here.
+        var buf1: [32]u8 = undefined;
+        const value: f64 = f64(@bitCast(f32, u32(1518338049)));
+        const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
+        assert(mem.eql(u8, result, "f64: 18014400656965630.00000\n"));
     }
 }
 
