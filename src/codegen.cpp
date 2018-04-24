@@ -6347,6 +6347,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
         buf_appendf(contents, "};\n\n");
     }
     {
+        // TODO: Add method info where methods are supported.
         buf_appendf(contents,
             "pub const IntInfo = struct {\n"
             "    is_signed: bool,\n"
