@@ -15772,7 +15772,10 @@ static TypeTableEntry *ir_analyze_instruction_type_info(IrAnalyze *ira,
                 out_val->data.x_union.payload = payload;
 
                 payload->special = ConstValSpecialStatic;
-                payload->type = get_builtin_value(ira->codegen, "IntInfo")->type;
+
+                ConstExprValue *int_info_type = get_builtin_value(ira->codegen, "IntInfo");
+                assert(int_info_type->type->id == TypeTableEntryIdMetaType);
+                payload->type = int_info_type->data.x_type;
 
                 ConstExprValue *fields = create_const_vals(2);
                 payload->data.x_struct.fields = fields;
