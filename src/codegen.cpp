@@ -6366,7 +6366,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "};\n"
             "\n"
             "pub const ArrayInfo = struct {\n"
-            "    len: u64,\n"
+            "    len: usize,\n"
             "    child: &TypeInfo,\n"
             "};\n"
             "\n"
