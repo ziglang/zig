@@ -1,6 +1,7 @@
 const std = @import("../../index.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
+const vdso = @import("vdso.zig");
 pub use switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("x86_64.zig"),
     builtin.Arch.i386 => @import("i386.zig"),
@@ -805,6 +806,45 @@ pub fn waitpid(pid: i32, status: &i32, options: i32) usize {
     return syscall4(SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), @bitCast(usize, isize(options)), 0);
 }
 
+pub fn clock_gettime(clk_id: i32, tp: &timespec) usize {
+    if (VDSO_CGT_SYM.len != 0) {
+        const f = @atomicLoad(@typeOf(init_vdso_clock_gettime), &vdso_clock_gettime, builtin.AtomicOrder.Unordered);
+        if (@ptrToInt(f) != 0) {
+            const rc = f(clk_id, tp);
+            switch (rc) {
+                0, @bitCast(usize, isize(-EINVAL)) => return rc,
+                else => {},
+            }
+        }
+    }
+    return syscall2(SYS_clock_gettime, @bitCast(usize, isize(clk_id)), @ptrToInt(tp));
+}
+var vdso_clock_gettime = init_vdso_clock_gettime;
+extern fn init_vdso_clock_gettime(clk: i32, ts: &timespec) usize {
+    const addr = vdso.lookup(VDSO_CGT_VER, VDSO_CGT_SYM);
+    var f = @intToPtr(@typeOf(init_vdso_clock_gettime), addr);
+    _ = @cmpxchgStrong(@typeOf(init_vdso_clock_gettime), &vdso_clock_gettime, init_vdso_clock_gettime, f,
+        builtin.AtomicOrder.Monotonic, builtin.AtomicOrder.Monotonic);
+    if (@ptrToInt(f) == 0) return @bitCast(usize, isize(-ENOSYS));
+    return f(clk, ts);
+}
+
+pub fn clock_getres(clk_id: i32, tp: &timespec) usize {
+    return syscall2(SYS_clock_getres, @bitCast(usize, isize(clk_id)), @ptrToInt(tp));
+}
+
+pub fn clock_settime(clk_id: i32, tp: &const timespec) usize {
+    return syscall2(SYS_clock_settime, @bitCast(usize, isize(clk_id)), @ptrToInt(tp));
+}
+
+pub fn gettimeofday(tv: &timeval, tz: &timezone) usize {
+    return syscall2(SYS_gettimeofday, @ptrToInt(tv), @ptrToInt(tz));
+}
+
+pub fn settimeofday(tv: &const timeval, tz: &const timezone) usize {
+    return syscall2(SYS_settimeofday, @ptrToInt(tv), @ptrToInt(tz));
+}
+
 pub fn nanosleep(req: &const timespec, rem: ?&timespec) usize {
     return syscall2(SYS_nanosleep, @ptrToInt(req), @ptrToInt(rem));
 }
@@ -1289,9 +1329,7 @@ pub fn capset(hdrp: &cap_user_header_t, datap: &const cap_user_data_t) usize {
     return syscall2(SYS_capset, @ptrToInt(hdrp), @ptrToInt(datap));
 }
 
-test "import linux test" {
-    // TODO lazy analysis should prevent this test from being compiled on windows, but
-    // it is still compiled on windows
+test "import" {
     if (builtin.os == builtin.Os.linux) {
         _ = @import("test.zig");
     }

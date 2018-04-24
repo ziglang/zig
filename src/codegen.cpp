@@ -3561,6 +3561,16 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
     LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
             success_order, failure_order, instruction->is_weak);
 
+    TypeTableEntry *maybe_type = instruction->base.value.type;
+    assert(maybe_type->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
+
+    if (type_is_codegen_pointer(child_type)) {
+        LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
+        LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
+        return LLVMBuildSelect(g->builder, success_bit, LLVMConstNull(child_type->type_ref), payload_val, "");
+    }
+
     assert(instruction->tmp_ptr != nullptr);
     assert(type_has_bits(instruction->type));
 
@@ -6628,12 +6638,14 @@ static void gen_root_source(CodeGen *g) {
     Buf *abs_full_path = buf_alloc();
     int err;
     if ((err = os_path_real(rel_full_path, abs_full_path))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        exit(1);
     }
 
     Buf *source_code = buf_alloc();
     if ((err = os_fetch_file_path(rel_full_path, source_code, true))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        exit(1);
     }
 
     g->root_import = add_source_file(g, g->root_package, abs_full_path, source_code);

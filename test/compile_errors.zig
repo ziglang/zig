@@ -1,6 +1,21 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("invalid deref on switch target",
+        \\comptime {
+        \\    var tile = Tile.Empty;
+        \\    switch (*tile) {
+        \\        Tile.Empty => {},
+        \\        Tile.Filled => {},
+        \\    }
+        \\}
+        \\const Tile = enum {
+        \\    Empty,
+        \\    Filled,
+        \\};
+    ,
+        ".tmp_source.zig:3:13: error: invalid deref on switch target");
+
     cases.add("invalid field access in comptime",
         \\comptime { var x = doesnt_exist.whatever; }
     ,
