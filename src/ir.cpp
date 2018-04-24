@@ -15867,7 +15867,11 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 fields[3].type = get_pointer_to_type(ira->codegen, type_info_type->data.x_type, false);
                 fields[3].data.x_ptr.special = ConstPtrSpecialRef;
                 fields[3].data.x_ptr.mut = ConstPtrMutComptimeVar;
-                fields[3].data.x_ptr.data.ref.pointee = ir_make_type_info_value(ira, &fields[3], type_entry->data.pointer.child_type);
+                ConstExprValue *union_val = create_const_vals(1);
+                union_val->type = type_info_type->data.x_type;
+                bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.pointer.child_type->id));
+                union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, type_entry->data.pointer.child_type);
+                fields[3].data.x_ptr.data.ref.pointee = union_val;
                 return payload;
             }
         default:
