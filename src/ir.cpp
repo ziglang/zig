@@ -15705,11 +15705,32 @@ static TypeTableEntry *ir_analyze_instruction_type_info(IrAnalyze *ira,
     assert(var_value->type->id == TypeTableEntryIdMetaType);
     TypeTableEntry *result_type = var_value->data.x_type;
 
-    // TODO: Check if we need to explicitely make a &const TypeInfo here, I think we don't.
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    out_val->data.x_struct.fields = create_const_vals(1);
-    // TODO: Fill the struct
-    zig_panic("Building TypeInfo...");
+    bigint_init_unsigned(&out_val->data.x_union.tag, type_id_index(type_entry->id));
+    out_val->data.x_union.parent.id = ConstParentIdNone;
+
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
+            // TODO: Check out this is the way to handle voids;
+            out_val->data.x_union.payload = nullptr;
+            break;
+        default:
+            zig_panic("@typeInfo unsupported for %s", buf_ptr(&type_entry->name));
+    }
+
     return result_type;
 }
 
