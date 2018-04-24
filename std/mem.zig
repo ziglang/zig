@@ -170,18 +170,39 @@ pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) ![]T {
     return new_buf;
 }
 
+/// Remove values from only the beginning of a slice.
+pub fn trimLeft(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+    var begin: usize = 0;
+    while (begin < slice.len and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
+
+    return slice[begin..];
+}
+
+/// Remove values from only the ending of a slice.
+pub fn trimRight(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+    var end: usize = slice.len;
+    while (end > 0 and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+
+    return slice[0..end];
+}
+
 /// Remove values from the beginning and end of a slice.
 pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var begin: usize = 0;
     var end: usize = slice.len;
+
     while (begin < end and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
     while (end > begin and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+
     return slice[begin..end];
 }
 
 test "mem.trim" {
     assert(eql(u8, trim(u8, " foo\n ", " \n"), "foo"));
     assert(eql(u8, trim(u8, "foo", " \n"), "foo"));
+    assert(eql(u8, trim(u8, " foo ", " "), "foo"));
+    assert(eql(u8, trimLeft(u8, " foo ", " "), "foo "));
+    assert(eql(u8, trimRight(u8, " foo ", " "), " foo"));
 }
 
 /// Linear search for the index of a scalar value inside a slice.
@@ -189,12 +210,33 @@ pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     return indexOfScalarPos(T, slice, 0, value);
 }
 
+pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
+    return lastIndexOfScalarPos(T, slice, slice.len - 1, value);
+}
+
 pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
     var i: usize = start_index;
+
     while (i < slice.len) : (i += 1) {
-        if (slice[i] == value)
+        if (slice[i] == value) {
             return i;
+        }
     }
+
+    return null;
+}
+
+// Start index should be relative to ending
+// since this goes 'backwards'.
+pub fn lastIndexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
+    var i: usize = start_index;
+
+    while (i >= 0) : (i -= 1) {
+        if (slice[i] == value) {
+            return i;
+        }
+    }
+
     return null;
 }
 
@@ -202,19 +244,44 @@ pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize 
     return indexOfAnyPos(T, slice, 0, values);
 }
 
+pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
+    return lastIndexOfAnyPos(T, slice, slice.len - 1, values);
+}
+
 pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
     var i: usize = start_index;
+
     while (i < slice.len) : (i += 1) {
         for (values) |value| {
-            if (slice[i] == value)
+            if (slice[i] == value) {
                 return i;
+            }
         }
     }
+
+    return null;
+}
+
+pub fn lastIndexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
+    var i: usize = start_index;
+
+    while (i >= 0) : (i -= 1) {
+        for (values) |value| {
+            if (slice[i] == value) {
+                return i;
+            }
+        }
+    }
+
     return null;
 }
 
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
+}
+
+pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+    return lastIndexOfPos(T, haystack, haystack.len - needle.len, needle);
 }
 
 // TODO boyer-moore algorithm
@@ -224,10 +291,30 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
 
     var i: usize = start_index;
     const end = haystack.len - needle.len;
+
     while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle))
+        if (eql(T, haystack[i .. i + needle.len], needle)) {
             return i;
+        }
     }
+
+    return null;
+}
+
+// TODO boyer-moore algorithm
+pub fn lastIndexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+    if (needle.len > haystack.len)
+        return null;
+
+    var i: usize = start_index;
+    const end = 0;
+
+    while (i >= end) : (i -= 1) {
+        if (eql(T, haystack[i .. i + needle.len], needle)) {
+            return i;
+        }
+    }
+
     return null;
 }
 
@@ -236,6 +323,11 @@ test "mem.indexOf" {
     assert(indexOf(u8, "one two three four", "gour") == null);
     assert(??indexOf(u8, "foo", "foo") == 0);
     assert(indexOf(u8, "foo", "fool") == null);
+    assert(??indexOf(u8, "foo foo", "foo") == 0);
+
+    assert(??lastIndexOf(u8, "foo foo", "foo") == 4);
+    assert(??lastIndexOfAny(u8, "boo, cat", "taboo") == 7);
+    assert(??lastIndexOfScalar(u8, "boo", 'o') == 2);
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -353,6 +445,20 @@ test "mem.split" {
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[0 .. needle.len], needle);
+}
+
+pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
+    return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len..], needle);
+}
+
+test "mem.startsWith" {
+    assert(startsWith(u8, "Bob", "Bo"));
+    assert(!startsWith(u8, "Needle in haystack", "haystack"));
+}
+
+test "mem.endsWith" {
+    assert(endsWith(u8, "Needle in haystack", "haystack"));
+    assert(!endsWith(u8, "Bob", "Bo"));
 }
 
 pub const SplitIterator = struct {
