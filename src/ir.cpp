@@ -13495,8 +13495,18 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                     }
 
                     ConstExprValue *payload_val = union_val->data.x_union.payload;
-                    TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, payload_val->type, is_const, is_volatile,
-                            get_abi_alignment(ira->codegen, payload_val->type), 0, 0);
+
+                    TypeTableEntry *field_type = field->type_entry;
+                    if (field_type->id == TypeTableEntryIdVoid)
+                    {
+                        assert(payload_val == nullptr);
+                        payload_val = create_const_vals(1);
+                        payload_val->special = ConstValSpecialStatic;
+                        payload_val->type = field_type;
+                    }
+
+                    TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, field_type, is_const, is_volatile,
+                            get_abi_alignment(ira->codegen, field_type), 0, 0);
 
                     IrInstruction *result = ir_get_const(ira, source_instr);
                     ConstExprValue *const_val = &result->value;
@@ -15749,7 +15759,6 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
-            // TODO: Construct a valid void payload.
             return nullptr;
         case TypeTableEntryIdInt:
             {
