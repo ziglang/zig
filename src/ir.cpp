@@ -15859,7 +15859,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 // alignment: u32
                 fields[2].special = ConstValSpecialStatic;
                 fields[2].type = ira->codegen->builtin_types.entry_u32;
-                bigint_init_unsigned(&fields->data.x_bigint, type_entry->data.pointer.alignment);
+                bigint_init_unsigned(&fields[2].data.x_bigint, type_entry->data.pointer.alignment);
                 // child: &TypeInfo
                 ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
                 assert(type_info_type->type->id == TypeTableEntryIdMetaType);
