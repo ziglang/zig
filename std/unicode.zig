@@ -35,25 +35,25 @@ pub fn utf8Encode(c: u32, out: []u8) !u3 {
     if (utf8CodepointSequenceLength(c)) |length| {
         debug.assert(out.len >= length);
         switch (length) {
+            // The pattern for each is the same
+            // - Increasing the initial shift by 6 each time
+            // - Each time after the first shorten the shifted
+            //   value to a max of 0b111111 (63)
             1 => out[0] = u8(c), // Can just do 0 + codepoint for initial range
             2 => {
-                // 64 to convert the codepoint into its segments
-                out[0] = u8(0b11000000 + c / 64);
-                out[1] = u8(0b10000000 + c % 64);
+                out[0] = u8(0b11000000 | (c >> 6));
+                out[1] = u8(0b10000000 | (c & 0b111111));
             },
             3 => {
-                // Again using 64 as a conversion into their segments
-                // But using C / 4096 (64 * 64) as the first, (C/64) % 64 as the second, and just C % 64 as the last
-                out[0] = u8(0b11100000 + c / 4096);
-                out[1] = u8(0b10000000 + (c / 64) % 64);
-                out[2] = u8(0b10000000 + c % 64);
+                out[0] = u8(0b11100000 | (c >> 12));
+                out[1] = u8(0b10000000 | ((c >> 6) & 0b111111));
+                out[2] = u8(0b10000000 | (c & 0b111111));
             },
             4 => {
-                // Same as previously but now its C / 64^3 (262144), (C / 4096) % 64, (C / 64) % 64 and C % 64
-                out[0] = u8(0b11110000 + c / 262144);
-                out[1] = u8(0b10000000 + (c / 4096) % 64);
-                out[2] = u8(0b10000000 + (c / 64) % 64);
-                out[3] = u8(0b10000000 + c % 64);
+                out[0] = u8(0b11110000 | (c >> 18));
+                out[1] = u8(0b10000000 | ((c >> 12) & 0b111111));
+                out[2] = u8(0b10000000 | ((c >> 6) & 0b111111));
+                out[3] = u8(0b10000000 | (c & 0b111111));
             },
             else => unreachable,
         }
@@ -257,7 +257,7 @@ fn testErrorEncode(codePoint: u32, array: []u8, expectedErr: error) void {
     if (utf8Encode(codePoint, array)) |_| {
         unreachable;
     } else |err| {
-        assert(err == expectedErr);
+        debug.assert(err == expectedErr);
     }
 }
 
