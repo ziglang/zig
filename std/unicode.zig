@@ -1,6 +1,17 @@
 const std = @import("./index.zig");
 const debug = std.debug;
 
+// Given a Utf8-Codepoint returns how many (1-4)
+// bytes there are if represented as an array of bytes.
+pub fn utf8CodepointSequenceLength(c: u32) !u3 {
+    if (c < 0x80) return u3(1);
+    if (c < 0x800) return u3(2);
+    if (c -% 0xd800 < 0x800) return error.InvalidCodepoint;
+    if (c < 0x10000) return u3(3);
+    if (c < 0x110000) return u3(4);
+    return error.CodepointTooLarge;
+}
+
 /// Given the first byte of a UTF-8 codepoint,
 /// returns a number 1-4 indicating the total length of the codepoint in bytes.
 /// If this byte does not match the form of a UTF-8 start byte, returns Utf8InvalidStartByte.
@@ -10,6 +21,47 @@ pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
     if (first_byte & 0b11110000 == 0b11100000) return u3(3);
     if (first_byte & 0b11111000 == 0b11110000) return u3(4);
     return error.Utf8InvalidStartByte;
+}
+
+/// Encodes a code point back into utf8
+/// c: the code point
+/// out: the out buffer to write to
+/// Notes: out has to have a len big enough for the bytes
+///        however this limit is dependent on the code point
+///        but giving it a minimum of 4 will ensure it will work
+///        for all code points.
+/// Errors: Will return an error if the code point is invalid.
+pub fn utf8Encode(c: u32, out: []u8) !u3 {
+    if (utf8CodepointSequenceLength(c)) |length| {
+        debug.assert(out.len >= length);
+        switch (length) {
+            1 => out[0] = u8(c), // Can just do 0 + codepoint for initial range
+            2 => {
+                // 64 to convert the codepoint into its segments
+                out[0] = u8(0b11000000 + c / 64);
+                out[1] = u8(0b10000000 + c % 64);
+            },
+            3 => {
+                // Again using 64 as a conversion into their segments
+                // But using C / 4096 (64 * 64) as the first, (C/64) % 64 as the second, and just C % 64 as the last
+                out[0] = u8(0b11100000 + c / 4096);
+                out[1] = u8(0b10000000 + (c / 64) % 64);
+                out[2] = u8(0b10000000 + c % 64);
+            },
+            4 => {
+                // Same as previously but now its C / 64^3 (262144), (C / 4096) % 64, (C / 64) % 64 and C % 64
+                out[0] = u8(0b11110000 + c / 262144);
+                out[1] = u8(0b10000000 + (c / 4096) % 64);
+                out[2] = u8(0b10000000 + (c / 64) % 64);
+                out[3] = u8(0b10000000 + c % 64);
+            },
+            else => unreachable,
+        }
+
+        return length;
+    } else |err| {
+        return err;
+    }
 }
 
 /// Decodes the UTF-8 codepoint encoded in the given slice of bytes.
@@ -25,6 +77,7 @@ pub fn utf8Decode(bytes: []const u8) !u32 {
         else => unreachable,
     };
 }
+
 pub fn utf8Decode2(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 2);
     debug.assert(bytes[0] & 0b11100000 == 0b11000000);
@@ -38,6 +91,7 @@ pub fn utf8Decode2(bytes: []const u8) !u32 {
 
     return value;
 }
+
 pub fn utf8Decode3(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 3);
     debug.assert(bytes[0] & 0b11110000 == 0b11100000);
@@ -56,6 +110,7 @@ pub fn utf8Decode3(bytes: []const u8) !u32 {
 
     return value;
 }
+
 pub fn utf8Decode4(bytes: []const u8) !u32 {
     debug.assert(bytes.len == 4);
     debug.assert(bytes[0] & 0b11111000 == 0b11110000);
@@ -169,6 +224,42 @@ const Utf8Iterator = struct {
         return r catch unreachable;
     }
 };
+
+test "utf8 encode" {
+    // A few taken from wikipedia a few taken elsewhere
+    var array: [4]u8 = undefined;
+    debug.assert((try utf8Encode(try utf8Decode("€"), array[0..])) == 3);
+    debug.assert(array[0] == 0b11100010);
+    debug.assert(array[1] == 0b10000010);
+    debug.assert(array[2] == 0b10101100);
+
+    debug.assert((try utf8Encode(try utf8Decode("$"), array[0..])) == 1);
+    debug.assert(array[0] == 0b00100100);
+
+    debug.assert((try utf8Encode(try utf8Decode("¢"), array[0..])) == 2);
+    debug.assert(array[0] == 0b11000010);
+    debug.assert(array[1] == 0b10100010);
+
+    debug.assert((try utf8Encode(try utf8Decode("𐍈"), array[0..])) == 4);
+    debug.assert(array[0] == 0b11110000);
+    debug.assert(array[1] == 0b10010000);
+    debug.assert(array[2] == 0b10001101);
+    debug.assert(array[3] == 0b10001000);
+}
+
+test "utf8 encode error" {
+    var array: [4]u8 = undefined;
+    testErrorEncode(0xFFFFFF, array[0..], error.CodepointTooLarge);
+    testErrorEncode(0xd900, array[0..], error.InvalidCodepoint);
+}
+
+fn testErrorEncode(codePoint: u32, array: []u8, expectedErr: error) void {
+    if (utf8Encode(codePoint, array)) |_| {
+        unreachable;
+    } else |err| {
+        assert(err == expectedErr);
+    }
+}
 
 test "utf8 iterator on ascii" {
     const s = Utf8View.initComptime("abc");
