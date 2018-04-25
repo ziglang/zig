@@ -129,6 +129,9 @@ pub const cos = @import("cos.zig").cos;
 pub const sin = @import("sin.zig").sin;
 pub const tan = @import("tan.zig").tan;
 
+pub const complex = @import("complex/index.zig");
+pub const Complex = complex.Complex;
+
 test "math" {
     _ = @import("nan.zig");
     _ = @import("isnan.zig");
@@ -172,6 +175,8 @@ test "math" {
     _ = @import("sin.zig");
     _ = @import("cos.zig");
     _ = @import("tan.zig");
+
+    _ = @import("complex/index.zig");
 }
 
 
