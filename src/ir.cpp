@@ -13411,7 +13411,6 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
     return ira->codegen->invalid_instruction;
 }
 
-
 static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
     IrInstruction *source_instr, IrInstruction *container_ptr, TypeTableEntry *container_type)
 {
@@ -15738,6 +15737,37 @@ static TypeTableEntry *ir_analyze_instruction_offset_of(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_num_lit_int;
 }
 
+static void ensure_field_index(TypeTableEntry *type, const char *field_name, size_t index) {
+    Buf *field_name_buf;
+
+    assert(type != nullptr && !type_is_invalid(type));
+    // Check for our field by creating a buffer in place then using the comma operator to free it so that we don't
+    // leak memory in debug mode.
+    assert(find_struct_type_field(type, field_name_buf = buf_create_from_str(field_name))->src_index == index &&
+            (buf_deinit(field_name_buf), true));
+}
+
+static void ir_type_info_struct_set_parent(ConstExprValue *struct_val, ConstExprValue *parent) {
+    assert(struct_val->type->id == TypeTableEntryIdStruct);
+    assert(parent->type != nullptr && !type_is_invalid(parent->type));
+
+    switch (parent->type->id)
+    {
+        case TypeTableEntryIdArray:
+            zig_panic("TODO - Only expected struct or union parent.");
+        case TypeTableEntryIdStruct:
+            struct_val->data.x_struct.parent.id = ConstParentIdStruct;
+            struct_val->data.x_struct.parent.data.p_union.union_val = parent;
+            break;
+        case TypeTableEntryIdUnion:
+            struct_val->data.x_struct.parent.id = ConstParentIdUnion;
+            struct_val->data.x_struct.parent.data.p_union.union_val = parent;
+            break;
+        default:
+            struct_val->data.x_struct.parent.id = ConstParentIdNone;
+    }
+}
+
 static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *parent, TypeTableEntry *type_entry)
 {
     assert(type_entry != nullptr);
@@ -15772,26 +15802,15 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(2);
                 payload->data.x_struct.fields = fields;
 
-                if (parent->type->id == TypeTableEntryIdStruct)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdStruct;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else if (parent->type->id == TypeTableEntryIdUnion)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdUnion;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdNone;
-                }
+                ir_type_info_struct_set_parent(payload, parent);
 
                 // is_signed: bool
+                ensure_field_index(payload->type, "is_signed", 0);
                 fields[0].special = ConstValSpecialStatic;
                 fields[0].type = ira->codegen->builtin_types.entry_bool;
                 fields[0].data.x_bool = type_entry->data.integral.is_signed;
                 // bits: u8
+                ensure_field_index(payload->type, "bits", 1);
                 fields[1].special = ConstValSpecialStatic;
                 fields[1].type = ira->codegen->builtin_types.entry_u8;
                 bigint_init_unsigned(&fields[1].data.x_bigint, type_entry->data.integral.bit_count);
@@ -15810,21 +15829,10 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(1);
                 payload->data.x_struct.fields = fields;
 
-                if (parent->type->id == TypeTableEntryIdStruct)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdStruct;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else if (parent->type->id == TypeTableEntryIdUnion)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdUnion;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdNone;
-                }
+                ir_type_info_struct_set_parent(payload, parent);
+
                 // bits: u8
+                ensure_field_index(payload->type, "bits", 0);
                 fields[0].special = ConstValSpecialStatic;
                 fields[0].type = ira->codegen->builtin_types.entry_u8;
                 bigint_init_unsigned(&fields->data.x_bigint, type_entry->data.floating.bit_count);
@@ -15843,33 +15851,25 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(4);
                 payload->data.x_struct.fields = fields;
 
-                if (parent->type->id == TypeTableEntryIdStruct)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdStruct;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else if (parent->type->id == TypeTableEntryIdUnion)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdUnion;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdNone;
-                }
+                ir_type_info_struct_set_parent(payload, parent);
+
                 // is_const: bool
+                ensure_field_index(payload->type, "is_const", 0);
                 fields[0].special = ConstValSpecialStatic;
                 fields[0].type = ira->codegen->builtin_types.entry_bool;
                 fields[0].data.x_bool = type_entry->data.pointer.is_const;
                 // is_volatile: bool
+                ensure_field_index(payload->type, "is_volatile", 1);
                 fields[1].special = ConstValSpecialStatic;
                 fields[1].type = ira->codegen->builtin_types.entry_bool;
                 fields[1].data.x_bool = type_entry->data.pointer.is_volatile;
                 // alignment: u32
+                ensure_field_index(payload->type, "alignment", 2);
                 fields[2].special = ConstValSpecialStatic;
                 fields[2].type = ira->codegen->builtin_types.entry_u32;
                 bigint_init_unsigned(&fields[2].data.x_bigint, type_entry->data.pointer.alignment);
                 // child: &TypeInfo
+                ensure_field_index(payload->type, "child", 3);
                 ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
                 assert(type_info_type->type->id == TypeTableEntryIdMetaType);
                 fields[3].special = ConstValSpecialStatic;
@@ -15896,25 +15896,15 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(2);
                 payload->data.x_struct.fields = fields;
 
-                if (parent->type->id == TypeTableEntryIdStruct)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdStruct;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else if (parent->type->id == TypeTableEntryIdUnion)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdUnion;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdNone;
-                }
+                ir_type_info_struct_set_parent(payload, parent);
+
                 // len: usize
+                ensure_field_index(payload->type, "len", 0);
                 fields[0].special = ConstValSpecialStatic;
                 fields[0].type = ira->codegen->builtin_types.entry_usize;
                 bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.array.len);
                 // child: &TypeInfo
+                ensure_field_index(payload->type, "child", 1);
                 ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
                 assert(type_info_type->type->id == TypeTableEntryIdMetaType);
                 fields[1].special = ConstValSpecialStatic;
@@ -15941,21 +15931,10 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(1);
                 payload->data.x_struct.fields = fields;
 
-                if (parent->type->id == TypeTableEntryIdStruct)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdStruct;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else if (parent->type->id == TypeTableEntryIdUnion)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdUnion;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdNone;
-                }
+                ir_type_info_struct_set_parent(payload, parent);
+
                 // child: &TypeInfo
+                ensure_field_index(payload->type, "child", 0);
                 ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
                 assert(type_info_type->type->id == TypeTableEntryIdMetaType);
                 fields[0].special = ConstValSpecialStatic;
@@ -15982,21 +15961,10 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(1);
                 payload->data.x_struct.fields = fields;
 
-                if (parent->type->id == TypeTableEntryIdStruct)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdStruct;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else if (parent->type->id == TypeTableEntryIdUnion)
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdUnion;
-                    payload->data.x_struct.parent.data.p_union.union_val = parent;
-                }
-                else
-                {
-                    payload->data.x_struct.parent.id = ConstParentIdNone;
-                }
+                ir_type_info_struct_set_parent(payload, parent);
+
                 // child: ?&TypeInfo
+                ensure_field_index(payload->type, "child", 0);
                 ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
                 assert(type_info_type->type->id == TypeTableEntryIdMetaType);
 
@@ -16046,7 +16014,6 @@ static TypeTableEntry *ir_analyze_instruction_type_info(IrAnalyze *ira,
     assert(var_value->type->id == TypeTableEntryIdMetaType);
     TypeTableEntry *result_type = var_value->data.x_type;
 
-    // TODO: We need to return a const pointer to the typeinfo, not the typeinfo by value.
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->type = result_type;
     bigint_init_unsigned(&out_val->data.x_union.tag, type_id_index(type_entry->id));
