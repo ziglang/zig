@@ -4,8 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
-// NOTE: Returning @typeOf(z) here causes issues when trying to access the value. This is
-// why we currently assign re, im parts to a new value explicitly for all tests.
+// TODO when #733 is solved this can be @typeOf(z) instead of Complex(@typeOf(z.re))
 pub fn sqrt(z: var) Complex(@typeOf(z.re)) {
     const T = @typeOf(z.re);
 

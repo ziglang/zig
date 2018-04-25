@@ -23,7 +23,6 @@ pub const sqrt = @import("sqrt.zig").sqrt;
 pub const tanh = @import("tanh.zig").tanh;
 pub const tan = @import("tan.zig").tan;
 
-// NOTE: Make this a builtin at some point?
 pub fn Complex(comptime T: type) type {
     return struct {
         const Self = this;
