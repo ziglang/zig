@@ -15747,7 +15747,7 @@ static void ensure_field_index(TypeTableEntry *type, const char *field_name, siz
             (buf_deinit(field_name_buf), true));
 }
 
-static void ir_type_info_struct_set_parent(ConstExprValue *struct_val, ConstExprValue *parent) {
+static void ir_type_info_struct_set_parent(ConstExprValue *struct_val, ConstExprValue *parent, ssize_t parent_field_index) {
     assert(struct_val->type->id == TypeTableEntryIdStruct);
     assert(parent->type != nullptr && !type_is_invalid(parent->type));
 
@@ -15756,10 +15756,13 @@ static void ir_type_info_struct_set_parent(ConstExprValue *struct_val, ConstExpr
         case TypeTableEntryIdArray:
             zig_panic("TODO - Only expected struct or union parent.");
         case TypeTableEntryIdStruct:
+            assert(parent_field_index >= 0);
             struct_val->data.x_struct.parent.id = ConstParentIdStruct;
-            struct_val->data.x_struct.parent.data.p_union.union_val = parent;
+            struct_val->data.x_struct.parent.data.p_struct.struct_val = parent;
+            struct_val->data.x_struct.parent.data.p_struct.field_index = parent_field_index;
             break;
         case TypeTableEntryIdUnion:
+            assert(parent_field_index == -1);
             struct_val->data.x_struct.parent.id = ConstParentIdUnion;
             struct_val->data.x_struct.parent.data.p_union.union_val = parent;
             break;
@@ -15768,7 +15771,8 @@ static void ir_type_info_struct_set_parent(ConstExprValue *struct_val, ConstExpr
     }
 }
 
-static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *parent, TypeTableEntry *type_entry)
+static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *parent,
+        ssize_t parent_field_index, TypeTableEntry *type_entry)
 {
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
@@ -15802,7 +15806,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(2);
                 payload->data.x_struct.fields = fields;
 
-                ir_type_info_struct_set_parent(payload, parent);
+                ir_type_info_struct_set_parent(payload, parent, parent_field_index);
 
                 // is_signed: bool
                 ensure_field_index(payload->type, "is_signed", 0);
@@ -15829,7 +15833,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(1);
                 payload->data.x_struct.fields = fields;
 
-                ir_type_info_struct_set_parent(payload, parent);
+                ir_type_info_struct_set_parent(payload, parent, parent_field_index);
 
                 // bits: u8
                 ensure_field_index(payload->type, "bits", 0);
@@ -15851,7 +15855,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(4);
                 payload->data.x_struct.fields = fields;
 
-                ir_type_info_struct_set_parent(payload, parent);
+                ir_type_info_struct_set_parent(payload, parent, parent_field_index);
 
                 // is_const: bool
                 ensure_field_index(payload->type, "is_const", 0);
@@ -15880,7 +15884,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 union_val->special = ConstValSpecialStatic;
                 union_val->type = type_info_type->data.x_type;
                 bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.pointer.child_type->id));
-                union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, type_entry->data.pointer.child_type);
+                union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, -1, type_entry->data.pointer.child_type);
                 fields[3].data.x_ptr.data.ref.pointee = union_val;
                 return payload;
             }
@@ -15896,7 +15900,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(2);
                 payload->data.x_struct.fields = fields;
 
-                ir_type_info_struct_set_parent(payload, parent);
+                ir_type_info_struct_set_parent(payload, parent, parent_field_index);
 
                 // len: usize
                 ensure_field_index(payload->type, "len", 0);
@@ -15915,7 +15919,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 union_val->special = ConstValSpecialStatic;
                 union_val->type = type_info_type->data.x_type;
                 bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.array.child_type->id));
-                union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, type_entry->data.array.child_type);
+                union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, -1, type_entry->data.array.child_type);
                 fields[1].data.x_ptr.data.ref.pointee = union_val;
                 return payload;
             }
@@ -15931,7 +15935,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(1);
                 payload->data.x_struct.fields = fields;
 
-                ir_type_info_struct_set_parent(payload, parent);
+                ir_type_info_struct_set_parent(payload, parent, parent_field_index);
 
                 // child: &TypeInfo
                 ensure_field_index(payload->type, "child", 0);
@@ -15945,7 +15949,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 union_val->special = ConstValSpecialStatic;
                 union_val->type = type_info_type->data.x_type;
                 bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.maybe.child_type->id));
-                union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, type_entry->data.maybe.child_type);
+                union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, -1, type_entry->data.maybe.child_type);
                 fields[0].data.x_ptr.data.ref.pointee = union_val;
                 return payload;
             }
@@ -15961,7 +15965,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 ConstExprValue *fields = create_const_vals(1);
                 payload->data.x_struct.fields = fields;
 
-                ir_type_info_struct_set_parent(payload, parent);
+                ir_type_info_struct_set_parent(payload, parent, parent_field_index);
 
                 // child: ?&TypeInfo
                 ensure_field_index(payload->type, "child", 0);
@@ -15990,7 +15994,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                     union_val->special = ConstValSpecialStatic;
                     union_val->type = type_info_type->data.x_type;
                     bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.promise.result_type->id));
-                    union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, type_entry->data.promise.result_type);
+                    union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, -1, type_entry->data.promise.result_type);
 
                     maybe_value->data.x_ptr.data.ref.pointee = union_val;
                     fields[0].data.x_maybe = maybe_value;
@@ -16017,7 +16021,7 @@ static TypeTableEntry *ir_analyze_instruction_type_info(IrAnalyze *ira,
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->type = result_type;
     bigint_init_unsigned(&out_val->data.x_union.tag, type_id_index(type_entry->id));
-    out_val->data.x_union.payload = ir_make_type_info_value(ira, out_val, type_entry);
+    out_val->data.x_union.payload = ir_make_type_info_value(ira, out_val, -1, type_entry);
 
     return result_type;
 }
