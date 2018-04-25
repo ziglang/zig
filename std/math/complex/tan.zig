@@ -17,9 +17,6 @@ test "complex.ctan" {
     const a = Complex(f32).new(5, 3);
     const c = tan(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, -0.002708233, epsilon));
-    debug.assert(math.approxEq(f32, im, 1.004165, epsilon));
+    debug.assert(math.approxEq(f32, c.re, -0.002708233, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 1.004165, epsilon));
 }

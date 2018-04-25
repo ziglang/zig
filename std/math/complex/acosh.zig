@@ -16,9 +16,6 @@ test "complex.cacosh" {
     const a = Complex(f32).new(5, 3);
     const c = acosh(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 2.452914, epsilon));
-    debug.assert(math.approxEq(f32, im, 0.546975, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 2.452914, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 0.546975, epsilon));
 }

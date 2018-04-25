@@ -121,20 +121,14 @@ test "complex.csqrt32" {
     const a = Complex(f32).new(5, 3);
     const c = sqrt(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 2.327117, epsilon));
-    debug.assert(math.approxEq(f32, im, 0.644574, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 2.327117, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 0.644574, epsilon));
 }
 
 test "complex.csqrt64" {
     const a = Complex(f64).new(5, 3);
     const c = sqrt(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f64, re, 2.3271175190399496, epsilon));
-    debug.assert(math.approxEq(f64, im, 0.6445742373246469, epsilon));
+    debug.assert(math.approxEq(f64, c.re, 2.3271175190399496, epsilon));
+    debug.assert(math.approxEq(f64, c.im, 0.6445742373246469, epsilon));
 }

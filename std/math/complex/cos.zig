@@ -16,9 +16,6 @@ test "complex.ccos" {
     const a = Complex(f32).new(5, 3);
     const c = cos(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 2.855815, epsilon));
-    debug.assert(math.approxEq(f32, im, 9.606383, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 2.855815, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 9.606383, epsilon));
 }

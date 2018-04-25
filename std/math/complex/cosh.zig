@@ -152,20 +152,14 @@ test "complex.ccosh32" {
     const a = Complex(f32).new(5, 3);
     const c = cosh(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, -73.467300, epsilon));
-    debug.assert(math.approxEq(f32, im, 10.471557, epsilon));
+    debug.assert(math.approxEq(f32, c.re, -73.467300, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 10.471557, epsilon));
 }
 
 test "complex.ccosh64" {
     const a = Complex(f64).new(5, 3);
     const c = cosh(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f64, re, -73.467300, epsilon));
-    debug.assert(math.approxEq(f64, im, 10.471557, epsilon));
+    debug.assert(math.approxEq(f64, c.re, -73.467300, epsilon));
+    debug.assert(math.approxEq(f64, c.im, 10.471557, epsilon));
 }

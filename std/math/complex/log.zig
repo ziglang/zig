@@ -18,9 +18,6 @@ test "complex.clog" {
     const a = Complex(f32).new(5, 3);
     const c = log(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 1.763180, epsilon));
-    debug.assert(math.approxEq(f32, im, 0.540419, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 1.763180, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 0.540419, epsilon));
 }

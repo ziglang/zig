@@ -16,9 +16,6 @@ test "complex.cacos" {
     const a = Complex(f32).new(5, 3);
     const c = acos(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 0.546975, epsilon));
-    debug.assert(math.approxEq(f32, im, -2.452914, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 0.546975, epsilon));
+    debug.assert(math.approxEq(f32, c.im, -2.452914, epsilon));
 }

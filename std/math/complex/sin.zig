@@ -17,9 +17,6 @@ test "complex.csin" {
     const a = Complex(f32).new(5, 3);
     const c = sin(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, -9.654126, epsilon));
-    debug.assert(math.approxEq(f32, im, 2.841692, epsilon));
+    debug.assert(math.approxEq(f32, c.re, -9.654126, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 2.841692, epsilon));
 }

@@ -151,20 +151,14 @@ test "complex.csinh32" {
     const a = Complex(f32).new(5, 3);
     const c = sinh(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, -73.460617, epsilon));
-    debug.assert(math.approxEq(f32, im, 10.472508, epsilon));
+    debug.assert(math.approxEq(f32, c.re, -73.460617, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 10.472508, epsilon));
 }
 
 test "complex.csinh64" {
     const a = Complex(f64).new(5, 3);
     const c = sinh(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f64, re, -73.460617, epsilon));
-    debug.assert(math.approxEq(f64, im, 10.472508, epsilon));
+    debug.assert(math.approxEq(f64, c.re, -73.460617, epsilon));
+    debug.assert(math.approxEq(f64, c.im, 10.472508, epsilon));
 }

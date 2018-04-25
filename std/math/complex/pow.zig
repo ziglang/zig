@@ -17,9 +17,6 @@ test "complex.cpow" {
     const b = Complex(f32).new(2.3, -1.3);
     const c = pow(Complex(f32), a, b);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 58.049110, epsilon));
-    debug.assert(math.approxEq(f32, im, -101.003433, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 58.049110, epsilon));
+    debug.assert(math.approxEq(f32, c.im, -101.003433, epsilon));
 }

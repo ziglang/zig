@@ -113,24 +113,18 @@ fn atan64(z: &const Complex(f64)) Complex(f64) {
 
 const epsilon = 0.0001;
 
-test "complex.ctan32" {
+test "complex.catan32" {
     const a = Complex(f32).new(5, 3);
     const c = atan(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 1.423679, epsilon));
-    debug.assert(math.approxEq(f32, im, 0.086569, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 1.423679, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 0.086569, epsilon));
 }
 
-test "complex.ctan64" {
+test "complex.catan64" {
     const a = Complex(f64).new(5, 3);
     const c = atan(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f64, re, 1.423679, epsilon));
-    debug.assert(math.approxEq(f64, im, 0.086569, epsilon));
+    debug.assert(math.approxEq(f64, c.re, 1.423679, epsilon));
+    debug.assert(math.approxEq(f64, c.im, 0.086569, epsilon));
 }

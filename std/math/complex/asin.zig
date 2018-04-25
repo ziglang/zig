@@ -22,9 +22,6 @@ test "complex.casin" {
     const a = Complex(f32).new(5, 3);
     const c = asin(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 1.023822, epsilon));
-    debug.assert(math.approxEq(f32, im, 2.452914, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 1.023822, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 2.452914, epsilon));
 }

@@ -17,9 +17,6 @@ test "complex.catanh" {
     const a = Complex(f32).new(5, 3);
     const c = atanh(a);
 
-    const re = c.re;
-    const im = c.im;
-
-    debug.assert(math.approxEq(f32, re, 0.146947, epsilon));
-    debug.assert(math.approxEq(f32, im, 1.480870, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 0.146947, epsilon));
+    debug.assert(math.approxEq(f32, c.im, 1.480870, epsilon));
 }
