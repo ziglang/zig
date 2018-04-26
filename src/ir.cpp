@@ -15775,16 +15775,19 @@ static void ir_type_info_struct_set_parent(ConstExprValue *struct_val, ConstExpr
 
 static TypeTableEntry *ir_type_info_get_type(IrAnalyze *ira, const char *type_name)
 {
-    ConstExprValue *type_info_var = get_builtin_value(ira->codegen, "TypeInfo");
-    assert(type_info_var->type->id == TypeTableEntryIdMetaType);
+    static ConstExprValue *type_info_var = nullptr;
+    static TypeTableEntry *type_info_type = nullptr;
+    if (type_info_var == nullptr)
+    {
+        type_info_var = get_builtin_value(ira->codegen, "TypeInfo");
+        assert(type_info_var->type->id == TypeTableEntryIdMetaType);
 
-    TypeTableEntry *type_info_type = type_info_var->data.x_type;
-    assert(type_info_type->id == TypeTableEntryIdUnion);
+        type_info_type = type_info_var->data.x_type;
+        assert(type_info_type->id == TypeTableEntryIdUnion);
+    }
 
     if (type_name == nullptr)
         return type_info_type;
-
-    // @TODO
 
     ScopeDecls *type_info_scope = get_container_scope(type_info_type);
     assert(type_info_scope != nullptr);
@@ -15898,15 +15901,16 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 bigint_init_unsigned(&fields[2].data.x_bigint, type_entry->data.pointer.alignment);
                 // child: &TypeInfo
                 ensure_field_index(payload->type, "child", 3);
-                ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
-                assert(type_info_type->type->id == TypeTableEntryIdMetaType);
+
+                TypeTableEntry *type_info_type = ir_type_info_get_type(ira, nullptr);
+
                 fields[3].special = ConstValSpecialStatic;
-                fields[3].type = get_pointer_to_type(ira->codegen, type_info_type->data.x_type, false);
+                fields[3].type = get_pointer_to_type(ira->codegen, type_info_type, false);
                 fields[3].data.x_ptr.special = ConstPtrSpecialRef;
                 fields[3].data.x_ptr.mut = ConstPtrMutComptimeVar;
                 ConstExprValue *union_val = create_const_vals(1);
                 union_val->special = ConstValSpecialStatic;
-                union_val->type = type_info_type->data.x_type;
+                union_val->type = type_info_type;
                 bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.pointer.child_type->id));
 
                 union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, -1,
@@ -15933,15 +15937,16 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.array.len);
                 // child: &TypeInfo
                 ensure_field_index(payload->type, "child", 1);
-                ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
-                assert(type_info_type->type->id == TypeTableEntryIdMetaType);
+
+                TypeTableEntry *type_info_type = ir_type_info_get_type(ira, nullptr);
+
                 fields[1].special = ConstValSpecialStatic;
-                fields[1].type = get_pointer_to_type(ira->codegen, type_info_type->data.x_type, false);
+                fields[1].type = get_pointer_to_type(ira->codegen, type_info_type, false);
                 fields[1].data.x_ptr.special = ConstPtrSpecialRef;
                 fields[1].data.x_ptr.mut = ConstPtrMutComptimeVar;
                 ConstExprValue *union_val = create_const_vals(1);
                 union_val->special = ConstValSpecialStatic;
-                union_val->type = type_info_type->data.x_type;
+                union_val->type = type_info_type;
                 bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.array.child_type->id));
 
                 union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, -1,
@@ -15963,15 +15968,16 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
 
                 // child: &TypeInfo
                 ensure_field_index(payload->type, "child", 0);
-                ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
-                assert(type_info_type->type->id == TypeTableEntryIdMetaType);
+
+                TypeTableEntry *type_info_type = ir_type_info_get_type(ira, nullptr);
+
                 fields[0].special = ConstValSpecialStatic;
-                fields[0].type = get_pointer_to_type(ira->codegen, type_info_type->data.x_type, false);
+                fields[0].type = get_pointer_to_type(ira->codegen, type_info_type, false);
                 fields[0].data.x_ptr.special = ConstPtrSpecialRef;
                 fields[0].data.x_ptr.mut = ConstPtrMutComptimeVar;
                 ConstExprValue *union_val = create_const_vals(1);
                 union_val->special = ConstValSpecialStatic;
-                union_val->type = type_info_type->data.x_type;
+                union_val->type = type_info_type;
                 bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.maybe.child_type->id));
 
                 union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, -1,
@@ -15993,10 +15999,9 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
 
                 // child: ?&TypeInfo
                 ensure_field_index(payload->type, "child", 0);
-                ConstExprValue *type_info_type = get_builtin_value(ira->codegen, "TypeInfo");
-                assert(type_info_type->type->id == TypeTableEntryIdMetaType);
 
-                TypeTableEntry *type_info_ptr_type = get_pointer_to_type(ira->codegen, type_info_type->data.x_type, false);
+                TypeTableEntry *type_info_type = ir_type_info_get_type(ira, nullptr);
+                TypeTableEntry *type_info_ptr_type = get_pointer_to_type(ira->codegen, type_info_type, false);
 
                 fields[0].special = ConstValSpecialStatic;
                 fields[0].type = get_maybe_type(ira->codegen, type_info_ptr_type);
@@ -16016,7 +16021,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
 
                     ConstExprValue *union_val = create_const_vals(1);
                     union_val->special = ConstValSpecialStatic;
-                    union_val->type = type_info_type->data.x_type;
+                    union_val->type = type_info_type;
                     bigint_init_unsigned(&union_val->data.x_union.tag, type_id_index(type_entry->data.promise.result_type->id));
                     union_val->data.x_union.payload = ir_make_type_info_value(ira, union_val, -1,
                             type_entry->data.promise.result_type);
