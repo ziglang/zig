@@ -15787,6 +15787,8 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
 
+    ensure_complete_type(ira->codegen, type_entry);
+
     const auto make_enum_field_val = [ira](ConstExprValue *enum_field_val, TypeEnumField *enum_field,
                 TypeTableEntry *type_info_enum_field_type) {
         // @TODO Those cause a find_struct_type_field assertion to fail (type_entry->data.structure.complete)
@@ -16164,6 +16166,72 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     union_field_val->data.x_struct.parent.data.p_array.elem_index = union_field_index;
                 }
 
+                // @TODO Definitions
+                break;
+            }
+        case TypeTableEntryIdStruct:
+            {
+                result = create_const_vals(1);
+                result->special = ConstValSpecialStatic;
+                result->type = ir_type_info_get_type(ira, "Struct");
+
+                ConstExprValue *fields = create_const_vals(3);
+                result->data.x_struct.fields = fields;
+
+                // layout: ContainerLayout
+                ensure_field_index(result->type, "layout", 0);
+                fields[0].special = ConstValSpecialStatic;
+                fields[0].type = ir_type_info_get_type(ira, "ContainerLayout");
+                bigint_init_unsigned(&fields[0].data.x_enum_tag, type_entry->data.structure.layout);
+                // fields: []TypeInfo.StructField
+                ensure_field_index(result->type, "fields", 1);
+
+                TypeTableEntry *type_info_struct_field_type = ir_type_info_get_type(ira, "StructField");
+                uint32_t struct_field_count = type_entry->data.structure.src_field_count;
+
+                ConstExprValue *struct_field_array = create_const_vals(1);
+                struct_field_array->special = ConstValSpecialStatic;
+                struct_field_array->type = get_array_type(ira->codegen, type_info_struct_field_type, struct_field_count);
+                struct_field_array->data.x_array.special = ConstArraySpecialNone;
+                struct_field_array->data.x_array.s_none.parent.id = ConstParentIdNone;
+                struct_field_array->data.x_array.s_none.elements = create_const_vals(struct_field_count);
+
+                init_const_slice(ira->codegen, &fields[1], struct_field_array, 0, struct_field_count, false);
+
+                for (uint32_t struct_field_index = 0; struct_field_index < struct_field_count; struct_field_index++)
+                {
+                    TypeStructField *struct_field = &type_entry->data.structure.fields[struct_field_index];
+                    ConstExprValue *struct_field_val = &struct_field_array->data.x_array.s_none.elements[struct_field_index];
+
+                    struct_field_val->special = ConstValSpecialStatic;
+                    struct_field_val->type = type_info_struct_field_type;
+
+                    ConstExprValue *inner_fields = create_const_vals(3);
+                    inner_fields[1].special = ConstValSpecialStatic;
+                    inner_fields[1].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_usize);
+
+                    if (!type_has_bits(struct_field->type_entry))
+                        inner_fields[1].data.x_maybe = nullptr;
+                    else
+                    {
+                        size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, type_entry->type_ref, struct_field->gen_index);
+                        inner_fields[1].data.x_maybe = create_const_vals(1);
+                        inner_fields[1].data.x_maybe->type = ira->codegen->builtin_types.entry_usize;
+                        bigint_init_unsigned(&inner_fields[1].data.x_maybe->data.x_bigint, byte_offset);
+                    }
+
+                    inner_fields[2].special = ConstValSpecialStatic;
+                    inner_fields[2].type = ira->codegen->builtin_types.entry_type;
+                    inner_fields[2].data.x_type = struct_field->type_entry;
+
+                    ConstExprValue *name = create_const_str_lit(ira->codegen, struct_field->name);
+                    init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(struct_field->name), true);
+
+                    struct_field_val->data.x_struct.fields = inner_fields;
+                    struct_field_val->data.x_struct.parent.id = ConstParentIdArray;
+                    struct_field_val->data.x_struct.parent.data.p_array.array_val = struct_field_array;
+                    struct_field_val->data.x_struct.parent.data.p_array.elem_index = struct_field_index;
+                }
                 // @TODO Definitions
                 break;
             }

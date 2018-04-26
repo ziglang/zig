@@ -6417,7 +6417,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "\n"
             "    pub const StructField = struct {\n"
             "        name: []const u8,\n"
-            "        offset: usize,\n"
+            "        offset: ?usize,\n"
             "        field_type: type,\n"
             "    };\n"
             "\n"
