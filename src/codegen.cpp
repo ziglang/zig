@@ -88,6 +88,7 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->exported_symbol_names.init(8);
     g->external_prototypes.init(8);
     g->string_literals_table.init(16);
+    g->type_info_cache.init(32);
     g->is_test_build = false;
     g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
     buf_resize(&g->global_asm, 0);
@@ -6347,7 +6348,8 @@ static void define_builtin_compile_vars(CodeGen *g) {
         buf_appendf(contents, "};\n\n");
     }
     {
-        // TODO: Add method info where methods are supported.
+        // @TODO Add method info where methods are supported.
+        // @TODO Add Namespace info.
         buf_appendf(contents,
             "pub const TypeInfo = union(TypeId) {\n"
             "    Type: void,\n"
@@ -6403,6 +6405,11 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "        Packed,\n"
             "    };\n"
             "\n"
+            "    pub const Method = struct {\n"
+            "        name: []const u8,\n"
+            "        fn_info: Fn,\n"
+            "    };\n"
+            "\n"
             "    pub const StructField = struct {\n"
             "        name: []const u8,\n"
             "        offset: usize,\n"
@@ -6412,6 +6419,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    pub const Struct = struct {\n"
             "        layout: ContainerLayout,\n"
             "        fields: []StructField,\n"
+            "        methods: []Method,\n"
             "    };\n"
             "\n"
             "    pub const Nullable = struct {\n"

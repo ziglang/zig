@@ -1507,6 +1507,7 @@ struct CodeGen {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
+    HashMap<const TypeTableEntry *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
 
 
     ZigList<ImportTableEntry *> import_queue;
