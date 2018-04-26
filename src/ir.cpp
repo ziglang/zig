@@ -15864,7 +15864,11 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
         return result;
     }
 
-    ConstExprValue *result = nullptr;
+    // If the value is not present in the cache, we will build it, add it and return it.
+    // We add values to the cache eagerly, as soon as we have filled out the root object's fields.
+    // That way, if we need to fetch the value in a recursive call down the line, even if we need to
+    // copy the value and reajust the parent, the value we get back still points to child values that
+    // will be filled later.
 
     switch (type_entry->id)
     {
@@ -15885,7 +15889,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
             return nullptr;
         case TypeTableEntryIdInt:
             {
-                result = create_const_vals(1);
+                ConstExprValue *result = create_const_vals(1);
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Int");
 
@@ -15893,6 +15897,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 result->data.x_struct.fields = fields;
 
                 ir_type_info_struct_set_parent(result, parent, parent_field_index);
+                ira->codegen->type_info_cache.put(type_entry, result);
 
                 // is_signed: bool
                 ensure_field_index(result->type, "is_signed", 0);
@@ -15904,11 +15909,12 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 fields[1].special = ConstValSpecialStatic;
                 fields[1].type = ira->codegen->builtin_types.entry_u8;
                 bigint_init_unsigned(&fields[1].data.x_bigint, type_entry->data.integral.bit_count);
-                break;
+
+                return result;
             }
         case TypeTableEntryIdFloat:
             {
-                result = create_const_vals(1);
+                ConstExprValue *result = create_const_vals(1);
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Float");
 
@@ -15916,17 +15922,19 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 result->data.x_struct.fields = fields;
 
                 ir_type_info_struct_set_parent(result, parent, parent_field_index);
+                ira->codegen->type_info_cache.put(type_entry, result);
 
                 // bits: u8
                 ensure_field_index(result->type, "bits", 0);
                 fields[0].special = ConstValSpecialStatic;
                 fields[0].type = ira->codegen->builtin_types.entry_u8;
                 bigint_init_unsigned(&fields->data.x_bigint, type_entry->data.floating.bit_count);
-                break;
+
+                return result;
             }
         case TypeTableEntryIdPointer:
             {
-                result = create_const_vals(1);
+                ConstExprValue *result = create_const_vals(1);
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Pointer");
 
@@ -15934,6 +15942,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 result->data.x_struct.fields = fields;
 
                 ir_type_info_struct_set_parent(result, parent, parent_field_index);
+                ira->codegen->type_info_cache.put(type_entry, result);
 
                 // is_const: bool
                 ensure_field_index(result->type, "is_const", 0);
@@ -15968,11 +15977,12 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                         type_entry->data.pointer.child_type);
 
                 fields[3].data.x_ptr.data.ref.pointee = union_val;
-                break;
+
+                return result;
             }
         case TypeTableEntryIdArray:
             {
-                result = create_const_vals(1);
+                ConstExprValue *result = create_const_vals(1);
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Array");
 
@@ -15980,6 +15990,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 result->data.x_struct.fields = fields;
 
                 ir_type_info_struct_set_parent(result, parent, parent_field_index);
+                ira->codegen->type_info_cache.put(type_entry, result);
 
                 // len: usize
                 ensure_field_index(result->type, "len", 0);
@@ -15988,7 +15999,6 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.array.len);
                 // child: &TypeInfo
                 ensure_field_index(result->type, "child", 1);
-
                 TypeTableEntry *type_info_type = ir_type_info_get_type(ira, nullptr);
 
                 fields[1].special = ConstValSpecialStatic;
@@ -16004,11 +16014,12 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                         type_entry->data.array.child_type);
 
                 fields[1].data.x_ptr.data.ref.pointee = union_val;
-                break;
+
+                return result;
             }
         case TypeTableEntryIdMaybe:
             {
-                result = create_const_vals(1);
+                ConstExprValue *result = create_const_vals(1);
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Nullable");
 
@@ -16016,6 +16027,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 result->data.x_struct.fields = fields;
 
                 ir_type_info_struct_set_parent(result, parent, parent_field_index);
+                ira->codegen->type_info_cache.put(type_entry, result);
 
                 // child: &TypeInfo
                 ensure_field_index(result->type, "child", 0);
@@ -16035,11 +16047,12 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                         type_entry->data.maybe.child_type);
 
                 fields[0].data.x_ptr.data.ref.pointee = union_val;
-                break;
+
+                return result;
             }
         case TypeTableEntryIdPromise:
             {
-                result = create_const_vals(1);
+                ConstExprValue *result = create_const_vals(1);
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Promise");
 
@@ -16047,6 +16060,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 result->data.x_struct.fields = fields;
 
                 ir_type_info_struct_set_parent(result, parent, parent_field_index);
+                ira->codegen->type_info_cache.put(type_entry, result);
 
                 // child: ?&TypeInfo
                 ensure_field_index(result->type, "child", 0);
@@ -16080,16 +16094,91 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                     maybe_value->data.x_ptr.data.ref.pointee = union_val;
                     fields[0].data.x_maybe = maybe_value;
                 }
-                break;
+
+                return result;
+            }
+        case TypeTableEntryIdEnum:
+            {
+                ConstExprValue *result = create_const_vals(1);
+                result->special = ConstValSpecialStatic;
+                result->type = ir_type_info_get_type(ira, "Enum");
+
+                ConstExprValue *fields = create_const_vals(4);
+                result->data.x_struct.fields = fields;
+
+                ir_type_info_struct_set_parent(result, parent, parent_field_index);
+                ira->codegen->type_info_cache.put(type_entry, result);
+
+                // layout: ContainerLayout
+                ensure_field_index(result->type, "layout", 0);
+                fields[0].special = ConstValSpecialStatic;
+                fields[0].type = ir_type_info_get_type(ira, "ContainerLayout");
+                bigint_init_unsigned(&fields[0].data.x_enum_tag, type_entry->data.enumeration.layout);
+                // tag_type: &TypeInfo.Int
+                ensure_field_index(result->type, "tag_type", 1);
+
+                TypeTableEntry *type_info_int_type = ir_type_info_get_type(ira, "Int");
+
+                fields[1].special = ConstValSpecialStatic;
+                fields[1].type = get_pointer_to_type(ira->codegen, type_info_int_type, false);
+                fields[1].data.x_ptr.special = ConstPtrSpecialRef;
+                fields[1].data.x_ptr.mut = ConstPtrMutComptimeVar;
+
+                ConstExprValue *tag_type_info_struct = ir_make_type_info_value(ira, &fields[1], -1,
+                        type_entry->data.enumeration.tag_int_type);
+                assert(tag_type_info_struct->type == type_info_int_type);
+                fields[1].data.x_ptr.data.ref.pointee = tag_type_info_struct;
+                // fields: []TypeInfo.EnumField
+                ensure_field_index(result->type, "fields", 2);
+
+                TypeTableEntry *type_info_enum_field_type = ir_type_info_get_type(ira, "EnumField");
+                // @TODO Those cause a find_struct_type_field assertion to fail (type_entry->data.structure.complete)
+                // ensure_field_index(type_info_enum_field_type, "name", 0);
+                // ensure_field_index(type_info_enum_field_type, "value", 1);
+
+                uint32_t enum_field_count = type_entry->data.enumeration.src_field_count;
+
+                ConstExprValue *enum_field_array = create_const_vals(1);
+                enum_field_array->special = ConstValSpecialStatic;
+                enum_field_array->type = get_array_type(ira->codegen, type_info_enum_field_type, enum_field_count);
+                enum_field_array->data.x_array.special = ConstArraySpecialNone;
+                enum_field_array->data.x_array.s_none.parent.id = ConstParentIdNone;
+                enum_field_array->data.x_array.s_none.elements = create_const_vals(enum_field_count);
+
+                init_const_slice(ira->codegen, &fields[2], enum_field_array, 0, enum_field_count, false);
+
+                for (uint32_t enum_field_index = 0; enum_field_index < enum_field_count; enum_field_index++)
+                {
+                    TypeEnumField *enum_field = &type_entry->data.enumeration.fields[enum_field_index];
+                    ConstExprValue *enum_field_val = &enum_field_array->data.x_array.s_none.elements[enum_field_index];
+
+                    enum_field_val->special = ConstValSpecialStatic;
+                    enum_field_val->type = type_info_enum_field_type;
+
+                    ConstExprValue *inner_fields = create_const_vals(2);
+                    inner_fields[1].special = ConstValSpecialStatic;
+                    inner_fields[1].type = ira->codegen->builtin_types.entry_usize;
+
+                    ConstExprValue *name = create_const_str_lit(ira->codegen, enum_field->name);
+                    init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(enum_field->name), true);
+
+                    bigint_init_bigint(&inner_fields[1].data.x_bigint, &enum_field->value);
+
+                    enum_field_val->data.x_struct.fields = inner_fields;
+                    enum_field_val->data.x_struct.parent.id = ConstParentIdArray;
+                    enum_field_val->data.x_struct.parent.data.p_array.array_val = enum_field_array;
+                    enum_field_val->data.x_struct.parent.data.p_array.elem_index = enum_field_index;
+                }
+
+                // @TODO
+                // methods: []TypeInfo.Method
+                return result;
             }
         default:
             zig_unreachable();
     }
 
-    // Cache the returned value.
-    assert(result != nullptr);
-    ira->codegen->type_info_cache.put(type_entry, result);
-    return result;
+    zig_unreachable();
 }
 
 static TypeTableEntry *ir_analyze_instruction_type_info(IrAnalyze *ira,
