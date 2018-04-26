@@ -6349,6 +6349,12 @@ static void define_builtin_compile_vars(CodeGen *g) {
     }
     {
         // @TODO Add Namespace info.
+        // @TODO Methods -> definitions
+        // @TODO Includes type definitions (name + type bound) + functions + const variable definitions (+ type of variable)
+        // @TODO Type definitions are defined as variable definitions of type 'type'
+        // @TODO This should give us everything available.
+        // @TODO An alternative is exposing the value of every variable definition, check out if it's possible and wether we want that.
+        // @TODO I don't think so, @field gives it to us for free.
         buf_appendf(contents,
             "pub const TypeInfo = union(TypeId) {\n"
             "    Type: void,\n"
@@ -6453,7 +6459,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "\n"
             "    pub const UnionField = struct {\n"
             "        name: []const u8,\n"
-            "        enum_field: EnumField,\n"
+            "        enum_field: ?EnumField,\n"
             "        field_type: type,\n"
             "    };\n"
             "\n"

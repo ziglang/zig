@@ -15787,8 +15787,8 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
 
-    const auto make_enum_field_val = [ira](ConstExprValue *enum_field_val, TypeEnumField *enum_field) {
-        TypeTableEntry *type_info_enum_field_type = ir_type_info_get_type(ira, "EnumField");
+    const auto make_enum_field_val = [ira](ConstExprValue *enum_field_val, TypeEnumField *enum_field,
+                TypeTableEntry *type_info_enum_field_type) {
         // @TODO Those cause a find_struct_type_field assertion to fail (type_entry->data.structure.complete)
         // ensure_field_index(type_info_enum_field_type, "name", 0);
         // ensure_field_index(type_info_enum_field_type, "value", 1);
@@ -15990,10 +15990,6 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 ensure_field_index(result->type, "fields", 2);
 
                 TypeTableEntry *type_info_enum_field_type = ir_type_info_get_type(ira, "EnumField");
-                // @TODO Those cause a find_struct_type_field assertion to fail (type_entry->data.structure.complete)
-                // ensure_field_index(type_info_enum_field_type, "name", 0);
-                // ensure_field_index(type_info_enum_field_type, "value", 1);
-
                 uint32_t enum_field_count = type_entry->data.enumeration.src_field_count;
 
                 ConstExprValue *enum_field_array = create_const_vals(1);
@@ -16009,14 +16005,13 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 {
                     TypeEnumField *enum_field = &type_entry->data.enumeration.fields[enum_field_index];
                     ConstExprValue *enum_field_val = &enum_field_array->data.x_array.s_none.elements[enum_field_index];
-                    make_enum_field_val(enum_field_val, enum_field);
+                    make_enum_field_val(enum_field_val, enum_field, type_info_enum_field_type);
                     enum_field_val->data.x_struct.parent.id = ConstParentIdArray;
                     enum_field_val->data.x_struct.parent.data.p_array.array_val = enum_field_array;
                     enum_field_val->data.x_struct.parent.data.p_array.elem_index = enum_field_index;
                 }
 
-                // @TODO
-                // methods: []TypeInfo.Method
+                // @TODO Definitions
                 break;
             }
         case TypeTableEntryIdErrorSet:
@@ -16032,10 +16027,6 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 ensure_field_index(result->type, "errors", 0);
 
                 TypeTableEntry *type_info_error_type = ir_type_info_get_type(ira, "Error");
-                // @TODO Same as above in Enum TypeInfo generation.
-                // ensure_field_index(type_info_error_type, "name", 0);
-                // ensure_field_index(type_info_error_type, "value", 1);
-
                 uint32_t error_count = type_entry->data.error_set.err_count;
                 ConstExprValue *error_array = create_const_vals(1);
                 error_array->special = ConstValSpecialStatic;
@@ -16115,21 +16106,18 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 fields[1].special = ConstValSpecialStatic;
                 fields[1].type = ira->codegen->builtin_types.entry_type;
                 // @TODO ?type instead of using @typeOf(undefined) when we have no type.
-                if (type_entry->data.unionation.tag_type == nullptr)
-                    fields[1].data.x_type = ira->codegen->builtin_types.entry_undef;
-                else
+                AstNode *union_decl_node = type_entry->data.unionation.decl_node;
+                if (union_decl_node->data.container_decl.auto_enum ||
+                    union_decl_node->data.container_decl.init_arg_expr != nullptr)
+                {
                     fields[1].data.x_type = type_entry->data.unionation.tag_type;
-
-                fields[1].data.x_type = type_entry->data.unionation.tag_type;
+                }
+                else
+                    fields[1].data.x_type = ira->codegen->builtin_types.entry_undef;
                 // fields: []TypeInfo.UnionField
                 ensure_field_index(result->type, "fields", 2);
 
                 TypeTableEntry *type_info_union_field_type = ir_type_info_get_type(ira, "UnionField");
-                // @TODO Those cause a find_struct_type_field assertion to fail (type_entry->data.structure.complete)
-                // ensure_field_index(type_info_union_field_type, "name", 0);
-                // ensure_field_index(type_info_union_field_type, "enum_field", 1);
-                // ensure_field_index(type_info_union_field_type, "field_type", 2);
-
                 uint32_t union_field_count = type_entry->data.unionation.src_field_count;
 
                 ConstExprValue *union_field_array = create_const_vals(1);
@@ -16141,6 +16129,8 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
 
                 init_const_slice(ira->codegen, &fields[2], union_field_array, 0, union_field_count, false);
 
+                TypeTableEntry *type_info_enum_field_type = ir_type_info_get_type(ira, "EnumField");
+
                 for (uint32_t union_field_index = 0; union_field_index < union_field_count; union_field_index++)
                 {
                     TypeUnionField *union_field = &type_entry->data.unionation.fields[union_field_index];
@@ -16151,10 +16141,15 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
 
                     ConstExprValue *inner_fields = create_const_vals(3);
                     inner_fields[1].special = ConstValSpecialStatic;
-                    make_enum_field_val(&inner_fields[1], union_field->enum_field);
-                    inner_fields[1].data.x_struct.parent.id = ConstParentIdStruct;
-                    inner_fields[1].data.x_struct.parent.data.p_struct.struct_val = union_field_val;
-                    inner_fields[1].data.x_struct.parent.data.p_struct.field_index = 1;
+                    inner_fields[1].type = get_maybe_type(ira->codegen, type_info_enum_field_type);
+
+                    if (fields[1].data.x_type == ira->codegen->builtin_types.entry_undef)
+                        inner_fields[1].data.x_maybe = nullptr;
+                    else
+                    {
+                        inner_fields[1].data.x_maybe = create_const_vals(1);
+                        make_enum_field_val(inner_fields[1].data.x_maybe, union_field->enum_field, type_info_enum_field_type);
+                    }
 
                     inner_fields[2].special = ConstValSpecialStatic;
                     inner_fields[2].type = ira->codegen->builtin_types.entry_type;
@@ -16163,18 +16158,13 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     ConstExprValue *name = create_const_str_lit(ira->codegen, union_field->name);
                     init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(union_field->name), true);
 
-                    
                     union_field_val->data.x_struct.fields = inner_fields;
                     union_field_val->data.x_struct.parent.id = ConstParentIdArray;
                     union_field_val->data.x_struct.parent.data.p_array.array_val = union_field_array;
                     union_field_val->data.x_struct.parent.data.p_array.elem_index = union_field_index;
-
-                    // @TODO Check if TypeUnionField::enum_field == nullptr when tag_type == nullptr
-                    // If it is, make enum_field: ?EnumField, set it when available, done.
                 }
 
-                // @TODO
-                // methods: []TypeInfo.Method
+                // @TODO Definitions
                 break;
             }
     }
