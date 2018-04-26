@@ -867,6 +867,7 @@ struct AstNodeAwaitExpr {
 };
 
 struct AstNodeSuspend {
+    Buf *name;
     AstNode *block;
     AstNode *promise_symbol;
 };
@@ -1291,6 +1292,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemberCount,
     BuiltinFnIdMemberType,
     BuiltinFnIdMemberName,
+    BuiltinFnIdField,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
@@ -1310,13 +1312,15 @@ enum BuiltinFnId {
     BuiltinFnIdReturnAddress,
     BuiltinFnIdFrameAddress,
     BuiltinFnIdEmbedFile,
-    BuiltinFnIdCmpExchange,
+    BuiltinFnIdCmpxchgWeak,
+    BuiltinFnIdCmpxchgStrong,
     BuiltinFnIdFence,
     BuiltinFnIdDivExact,
     BuiltinFnIdDivTrunc,
     BuiltinFnIdDivFloor,
     BuiltinFnIdRem,
     BuiltinFnIdMod,
+    BuiltinFnIdSqrt,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
@@ -1346,6 +1350,7 @@ enum BuiltinFnId {
     BuiltinFnIdExport,
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
+    BuiltinFnIdAtomicLoad,
 };
 
 struct BuiltinFnEntry {
@@ -1413,6 +1418,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
+    ZigLLVMFnIdSqrt,
 };
 
 enum AddSubMul {
@@ -1433,7 +1439,7 @@ struct ZigLLVMFnKey {
         } clz;
         struct {
             uint32_t bit_count;
-        } floor_ceil;
+        } floating;
         struct {
             AddSubMul add_sub_mul;
             uint32_t bit_count;
@@ -1454,6 +1460,7 @@ enum BuildMode {
     BuildModeDebug,
     BuildModeFastRelease,
     BuildModeSafeRelease,
+    BuildModeSmallRelease,
 };
 
 enum EmitFileType {
@@ -1698,6 +1705,8 @@ struct CodeGen {
     ZigList<ZigLLVMDIType **> error_di_types;
 
     ZigList<Buf *> forbidden_libs;
+
+    bool no_rosegment_workaround;
 };
 
 enum VarLinkage {
@@ -1748,6 +1757,7 @@ enum ScopeId {
     ScopeIdVarDecl,
     ScopeIdCImport,
     ScopeIdLoop,
+    ScopeIdSuspend,
     ScopeIdFnDef,
     ScopeIdCompTime,
     ScopeIdCoroPrelude,
@@ -1841,6 +1851,17 @@ struct ScopeLoop {
     IrInstruction *is_comptime;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
+};
+
+// This scope is created for a suspend block in order to have labeled
+// suspend for breaking out of a suspend and for detecting if a suspend
+// block is inside a suspend block.
+struct ScopeSuspend {
+    Scope base;
+
+    Buf *name;
+    IrBasicBlock *resume_block;
+    bool reported_err;
 };
 
 // This scope is created for a comptime expression.
@@ -2039,12 +2060,14 @@ enum IrInstructionId {
     IrInstructionIdCoroPromise,
     IrInstructionIdCoroAllocHelper,
     IrInstructionIdAtomicRmw,
+    IrInstructionIdAtomicLoad,
     IrInstructionIdPromiseResultType,
     IrInstructionIdAwaitBookkeeping,
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
+    IrInstructionIdSqrt,
 };
 
 struct IrInstruction {
@@ -2201,7 +2224,8 @@ struct IrInstructionFieldPtr {
     IrInstruction base;
 
     IrInstruction *container_ptr;
-    Buf *field_name;
+    Buf *field_name_buffer;
+    IrInstruction *field_name_expr;
     bool is_const;
 };
 
@@ -2520,6 +2544,7 @@ struct IrInstructionEmbedFile {
 struct IrInstructionCmpxchg {
     IrInstruction base;
 
+    IrInstruction *type_value;
     IrInstruction *ptr;
     IrInstruction *cmp_value;
     IrInstruction *new_value;
@@ -2527,8 +2552,13 @@ struct IrInstructionCmpxchg {
     IrInstruction *failure_order_value;
 
     // if this instruction gets to runtime then we know these values:
+    TypeTableEntry *type;
     AtomicOrder success_order;
     AtomicOrder failure_order;
+
+    bool is_weak;
+
+    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionFence {
@@ -2998,6 +3028,15 @@ struct IrInstructionAtomicRmw {
     AtomicOrder resolved_ordering;
 };
 
+struct IrInstructionAtomicLoad {
+    IrInstruction base;
+
+    IrInstruction *operand_type;
+    IrInstruction *ptr;
+    IrInstruction *ordering;
+    AtomicOrder resolved_ordering;
+};
+
 struct IrInstructionPromiseResultType {
     IrInstruction base;
 
@@ -3032,6 +3071,13 @@ struct IrInstructionMarkErrRetTracePtr {
     IrInstruction base;
 
     IrInstruction *err_ret_trace_ptr;
+};
+
+struct IrInstructionSqrt {
+    IrInstruction base;
+
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 static const size_t slice_ptr_index = 0;

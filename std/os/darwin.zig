@@ -41,6 +41,11 @@ pub const SA_64REGSET  = 0x0200; /// signal handler with SA_SIGINFO args with 64
 pub const O_LARGEFILE = 0x0000;
 pub const O_PATH = 0x0000;
 
+pub const F_OK = 0;
+pub const X_OK = 1;
+pub const W_OK = 2;
+pub const R_OK = 4;
+
 pub const O_RDONLY   = 0x0000; /// open for reading only
 pub const O_WRONLY   = 0x0001; /// open for writing only
 pub const O_RDWR     = 0x0002; /// open for reading and writing
@@ -209,6 +214,10 @@ pub fn fork() usize {
     return errnoWrap(c.fork());
 }
 
+pub fn access(path: &const u8, mode: u32) usize {
+    return errnoWrap(c.access(path, mode));
+}
+
 pub fn pipe(fds: &[2]i32) usize {
     comptime assert(i32.bit_count == c_int.bit_count);
     return errnoWrap(c.pipe(@ptrCast(&c_int, fds)));
@@ -249,6 +258,10 @@ pub fn dup2(old: i32, new: i32) usize {
 
 pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) usize {
     return errnoWrap(c.readlink(path, buf_ptr, buf_len));
+}
+
+pub fn gettimeofday(tv: ?&timeval, tz: ?&timezone) usize {
+    return errnoWrap(c.gettimeofday(tv, tz));
 }
 
 pub fn nanosleep(req: &const timespec, rem: ?&timespec) usize {
@@ -321,3 +334,11 @@ pub fn sigaddset(set: &sigset_t, signo: u5) void {
 fn errnoWrap(value: isize) usize {
     return @bitCast(usize, if (value == -1) -isize(*c._errno()) else value);
 }
+
+
+pub const timezone = c.timezone;
+pub const timeval = c.timeval;
+pub const mach_timebase_info_data = c.mach_timebase_info_data;
+
+pub const mach_absolute_time = c.mach_absolute_time;
+pub const mach_timebase_info = c.mach_timebase_info;

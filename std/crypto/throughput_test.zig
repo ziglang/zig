@@ -1,22 +1,17 @@
 // Modify the HashFunction variable to the one wanted to test.
 //
-// NOTE: The throughput measurement may be slightly lower than other measurements since we run
-// through our block alignment functions as well. Be aware when comparing against other tests.
-//
 // ```
-// zig build-exe --release-fast --library c throughput_test.zig
+// zig build-exe --release-fast throughput_test.zig
 // ./throughput_test
 // ```
-const HashFunction = @import("md5.zig").Md5;
-const BytesToHash  = 1024 * Mb;
 
 const std = @import("std");
+const time = std.os.time;
+const Timer = time.Timer;
+const HashFunction = @import("md5.zig").Md5;
 
-const c = @cImport({
-    @cInclude("time.h");
-});
-
-const Mb = 1024 * 1024;
+const MiB = 1024 * 1024;
+const BytesToHash  = 1024 * MiB;
 
 pub fn main() !void {
     var stdout_file = try std.io.getStdOut();
@@ -29,15 +24,15 @@ pub fn main() !void {
     var h = HashFunction.init();
     var offset: usize = 0;
 
-    const start = c.clock();
+    var timer = try Timer.start();
+    const start = timer.lap();
     while (offset < BytesToHash) : (offset += block.len) {
         h.update(block[0..]);
     }
-    const end = c.clock();
+    const end = timer.read();
 
-    const elapsed_s = f64((end - start) * c.CLOCKS_PER_SEC) / 1000000;
+    const elapsed_s = f64(end - start) / time.ns_per_s;
     const throughput = u64(BytesToHash / elapsed_s);
 
-    try stdout.print("{}: ", @typeName(HashFunction));
-    try stdout.print("{} Mb/s\n", throughput);
+    try stdout.print("{}: {} MiB/s\n", @typeName(HashFunction), throughput / (1 * MiB));
 }

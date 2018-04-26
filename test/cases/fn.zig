@@ -104,3 +104,10 @@ test "number literal as an argument" {
 fn numberLiteralArg(a: var) void {
     assert(a == 3);
 }
+
+test "assign inline fn to const variable" {
+    const a = inlineFn;
+    a();
+}
+
+inline fn inlineFn() void { }

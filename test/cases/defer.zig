@@ -41,3 +41,14 @@ fn testBreakContInDefer(x: usize) void {
         assert(i == 5);
     }
 }
+
+test "defer and labeled break" {
+    var i = usize(0);
+
+    blk: {
+        defer i += 1;
+        break :blk;
+    }
+
+    assert(i == 1);
+}

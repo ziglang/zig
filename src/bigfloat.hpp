@@ -42,6 +42,7 @@ void bigfloat_div_trunc(BigFloat *dest, const BigFloat *op1, const BigFloat *op2
 void bigfloat_div_floor(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);
 void bigfloat_rem(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);
 void bigfloat_mod(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);
+void bigfloat_sqrt(BigFloat *dest, const BigFloat *op);
 void bigfloat_append_buf(Buf *buf, const BigFloat *op);
 Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2);
 

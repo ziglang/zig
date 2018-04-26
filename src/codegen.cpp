@@ -471,7 +471,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
                     fn_table_entry->llvm_value, buf_ptr(&fn_export->name));
         }
     }
-    fn_table_entry->llvm_name = LLVMGetValueName(fn_table_entry->llvm_value);
+    fn_table_entry->llvm_name = strdup(LLVMGetValueName(fn_table_entry->llvm_value));
 
     switch (fn_table_entry->fn_inline) {
         case FnInlineAlways:
@@ -516,7 +516,9 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     if (fn_table_entry->body_node != nullptr) {
-        bool want_fn_safety = g->build_mode != BuildModeFastRelease && !fn_table_entry->def_scope->safety_off;
+        bool want_fn_safety = g->build_mode != BuildModeFastRelease &&
+                              g->build_mode != BuildModeSmallRelease &&
+                              !fn_table_entry->def_scope->safety_off;
         if (want_fn_safety) {
             if (g->libc_link_lib != nullptr) {
                 addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
@@ -656,6 +658,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         }
         case ScopeIdDeferExpr:
         case ScopeIdLoop:
+        case ScopeIdSuspend:
         case ScopeIdCompTime:
         case ScopeIdCoroPrelude:
             return get_di_scope(g, scope->parent);
@@ -721,12 +724,12 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
     return fn_val;
 }
 
-static LLVMValueRef get_floor_ceil_fn(CodeGen *g, TypeTableEntry *type_entry, ZigLLVMFnId fn_id) {
+static LLVMValueRef get_float_fn(CodeGen *g, TypeTableEntry *type_entry, ZigLLVMFnId fn_id) {
     assert(type_entry->id == TypeTableEntryIdFloat);
 
     ZigLLVMFnKey key = {};
     key.id = fn_id;
-    key.data.floor_ceil.bit_count = (uint32_t)type_entry->data.floating.bit_count;
+    key.data.floating.bit_count = (uint32_t)type_entry->data.floating.bit_count;
 
     auto existing_entry = g->llvm_fn_table.maybe_get(key);
     if (existing_entry)
@@ -737,6 +740,8 @@ static LLVMValueRef get_floor_ceil_fn(CodeGen *g, TypeTableEntry *type_entry, Zi
         name = "floor";
     } else if (fn_id == ZigLLVMFnIdCeil) {
         name = "ceil";
+    } else if (fn_id == ZigLLVMFnIdSqrt) {
+        name = "sqrt";
     } else {
         zig_unreachable();
     }
@@ -819,7 +824,7 @@ static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
 }
 
 static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
-    if (g->build_mode == BuildModeFastRelease)
+    if (g->build_mode == BuildModeFastRelease || g->build_mode == BuildModeSmallRelease)
         return false;
 
     // TODO memoize
@@ -1867,7 +1872,7 @@ static LLVMValueRef gen_floor(CodeGen *g, LLVMValueRef val, TypeTableEntry *type
     if (type_entry->id == TypeTableEntryIdInt)
         return val;
 
-    LLVMValueRef floor_fn = get_floor_ceil_fn(g, type_entry, ZigLLVMFnIdFloor);
+    LLVMValueRef floor_fn = get_float_fn(g, type_entry, ZigLLVMFnIdFloor);
     return LLVMBuildCall(g->builder, floor_fn, &val, 1, "");
 }
 
@@ -1875,7 +1880,7 @@ static LLVMValueRef gen_ceil(CodeGen *g, LLVMValueRef val, TypeTableEntry *type_
     if (type_entry->id == TypeTableEntryIdInt)
         return val;
 
-    LLVMValueRef ceil_fn = get_floor_ceil_fn(g, type_entry, ZigLLVMFnIdCeil);
+    LLVMValueRef ceil_fn = get_float_fn(g, type_entry, ZigLLVMFnIdCeil);
     return LLVMBuildCall(g->builder, ceil_fn, &val, 1, "");
 }
 
@@ -3186,10 +3191,12 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, Bui
         fn_name = "cttz";
         key.id = ZigLLVMFnIdCtz;
         key.data.ctz.bit_count = (uint32_t)int_type->data.integral.bit_count;
-    } else {
+    } else if (fn_id == BuiltinFnIdClz) {
         fn_name = "ctlz";
         key.id = ZigLLVMFnIdClz;
         key.data.clz.bit_count = (uint32_t)int_type->data.integral.bit_count;
+    } else {
+        zig_unreachable();
     }
 
     auto existing_entry = g->llvm_fn_table.maybe_get(key);
@@ -3491,9 +3498,30 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
     LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering(instruction->failure_order);
 
     LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
-            success_order, failure_order);
+            success_order, failure_order, instruction->is_weak);
 
-    return LLVMBuildExtractValue(g->builder, result_val, 1, "");
+    TypeTableEntry *maybe_type = instruction->base.value.type;
+    assert(maybe_type->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
+
+    if (type_is_codegen_pointer(child_type)) {
+        LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
+        LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
+        return LLVMBuildSelect(g->builder, success_bit, LLVMConstNull(child_type->type_ref), payload_val, "");
+    }
+
+    assert(instruction->tmp_ptr != nullptr);
+    assert(type_has_bits(instruction->type));
+
+    LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
+    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_child_index, "");
+    gen_assign_raw(g, val_ptr, get_pointer_to_type(g, instruction->type, false), payload_val);
+
+    LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
+    LLVMValueRef nonnull_bit = LLVMBuildNot(g->builder, success_bit, "");
+    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_null_index, "");
+    gen_store_untyped(g, nonnull_bit, maybe_ptr, 0, false);
+    return instruction->tmp_ptr;
 }
 
 static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInstructionFence *instruction) {
@@ -4296,6 +4324,16 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
     return LLVMBuildIntToPtr(g->builder, uncasted_result, operand_type->type_ref, "");
 }
 
+static LLVMValueRef ir_render_atomic_load(CodeGen *g, IrExecutable *executable,
+        IrInstructionAtomicLoad *instruction)
+{
+    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
+    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+    LLVMValueRef load_inst = gen_load(g, ptr, instruction->ptr->value.type, "");
+    LLVMSetOrdering(load_inst, ordering);
+    return load_inst;
+}
+
 static LLVMValueRef ir_render_merge_err_ret_traces(CodeGen *g, IrExecutable *executable,
         IrInstructionMergeErrRetTraces *instruction)
 {
@@ -4315,6 +4353,13 @@ static LLVMValueRef ir_render_mark_err_ret_trace_ptr(CodeGen *g, IrExecutable *e
     assert(g->have_err_ret_tracing);
     g->cur_err_ret_trace_val_stack = ir_llvm_value(g, instruction->err_ret_trace_ptr);
     return nullptr;
+}
+
+static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstructionSqrt *instruction) {
+    LLVMValueRef op = ir_llvm_value(g, instruction->op);
+    assert(instruction->base.value.type->id == TypeTableEntryIdFloat);
+    LLVMValueRef fn_val = get_float_fn(g, instruction->base.value.type, ZigLLVMFnIdSqrt);
+    return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
 }
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
@@ -4532,12 +4577,16 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_coro_alloc_helper(g, executable, (IrInstructionCoroAllocHelper *)instruction);
         case IrInstructionIdAtomicRmw:
             return ir_render_atomic_rmw(g, executable, (IrInstructionAtomicRmw *)instruction);
+        case IrInstructionIdAtomicLoad:
+            return ir_render_atomic_load(g, executable, (IrInstructionAtomicLoad *)instruction);
         case IrInstructionIdSaveErrRetAddr:
             return ir_render_save_err_ret_addr(g, executable, (IrInstructionSaveErrRetAddr *)instruction);
         case IrInstructionIdMergeErrRetTraces:
             return ir_render_merge_err_ret_traces(g, executable, (IrInstructionMergeErrRetTraces *)instruction);
         case IrInstructionIdMarkErrRetTracePtr:
             return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
+        case IrInstructionIdSqrt:
+            return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
     }
     zig_unreachable();
 }
@@ -5476,6 +5525,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdErrWrapCode) {
                 IrInstructionErrWrapCode *err_wrap_code_instruction = (IrInstructionErrWrapCode *)instruction;
                 slot = &err_wrap_code_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdCmpxchg) {
+                IrInstructionCmpxchg *cmpxchg_instruction = (IrInstructionCmpxchg *)instruction;
+                slot = &cmpxchg_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }
@@ -5637,10 +5689,12 @@ static void do_code_gen(CodeGen *g) {
     os_path_join(g->cache_dir, o_basename, output_path);
     ensure_cache_dir(g);
 
+    bool is_small = g->build_mode == BuildModeSmallRelease;
+
     switch (g->emit_file_type) {
         case EmitFileTypeBinary:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug))
+                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small))
             {
                 zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -5650,7 +5704,7 @@ static void do_code_gen(CodeGen *g) {
 
         case EmitFileTypeAssembly:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug))
+                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug, is_small))
             {
                 zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -5659,7 +5713,7 @@ static void do_code_gen(CodeGen *g) {
 
         case EmitFileTypeLLVMIr:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug))
+                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug, is_small))
             {
                 zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -5985,6 +6039,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
     create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
+    create_builtin_fn(g, BuiltinFnIdField, "field", 2);
     create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
@@ -6001,7 +6056,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdTypeName, "typeName", 1);
     create_builtin_fn(g, BuiltinFnIdCanImplicitCast, "canImplicitCast", 2);
     create_builtin_fn(g, BuiltinFnIdEmbedFile, "embedFile", 1);
-    create_builtin_fn(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
+    create_builtin_fn(g, BuiltinFnIdCmpxchgWeak, "cmpxchgWeak", 6);
+    create_builtin_fn(g, BuiltinFnIdCmpxchgStrong, "cmpxchgStrong", 6);
     create_builtin_fn(g, BuiltinFnIdFence, "fence", 1);
     create_builtin_fn(g, BuiltinFnIdTruncate, "truncate", 2);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
@@ -6024,6 +6080,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdDivFloor, "divFloor", 2);
     create_builtin_fn(g, BuiltinFnIdRem, "rem", 2);
     create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
+    create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 2);
     create_builtin_fn(g, BuiltinFnIdInlineCall, "inlineCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdNoInlineCall, "noInlineCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdTypeId, "typeId", 1);
@@ -6037,6 +6094,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdExport, "export", 3);
     create_builtin_fn(g, BuiltinFnIdErrorReturnTrace, "errorReturnTrace", 0);
     create_builtin_fn(g, BuiltinFnIdAtomicRmw, "atomicRmw", 5);
+    create_builtin_fn(g, BuiltinFnIdAtomicLoad, "atomicLoad", 3);
 }
 
 static const char *bool_to_str(bool b) {
@@ -6048,6 +6106,7 @@ static const char *build_mode_to_str(BuildMode build_mode) {
         case BuildModeDebug: return "Mode.Debug";
         case BuildModeSafeRelease: return "Mode.ReleaseSafe";
         case BuildModeFastRelease: return "Mode.ReleaseFast";
+        case BuildModeSmallRelease: return "Mode.ReleaseSmall";
     }
     zig_unreachable();
 }
@@ -6188,6 +6247,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    Debug,\n"
             "    ReleaseSafe,\n"
             "    ReleaseFast,\n"
+            "    ReleaseSmall,\n"
             "};\n\n");
     }
     {
@@ -6238,7 +6298,8 @@ static void define_builtin_compile_vars(CodeGen *g) {
     int err;
     Buf *abs_full_path = buf_alloc();
     if ((err = os_path_real(builtin_zig_path, abs_full_path))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(builtin_zig_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s", buf_ptr(builtin_zig_path), err_str(err));
+        exit(1);
     }
 
     assert(g->root_package);
@@ -6358,7 +6419,7 @@ static void init(CodeGen *g) {
         }
     }
 
-    g->have_err_ret_tracing = g->build_mode != BuildModeFastRelease;
+    g->have_err_ret_tracing = g->build_mode != BuildModeFastRelease && g->build_mode != BuildModeSmallRelease;
 
     define_builtin_fns(g);
     define_builtin_compile_vars(g);
@@ -6492,12 +6553,14 @@ static void gen_root_source(CodeGen *g) {
     Buf *abs_full_path = buf_alloc();
     int err;
     if ((err = os_path_real(rel_full_path, abs_full_path))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        exit(1);
     }
 
     Buf *source_code = buf_alloc();
     if ((err = os_fetch_file_path(rel_full_path, source_code, true))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        exit(1);
     }
 
     g->root_import = add_source_file(g, g->root_package, abs_full_path, source_code);
@@ -7050,4 +7113,3 @@ PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, 
     }
     return pkg;
 }
-

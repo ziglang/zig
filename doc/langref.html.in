@@ -3880,6 +3880,25 @@ pub fn main() void {
       {#header_open|@ArgType#}
       <p>TODO</p>
       {#header_close#}
+      {#header_open|@atomicLoad#}
+      <pre><code class="zig">@atomicLoad(comptime T: type, ptr: &amp;const T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
+      <p>
+      This builtin function atomically dereferences a pointer and returns the value.
+      </p>
+      <p>
+      <code>T</code> must be a pointer type, a <code>bool</code>,
+      or an integer whose bit count meets these requirements:
+      </p>
+      <ul>
+          <li>At least 8</li>
+          <li>At most the same as usize</li>
+          <li>Power of 2</li>
+      </ul>
+      <p>
+      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
+      we can remove this restriction
+      </p>
+      {#header_close#}
       {#header_open|@atomicRmw#}
       <pre><code class="zig">@atomicRmw(comptime T: type, ptr: &amp;T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
       <p>
@@ -4046,16 +4065,60 @@ comptime {
       </p>
 
       {#header_close#}
-      {#header_open|@cmpxchg#}
-      <pre><code class="zig">@cmpxchg(ptr: &T, cmp: T, new: T, success_order: AtomicOrder, fail_order: AtomicOrder) -&gt; bool</code></pre>
+      {#header_open|@cmpxchgStrong#}
+      <pre><code class="zig">@cmpxchgStrong(comptime T: type, ptr: &T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) -&gt; ?T</code></pre>
       <p>
-      This function performs an atomic compare exchange operation.
+      This function performs a strong atomic compare exchange operation. It's the equivalent of this code,
+      except atomic:
+      </p>
+      {#code_begin|syntax#}
+fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
+    const old_value = *ptr;
+    if (old_value == expected_value) {
+        *ptr = new_value;
+        return null;
+    } else {
+        return old_value;
+    }
+}
+      {#code_end#}
+      <p>
+      If you are using cmpxchg in a loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
+      more efficiently in machine instructions.
       </p>
       <p>
       <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
       </p>
       <p><code>@typeOf(ptr).alignment</code> must be <code>&gt;= @sizeOf(T).</code></p>
-      {#see_also|Compile Variables#}
+      {#see_also|Compile Variables|cmpxchgWeak#}
+      {#header_close#}
+      {#header_open|@cmpxchgWeak#}
+      <pre><code class="zig">@cmpxchgWeak(comptime T: type, ptr: &T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) -&gt; ?T</code></pre>
+      <p>
+      This function performs a weak atomic compare exchange operation. It's the equivalent of this code,
+      except atomic:
+      </p>
+      {#code_begin|syntax#}
+fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
+    const old_value = *ptr;
+    if (old_value == expected_value and usuallyTrueButSometimesFalse()) {
+        *ptr = new_value;
+        return null;
+    } else {
+        return old_value;
+    }
+}
+      {#code_end#}
+      <p>
+      If you are using cmpxchg in a loop, the sporadic failure will be no problem, and <code>cmpxchgWeak</code>
+      is the better choice, because it can be implemented more efficiently in machine instructions.
+      However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
+      </p>
+      <p>
+      <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
+      </p>
+      <p><code>@typeOf(ptr).alignment</code> must be <code>&gt;= @sizeOf(T).</code></p>
+      {#see_also|Compile Variables|cmpxchgStrong#}
       {#header_close#}
       {#header_open|@compileError#}
       <pre><code class="zig">@compileError(comptime msg: []u8)</code></pre>
@@ -4348,6 +4411,10 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       <p>
       It does not include functions, variables, or constants.
       </p>
+      {#header_close#}
+      {#header_open|@field#}
+      <pre><code class="zig">@field(lhs: var, comptime field_name: []const u8) -&gt; (field)</code></pre>
+      <p>Preforms field access equivalent to <code>lhs.-&gtfield_name-&lt</code>.</p>
       {#header_close#}
       {#header_open|@memberType#}
       <pre><code class="zig">@memberType(comptime T: type, comptime index: usize) -&gt; type</code></pre>
@@ -4667,6 +4734,16 @@ pub const FloatMode = enum {
       </p>
       <p>
       The result is a target-specific compile time constant.
+      </p>
+      {#header_close#}
+      {#header_open|@sqrt#}
+      <pre><code class="zig">@sqrt(comptime T: type, value: T) -&gt; T</code></pre>
+      <p>
+      Performs the square root of a floating point number. Uses a dedicated hardware instruction
+      when available. Currently only supports f32 and f64 at runtime. f128 at runtime is TODO.
+      </p>
+      <p>
+      This is a low-level intrinsic. Most code can use <code>std.math.sqrt</code> instead.
       </p>
       {#header_close#}
       {#header_open|@subWithOverflow#}
@@ -5845,7 +5922,7 @@ Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = option(Symbol ":") "suspend" option(("|" Symbol "|" body))
 
 IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
@@ -5991,7 +6068,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
-            built_in: "breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchg fence divExact truncate atomicRmw",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

@@ -89,6 +89,8 @@ pub fn ln_32(x_: f32) f32 {
 }
 
 pub fn ln_64(x_: f64) f64 {
+    @setFloatMode(this, @import("builtin").FloatMode.Strict);
+
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
     const Lg1: f64 = 6.666666666666735130e-01;

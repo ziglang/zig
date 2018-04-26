@@ -358,9 +358,18 @@ static void ir_print_ptr_type_child(IrPrint *irp, IrInstructionPtrTypeChild *ins
 }
 
 static void ir_print_field_ptr(IrPrint *irp, IrInstructionFieldPtr *instruction) {
-    fprintf(irp->f, "fieldptr ");
-    ir_print_other_instruction(irp, instruction->container_ptr);
-    fprintf(irp->f, ".%s", buf_ptr(instruction->field_name));
+    if (instruction->field_name_buffer) {
+        fprintf(irp->f, "fieldptr ");
+        ir_print_other_instruction(irp, instruction->container_ptr);
+        fprintf(irp->f, ".%s", buf_ptr(instruction->field_name_buffer));
+    } else {
+        assert(instruction->field_name_expr);
+        fprintf(irp->f, "@field(");
+        ir_print_other_instruction(irp, instruction->container_ptr);
+        fprintf(irp->f, ", ");
+        ir_print_other_instruction(irp, instruction->field_name_expr);
+        fprintf(irp->f, ")");
+    }
 }
 
 static void ir_print_struct_field_ptr(IrPrint *irp, IrInstructionStructFieldPtr *instruction) {
@@ -1172,6 +1181,24 @@ static void ir_print_atomic_rmw(IrPrint *irp, IrInstructionAtomicRmw *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_atomic_load(IrPrint *irp, IrInstructionAtomicLoad *instruction) {
+    fprintf(irp->f, "@atomicLoad(");
+    if (instruction->operand_type != nullptr) {
+        ir_print_other_instruction(irp, instruction->operand_type);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ",");
+    if (instruction->ordering != nullptr) {
+        ir_print_other_instruction(irp, instruction->ordering);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_await_bookkeeping(IrPrint *irp, IrInstructionAwaitBookkeeping *instruction) {
     fprintf(irp->f, "@awaitBookkeeping(");
     ir_print_other_instruction(irp, instruction->promise_result_type);
@@ -1201,6 +1228,18 @@ static void ir_print_merge_err_ret_traces(IrPrint *irp, IrInstructionMergeErrRet
 static void ir_print_mark_err_ret_trace_ptr(IrPrint *irp, IrInstructionMarkErrRetTracePtr *instruction) {
     fprintf(irp->f, "@markErrRetTracePtr(");
     ir_print_other_instruction(irp, instruction->err_ret_trace_ptr);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_sqrt(IrPrint *irp, IrInstructionSqrt *instruction) {
+    fprintf(irp->f, "@sqrt(");
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
     fprintf(irp->f, ")");
 }
 
@@ -1589,6 +1628,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdMarkErrRetTracePtr:
             ir_print_mark_err_ret_trace_ptr(irp, (IrInstructionMarkErrRetTracePtr *)instruction);
+            break;
+        case IrInstructionIdSqrt:
+            ir_print_sqrt(irp, (IrInstructionSqrt *)instruction);
+            break;
+        case IrInstructionIdAtomicLoad:
+            ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

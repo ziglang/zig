@@ -86,6 +86,11 @@ static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count)
     size_t digits_to_copy = bit_count / 64;
     size_t leftover_bits = bit_count % 64;
     dest->digit_count = digits_to_copy + ((leftover_bits == 0) ? 0 : 1);
+    if (dest->digit_count == 1 && leftover_bits == 0) {
+        dest->data.digit = op_digits[0];
+        if (dest->data.digit == 0) dest->digit_count = 0;
+        return;
+    }
     dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
     for (size_t i = 0; i < digits_to_copy; i += 1) {
         uint64_t digit = (i < op->digit_count) ? op_digits[i] : 0;

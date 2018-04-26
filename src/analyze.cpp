@@ -156,6 +156,14 @@ ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
+ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeSuspend);
+    ScopeSuspend *scope = allocate<ScopeSuspend>(1);
+    init_scope(&scope->base, ScopeIdSuspend, node, parent);
+    scope->name = node->data.suspend.name;
+    return scope;
+}
+
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
     ScopeFnDef *scope = allocate<ScopeFnDef>(1);
     init_scope(&scope->base, ScopeIdFnDef, node, parent);
@@ -3616,6 +3624,7 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope) {
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdLoop:
+            case ScopeIdSuspend:
             case ScopeIdCompTime:
             case ScopeIdCoroPrelude:
                 scope = scope->parent;
@@ -4297,7 +4306,8 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
     if (g->win_sdk == nullptr) {
         if (os_find_windows_sdk(&g->win_sdk)) {
-            zig_panic("Unable to determine Windows SDK path.");
+            fprintf(stderr, "unable to determine windows sdk path\n");
+            exit(1);
         }
     }
     assert(g->win_sdk != nullptr);
@@ -4399,7 +4409,8 @@ void find_libc_include_path(CodeGen *g) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
             g->libc_include_dir = buf_alloc();
             if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
-                zig_panic("Unable to determine libc include path.");
+                fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
+                exit(1);
             }
         } else if (g->zig_target.os == OsLinux) {
             g->libc_include_dir = get_linux_libc_include_path();
@@ -4421,24 +4432,33 @@ void find_libc_lib_path(CodeGen *g) {
         if (g->zig_target.os == OsWindows) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
 
-            Buf* vc_lib_dir = buf_alloc();
-            if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine vcruntime path.");
+            if (g->msvc_lib_dir == nullptr) {
+                Buf* vc_lib_dir = buf_alloc();
+                if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
+                    fprintf(stderr, "Unable to determine vcruntime path. --msvc-lib-dir");
+                    exit(1);
+                }
+                g->msvc_lib_dir = vc_lib_dir;
             }
 
-            Buf* ucrt_lib_path = buf_alloc();
-            if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine ucrt path.");
+            if (g->libc_lib_dir == nullptr) {
+                Buf* ucrt_lib_path = buf_alloc();
+                if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
+                    fprintf(stderr, "Unable to determine ucrt path. --libc-lib-dir");
+                    exit(1);
+                }
+                g->libc_lib_dir = ucrt_lib_path;
             }
 
-            Buf* kern_lib_path = buf_alloc();
-            if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine kernel32 path.");
+            if (g->kernel32_lib_dir == nullptr) {
+                Buf* kern_lib_path = buf_alloc();
+                if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
+                    fprintf(stderr, "Unable to determine kernel32 path. --kernel32-lib-dir");
+                    exit(1);
+                }
+                g->kernel32_lib_dir = kern_lib_path;
             }
 
-            g->msvc_lib_dir = vc_lib_dir;
-            g->libc_lib_dir = ucrt_lib_path;
-            g->kernel32_lib_dir = kern_lib_path;
         } else if (g->zig_target.os == OsLinux) {
             g->libc_lib_dir = get_linux_libc_lib_path("crt1.o");
         } else {
@@ -5801,9 +5821,11 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
         case ZigLLVMFnIdClz:
             return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
         case ZigLLVMFnIdFloor:
-            return (uint32_t)(x.data.floor_ceil.bit_count) * (uint32_t)1899859168;
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1899859168;
         case ZigLLVMFnIdCeil:
-            return (uint32_t)(x.data.floor_ceil.bit_count) * (uint32_t)1953839089;
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1953839089;
+        case ZigLLVMFnIdSqrt:
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)2225366385;
         case ZigLLVMFnIdOverflowArithmetic:
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
@@ -5822,7 +5844,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.clz.bit_count == b.data.clz.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
-            return a.data.floor_ceil.bit_count == b.data.floor_ceil.bit_count;
+        case ZigLLVMFnIdSqrt:
+            return a.data.floating.bit_count == b.data.floating.bit_count;
         case ZigLLVMFnIdOverflowArithmetic:
             return (a.data.overflow_arithmetic.bit_count == b.data.overflow_arithmetic.bit_count) &&
                 (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&

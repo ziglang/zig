@@ -9,11 +9,10 @@ test "std.os" {
     _ = @import("darwin.zig");
     _ = @import("darwin_errno.zig");
     _ = @import("get_user_id.zig");
-    _ = @import("linux/errno.zig");
     _ = @import("linux/index.zig");
-    _ = @import("linux/x86_64.zig");
     _ = @import("path.zig");
     _ = @import("test.zig");
+    _ = @import("time.zig");
     _ = @import("windows/index.zig");
 }
 
@@ -32,6 +31,7 @@ pub const net = @import("net.zig");
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
 pub const File = @import("file.zig").File;
+pub const time = @import("time.zig");
 
 pub const FileMode = switch (builtin.os) {
     Os.windows => void,
@@ -478,6 +478,7 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     };
 }
 
+pub var linux_aux_raw = []usize{0} ** 38;
 pub var posix_environ_raw: []&u8 = undefined;
 
 /// Caller must free result when done.
@@ -1377,50 +1378,6 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) ![]u8 {
         }
         return allocator.shrink(u8, result_buf, ret_val);
     }
-}
-
-pub fn sleep(seconds: usize, nanoseconds: usize) void {
-    switch(builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
-            posixSleep(u63(seconds), u63(nanoseconds));
-        },
-        Os.windows => {
-            const milliseconds = seconds * 1000 + nanoseconds / 1000000;
-            windows.Sleep(windows.DWORD(milliseconds));
-        },
-        else => @compileError("Unsupported OS"),
-    }
-}
-
-const u63 = @IntType(false, 63);
-pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
-    var req = posix.timespec {
-        .tv_sec = seconds,
-        .tv_nsec = nanoseconds,
-    };
-    var rem: posix.timespec = undefined;
-    while (true) {
-        const ret_val = posix.nanosleep(&req, &rem);
-        const err = posix.getErrno(ret_val);
-        if (err == 0) return;
-        switch (err) {
-            posix.EFAULT => unreachable,
-            posix.EINVAL => {
-                // Sometimes Darwin returns EINVAL for no reason.
-                // We treat it as a spurious wakeup.
-                return;
-            },
-            posix.EINTR => {
-                req = rem;
-                continue;
-            },
-            else => return,
-        }
-    }
-}
-
-test "os.sleep" {
-    sleep(0, 1);
 }
 
 pub fn posix_setuid(uid: u32) !void {
@@ -2382,5 +2339,134 @@ pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
         posix.EINVAL => unreachable,
         posix.ENOPROTOOPT => unreachable, // The option is unknown at the level indicated.
         posix.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+    }
+}
+
+pub const Thread = struct {
+    pid: i32,
+    allocator: ?&mem.Allocator,
+    stack: []u8,
+
+    pub fn wait(self: &const Thread) void {
+        while (true) {
+            const pid_value = @atomicLoad(i32, &self.pid, builtin.AtomicOrder.SeqCst);
+            if (pid_value == 0) break;
+            const rc = linux.futex_wait(@ptrToInt(&self.pid), linux.FUTEX_WAIT, pid_value, null);
+            switch (linux.getErrno(rc)) {
+                0 => continue,
+                posix.EINTR => continue,
+                posix.EAGAIN => continue,
+                else => unreachable,
+            }
+        }
+        if (self.allocator) |a| {
+            a.free(self.stack);
+        }
+    }
+};
+
+pub const SpawnThreadError = error {
+    /// A system-imposed limit on the number of threads was encountered.
+    /// There are a number of limits that may trigger this error:
+    /// *  the  RLIMIT_NPROC soft resource limit (set via setrlimit(2)),
+    ///    which limits the number of processes and threads for  a  real
+    ///    user ID, was reached;
+    /// *  the kernel's system-wide limit on the number of processes and
+    ///    threads,  /proc/sys/kernel/threads-max,  was   reached   (see
+    ///    proc(5));
+    /// *  the  maximum  number  of  PIDs, /proc/sys/kernel/pid_max, was
+    ///    reached (see proc(5)); or
+    /// *  the PID limit (pids.max) imposed by the cgroup "process  num‐
+    ///    ber" (PIDs) controller was reached.
+    ThreadQuotaExceeded,
+
+    /// The kernel cannot allocate sufficient memory to allocate a task structure
+    /// for the child, or to copy those parts of the caller's context that need to
+    /// be copied.
+    SystemResources,
+
+    Unexpected,
+};
+
+pub const SpawnThreadAllocatorError = SpawnThreadError || error{OutOfMemory};
+
+/// caller must call wait on the returned thread
+/// fn startFn(@typeOf(context)) T
+/// where T is u8, noreturn, void, or !void
+pub fn spawnThreadAllocator(allocator: &mem.Allocator, context: var, comptime startFn: var) SpawnThreadAllocatorError!&Thread {
+    // TODO compile-time call graph analysis to determine stack upper bound
+    // https://github.com/zig-lang/zig/issues/157
+    const default_stack_size = 8 * 1024 * 1024;
+    const stack_bytes = try allocator.alloc(u8, default_stack_size);
+    const thread = try spawnThread(stack_bytes, context, startFn);
+    thread.allocator = allocator;
+    return thread;
+}
+
+/// stack must be big enough to store one Thread and one @typeOf(context), each with default alignment, at the end
+/// fn startFn(@typeOf(context)) T
+/// where T is u8, noreturn, void, or !void
+/// caller must call wait on the returned thread
+pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThreadError!&Thread {
+    const Context = @typeOf(context);
+    comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
+
+    var stack_end: usize = @ptrToInt(stack.ptr) + stack.len;
+    var arg: usize = undefined;
+    if (@sizeOf(Context) != 0) {
+        stack_end -= @sizeOf(Context);
+        stack_end -= stack_end % @alignOf(Context);
+        assert(stack_end >= @ptrToInt(stack.ptr));
+        const context_ptr = @alignCast(@alignOf(Context), @intToPtr(&Context, stack_end));
+        *context_ptr = context;
+        arg = stack_end;
+    }
+
+    stack_end -= @sizeOf(Thread);
+    stack_end -= stack_end % @alignOf(Thread);
+    assert(stack_end >= @ptrToInt(stack.ptr));
+    const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(&Thread, stack_end));
+    thread_ptr.stack = stack;
+    thread_ptr.allocator = null;
+
+    const threadMain = struct {
+        extern fn threadMain(ctx_addr: usize) u8 {
+            if (@sizeOf(Context) == 0) {
+                return startFn({});
+            } else {
+                return startFn(*@intToPtr(&const Context, ctx_addr));
+            }
+        }
+    }.threadMain;
+
+    const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND
+        | posix.CLONE_THREAD | posix.CLONE_SYSVSEM // | posix.CLONE_SETTLS
+        | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
+    const newtls: usize = 0;
+    const rc = posix.clone(threadMain, stack_end, flags, arg, &thread_ptr.pid, newtls, &thread_ptr.pid);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return thread_ptr,
+        posix.EAGAIN => return SpawnThreadError.ThreadQuotaExceeded,
+        posix.EINVAL => unreachable,
+        posix.ENOMEM => return SpawnThreadError.SystemResources,
+        posix.ENOSPC => unreachable,
+        posix.EPERM => unreachable,
+        posix.EUSERS => unreachable,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub fn posixWait(pid: i32) i32 {
+    var status: i32 = undefined;
+    while (true) {
+        const err = posix.getErrno(posix.waitpid(pid, &status, 0));
+        switch (err) {
+            0 => return status,
+            posix.EINTR => continue,
+            posix.ECHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            posix.EINVAL => unreachable, // The options argument was invalid
+            else => unreachable,
+        }
     }
 }

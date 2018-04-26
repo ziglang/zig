@@ -79,19 +79,38 @@ pub const DirectAllocator = struct {
 
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
-                assert(alignment <= os.page_size);
                 const p = os.posix;
-                const addr = p.mmap(null, n, p.PROT_READ|p.PROT_WRITE,
-                    p.MAP_PRIVATE|p.MAP_ANONYMOUS, -1, 0);
-                if (addr == p.MAP_FAILED) {
-                    return error.OutOfMemory;
-                }
-                return @intToPtr(&u8, addr)[0..n];
+                const alloc_size = if(alignment <= os.page_size) n else n + alignment;
+                const addr = p.mmap(null, alloc_size, p.PROT_READ|p.PROT_WRITE, 
+                        p.MAP_PRIVATE|p.MAP_ANONYMOUS, -1, 0);
+                if(addr == p.MAP_FAILED) return error.OutOfMemory;
+                
+                if(alloc_size == n) return @intToPtr(&u8, addr)[0..n];
+                
+                var aligned_addr = addr & ~usize(alignment - 1);
+                aligned_addr += alignment;
+                
+                //We can unmap the unused portions of our mmap, but we must only
+                //  pass munmap bytes that exist outside our allocated pages or it
+                //  will happily eat us too
+                
+                //Since alignment > page_size, we are by definition on a page boundry
+                const unused_start = addr;
+                const unused_len = aligned_addr - 1 - unused_start;
+
+                var err = p.munmap(@intToPtr(&u8, unused_start), unused_len);
+                debug.assert(p.getErrno(err) == 0);
+                
+                //It is impossible that there is an unoccupied page at the top of our
+                //  mmap.
+                
+                return @intToPtr(&u8, aligned_addr)[0..n];
             },
             Os.windows => {
                 const amt = n + alignment + @sizeOf(usize);
                 const heap_handle = self.heap_handle ?? blk: {
-                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0) ?? return error.OutOfMemory;
+                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0)
+                        ?? return error.OutOfMemory;
                     self.heap_handle = hh;
                     break :blk hh;
                 };
@@ -322,6 +341,7 @@ test "DirectAllocator" {
 
     const allocator = &direct_allocator.allocator;
     try testAllocator(allocator);
+    try testAllocatorLargeAlignment(allocator);
 }
 
 test "ArenaAllocator" {
@@ -332,6 +352,7 @@ test "ArenaAllocator" {
     defer arena_allocator.deinit();
 
     try testAllocator(&arena_allocator.allocator);
+    try testAllocatorLargeAlignment(&arena_allocator.allocator);
 }
 
 var test_fixed_buffer_allocator_memory: [30000 * @sizeOf(usize)]u8 = undefined;
@@ -339,6 +360,7 @@ test "FixedBufferAllocator" {
     var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
     try testAllocator(&fixed_buffer_allocator.allocator);
+    try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
 }
 
 fn testAllocator(allocator: &mem.Allocator) !void {
@@ -357,6 +379,35 @@ fn testAllocator(allocator: &mem.Allocator) !void {
     slice = try allocator.realloc(&i32, slice, 50);
     slice = try allocator.realloc(&i32, slice, 25);
     slice = try allocator.realloc(&i32, slice, 10);
+
+    allocator.free(slice);
+}
+
+fn testAllocatorLargeAlignment(allocator: &mem.Allocator) mem.Allocator.Error!void {
+    //Maybe a platform's page_size is actually the same as or 
+    //  very near usize?
+    if(os.page_size << 2 > @maxValue(usize)) return;
+    
+    const USizeShift = @IntType(false, std.math.log2(usize.bit_count));
+    const large_align = u29(os.page_size << 2);
+ 
+    var align_mask: usize = undefined;
+    _ = @shlWithOverflow(usize, ~usize(0), USizeShift(@ctz(large_align)), &align_mask);
+    
+    var slice = try allocator.allocFn(allocator, 500, large_align);
+    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    
+    slice = try allocator.reallocFn(allocator, slice, 100, large_align);
+    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    
+    slice = try allocator.reallocFn(allocator, slice, 5000, large_align);
+    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    
+    slice = try allocator.reallocFn(allocator, slice, 10, large_align);
+    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    
+    slice = try allocator.reallocFn(allocator, slice, 20000, large_align);
+    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     allocator.free(slice);
 }
