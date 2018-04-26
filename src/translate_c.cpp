@@ -2245,6 +2245,9 @@ static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt
             case Decl::TranslationUnit:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TranslationUnit");
                 return ErrorUnexpected;
+            case Decl::Concept:
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Concept");
+                return ErrorUnexpected;
         }
         zig_unreachable();
     }
