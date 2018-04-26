@@ -6426,7 +6426,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    };\n"
             "\n"
             "    pub const ErrorUnion = struct {\n"
-            "        error_set: &ErrorSet,\n"
+            "        error_set: type,\n"
             "        payload: type,\n"
             "    };\n"
             "\n"
