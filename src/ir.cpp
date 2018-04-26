@@ -16174,6 +16174,63 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
                 // methods: []TypeInfo.Method
                 return result;
             }
+        case TypeTableEntryIdErrorSet:
+            {
+                ConstExprValue *result = create_const_vals(1);
+                result->special = ConstValSpecialStatic;
+                result->type = ir_type_info_get_type(ira, "ErrorSet");
+
+                ConstExprValue *fields = create_const_vals(1);
+                result->data.x_struct.fields = fields;
+
+                ir_type_info_struct_set_parent(result, parent, parent_field_index);
+                ira->codegen->type_info_cache.put(type_entry, result);
+
+                // errors: []TypeInfo.Error
+                ensure_field_index(result->type, "errors", 0);
+
+                TypeTableEntry *type_info_error_type = ir_type_info_get_type(ira, "Error");
+                // @TODO Same as above in Enum TypeInfo generation.
+                // ensure_field_index(type_info_error_type, "name", 0);
+                // ensure_field_index(type_info_error_type, "value", 1);
+
+                uint32_t error_count = type_entry->data.error_set.err_count;
+                ConstExprValue *error_array = create_const_vals(1);
+                error_array->special = ConstValSpecialStatic;
+                error_array->type = get_array_type(ira->codegen, type_info_error_type, error_count);
+                error_array->data.x_array.special = ConstArraySpecialNone;
+                error_array->data.x_array.s_none.parent.id = ConstParentIdNone;
+                error_array->data.x_array.s_none.elements = create_const_vals(error_count);
+
+                init_const_slice(ira->codegen, &fields[0], error_array, 0, error_count, false);
+                for (uint32_t error_index = 0; error_index < error_count; error_index++)
+                {
+                    ErrorTableEntry *error = type_entry->data.error_set.errors[error_index];
+                    ConstExprValue *error_val = &error_array->data.x_array.s_none.elements[error_index];
+
+                    error_val->special = ConstValSpecialStatic;
+                    error_val->type = type_info_error_type;
+
+                    ConstExprValue *inner_fields = create_const_vals(2);
+                    inner_fields[1].special = ConstValSpecialStatic;
+                    inner_fields[1].type = ira->codegen->builtin_types.entry_usize;
+
+                    ConstExprValue *name = nullptr;
+                    if (error->cached_error_name_val != nullptr)
+                        name = error->cached_error_name_val;
+                    if (name == nullptr)
+                        name = create_const_str_lit(ira->codegen, &error->name);
+                    init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(&error->name), true);
+                    bigint_init_unsigned(&inner_fields[1].data.x_bigint, error->value);
+
+                    error_val->data.x_struct.fields = inner_fields;
+                    error_val->data.x_struct.parent.id = ConstParentIdArray;
+                    error_val->data.x_struct.parent.data.p_array.array_val = error_array;
+                    error_val->data.x_struct.parent.data.p_array.elem_index = error_index;
+                }
+
+                return result;
+            }
         default:
             zig_unreachable();
     }
