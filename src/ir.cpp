@@ -15810,17 +15810,61 @@ static TypeTableEntry *ir_type_info_get_type(IrAnalyze *ira, const char *type_na
 static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *parent,
         ssize_t parent_field_index, TypeTableEntry *type_entry)
 {
+    assert(type_entry != nullptr);
+    assert(!type_is_invalid(type_entry));
+
     // Lookup an available value in our cache.
     auto entry = ira->codegen->type_info_cache.maybe_get(type_entry);
     if (entry != nullptr)
-        return entry->value;
+    {
+        // Override the parent if we need to.
+        ConstExprValue *result = entry->value;
+
+        assert(result->type->id == TypeTableEntryIdStruct);
+
+        ConstParent *curr_parent = &result->data.x_struct.parent;
+        if (curr_parent->id == ConstParentIdStruct)
+        {
+            if (curr_parent->data.p_struct.struct_val == parent &&
+                parent_field_index != -1 &&
+                curr_parent->data.p_struct.field_index == (size_t)parent_field_index)
+            {
+                return result;
+            }
+            ConstExprValue *new_result = create_const_vals(1);
+            copy_const_val(new_result, result, true);
+            ir_type_info_struct_set_parent(new_result, parent, parent_field_index);
+            return new_result;
+        }
+        else if (curr_parent->id == ConstParentIdUnion)
+        {
+            if (curr_parent->data.p_union.union_val == parent)
+            {
+                return result;
+            }
+            ConstExprValue *new_result = create_const_vals(1);
+            copy_const_val(new_result, result, true);
+            ir_type_info_struct_set_parent(new_result, parent, parent_field_index);
+            return new_result;
+        }
+        else if (curr_parent->id == ConstParentIdNone)
+        {
+            if (parent->type->id != TypeTableEntryIdStruct &&
+                parent->type->id != TypeTableEntryIdArray &&
+                parent->type->id != TypeTableEntryIdUnion)
+            {
+                return result;
+            }
+            ConstExprValue *new_result = create_const_vals(1);
+            copy_const_val(new_result, result, true);
+            ir_type_info_struct_set_parent(new_result, parent, parent_field_index);
+            return new_result;
+        }
+
+        return result;
+    }
 
     ConstExprValue *result = nullptr;
-
-    // @TODO
-    // We should probably cache the values generated with a type_entry key.
-    assert(type_entry != nullptr);
-    assert(!type_is_invalid(type_entry));
 
     switch (type_entry->id)
     {
@@ -16042,6 +16086,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, ConstExprValue *p
             zig_unreachable();
     }
 
+    // Cache the returned value.
     assert(result != nullptr);
     ira->codegen->type_info_cache.put(type_entry, result);
     return result;

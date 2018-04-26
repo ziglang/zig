@@ -6348,7 +6348,6 @@ static void define_builtin_compile_vars(CodeGen *g) {
         buf_appendf(contents, "};\n\n");
     }
     {
-        // @TODO Add method info where methods are supported.
         // @TODO Add Namespace info.
         buf_appendf(contents,
             "pub const TypeInfo = union(TypeId) {\n"
@@ -6449,6 +6448,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "        layout: ContainerLayout,\n"
             "        tag_type: Int,\n"
             "        fields: []EnumField,\n"
+            "        methods: []Method,\n"
             "    };\n"
             "\n"
             "    pub const UnionField = struct {\n"
@@ -6461,6 +6461,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "        layout: ContainerLayout,\n"
             "        tag_type: ?Enum,\n"
             "        fields: []UnionField,\n"
+            "        methods: []Method,\n"
             "    };\n"
             "\n"
             "    pub const CallingConvention = enum {\n"
