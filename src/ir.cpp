@@ -16241,7 +16241,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Fn");
 
-                ConstExprValue *fields = create_const_vals(5);
+                ConstExprValue *fields = create_const_vals(6);
                 result->data.x_struct.fields = fields;
 
                 // @TODO Fix type = undefined with ?type
@@ -16324,6 +16324,15 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     fn_arg_val->data.x_struct.parent.data.p_array.array_val = fn_arg_array;
                     fn_arg_val->data.x_struct.parent.data.p_array.elem_index = fn_arg_index;
                 }
+
+                break;
+            }
+        case TypeTableEntryIdBoundFn:
+            {
+                // @TODO figure out memory corruption error.
+                TypeTableEntry *fn_type = type_entry->data.bound_fn.fn_type;
+                assert(fn_type->id == TypeTableEntryIdFn);
+                result = ir_make_type_info_value(ira, fn_type);
 
                 break;
             }
