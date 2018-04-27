@@ -16235,6 +16235,98 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 // @TODO Definitions
                 break;
             }
+        case TypeTableEntryIdFn:
+            {
+                result = create_const_vals(1);
+                result->special = ConstValSpecialStatic;
+                result->type = ir_type_info_get_type(ira, "Fn");
+
+                ConstExprValue *fields = create_const_vals(5);
+                result->data.x_struct.fields = fields;
+
+                // @TODO Fix type = undefined with ?type
+
+                // calling_convention: TypeInfo.CallingConvention
+                ensure_field_index(result->type, "calling_convention", 0);
+                fields[0].special = ConstValSpecialStatic;
+                fields[0].type = ir_type_info_get_type(ira, "CallingConvention");
+                bigint_init_unsigned(&fields[0].data.x_enum_tag, type_entry->data.fn.fn_type_id.cc);
+                // is_generic: bool
+                ensure_field_index(result->type, "is_generic", 1);
+                bool is_generic = type_entry->data.fn.is_generic;
+                fields[1].special = ConstValSpecialStatic;
+                fields[1].type = ira->codegen->builtin_types.entry_bool;
+                fields[1].data.x_bool = is_generic;
+                // is_varargs: bool
+                ensure_field_index(result->type, "is_var_args", 2);
+                bool is_varargs = type_entry->data.fn.fn_type_id.is_var_args;
+                fields[2].special = ConstValSpecialStatic;
+                fields[2].type = ira->codegen->builtin_types.entry_bool;
+                fields[2].data.x_bool = type_entry->data.fn.fn_type_id.is_var_args;
+                // return_type: type
+                ensure_field_index(result->type, "return_type", 3);
+                fields[3].special = ConstValSpecialStatic;
+                fields[3].type = ira->codegen->builtin_types.entry_type;
+                if (type_entry->data.fn.fn_type_id.return_type == nullptr)
+                    fields[3].data.x_type = ira->codegen->builtin_types.entry_undef;
+                else
+                    fields[3].data.x_type = type_entry->data.fn.fn_type_id.return_type;
+                // async_allocator_type: type
+                ensure_field_index(result->type, "async_allocator_type", 4);
+                fields[4].special = ConstValSpecialStatic;
+                fields[4].type = ira->codegen->builtin_types.entry_type;
+                if (type_entry->data.fn.fn_type_id.async_allocator_type == nullptr)
+                    fields[4].data.x_type = ira->codegen->builtin_types.entry_undef;
+                else
+                    fields[4].data.x_type = type_entry->data.fn.fn_type_id.async_allocator_type;
+                // args: []TypeInfo.FnArg
+                TypeTableEntry *type_info_fn_arg_type = ir_type_info_get_type(ira, "FnArg");
+                size_t fn_arg_count = type_entry->data.fn.fn_type_id.param_count -
+                        (is_varargs && type_entry->data.fn.fn_type_id.cc != CallingConventionC);
+
+                ConstExprValue *fn_arg_array = create_const_vals(1);
+                fn_arg_array->special = ConstValSpecialStatic;
+                fn_arg_array->type = get_array_type(ira->codegen, type_info_fn_arg_type, fn_arg_count);
+                fn_arg_array->data.x_array.special = ConstArraySpecialNone;
+                fn_arg_array->data.x_array.s_none.parent.id = ConstParentIdNone;
+                fn_arg_array->data.x_array.s_none.elements = create_const_vals(fn_arg_count);
+
+                init_const_slice(ira->codegen, &fields[5], fn_arg_array, 0, fn_arg_count, false);
+
+                for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++)
+                {
+                    FnTypeParamInfo *fn_param_info = &type_entry->data.fn.fn_type_id.param_info[fn_arg_index];
+                    ConstExprValue *fn_arg_val = &fn_arg_array->data.x_array.s_none.elements[fn_arg_index];
+
+                    fn_arg_val->special = ConstValSpecialStatic;
+                    fn_arg_val->type = type_info_fn_arg_type;
+
+                    bool arg_is_generic = fn_param_info->type == nullptr;
+                    if (arg_is_generic) assert(is_generic);
+
+                    ConstExprValue *inner_fields = create_const_vals(3);
+                    inner_fields[0].special = ConstValSpecialStatic;
+                    inner_fields[0].type = ira->codegen->builtin_types.entry_bool;
+                    inner_fields[0].data.x_bool = arg_is_generic;
+                    inner_fields[1].special = ConstValSpecialStatic;
+                    inner_fields[1].type = ira->codegen->builtin_types.entry_bool;
+                    inner_fields[1].data.x_bool = fn_param_info->is_noalias;
+                    inner_fields[2].special = ConstValSpecialStatic;
+                    inner_fields[2].type = ira->codegen->builtin_types.entry_type;
+
+                    if (arg_is_generic)
+                        inner_fields[2].data.x_type = ira->codegen->builtin_types.entry_undef;
+                    else
+                        inner_fields[2].data.x_type = fn_param_info->type;
+
+                    fn_arg_val->data.x_struct.fields = inner_fields;
+                    fn_arg_val->data.x_struct.parent.id = ConstParentIdArray;
+                    fn_arg_val->data.x_struct.parent.data.p_array.array_val = fn_arg_array;
+                    fn_arg_val->data.x_struct.parent.data.p_array.elem_index = fn_arg_index;
+                }
+
+                break;
+            }
     }
 
     assert(result != nullptr);
