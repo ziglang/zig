@@ -15748,7 +15748,7 @@ static void ensure_field_index(TypeTableEntry *type, const char *field_name, siz
             (buf_deinit(field_name_buf), true));
 }
 
-static TypeTableEntry *ir_type_info_get_type(IrAnalyze *ira, const char *type_name)
+static TypeTableEntry *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, TypeTableEntry *root = nullptr)
 {
     static ConstExprValue *type_info_var = nullptr;
     static TypeTableEntry *type_info_type = nullptr;
@@ -15761,10 +15761,14 @@ static TypeTableEntry *ir_type_info_get_type(IrAnalyze *ira, const char *type_na
         assert(type_info_type->id == TypeTableEntryIdUnion);
     }
 
-    if (type_name == nullptr)
+    if (type_name == nullptr && root == nullptr)
         return type_info_type;
+    else if (type_name == nullptr)
+        return root;
 
-    ScopeDecls *type_info_scope = get_container_scope(type_info_type);
+    TypeTableEntry *root_type = (root == nullptr) ? type_info_type : root;
+
+    ScopeDecls *type_info_scope = get_container_scope(root_type);
     assert(type_info_scope != nullptr);
 
     Buf field_name = BUF_INIT;
@@ -15782,6 +15786,128 @@ static TypeTableEntry *ir_type_info_get_type(IrAnalyze *ira, const char *type_na
     return var->value->data.x_type;
 }
 
+static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, ScopeDecls *decls_scope)
+{
+    TypeTableEntry *type_info_definition_type = ir_type_info_get_type(ira, "Definition");
+    ensure_complete_type(ira->codegen, type_info_definition_type);
+    ensure_field_index(type_info_definition_type, "name", 0);
+    ensure_field_index(type_info_definition_type, "is_pub", 1);
+    ensure_field_index(type_info_definition_type, "data", 2);
+
+    TypeTableEntry *type_info_definition_data_type = ir_type_info_get_type(ira, "Data", type_info_definition_type);
+    ensure_complete_type(ira->codegen, type_info_definition_data_type);
+
+    // Loop through our definitions once to figure out how many definitions we will generate info for.
+    auto decl_it = decls_scope->decl_table.entry_iterator();
+    decltype(decls_scope->decl_table)::Entry *curr_entry = nullptr;
+    int definition_count = 0;
+
+    while ((curr_entry = decl_it.next()) != nullptr)
+    {
+        // Skip comptime blocks.
+        if (curr_entry->value->id != TldIdCompTime)
+        {
+            definition_count += 1;
+        }
+    }
+
+    ConstExprValue *definition_array = create_const_vals(1);
+    definition_array->special = ConstValSpecialStatic;
+    definition_array->type = get_array_type(ira->codegen, type_info_definition_type, definition_count);
+    definition_array->data.x_array.special = ConstArraySpecialNone;
+    definition_array->data.x_array.s_none.parent.id = ConstParentIdNone;
+    definition_array->data.x_array.s_none.elements = create_const_vals(definition_count);
+    init_const_slice(ira->codegen, out_val, definition_array, 0, definition_count, false);
+
+    // Loop through the definitions and generate info.
+    decl_it = decls_scope->decl_table.entry_iterator();
+    curr_entry = nullptr;    
+    int definition_index = 0;
+    while ((curr_entry = decl_it.next()) != nullptr)
+    {
+        // Skip comptime blocks
+        if (curr_entry->value->id == TldIdCompTime)
+            continue;
+
+        ConstExprValue *definition_val = &definition_array->data.x_array.s_none.elements[definition_index];
+
+        definition_val->special = ConstValSpecialStatic;
+        definition_val->type = type_info_definition_type;
+
+        ConstExprValue *inner_fields = create_const_vals(3);
+        ConstExprValue *name = create_const_str_lit(ira->codegen, curr_entry->key);
+        init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(curr_entry->key), true);
+        inner_fields[1].special = ConstValSpecialStatic;
+        inner_fields[1].type = ira->codegen->builtin_types.entry_bool;
+        inner_fields[1].data.x_bool = curr_entry->value->visib_mod == VisibModPub;
+        inner_fields[2].special = ConstValSpecialStatic;
+        inner_fields[2].type = type_info_definition_data_type;
+        inner_fields[2].data.x_union.parent.id = ConstParentIdStruct;
+        inner_fields[2].data.x_union.parent.data.p_struct.struct_val = definition_val;
+        inner_fields[2].data.x_union.parent.data.p_struct.field_index = 1;
+
+        switch (curr_entry->value->id)
+        {
+            case TldIdVar:
+                {
+                    VariableTableEntry *var = ((TldVar *)curr_entry->value)->var;
+                    ensure_complete_type(ira->codegen, var->value->type);
+                    if (var->value->type->id == TypeTableEntryIdMetaType)
+                    {
+                        // We have a variable of type 'type', so it's actually a type definition.
+                        // 0: Data.Type: type
+                        bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 0);
+                        inner_fields[2].data.x_union.payload = var->value;
+                    }
+                    else
+                    {
+                        // We have a variable of another type, so we store the type of the variable.
+                        // 1: Data.Var: type
+                        bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 1);
+
+                        ConstExprValue *payload = create_const_vals(1);
+                        payload->type = ira->codegen->builtin_types.entry_type;
+                        payload->data.x_type = var->value->type;
+
+                        inner_fields[2].data.x_union.payload = payload;
+                    }
+
+                    break;
+                }
+            case TldIdFn:
+                {
+                    // 2: Data.Fn: Data.FnDef
+                    bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 2);
+                    // @TODO Data.FnDef
+                    inner_fields[2].data.x_union.payload = nullptr;
+                    break;
+                }
+            case TldIdContainer:
+                {
+                    TypeTableEntry *type_entry = ((TldContainer *)curr_entry->value)->type_entry;
+                    ensure_complete_type(ira->codegen, type_entry);
+                    // This is a type.
+                    bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 0);
+
+                    ConstExprValue *payload = create_const_vals(1);
+                    payload->type = ira->codegen->builtin_types.entry_type;
+                    payload->data.x_type = type_entry;
+
+                    inner_fields[2].data.x_union.payload = payload;
+
+                    break;
+                }
+            default:
+                zig_unreachable();
+        }
+
+        definition_val->data.x_struct.fields = inner_fields;
+        definition_index++;
+    }
+
+    assert(definition_index == definition_count);
+}
+
 static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *type_entry)
 {
     assert(type_entry != nullptr);
@@ -15791,10 +15917,6 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
 
     const auto make_enum_field_val = [ira](ConstExprValue *enum_field_val, TypeEnumField *enum_field,
                 TypeTableEntry *type_info_enum_field_type) {
-        // @TODO Those cause a find_struct_type_field assertion to fail (type_entry->data.structure.complete)
-        // ensure_field_index(type_info_enum_field_type, "name", 0);
-        // ensure_field_index(type_info_enum_field_type, "value", 1);
-
         enum_field_val->special = ConstValSpecialStatic;
         enum_field_val->type = type_info_enum_field_type;
 
@@ -16012,8 +16134,10 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     enum_field_val->data.x_struct.parent.data.p_array.array_val = enum_field_array;
                     enum_field_val->data.x_struct.parent.data.p_array.elem_index = enum_field_index;
                 }
+                // defs: []TypeInfo.Definition
+                ensure_field_index(result->type, "defs", 3);
+                ir_make_type_info_defs(ira, &fields[3], type_entry->data.enumeration.decls_scope);
 
-                // @TODO Definitions
                 break;
             }
         case TypeTableEntryIdErrorSet:
@@ -16165,8 +16289,10 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     union_field_val->data.x_struct.parent.data.p_array.array_val = union_field_array;
                     union_field_val->data.x_struct.parent.data.p_array.elem_index = union_field_index;
                 }
+                // defs: []TypeInfo.Definition
+                ensure_field_index(result->type, "defs", 3);
+                ir_make_type_info_defs(ira, &fields[3], type_entry->data.unionation.decls_scope);
 
-                // @TODO Definitions
                 break;
             }
         case TypeTableEntryIdStruct:
@@ -16232,7 +16358,10 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     struct_field_val->data.x_struct.parent.data.p_array.array_val = struct_field_array;
                     struct_field_val->data.x_struct.parent.data.p_array.elem_index = struct_field_index;
                 }
-                // @TODO Definitions
+                // defs: []TypeInfo.Definition
+                ensure_field_index(result->type, "defs", 2);
+                ir_make_type_info_defs(ira, &fields[2], type_entry->data.structure.decls_scope);
+
                 break;
             }
         case TypeTableEntryIdFn:
@@ -16329,7 +16458,6 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
             }
         case TypeTableEntryIdBoundFn:
             {
-                // @TODO figure out memory corruption error.
                 TypeTableEntry *fn_type = type_entry->data.bound_fn.fn_type;
                 assert(fn_type->id == TypeTableEntryIdFn);
                 result = ir_make_type_info_value(ira, fn_type);

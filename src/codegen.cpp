@@ -6348,13 +6348,6 @@ static void define_builtin_compile_vars(CodeGen *g) {
         buf_appendf(contents, "};\n\n");
     }
     {
-        // @TODO Add Namespace info.
-        // @TODO Methods -> definitions
-        // @TODO Includes type definitions (name + type bound) + functions + const variable definitions (+ type of variable)
-        // @TODO Type definitions are defined as variable definitions of type 'type'
-        // @TODO This should give us everything available.
-        // @TODO An alternative is exposing the value of every variable definition, check out if it's possible and wether we want that.
-        // @TODO I don't think so, @field gives it to us for free.
         buf_appendf(contents,
             "pub const TypeInfo = union(TypeId) {\n"
             "    Type: void,\n"
@@ -6410,11 +6403,6 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "        Packed,\n"
             "    };\n"
             "\n"
-            "    pub const Method = struct {\n"
-            "        name: []const u8,\n"
-            "        fn_info: Fn,\n"
-            "    };\n"
-            "\n"
             "    pub const StructField = struct {\n"
             "        name: []const u8,\n"
             "        offset: ?usize,\n"
@@ -6424,7 +6412,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    pub const Struct = struct {\n"
             "        layout: ContainerLayout,\n"
             "        fields: []StructField,\n"
-            "        methods: []Method,\n"
+            "        defs: []Definition,\n"
             "    };\n"
             "\n"
             "    pub const Nullable = struct {\n"
@@ -6454,7 +6442,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "        layout: ContainerLayout,\n"
             "        tag_type: type,\n"
             "        fields: []EnumField,\n"
-            "        methods: []Method,\n"
+            "        defs: []Definition,\n"
             "    };\n"
             "\n"
             "    pub const UnionField = struct {\n"
@@ -6467,7 +6455,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "        layout: ContainerLayout,\n"
             "        tag_type: type,\n"
             "        fields: []UnionField,\n"
-            "        methods: []Method,\n"
+            "        defs: []Definition,\n"
             "    };\n"
             "\n"
             "    pub const CallingConvention = enum {\n"
@@ -6496,6 +6484,18 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "\n"
             "    pub const Promise = struct {\n"
             "        child: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const Definition = struct {\n"
+            "        name: []const u8,\n"
+            "        is_pub: bool,\n"
+            "        data: Data,\n"
+            "\n"
+            "        const Data = union(enum) {\n"
+            "            Type: type,\n"
+            "            Var: type,\n"
+            "            Fn: void,\n"
+            "        };\n"
             "    };\n"
             "};\n\n");
         assert(ContainerLayoutAuto == 0);
