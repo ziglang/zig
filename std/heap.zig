@@ -47,13 +47,6 @@ pub const DirectAllocator = struct {
 
     const HeapHandle = if (builtin.os == Os.windows) os.windows.HANDLE else void;
 
-    //pub const canary_bytes = []u8 {48, 239, 128, 46, 18, 49, 147, 9, 195, 59, 203, 3, 245, 54, 9, 122};
-    //pub const want_safety = switch (builtin.mode) {
-    //    builtin.Mode.Debug => true,
-    //    builtin.Mode.ReleaseSafe => true,
-    //    else => false,
-    //};
-
     pub fn init() DirectAllocator {
         return DirectAllocator {
             .allocator = Allocator {
@@ -298,7 +291,7 @@ pub const FixedBufferAllocator = struct {
 
     fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
-        const addr = @ptrToInt(&self.buffer[self.end_index]);
+        const addr = @ptrToInt(self.buffer.ptr) + self.end_index;
         const rem = @rem(addr, alignment);
         const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
         const adjusted_index = self.end_index + march_forward_bytes;
@@ -310,6 +303,54 @@ pub const FixedBufferAllocator = struct {
         self.end_index = new_end_index;
 
         return result;
+    }
+
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+        if (new_size <= old_mem.len) {
+            return old_mem[0..new_size];
+        } else {
+            const result = try alloc(allocator, new_size, alignment);
+            mem.copy(u8, result, old_mem);
+            return result;
+        }
+    }
+
+    fn free(allocator: &Allocator, bytes: []u8) void { }
+};
+
+/// lock free
+pub const ThreadSafeFixedBufferAllocator = struct {
+    allocator: Allocator,
+    end_index: usize,
+    buffer: []u8,
+
+    pub fn init(buffer: []u8) ThreadSafeFixedBufferAllocator {
+        return ThreadSafeFixedBufferAllocator {
+            .allocator = Allocator {
+                .allocFn = alloc,
+                .reallocFn = realloc,
+                .freeFn = free,
+            },
+            .buffer = buffer,
+            .end_index = 0,
+        };
+    }
+
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
+        const self = @fieldParentPtr(ThreadSafeFixedBufferAllocator, "allocator", allocator);
+        var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
+        while (true) {
+            const addr = @ptrToInt(self.buffer.ptr) + end_index;
+            const rem = @rem(addr, alignment);
+            const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+            const adjusted_index = end_index + march_forward_bytes;
+            const new_end_index = adjusted_index + n;
+            if (new_end_index > self.buffer.len) {
+                return error.OutOfMemory;
+            }
+            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index,
+                builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) ?? return self.buffer[adjusted_index .. new_end_index];
+        }
     }
 
     fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
@@ -358,6 +399,13 @@ test "ArenaAllocator" {
 var test_fixed_buffer_allocator_memory: [30000 * @sizeOf(usize)]u8 = undefined;
 test "FixedBufferAllocator" {
     var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
+
+    try testAllocator(&fixed_buffer_allocator.allocator);
+    try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
+}
+
+test "ThreadSafeFixedBufferAllocator" {
+    var fixed_buffer_allocator = ThreadSafeFixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
     try testAllocator(&fixed_buffer_allocator.allocator);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
