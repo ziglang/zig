@@ -6494,7 +6494,19 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "        const Data = union(enum) {\n"
             "            Type: type,\n"
             "            Var: type,\n"
-            "            Fn: void,\n"
+            "            Fn: FnDef,\n"
+            "\n"
+            "            const FnDef = struct {\n"
+            "                fn_type: type,\n"
+            "                inline_type: Inline,\n"
+            "                calling_convention: CallingConvention,\n"
+            "\n"
+            "                const Inline = enum {\n"
+            "                    Auto,\n"
+            "                    Always,\n"
+            "                    Never,\n"
+            "                };\n"
+            "            };\n"
             "        };\n"
             "    };\n"
             "};\n\n");
@@ -6508,6 +6520,10 @@ static void define_builtin_compile_vars(CodeGen *g) {
         assert(CallingConventionNaked == 3);
         assert(CallingConventionStdcall == 4);
         assert(CallingConventionAsync == 5);
+
+        assert(FnInlineAuto == 0);
+        assert(FnInlineAlways == 1);
+        assert(FnInlineNever == 2);
     }
     {
         buf_appendf(contents,

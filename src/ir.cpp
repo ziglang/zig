@@ -15797,6 +15797,12 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
     TypeTableEntry *type_info_definition_data_type = ir_type_info_get_type(ira, "Data", type_info_definition_type);
     ensure_complete_type(ira->codegen, type_info_definition_data_type);
 
+    TypeTableEntry *type_info_fn_def_type = ir_type_info_get_type(ira, "FnDef", type_info_definition_data_type);
+    ensure_complete_type(ira->codegen, type_info_fn_def_type);
+
+    TypeTableEntry *type_info_fn_def_inline_type = ir_type_info_get_type(ira, "Inline", type_info_fn_def_type);
+    ensure_complete_type(ira->codegen, type_info_fn_def_inline_type);
+
     // Loop through our definitions once to figure out how many definitions we will generate info for.
     auto decl_it = decls_scope->decl_table.entry_iterator();
     decltype(decls_scope->decl_table)::Entry *curr_entry = nullptr;
@@ -15905,7 +15911,35 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                     assert(!fn_entry->is_test);
 
-                    inner_fields[2].data.x_union.payload = nullptr;
+                    AstNodeFnProto *fn_node = (AstNodeFnProto *)(fn_entry->proto_node);
+
+                    ConstExprValue *fn_def_val = create_const_vals(1);
+                    fn_def_val->special = ConstValSpecialStatic;
+                    fn_def_val->type = type_info_fn_def_type;
+                    fn_def_val->data.x_struct.parent.id = ConstParentIdUnion;
+                    fn_def_val->data.x_struct.parent.data.p_union.union_val = &inner_fields[2];
+
+                    // @TODO Add fields
+                    ConstExprValue *fn_def_fields = create_const_vals(3);
+                    fn_def_val->data.x_struct.fields = fn_def_fields;
+
+                    // fn_type: type
+                    ensure_field_index(fn_def_val->type, "fn_type", 0);
+                    fn_def_fields[0].special = ConstValSpecialStatic;
+                    fn_def_fields[0].type = ira->codegen->builtin_types.entry_type;
+                    fn_def_fields[0].data.x_type = fn_entry->type_entry;
+                    // inline_type: Data.FnDef.Inline
+                    ensure_field_index(fn_def_val->type, "inline_type", 1);
+                    fn_def_fields[1].special = ConstValSpecialStatic;
+                    fn_def_fields[1].type = type_info_fn_def_inline_type;
+                    bigint_init_unsigned(&fn_def_fields[1].data.x_enum_tag, fn_entry->fn_inline);
+                    // calling_convention: TypeInfo.CallingConvention
+                    ensure_field_index(fn_def_val->type, "calling_convention", 2);
+                    fn_def_fields[2].special = ConstValSpecialStatic;
+                    fn_def_fields[2].type = ir_type_info_get_type(ira, "CallingConvention");
+                    bigint_init_unsigned(&fn_def_fields[2].data.x_enum_tag, fn_node->cc);
+
+                    inner_fields[2].data.x_union.payload = fn_def_val;
                     break;
                 }
             case TldIdContainer:
