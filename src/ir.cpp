@@ -15804,9 +15804,26 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
 
     while ((curr_entry = decl_it.next()) != nullptr)
     {
-        // Skip comptime blocks.
+        // If the definition is unresolved, force it to be resolved again.
+        if (curr_entry->value->resolution == TldResolutionUnresolved)
+        {
+            resolve_top_level_decl(ira->codegen, curr_entry->value, false, curr_entry->value->source_node);
+            if (curr_entry->value->resolution != TldResolutionOk)
+            {
+                return;
+            }
+        }
+
+        // Skip comptime blocks and test functions.
         if (curr_entry->value->id != TldIdCompTime)
         {
+            if (curr_entry->value->id == TldIdFn)
+            {
+                FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
+                if (fn_entry->is_test)
+                    continue;
+            }
+
             definition_count += 1;
         }
     }
@@ -15825,9 +15842,15 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
     int definition_index = 0;
     while ((curr_entry = decl_it.next()) != nullptr)
     {
-        // Skip comptime blocks
+        // Skip comptime blocks and test functions.
         if (curr_entry->value->id == TldIdCompTime)
             continue;
+        else if (curr_entry->value->id == TldIdFn)
+        {
+            FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
+            if (fn_entry->is_test)
+                continue;
+        }
 
         ConstExprValue *definition_val = &definition_array->data.x_array.s_none.elements[definition_index];
 
@@ -15878,7 +15901,10 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                 {
                     // 2: Data.Fn: Data.FnDef
                     bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 2);
-                    // @TODO Data.FnDef
+
+                    FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
+                    assert(!fn_entry->is_test);
+
                     inner_fields[2].data.x_union.payload = nullptr;
                     break;
                 }
