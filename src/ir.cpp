@@ -13859,6 +13859,15 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             }
         } else if (child_type->id == TypeTableEntryIdFn) {
             if (buf_eql_str(field_name, "ReturnType")) {
+                if (child_type->data.fn.fn_type_id.return_type == nullptr) {
+                    // Return type can only ever be null, if the function is generic
+                    assert(child_type->data.fn.is_generic);
+
+                    ir_add_error(ira, &field_ptr_instruction->base,
+                        buf_sprintf("ReturnType has not been resolved because '%s' is generic", buf_ptr(&child_type->name)));
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
@@ -17860,6 +17869,16 @@ static TypeTableEntry *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruc
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->data.x_type = fn_type_id->param_info[arg_index].type;
+    if (out_val->data.x_type == nullptr) {
+        // Args are only unresolved if our function is generic.
+        assert(fn_type->data.fn.is_generic);
+
+        ir_add_error(ira, arg_index_inst,
+                buf_sprintf("@ArgType could not resolve the type of arg %" ZIG_PRI_usize " because '%s' is generic",
+                    arg_index, buf_ptr(&fn_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     return ira->codegen->builtin_types.entry_type;
 }
 
