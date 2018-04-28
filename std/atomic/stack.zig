@@ -53,6 +53,7 @@ const Context = struct {
     stack: &Stack(i32),
     put_sum: isize,
     get_sum: isize,
+    get_count: usize,
     puts_done: u8, // TODO make this a bool
 };
 const puts_per_thread = 1000;
@@ -75,6 +76,7 @@ test "std.atomic.stack" {
         .put_sum = 0,
         .get_sum = 0,
         .puts_done = 0,
+        .get_count = 0,
     };
 
     var putters: [put_thread_count]&std.os.Thread = undefined;
@@ -91,6 +93,7 @@ test "std.atomic.stack" {
     for (getters) |t| t.wait();
 
     std.debug.assert(context.put_sum == context.get_sum);
+    std.debug.assert(context.get_count == puts_per_thread * put_thread_count);
 }
 
 fn startPuts(ctx: &Context) u8 {
@@ -112,6 +115,7 @@ fn startGets(ctx: &Context) u8 {
         while (ctx.stack.pop()) |node| {
             std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
             _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
+            _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
         }
 
         if (@atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1) {
