@@ -1264,7 +1264,7 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
 
     // We set param_info to 0, as param_info[i]->type is checked for null
     // when checking if a parameters type has been resolved.
-    memset(fn_type_id->param_info, 0, sizeof(fn_type_id->param_info[i]) * fn_type_id->param_count);
+    memset(fn_type_id->param_info, 0, sizeof(fn_type_id->param_info[0]) * fn_type_id->param_count);
 }
 
 static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_t *result) {
