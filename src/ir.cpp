@@ -17874,8 +17874,8 @@ static TypeTableEntry *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruc
         assert(fn_type->data.fn.is_generic);
 
         ir_add_error(ira, arg_index_inst,
-                buf_sprintf("@ArgType could not resolve the type of arg %" ZIG_PRI_usize " because '%s' is generic",
-                    arg_index, buf_ptr(&fn_type->name)));
+            buf_sprintf("@ArgType could not resolve the type of arg %" ZIG_PRI_u64 " because '%s' is generic",
+                arg_index, buf_ptr(&fn_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
