@@ -6131,4 +6131,3 @@ bool type_can_fail(TypeTableEntry *type_entry) {
 bool fn_type_can_fail(FnTypeId *fn_type_id) {
     return type_can_fail(fn_type_id->return_type) || fn_type_id->cc == CallingConventionAsync;
 }
-
