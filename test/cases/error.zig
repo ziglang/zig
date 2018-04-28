@@ -175,3 +175,30 @@ fn baz_1() !i32 {
 fn quux_1() !i32 {
     return error.C;
 }
+
+
+test "error: fn returning empty error set can be passed as fn returning any error" {
+    entry();
+    comptime entry();
+}
+
+fn entry() void {
+    foo2(bar2);
+}
+
+fn foo2(f: fn()error!void) void {
+    const x = f();
+}
+
+fn bar2() (error{}!void) { }
+
+
+test "error: Zero sized error set returned with value payload crash" {
+    _ = foo3(0);
+    _ = comptime foo3(0);
+}
+
+const Error = error{};
+fn foo3(b: usize) Error!usize {
+    return b;
+}

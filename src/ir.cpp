@@ -6166,16 +6166,10 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
     buf_init_from_buf(&err_set_type->name, type_name);
     err_set_type->is_copyable = true;
     err_set_type->data.error_set.err_count = err_count;
-
-    if (err_count == 0) {
-        err_set_type->zero_bits = true;
-        err_set_type->di_type = irb->codegen->builtin_types.entry_void->di_type;
-    } else {
-        err_set_type->type_ref = irb->codegen->builtin_types.entry_global_error_set->type_ref;
-        err_set_type->di_type = irb->codegen->builtin_types.entry_global_error_set->di_type;
-        irb->codegen->error_di_types.append(&err_set_type->di_type);
-        err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(err_count);
-    }
+    err_set_type->type_ref = irb->codegen->builtin_types.entry_global_error_set->type_ref;
+    err_set_type->di_type = irb->codegen->builtin_types.entry_global_error_set->di_type;
+    irb->codegen->error_di_types.append(&err_set_type->di_type);
+    err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(err_count);
 
     ErrorTableEntry **errors = allocate<ErrorTableEntry *>(irb->codegen->errors_by_index.length + err_count);
 
