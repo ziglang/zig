@@ -32,6 +32,7 @@ pub const Allocator = struct {
     freeFn: fn (self: &Allocator, old_mem: []u8) void,
 
     fn create(self: &Allocator, comptime T: type) !&T {
+        if (@sizeOf(T) == 0) return &{};
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }

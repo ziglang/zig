@@ -60,10 +60,6 @@ const puts_per_thread = 1000;
 const put_thread_count = 3;
 
 test "std.atomic.stack" {
-    if (builtin.os == builtin.Os.windows) {
-        // TODO implement kernel threads for windows
-        return;
-    }
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
@@ -85,11 +81,11 @@ test "std.atomic.stack" {
 
     var putters: [put_thread_count]&std.os.Thread = undefined;
     for (putters) |*t| {
-        *t = try std.os.spawnThreadAllocator(a, &context, startPuts);
+        *t = try std.os.spawnThread(&context, startPuts);
     }
     var getters: [put_thread_count]&std.os.Thread = undefined;
     for (getters) |*t| {
-        *t = try std.os.spawnThreadAllocator(a, &context, startGets);
+        *t = try std.os.spawnThread(&context, startGets);
     }
 
     for (putters) |t| t.wait();
