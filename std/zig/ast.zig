@@ -6,7 +6,8 @@ const mem = std.mem;
 
 pub const Node = struct {
     id: Id,
-    comments: ?&LineComment,
+    before_comments: ?&LineComment,
+    same_line_comment: ?&Token,
 
     pub const Id = enum {
         // Top level
