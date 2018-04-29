@@ -54,12 +54,12 @@ pub extern "c" fn realloc(&c_void, usize) ?&c_void;
 pub extern "c" fn free(&c_void) void;
 pub extern "c" fn posix_memalign(memptr: &&c_void, alignment: usize, size: usize) c_int;
 
-pub extern "c" fn pthread_create(noalias newthread: &pthread_t,
+pub extern "pthread" fn pthread_create(noalias newthread: &pthread_t,
     noalias attr: ?&const pthread_attr_t, start_routine: extern fn(?&c_void) ?&c_void,
     noalias arg: ?&c_void) c_int;
-pub extern "c" fn pthread_attr_init(attr: &pthread_attr_t) c_int;
-pub extern "c" fn pthread_attr_setstack(attr: &pthread_attr_t, stackaddr: &c_void, stacksize: usize) c_int;
-pub extern "c" fn pthread_attr_destroy(attr: &pthread_attr_t) c_int;
-pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?&?&c_void) c_int;
+pub extern "pthread" fn pthread_attr_init(attr: &pthread_attr_t) c_int;
+pub extern "pthread" fn pthread_attr_setstack(attr: &pthread_attr_t, stackaddr: &c_void, stacksize: usize) c_int;
+pub extern "pthread" fn pthread_attr_destroy(attr: &pthread_attr_t) c_int;
+pub extern "pthread" fn pthread_join(thread: pthread_t, arg_return: ?&?&c_void) c_int;
 
 pub const pthread_t = &@OpaqueType();

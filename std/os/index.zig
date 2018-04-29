@@ -2352,11 +2352,12 @@ pub const Thread = struct {
     stack: []u8,
     pthread_handle: pthread_t,
 
-    const pthread_t = if (builtin.link_pthread) c.pthread_t else void;
-    const pid_t = if (!builtin.link_pthread) i32 else void;
+    pub const use_pthreads = is_posix and builtin.link_libc;
+    const pthread_t = if (use_pthreads) c.pthread_t else void;
+    const pid_t = if (!use_pthreads) i32 else void;
 
     pub fn wait(self: &const Thread) void {
-        if (builtin.link_pthread) {
+        if (use_pthreads) {
             const err = c.pthread_join(self.pthread_handle, null);
             switch (err) {
                 0 => {},
@@ -2475,7 +2476,7 @@ pub fn spawnThread(stack: []align(os.page_size) u8, context: var, comptime start
     if (builtin.os == builtin.Os.windows) {
         // use windows API directly
         @compileError("TODO support spawnThread for Windows");
-    } else if (builtin.link_pthread) {
+    } else if (Thread.use_pthreads) {
         // use pthreads
         var attr: c.pthread_attr_t = undefined;
         if (c.pthread_attr_init(&attr) != 0) return SpawnThreadError.SystemResources;
