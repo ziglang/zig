@@ -1486,6 +1486,7 @@ struct CodeGen {
 
     ZigList<LinkLib *> link_libs_list;
     LinkLib *libc_link_lib;
+    LinkLib *pthread_link_lib;
 
     // add -framework [name] args to linker
     ZigList<Buf *> darwin_frameworks;

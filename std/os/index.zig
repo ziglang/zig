@@ -2352,12 +2352,11 @@ pub const Thread = struct {
     stack: []u8,
     pthread_handle: pthread_t,
 
-    pub const use_pthreads = is_posix and builtin.link_libc;
-    const pthread_t = if (use_pthreads) c.pthread_t else void;
-    const pid_t = if (!use_pthreads) i32 else void;
+    const pthread_t = if (builtin.link_pthread) c.pthread_t else void;
+    const pid_t = if (!builtin.link_pthread) i32 else void;
 
     pub fn wait(self: &const Thread) void {
-        if (use_pthreads) {
+        if (builtin.link_pthread) {
             const err = c.pthread_join(self.pthread_handle, null);
             switch (err) {
                 0 => {},
@@ -2406,6 +2405,9 @@ pub const SpawnThreadError = error {
     /// for the child, or to copy those parts of the caller's context that need to
     /// be copied.
     SystemResources,
+
+    /// pthreads requires at least 16384 bytes of stack space
+    StackTooSmall,
 
     Unexpected,
 };
@@ -2473,7 +2475,7 @@ pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThread
     if (builtin.os == builtin.Os.windows) {
         // use windows API directly
         @compileError("TODO support spawnThread for Windows");
-    } else if (Thread.use_pthreads) {
+    } else if (builtin.link_pthread) {
         // use pthreads
         var attr: c.pthread_attr_t = undefined;
         if (c.pthread_attr_init(&attr) != 0) return SpawnThreadError.SystemResources;
@@ -2481,7 +2483,7 @@ pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThread
 
         const stack_size = stack_end - @ptrToInt(stack.ptr);
         if (c.pthread_attr_setstack(&attr, @ptrCast(&c_void, stack.ptr), stack_size) != 0) {
-            return SpawnThreadError.SystemResources;
+            return SpawnThreadError.StackTooSmall; // pthreads requires at least 16384 bytes
         }
 
         const err = c.pthread_create(&thread_ptr.pthread_handle, &attr, MainFuncs.posixThreadMain, @intToPtr(&c_void, arg));
