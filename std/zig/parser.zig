@@ -182,6 +182,11 @@ pub const Parser = struct {
         }
     };
 
+    const AddCommentsCtx = struct {
+        node_ptr: &&ast.Node,
+        comments: ?&ast.Node.LineComment,
+    };
+
     const State = union(enum) {
         TopLevel,
         TopLevelExtern: TopLevelDeclCtx,
@@ -221,6 +226,7 @@ pub const Parser = struct {
         Statement: &ast.Node.Block,
         ComptimeStatement: ComptimeStatementCtx,
         Semicolon: &&ast.Node,
+        AddComments: AddCommentsCtx,
 
         AsmOutputItems: &ArrayList(&ast.Node.AsmOutput),
         AsmOutputReturnOrType: &ast.Node.AsmOutput,
@@ -345,24 +351,26 @@ pub const Parser = struct {
                         Token.Id.Keyword_test => {
                             stack.append(State.TopLevel) catch unreachable;
 
-                            const block = try self.createNode(arena, ast.Node.Block,
-                                ast.Node.Block {
-                                    .base = undefined,
-                                    .label = null,
-                                    .lbrace = undefined,
-                                    .statements = ArrayList(&ast.Node).init(arena),
-                                    .rbrace = undefined,
-                                }
-                            );
-                            const test_node = try self.createAttachNode(arena, &root_node.decls, ast.Node.TestDecl,
-                                ast.Node.TestDecl {
-                                    .base = undefined,
+                            const block = try arena.construct(ast.Node.Block {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.Block,
+                                    .comments = null,
+                                },
+                                .label = null,
+                                .lbrace = undefined,
+                                .statements = ArrayList(&ast.Node).init(arena),
+                                .rbrace = undefined,
+                            });
+                            const test_node = try arena.construct(ast.Node.TestDecl {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.TestDecl,
                                     .comments = comments,
-                                    .test_token = token,
-                                    .name = undefined,
-                                    .body_node = &block.base,
-                                }
-                            );
+                                },
+                                .test_token = token,
+                                .name = undefined,
+                                .body_node = &block.base,
+                            });
+                            try root_node.decls.append(&test_node.base);
                             stack.append(State { .Block = block }) catch unreachable;
                             try stack.append(State {
                                 .ExpectTokenSave = ExpectTokenSave {
@@ -530,24 +538,25 @@ pub const Parser = struct {
                         },
                         Token.Id.Keyword_fn, Token.Id.Keyword_nakedcc,
                         Token.Id.Keyword_stdcallcc, Token.Id.Keyword_async => {
-                            const fn_proto = try self.createAttachNode(arena, ctx.decls, ast.Node.FnProto,
-                                ast.Node.FnProto {
-                                    .base = undefined,
+                            const fn_proto = try arena.construct(ast.Node.FnProto {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.FnProto,
                                     .comments = comments,
-                                    .visib_token = ctx.visib_token,
-                                    .name_token = null,
-                                    .fn_token = undefined,
-                                    .params = ArrayList(&ast.Node).init(arena),
-                                    .return_type = undefined,
-                                    .var_args_token = null,
-                                    .extern_export_inline_token = ctx.extern_export_inline_token,
-                                    .cc_token = null,
-                                    .async_attr = null,
-                                    .body_node = null,
-                                    .lib_name = ctx.lib_name,
-                                    .align_expr = null,
-                                }
-                            );
+                                },
+                                .visib_token = ctx.visib_token,
+                                .name_token = null,
+                                .fn_token = undefined,
+                                .params = ArrayList(&ast.Node).init(arena),
+                                .return_type = undefined,
+                                .var_args_token = null,
+                                .extern_export_inline_token = ctx.extern_export_inline_token,
+                                .cc_token = null,
+                                .async_attr = null,
+                                .body_node = null,
+                                .lib_name = ctx.lib_name,
+                                .align_expr = null,
+                            });
+                            try ctx.decls.append(&fn_proto.base);
                             stack.append(State { .FnDef = fn_proto }) catch unreachable;
                             try stack.append(State { .FnProto = fn_proto });
 
@@ -789,24 +798,25 @@ pub const Parser = struct {
 
 
                 State.VarDecl => |ctx| {
-                    const var_decl = try self.createAttachNode(arena, ctx.list, ast.Node.VarDecl,
-                        ast.Node.VarDecl {
-                            .base = undefined,
+                    const var_decl = try arena.construct(ast.Node.VarDecl {
+                        .base = ast.Node {
+                            .id = ast.Node.Id.VarDecl,
                             .comments = ctx.comments,
-                            .visib_token = ctx.visib_token,
-                            .mut_token = ctx.mut_token,
-                            .comptime_token = ctx.comptime_token,
-                            .extern_export_token = ctx.extern_export_token,
-                            .type_node = null,
-                            .align_node = null,
-                            .init_node = null,
-                            .lib_name = ctx.lib_name,
-                            // initialized later
-                            .name_token = undefined,
-                            .eq_token = undefined,
-                            .semicolon_token = undefined,
-                        }
-                    );
+                        },
+                        .visib_token = ctx.visib_token,
+                        .mut_token = ctx.mut_token,
+                        .comptime_token = ctx.comptime_token,
+                        .extern_export_token = ctx.extern_export_token,
+                        .type_node = null,
+                        .align_node = null,
+                        .init_node = null,
+                        .lib_name = ctx.lib_name,
+                        // initialized later
+                        .name_token = undefined,
+                        .eq_token = undefined,
+                        .semicolon_token = undefined,
+                    });
+                    try ctx.list.append(&var_decl.base);
 
                     stack.append(State { .VarDeclAlign = var_decl }) catch unreachable;
                     try stack.append(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &var_decl.type_node} });
@@ -1218,19 +1228,23 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_defer, Token.Id.Keyword_errdefer => {
-                            const node = try self.createAttachNode(arena, &block.statements, ast.Node.Defer,
-                                ast.Node.Defer {
-                                    .base = undefined,
-                                    .defer_token = token,
-                                    .kind = switch (token.id) {
-                                        Token.Id.Keyword_defer => ast.Node.Defer.Kind.Unconditional,
-                                        Token.Id.Keyword_errdefer => ast.Node.Defer.Kind.Error,
-                                        else => unreachable,
-                                    },
-                                    .expr = undefined,
-                                }
-                            );
-                            stack.append(State { .Semicolon = &&node.base }) catch unreachable;
+                            const node = try arena.construct(ast.Node.Defer {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.Defer,
+                                    .comments = comments,
+                                },
+                                .defer_token = token,
+                                .kind = switch (token.id) {
+                                    Token.Id.Keyword_defer => ast.Node.Defer.Kind.Unconditional,
+                                    Token.Id.Keyword_errdefer => ast.Node.Defer.Kind.Error,
+                                    else => unreachable,
+                                },
+                                .expr = undefined,
+                            });
+                            const node_ptr = try block.statements.addOne();
+                            *node_ptr = &node.base;
+
+                            stack.append(State { .Semicolon = node_ptr }) catch unreachable;
                             try stack.append(State { .AssignmentExpressionBegin = OptionalCtx{ .Required = &node.expr } });
                             continue;
                         },
@@ -1249,9 +1263,13 @@ pub const Parser = struct {
                         },
                         else => {
                             self.putBackToken(token);
-                            const statememt = try block.statements.addOne();
-                            stack.append(State { .Semicolon = statememt }) catch unreachable;
-                            try stack.append(State { .AssignmentExpressionBegin = OptionalCtx{ .Required = statememt } });
+                            const statement = try block.statements.addOne();
+                            stack.append(State { .Semicolon = statement }) catch unreachable;
+                            try stack.append(State { .AddComments = AddCommentsCtx {
+                                .node_ptr = statement,
+                                .comments = comments,
+                            }});
+                            try stack.append(State { .AssignmentExpressionBegin = OptionalCtx{ .Required = statement } });
                             continue;
                         }
                     }
@@ -1290,6 +1308,12 @@ pub const Parser = struct {
                         stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
                         continue;
                     }
+                    continue;
+                },
+
+                State.AddComments => |add_comments_ctx| {
+                    const node = *add_comments_ctx.node_ptr;
+                    node.comments = add_comments_ctx.comments;
                     continue;
                 },
 
@@ -1576,24 +1600,25 @@ pub const Parser = struct {
 
                 State.ExternType => |ctx| {
                     if (self.eatToken(Token.Id.Keyword_fn)) |fn_token| {
-                        const fn_proto = try self.createToCtxNode(arena, ctx.opt_ctx, ast.Node.FnProto,
-                            ast.Node.FnProto {
-                                .base = undefined,
+                        const fn_proto = try arena.construct(ast.Node.FnProto {
+                            .base = ast.Node {
+                                .id = ast.Node.Id.FnProto,
                                 .comments = ctx.comments,
-                                .visib_token = null,
-                                .name_token = null,
-                                .fn_token = fn_token,
-                                .params = ArrayList(&ast.Node).init(arena),
-                                .return_type = undefined,
-                                .var_args_token = null,
-                                .extern_export_inline_token = ctx.extern_token,
-                                .cc_token = null,
-                                .async_attr = null,
-                                .body_node = null,
-                                .lib_name = null,
-                                .align_expr = null,
-                            }
-                        );
+                            },
+                            .visib_token = null,
+                            .name_token = null,
+                            .fn_token = fn_token,
+                            .params = ArrayList(&ast.Node).init(arena),
+                            .return_type = undefined,
+                            .var_args_token = null,
+                            .extern_export_inline_token = ctx.extern_token,
+                            .cc_token = null,
+                            .async_attr = null,
+                            .body_node = null,
+                            .lib_name = null,
+                            .align_expr = null,
+                        });
+                        ctx.opt_ctx.store(&fn_proto.base);
                         stack.append(State { .FnProto = fn_proto }) catch unreachable;
                         continue;
                     }
@@ -2546,46 +2571,48 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_fn => {
-                            const fn_proto = try self.createToCtxNode(arena, opt_ctx, ast.Node.FnProto,
-                                ast.Node.FnProto {
-                                    .base = undefined,
+                            const fn_proto = try arena.construct(ast.Node.FnProto {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.FnProto,
                                     .comments = null,
-                                    .visib_token = null,
-                                    .name_token = null,
-                                    .fn_token = token,
-                                    .params = ArrayList(&ast.Node).init(arena),
-                                    .return_type = undefined,
-                                    .var_args_token = null,
-                                    .extern_export_inline_token = null,
-                                    .cc_token = null,
-                                    .async_attr = null,
-                                    .body_node = null,
-                                    .lib_name = null,
-                                    .align_expr = null,
-                                }
-                            );
+                                },
+                                .visib_token = null,
+                                .name_token = null,
+                                .fn_token = token,
+                                .params = ArrayList(&ast.Node).init(arena),
+                                .return_type = undefined,
+                                .var_args_token = null,
+                                .extern_export_inline_token = null,
+                                .cc_token = null,
+                                .async_attr = null,
+                                .body_node = null,
+                                .lib_name = null,
+                                .align_expr = null,
+                            });
+                            opt_ctx.store(&fn_proto.base);
                             stack.append(State { .FnProto = fn_proto }) catch unreachable;
                             continue;
                         },
                         Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
-                            const fn_proto = try self.createToCtxNode(arena, opt_ctx, ast.Node.FnProto,
-                                ast.Node.FnProto {
-                                    .base = undefined,
+                            const fn_proto = try arena.construct(ast.Node.FnProto {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.FnProto,
                                     .comments = null,
-                                    .visib_token = null,
-                                    .name_token = null,
-                                    .fn_token = undefined,
-                                    .params = ArrayList(&ast.Node).init(arena),
-                                    .return_type = undefined,
-                                    .var_args_token = null,
-                                    .extern_export_inline_token = null,
-                                    .cc_token = token,
-                                    .async_attr = null,
-                                    .body_node = null,
-                                    .lib_name = null,
-                                    .align_expr = null,
-                                }
-                            );
+                                },
+                                .visib_token = null,
+                                .name_token = null,
+                                .fn_token = undefined,
+                                .params = ArrayList(&ast.Node).init(arena),
+                                .return_type = undefined,
+                                .var_args_token = null,
+                                .extern_export_inline_token = null,
+                                .cc_token = token,
+                                .async_attr = null,
+                                .body_node = null,
+                                .lib_name = null,
+                                .align_expr = null,
+                            });
+                            opt_ctx.store(&fn_proto.base);
                             stack.append(State { .FnProto = fn_proto }) catch unreachable;
                             try stack.append(State {
                                 .ExpectTokenSave = ExpectTokenSave {
@@ -2747,13 +2774,13 @@ pub const Parser = struct {
                     if (result) |comment_node| {
                         break :blk comment_node;
                     } else {
-                        const comment_node = try arena.create(ast.Node.LineComment);
-                        *comment_node = ast.Node.LineComment {
+                        const comment_node = try arena.construct(ast.Node.LineComment {
                             .base = ast.Node {
                                 .id = ast.Node.Id.LineComment,
+                                .comments = null,
                             },
                             .lines = ArrayList(Token).init(arena),
-                        };
+                        });
                         result = comment_node;
                         break :blk comment_node;
                     }
@@ -3096,7 +3123,7 @@ pub const Parser = struct {
         *node = *init_to;
         node.base = blk: {
             const id = ast.Node.typeToId(T);
-            break :blk ast.Node {.id = id};
+            break :blk ast.Node {.id = id, .comments = null};
         };
 
         return node;
@@ -3269,7 +3296,7 @@ pub const Parser = struct {
                     switch (decl.id) {
                         ast.Node.Id.FnProto => {
                             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
-                            try self.renderComments(stream, fn_proto, indent);
+                            try self.renderComments(stream, &fn_proto.base, indent);
 
                             if (fn_proto.body_node) |body_node| {
                                 stack.append(RenderState { .Expression = body_node}) catch unreachable;
@@ -3295,7 +3322,7 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.TestDecl => {
                             const test_decl = @fieldParentPtr(ast.Node.TestDecl, "base", decl);
-                            try self.renderComments(stream, test_decl, indent);
+                            try self.renderComments(stream, &test_decl.base, indent);
                             try stream.print("test ");
                             try stack.append(RenderState { .Expression = test_decl.body_node });
                             try stack.append(RenderState { .Text = " " });
@@ -3338,7 +3365,6 @@ pub const Parser = struct {
                 },
 
                 RenderState.FieldInitializer => |field_init| {
-                    //TODO try self.renderComments(stream, field_init, indent);
                     try stream.print(".{}", self.tokenizer.getTokenSlice(field_init.name_token));
                     try stream.print(" = ");
                     try stack.append(RenderState { .Expression = field_init.expr });
@@ -3385,7 +3411,6 @@ pub const Parser = struct {
 
                 RenderState.ParamDecl => |base| {
                     const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", base);
-                    // TODO try self.renderComments(stream, param_decl, indent);
                     if (param_decl.comptime_token) |comptime_token| {
                         try stream.print("{} ", self.tokenizer.getTokenSlice(comptime_token));
                     }
@@ -4328,10 +4353,10 @@ pub const Parser = struct {
                     ast.Node.Id.ParamDecl => unreachable,
                 },
                 RenderState.Statement => |base| {
+                    try self.renderComments(stream, base, indent);
                     switch (base.id) {
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", base);
-                            try self.renderComments(stream, var_decl, indent);
                             try stack.append(RenderState { .VarDecl = var_decl});
                         },
                         else => {
@@ -4348,7 +4373,7 @@ pub const Parser = struct {
         }
     }
 
-    fn renderComments(self: &Parser, stream: var, node: var, indent: usize) !void {
+    fn renderComments(self: &Parser, stream: var, node: &ast.Node, indent: usize) !void {
         const comment = node.comments ?? return;
         for (comment.lines.toSliceConst()) |line_token| {
             try stream.print("{}\n", self.tokenizer.getTokenSlice(line_token));
@@ -4428,6 +4453,16 @@ fn testCanonical(source: []const u8) !void {
             error.ParseError => @panic("test failed"),
         }
     }
+}
+
+test "zig fmt: preserve comments before statements" {
+    try testCanonical(
+        \\test "std" {
+        \\    // statement comment
+        \\    _ = @import("foo/bar.zig");
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: preserve top level comments" {

@@ -6,6 +6,7 @@ const mem = std.mem;
 
 pub const Node = struct {
     id: Id,
+    comments: ?&LineComment,
 
     pub const Id = enum {
         // Top level
@@ -139,7 +140,6 @@ pub const Node = struct {
 
     pub const VarDecl = struct {
         base: Node,
-        comments: ?&LineComment,
         visib_token: ?Token,
         name_token: Token,
         eq_token: Token,
@@ -421,7 +421,6 @@ pub const Node = struct {
 
     pub const FnProto = struct {
         base: Node,
-        comments: ?&LineComment,
         visib_token: ?Token,
         fn_token: Token,
         name_token: ?Token,
@@ -1732,7 +1731,6 @@ pub const Node = struct {
 
     pub const TestDecl = struct {
         base: Node,
-        comments: ?&LineComment,
         test_token: Token,
         name: &Node,
         body_node: &Node,

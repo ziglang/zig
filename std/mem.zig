@@ -37,6 +37,20 @@ pub const Allocator = struct {
         return &slice[0];
     }
 
+    // TODO once #733 is solved, this will replace create
+    fn construct(self: &Allocator, init: var) t: {
+        // TODO this is a workaround for type getting parsed as Error!&const T
+        const T = @typeOf(init).Child;
+        break :t Error!&T;
+    } {
+        const T = @typeOf(init).Child;
+        if (@sizeOf(T) == 0) return &{};
+        const slice = try self.alloc(T, 1);
+        const ptr = &slice[0];
+        *ptr = *init;
+        return ptr;
+    }
+
     fn destroy(self: &Allocator, ptr: var) void {
         self.free(ptr[0..1]);
     }
@@ -54,7 +68,7 @@ pub const Allocator = struct {
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
         assert(byte_slice.len == byte_count);
-        // This loop should get optimized out in ReleaseFast mode
+        // This loop gets optimized out in ReleaseFast mode
         for (byte_slice) |*byte| {
             *byte = undefined;
         }
@@ -81,7 +95,7 @@ pub const Allocator = struct {
         const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
         assert(byte_slice.len == byte_count);
         if (n > old_mem.len) {
-            // This loop should get optimized out in ReleaseFast mode
+            // This loop gets optimized out in ReleaseFast mode
             for (byte_slice[old_byte_slice.len..]) |*byte| {
                 *byte = undefined;
             }
