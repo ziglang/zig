@@ -230,6 +230,7 @@ pub const Parser = struct {
         Semicolon: &&ast.Node,
         AddComments: AddCommentsCtx,
         LookForSameLineComment: &&ast.Node,
+        LookForSameLineCommentDirect: &ast.Node,
 
         AsmOutputItems: &ArrayList(&ast.Node.AsmOutput),
         AsmOutputReturnOrType: &ast.Node.AsmOutput,
@@ -532,7 +533,7 @@ pub const Parser = struct {
                                 }
                             }
 
-                            stack.append(State {
+                            try stack.append(State {
                                 .VarDecl = VarDeclCtx {
                                     .comments = ctx.comments,
                                     .visib_token = ctx.visib_token,
@@ -542,7 +543,7 @@ pub const Parser = struct {
                                     .mut_token = token,
                                     .list = ctx.decls
                                 }
-                            }) catch unreachable;
+                            });
                             continue;
                         },
                         Token.Id.Keyword_fn, Token.Id.Keyword_nakedcc,
@@ -705,6 +706,7 @@ pub const Parser = struct {
                     continue;
                 },
                 State.ContainerDecl => |container_decl| {
+                    const comments = try self.eatComments(arena);
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Identifier => {
@@ -713,7 +715,7 @@ pub const Parser = struct {
                                     const node = try arena.construct(ast.Node.StructField {
                                         .base = ast.Node {
                                             .id = ast.Node.Id.StructField,
-                                            .before_comments = null,
+                                            .before_comments = comments,
                                             .same_line_comment = null,
                                         },
                                         .visib_token = null,
@@ -765,7 +767,7 @@ pub const Parser = struct {
                                         .TopLevelExternOrField = TopLevelExternOrFieldCtx {
                                             .visib_token = token,
                                             .container_decl = container_decl,
-                                            .comments = null,
+                                            .comments = comments,
                                         }
                                     });
                                     continue;
@@ -778,7 +780,7 @@ pub const Parser = struct {
                                             .visib_token = token,
                                             .extern_export_inline_token = null,
                                             .lib_name = null,
-                                            .comments = null,
+                                            .comments = comments,
                                         }
                                     });
                                     continue;
@@ -793,7 +795,7 @@ pub const Parser = struct {
                                     .visib_token = token,
                                     .extern_export_inline_token = null,
                                     .lib_name = null,
-                                    .comments = null,
+                                    .comments = comments,
                                 }
                             });
                             continue;
@@ -811,7 +813,7 @@ pub const Parser = struct {
                                     .visib_token = null,
                                     .extern_export_inline_token = null,
                                     .lib_name = null,
-                                    .comments = null,
+                                    .comments = comments,
                                 }
                             });
                             continue;
@@ -842,7 +844,8 @@ pub const Parser = struct {
                     });
                     try ctx.list.append(&var_decl.base);
 
-                    stack.append(State { .VarDeclAlign = var_decl }) catch unreachable;
+                    try stack.append(State { .LookForSameLineCommentDirect = &var_decl.base });
+                    try stack.append(State { .VarDeclAlign = var_decl });
                     try stack.append(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &var_decl.type_node} });
                     try stack.append(State { .IfToken = Token.Id.Colon });
                     try stack.append(State {
@@ -854,7 +857,7 @@ pub const Parser = struct {
                     continue;
                 },
                 State.VarDeclAlign => |var_decl| {
-                    stack.append(State { .VarDeclEq = var_decl }) catch unreachable;
+                    try stack.append(State { .VarDeclEq = var_decl });
 
                     const next_token = self.getNextToken();
                     if (next_token.id == Token.Id.Keyword_align) {
@@ -1345,6 +1348,11 @@ pub const Parser = struct {
 
                 State.LookForSameLineComment => |node_ptr| {
                     try self.lookForSameLineComment(arena, *node_ptr);
+                    continue;
+                },
+
+                State.LookForSameLineCommentDirect => |node| {
+                    try self.lookForSameLineComment(arena, node);
                     continue;
                 },
 

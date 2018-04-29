@@ -1,4 +1,27 @@
-test "zig fmt: line comment after field decl" {
+test "zig fmt: comments before var decl in struct" {
+    try testCanonical(
+        \\pub const vfs_cap_data = extern struct {
+        \\    // All of these are mandated as little endian
+        \\    // when on disk.
+        \\    const Data = struct {
+        \\        permitted: u32,
+        \\        inheritable: u32,
+        \\    };
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after var decl in struct" {
+    try testCanonical(
+        \\pub const vfs_cap_data = extern struct {
+        \\    const Data = struct {}; // when on disk.
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after field decl" {
     try testCanonical(
         \\pub const dirent = extern struct {
         \\    d_name: u8,
@@ -18,7 +41,7 @@ test "zig fmt: array literal with 1 item on 1 line" {
     );
 }
 
-test "zig fmt: preserve same-line comment after a statement" {
+test "zig fmt: same-line comment after a statement" {
     try testCanonical(
         \\test "" {
         \\    a = b;
@@ -29,7 +52,7 @@ test "zig fmt: preserve same-line comment after a statement" {
     );
 }
 
-test "zig fmt: preserve comments before global variables" {
+test "zig fmt: comments before global variables" {
     try testCanonical(
         \\/// Foo copies keys and values before they go into the map, and
         \\/// frees them when they get removed.
@@ -38,7 +61,7 @@ test "zig fmt: preserve comments before global variables" {
     );
 }
 
-test "zig fmt: preserve comments before statements" {
+test "zig fmt: comments before statements" {
     try testCanonical(
         \\test "std" {
         \\    // statement comment
@@ -48,7 +71,7 @@ test "zig fmt: preserve comments before statements" {
     );
 }
 
-test "zig fmt: preserve top level comments" {
+test "zig fmt: comments before test decl" {
     try testCanonical(
         \\// top level comment
         \\test "hi" {}
