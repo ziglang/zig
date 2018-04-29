@@ -2,6 +2,10 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
+const is_posix = switch (builtin.os) {
+    builtin.Os.linux, builtin.Os.macosx => true,
+    else => false,
+};
 const os = this;
 
 test "std.os" {
@@ -2343,21 +2347,39 @@ pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
 }
 
 pub const Thread = struct {
-    pid: i32,
+    pid: pid_t,
     allocator: ?&mem.Allocator,
     stack: []u8,
+    pthread_handle: pthread_t,
+
+    pub const use_pthreads = is_posix and builtin.link_libc;
+    const pthread_t = if (use_pthreads) c.pthread_t else void;
+    const pid_t = if (!use_pthreads) i32 else void;
 
     pub fn wait(self: &const Thread) void {
-        while (true) {
-            const pid_value = @atomicLoad(i32, &self.pid, builtin.AtomicOrder.SeqCst);
-            if (pid_value == 0) break;
-            const rc = linux.futex_wait(@ptrToInt(&self.pid), linux.FUTEX_WAIT, pid_value, null);
-            switch (linux.getErrno(rc)) {
-                0 => continue,
-                posix.EINTR => continue,
-                posix.EAGAIN => continue,
+        if (use_pthreads) {
+            const err = c.pthread_join(self.pthread_handle, null);
+            switch (err) {
+                0 => {},
+                posix.EINVAL => unreachable,
+                posix.ESRCH => unreachable,
+                posix.EDEADLK => unreachable,
                 else => unreachable,
             }
+        } else if (builtin.os == builtin.Os.linux) {
+            while (true) {
+                const pid_value = @atomicLoad(i32, &self.pid, builtin.AtomicOrder.SeqCst);
+                if (pid_value == 0) break;
+                const rc = linux.futex_wait(@ptrToInt(&self.pid), linux.FUTEX_WAIT, pid_value, null);
+                switch (linux.getErrno(rc)) {
+                    0 => continue,
+                    posix.EINTR => continue,
+                    posix.EAGAIN => continue,
+                    else => unreachable,
+                }
+            }
+        } else {
+            @compileError("Unsupported OS");
         }
         if (self.allocator) |a| {
             a.free(self.stack);
@@ -2429,31 +2451,67 @@ pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThread
     thread_ptr.stack = stack;
     thread_ptr.allocator = null;
 
-    const threadMain = struct {
-        extern fn threadMain(ctx_addr: usize) u8 {
+    const MainFuncs = struct {
+        extern fn linuxThreadMain(ctx_addr: usize) u8 {
             if (@sizeOf(Context) == 0) {
                 return startFn({});
             } else {
                 return startFn(*@intToPtr(&const Context, ctx_addr));
             }
         }
-    }.threadMain;
+        extern fn posixThreadMain(ctx: ?&c_void) ?&c_void {
+            if (@sizeOf(Context) == 0) {
+                _ = startFn({});
+                return null;
+            } else {
+                _ = startFn(*@ptrCast(&const Context, @alignCast(@alignOf(Context), ctx)));
+                return null;
+            }
+        }
+    };
 
-    const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND
-        | posix.CLONE_THREAD | posix.CLONE_SYSVSEM // | posix.CLONE_SETTLS
-        | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
-    const newtls: usize = 0;
-    const rc = posix.clone(threadMain, stack_end, flags, arg, &thread_ptr.pid, newtls, &thread_ptr.pid);
-    const err = posix.getErrno(rc);
-    switch (err) {
-        0 => return thread_ptr,
-        posix.EAGAIN => return SpawnThreadError.ThreadQuotaExceeded,
-        posix.EINVAL => unreachable,
-        posix.ENOMEM => return SpawnThreadError.SystemResources,
-        posix.ENOSPC => unreachable,
-        posix.EPERM => unreachable,
-        posix.EUSERS => unreachable,
-        else => return unexpectedErrorPosix(err),
+    if (builtin.os == builtin.Os.windows) {
+        // use windows API directly
+        @compileError("TODO support spawnThread for Windows");
+    } else if (Thread.use_pthreads) {
+        // use pthreads
+        var attr: c.pthread_attr_t = undefined;
+        if (c.pthread_attr_init(&attr) != 0) return SpawnThreadError.SystemResources;
+        defer assert(c.pthread_attr_destroy(&attr) == 0);
+
+        const stack_size = stack_end - @ptrToInt(stack.ptr);
+        if (c.pthread_attr_setstack(&attr, @ptrCast(&c_void, stack.ptr), stack_size) != 0) {
+            return SpawnThreadError.SystemResources;
+        }
+
+        const err = c.pthread_create(&thread_ptr.pthread_handle, &attr, MainFuncs.posixThreadMain, @intToPtr(&c_void, arg));
+        switch (err) {
+            0 => return thread_ptr,
+            posix.EAGAIN => return SpawnThreadError.SystemResources,
+            posix.EPERM => unreachable,
+            posix.EINVAL => unreachable,
+            else => return unexpectedErrorPosix(usize(err)),
+        }
+    } else if (builtin.os == builtin.Os.linux) {
+        // use linux API directly
+        const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND
+            | posix.CLONE_THREAD | posix.CLONE_SYSVSEM // | posix.CLONE_SETTLS
+            | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
+        const newtls: usize = 0;
+        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.pid, newtls, &thread_ptr.pid);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return thread_ptr,
+            posix.EAGAIN => return SpawnThreadError.ThreadQuotaExceeded,
+            posix.EINVAL => unreachable,
+            posix.ENOMEM => return SpawnThreadError.SystemResources,
+            posix.ENOSPC => unreachable,
+            posix.EPERM => unreachable,
+            posix.EUSERS => unreachable,
+            else => return unexpectedErrorPosix(err),
+        }
+    } else {
+        @compileError("Unsupported OS");
     }
 }
 

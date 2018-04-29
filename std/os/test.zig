@@ -44,8 +44,8 @@ test "access file" {
 }
 
 test "spawn threads" {
-    if (builtin.os != builtin.Os.linux) {
-        // TODO implement threads on macos and windows
+    if (builtin.os == builtin.Os.windows) {
+        // TODO implement threads on windows
         return;
     }
 
