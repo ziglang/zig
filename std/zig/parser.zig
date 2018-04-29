@@ -55,6 +55,7 @@ pub const Parser = struct {
         visib_token: ?Token,
         extern_export_inline_token: ?Token,
         lib_name: ?&ast.Node,
+        comments: ?&ast.Node.LineComment,
     };
 
     const VarDeclCtx = struct {
@@ -70,6 +71,7 @@ pub const Parser = struct {
     const TopLevelExternOrFieldCtx = struct {
         visib_token: Token,
         container_decl: &ast.Node.ContainerDecl,
+        comments: ?&ast.Node.LineComment,
     };
 
     const ExternTypeCtx = struct {
@@ -393,6 +395,7 @@ pub const Parser = struct {
                                     .visib_token = token,
                                     .extern_export_inline_token = null,
                                     .lib_name = null,
+                                    .comments = comments,
                                 }
                             });
                             continue;
@@ -433,6 +436,7 @@ pub const Parser = struct {
                                     .visib_token = null,
                                     .extern_export_inline_token = null,
                                     .lib_name = null,
+                                    .comments = comments,
                                 }
                             });
                             continue;
@@ -449,6 +453,7 @@ pub const Parser = struct {
                                     .visib_token = ctx.visib_token,
                                     .extern_export_inline_token = token,
                                     .lib_name = null,
+                                    .comments = ctx.comments,
                                 },
                             }) catch unreachable;
                             continue;
@@ -460,6 +465,7 @@ pub const Parser = struct {
                                     .visib_token = ctx.visib_token,
                                     .extern_export_inline_token = token,
                                     .lib_name = null,
+                                    .comments = ctx.comments,
                                 },
                             }) catch unreachable;
                             continue;
@@ -486,12 +492,12 @@ pub const Parser = struct {
                             .visib_token = ctx.visib_token,
                             .extern_export_inline_token = ctx.extern_export_inline_token,
                             .lib_name = lib_name,
+                            .comments = ctx.comments,
                         },
                     }) catch unreachable;
                     continue;
                 },
                 State.TopLevelDecl => |ctx| {
-                    const comments = try self.eatComments(arena);
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_use => {
@@ -525,7 +531,7 @@ pub const Parser = struct {
 
                             stack.append(State {
                                 .VarDecl = VarDeclCtx {
-                                    .comments = comments,
+                                    .comments = ctx.comments,
                                     .visib_token = ctx.visib_token,
                                     .lib_name = ctx.lib_name,
                                     .comptime_token = null,
@@ -541,7 +547,7 @@ pub const Parser = struct {
                             const fn_proto = try arena.construct(ast.Node.FnProto {
                                 .base = ast.Node {
                                     .id = ast.Node.Id.FnProto,
-                                    .comments = comments,
+                                    .comments = ctx.comments,
                                 },
                                 .visib_token = ctx.visib_token,
                                 .name_token = null,
@@ -628,6 +634,7 @@ pub const Parser = struct {
                             .visib_token = ctx.visib_token,
                             .extern_export_inline_token = null,
                             .lib_name = null,
+                            .comments = ctx.comments,
                         }
                     });
                     continue;
@@ -746,6 +753,7 @@ pub const Parser = struct {
                                         .TopLevelExternOrField = TopLevelExternOrFieldCtx {
                                             .visib_token = token,
                                             .container_decl = container_decl,
+                                            .comments = null,
                                         }
                                     });
                                     continue;
@@ -758,6 +766,7 @@ pub const Parser = struct {
                                             .visib_token = token,
                                             .extern_export_inline_token = null,
                                             .lib_name = null,
+                                            .comments = null,
                                         }
                                     });
                                     continue;
@@ -772,6 +781,7 @@ pub const Parser = struct {
                                     .visib_token = token,
                                     .extern_export_inline_token = null,
                                     .lib_name = null,
+                                    .comments = null,
                                 }
                             });
                             continue;
@@ -789,6 +799,7 @@ pub const Parser = struct {
                                     .visib_token = null,
                                     .extern_export_inline_token = null,
                                     .lib_name = null,
+                                    .comments = null,
                                 }
                             });
                             continue;
@@ -3318,6 +3329,7 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", decl);
+                            try self.renderComments(stream, &var_decl.base, indent);
                             try stack.append(RenderState { .VarDecl = var_decl});
                         },
                         ast.Node.Id.TestDecl => {
@@ -3827,41 +3839,45 @@ pub const Parser = struct {
                             ast.Node.ContainerDecl.Kind.Union => try stream.print("union"),
                         }
 
-                        try stack.append(RenderState { .Text = "}"});
-                        try stack.append(RenderState.PrintIndent);
-                        try stack.append(RenderState { .Indent = indent });
-                        try stack.append(RenderState { .Text = "\n"});
-
                         const fields_and_decls = container_decl.fields_and_decls.toSliceConst();
-                        var i = fields_and_decls.len;
-                        while (i != 0) {
-                            i -= 1;
-                            const node = fields_and_decls[i];
-                            switch (node.id) {
-                                ast.Node.Id.StructField,
-                                ast.Node.Id.UnionTag,
-                                ast.Node.Id.EnumTag => {
-                                    try stack.append(RenderState { .Text = "," });
-                                },
-                                else => { }
-                            }
-                            try stack.append(RenderState { .TopLevelDecl = node});
+                        if (fields_and_decls.len == 0) {
+                            try stack.append(RenderState { .Text = "{}"});
+                        } else {
+                            try stack.append(RenderState { .Text = "}"});
                             try stack.append(RenderState.PrintIndent);
-                            try stack.append(RenderState {
-                                .Text = blk: {
-                                    if (i != 0) {
-                                        const prev_node = fields_and_decls[i - 1];
-                                        const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, node.firstToken());
-                                        if (loc.line >= 2) {
-                                            break :blk "\n\n";
+                            try stack.append(RenderState { .Indent = indent });
+                            try stack.append(RenderState { .Text = "\n"});
+
+                            var i = fields_and_decls.len;
+                            while (i != 0) {
+                                i -= 1;
+                                const node = fields_and_decls[i];
+                                switch (node.id) {
+                                    ast.Node.Id.StructField,
+                                    ast.Node.Id.UnionTag,
+                                    ast.Node.Id.EnumTag => {
+                                        try stack.append(RenderState { .Text = "," });
+                                    },
+                                    else => { }
+                                }
+                                try stack.append(RenderState { .TopLevelDecl = node});
+                                try stack.append(RenderState.PrintIndent);
+                                try stack.append(RenderState {
+                                    .Text = blk: {
+                                        if (i != 0) {
+                                            const prev_node = fields_and_decls[i - 1];
+                                            const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, node.firstToken());
+                                            if (loc.line >= 2) {
+                                                break :blk "\n\n";
+                                            }
                                         }
-                                    }
-                                    break :blk "\n";
-                                },
-                            });
+                                        break :blk "\n";
+                                    },
+                                });
+                            }
+                            try stack.append(RenderState { .Indent = indent + indent_delta});
+                            try stack.append(RenderState { .Text = "{"});
                         }
-                        try stack.append(RenderState { .Indent = indent + indent_delta});
-                        try stack.append(RenderState { .Text = "{"});
 
                         switch (container_decl.init_arg_expr) {
                             ast.Node.ContainerDecl.InitArg.None => try stack.append(RenderState { .Text = " "}),
@@ -4453,6 +4469,15 @@ fn testCanonical(source: []const u8) !void {
             error.ParseError => @panic("test failed"),
         }
     }
+}
+
+test "zig fmt: preserve comments before global variables" {
+    try testCanonical(
+        \\/// Foo copies keys and values before they go into the map, and
+        \\/// frees them when they get removed.
+        \\pub const Foo = struct {};
+        \\
+    );
 }
 
 test "zig fmt: preserve comments before statements" {
