@@ -15911,6 +15911,10 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                     assert(!fn_entry->is_test);
 
+                    analyze_fn_body(ira->codegen, fn_entry);
+                    if (fn_entry->anal_state == FnAnalStateInvalid)
+                        return;
+
                     AstNodeFnProto *fn_node = (AstNodeFnProto *)(fn_entry->proto_node);
 
                     ConstExprValue *fn_def_val = create_const_vals(1);
@@ -15919,8 +15923,7 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     fn_def_val->data.x_struct.parent.id = ConstParentIdUnion;
                     fn_def_val->data.x_struct.parent.data.p_union.union_val = &inner_fields[2];
 
-                    // @TODO Add fields
-                    ConstExprValue *fn_def_fields = create_const_vals(7);
+                    ConstExprValue *fn_def_fields = create_const_vals(9);
                     fn_def_val->data.x_struct.fields = fn_def_fields;
 
                     // fn_type: type
@@ -15940,9 +15943,10 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     bigint_init_unsigned(&fn_def_fields[2].data.x_enum_tag, fn_node->cc);
                     // is_var_args: bool
                     ensure_field_index(fn_def_val->type, "is_var_args", 3);
+                    bool is_varargs = fn_node->is_var_args;
                     fn_def_fields[3].special = ConstValSpecialStatic;
                     fn_def_fields[3].type = ira->codegen->builtin_types.entry_bool;
-                    fn_def_fields[3].data.x_bool = fn_node->is_var_args;
+                    fn_def_fields[3].data.x_bool = is_varargs;
                     // is_extern: bool
                     ensure_field_index(fn_def_val->type, "is_extern", 4);
                     fn_def_fields[4].special = ConstValSpecialStatic;
@@ -15959,18 +15963,47 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     fn_def_fields[6].type = get_maybe_type(ira->codegen,
                             get_slice_type(ira->codegen, get_pointer_to_type(ira->codegen,
                                     ira->codegen->builtin_types.entry_u8, true)));
-                    
-
                     if (fn_node->is_extern && buf_len(fn_node->lib_name) > 0)
                     {
                         fn_def_fields[6].data.x_maybe = create_const_vals(1);
-                        // @TODO Figure out if lib_name is always non-null for extern fns.
                         ConstExprValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name);
                         init_const_slice(ira->codegen, fn_def_fields[6].data.x_maybe, lib_name, 0, buf_len(fn_node->lib_name), true);
                     }
                     else
-                    {
                         fn_def_fields[6].data.x_maybe = nullptr;
+                    // return_type: type
+                    ensure_field_index(fn_def_val->type, "return_type", 7);
+                    fn_def_fields[7].special = ConstValSpecialStatic;
+                    fn_def_fields[7].type = ira->codegen->builtin_types.entry_type;
+                    // @TODO Check whether this is correct.
+                    if (fn_entry->src_implicit_return_type != nullptr)
+                        fn_def_fields[7].data.x_type = fn_entry->src_implicit_return_type;
+                    else if (fn_entry->type_entry->data.fn.gen_return_type != nullptr)
+                        fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.gen_return_type;
+                    else
+                        fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    // arg_names: [][] const u8
+                    ensure_field_index(fn_def_val->type, "arg_names", 8);
+                    size_t fn_arg_count = fn_entry->variable_list.length;
+                    ConstExprValue *fn_arg_name_array = create_const_vals(1);
+                    fn_arg_name_array->special = ConstValSpecialStatic;
+                    fn_arg_name_array->type = get_array_type(ira->codegen, get_slice_type(ira->codegen,
+                            get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true)), fn_arg_count);
+                    fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
+                    fn_arg_name_array->data.x_array.s_none.parent.id = ConstParentIdNone;
+                    fn_arg_name_array->data.x_array.s_none.elements = create_const_vals(fn_arg_count);
+
+                    init_const_slice(ira->codegen, &fn_def_fields[8], fn_arg_name_array, 0, fn_arg_count, false);
+
+                    for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++)
+                    {
+                        VariableTableEntry *arg_var = fn_entry->variable_list.at(fn_arg_index);
+                        ConstExprValue *fn_arg_name_val = &fn_arg_name_array->data.x_array.s_none.elements[fn_arg_index];
+                        ConstExprValue *arg_name = create_const_str_lit(ira->codegen, &arg_var->name);
+                        init_const_slice(ira->codegen, fn_arg_name_val, arg_name, 0, buf_len(&arg_var->name), true);
+                        fn_arg_name_val->data.x_struct.parent.id = ConstParentIdArray;
+                        fn_arg_name_val->data.x_struct.parent.data.p_array.array_val = fn_arg_name_array;
+                        fn_arg_name_val->data.x_struct.parent.data.p_array.elem_index = fn_arg_index;
                     }
 
                     inner_fields[2].data.x_union.payload = fn_def_val;
