@@ -3730,6 +3730,16 @@ pub const Parser = struct {
                                     try stack.append(RenderState { .Expression = suffix_op.lhs });
                                     continue;
                                 }
+                                if (exprs.len == 1) {
+                                    const expr = exprs.at(0);
+
+                                    try stack.append(RenderState { .Text = "}" });
+                                    try stack.append(RenderState { .Expression = expr });
+                                    try stack.append(RenderState { .Text = " {" });
+                                    try stack.append(RenderState { .Expression = suffix_op.lhs });
+                                    continue;
+                                }
+
                                 try stack.append(RenderState { .Text = "}"});
                                 try stack.append(RenderState.PrintIndent);
                                 try stack.append(RenderState { .Indent = indent });
@@ -4511,6 +4521,13 @@ fn testCanonical(source: []const u8) !void {
             error.ParseError => @panic("test failed"),
         }
     }
+}
+
+test "zig fmt: array literal with 1 item on 1 line" {
+    try testCanonical(
+        \\var s = []const u64 {0} ** 25;
+        \\
+    );
 }
 
 test "zig fmt: preserve same-line comment after a statement" {
