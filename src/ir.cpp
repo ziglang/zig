@@ -15920,7 +15920,7 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     fn_def_val->data.x_struct.parent.data.p_union.union_val = &inner_fields[2];
 
                     // @TODO Add fields
-                    ConstExprValue *fn_def_fields = create_const_vals(3);
+                    ConstExprValue *fn_def_fields = create_const_vals(7);
                     fn_def_val->data.x_struct.fields = fn_def_fields;
 
                     // fn_type: type
@@ -15938,6 +15938,40 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     fn_def_fields[2].special = ConstValSpecialStatic;
                     fn_def_fields[2].type = ir_type_info_get_type(ira, "CallingConvention");
                     bigint_init_unsigned(&fn_def_fields[2].data.x_enum_tag, fn_node->cc);
+                    // is_var_args: bool
+                    ensure_field_index(fn_def_val->type, "is_var_args", 3);
+                    fn_def_fields[3].special = ConstValSpecialStatic;
+                    fn_def_fields[3].type = ira->codegen->builtin_types.entry_bool;
+                    fn_def_fields[3].data.x_bool = fn_node->is_var_args;
+                    // is_extern: bool
+                    ensure_field_index(fn_def_val->type, "is_extern", 4);
+                    fn_def_fields[4].special = ConstValSpecialStatic;
+                    fn_def_fields[4].type = ira->codegen->builtin_types.entry_bool;
+                    fn_def_fields[4].data.x_bool = fn_node->is_extern;
+                    // is_export: bool
+                    ensure_field_index(fn_def_val->type, "is_export", 5);
+                    fn_def_fields[5].special = ConstValSpecialStatic;
+                    fn_def_fields[5].type = ira->codegen->builtin_types.entry_bool;
+                    fn_def_fields[5].data.x_bool = fn_node->is_export;
+                    // lib_name: ?[]const u8
+                    ensure_field_index(fn_def_val->type, "lib_name", 6);
+                    fn_def_fields[6].special = ConstValSpecialStatic;
+                    fn_def_fields[6].type = get_maybe_type(ira->codegen,
+                            get_slice_type(ira->codegen, get_pointer_to_type(ira->codegen,
+                                    ira->codegen->builtin_types.entry_u8, true)));
+                    
+
+                    if (fn_node->is_extern && buf_len(fn_node->lib_name) > 0)
+                    {
+                        fn_def_fields[6].data.x_maybe = create_const_vals(1);
+                        // @TODO Figure out if lib_name is always non-null for extern fns.
+                        ConstExprValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name);
+                        init_const_slice(ira->codegen, fn_def_fields[6].data.x_maybe, lib_name, 0, buf_len(fn_node->lib_name), true);
+                    }
+                    else
+                    {
+                        fn_def_fields[6].data.x_maybe = nullptr;
+                    }
 
                     inner_fields[2].data.x_union.payload = fn_def_val;
                     break;
