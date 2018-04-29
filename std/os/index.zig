@@ -2421,7 +2421,7 @@ pub fn spawnThreadAllocator(allocator: &mem.Allocator, context: var, comptime st
     // TODO compile-time call graph analysis to determine stack upper bound
     // https://github.com/zig-lang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;
-    const stack_bytes = try allocator.alloc(u8, default_stack_size);
+    const stack_bytes = try allocator.alignedAlloc(u8, os.page_size, default_stack_size);
     const thread = try spawnThread(stack_bytes, context, startFn);
     thread.allocator = allocator;
     return thread;
@@ -2431,7 +2431,7 @@ pub fn spawnThreadAllocator(allocator: &mem.Allocator, context: var, comptime st
 /// fn startFn(@typeOf(context)) T
 /// where T is u8, noreturn, void, or !void
 /// caller must call wait on the returned thread
-pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThreadError!&Thread {
+pub fn spawnThread(stack: []align(os.page_size) u8, context: var, comptime startFn: var) SpawnThreadError!&Thread {
     const Context = @typeOf(context);
     comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
 
@@ -2481,8 +2481,12 @@ pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThread
         if (c.pthread_attr_init(&attr) != 0) return SpawnThreadError.SystemResources;
         defer assert(c.pthread_attr_destroy(&attr) == 0);
 
+        // align to page
+        stack_end -= stack_end % os.page_size;
+
         const stack_size = stack_end - @ptrToInt(stack.ptr);
-        if (c.pthread_attr_setstack(&attr, @ptrCast(&c_void, stack.ptr), stack_size) != 0) {
+        const setstack_err = c.pthread_attr_setstack(&attr, @ptrCast(&c_void, stack.ptr), stack_size);
+        if (setstack_err != 0) {
             return SpawnThreadError.StackTooSmall; // pthreads requires at least 16384 bytes
         }
 

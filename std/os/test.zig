@@ -57,8 +57,8 @@ test "spawn threads" {
     const thread1 = try std.os.spawnThreadAllocator(&direct_allocator.allocator, {}, start1);
     const thread4 = try std.os.spawnThreadAllocator(&direct_allocator.allocator, &shared_ctx, start2);
 
-    var stack1: [20 * 1024]u8 = undefined;
-    var stack2: [20 * 1024]u8 = undefined;
+    var stack1: [20 * 1024]u8 align(os.page_size) = undefined;
+    var stack2: [20 * 1024]u8 align(os.page_size) = undefined;
 
     const thread2 = try std.os.spawnThread(stack1[0..], &shared_ctx, start2);
     const thread3 = try std.os.spawnThread(stack2[0..], &shared_ctx, start2);
