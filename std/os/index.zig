@@ -2497,11 +2497,13 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
         }
     };
 
+    const MAP_GROWSDOWN = if (builtin.os == builtin.Os.linux) linux.MAP_GROWSDOWN else 0;
+
     const stack_len = default_stack_size;
     const stack_addr = posix.mmap(null, stack_len, posix.PROT_READ|posix.PROT_WRITE, 
-            posix.MAP_PRIVATE|posix.MAP_ANONYMOUS|posix.MAP_GROWSDOWN, -1, 0);
+            posix.MAP_PRIVATE|posix.MAP_ANONYMOUS|MAP_GROWSDOWN, -1, 0);
     if (stack_addr == posix.MAP_FAILED) return error.OutOfMemory;
-    errdefer _ = posix.munmap(stack_addr, stack_len);
+    errdefer assert(posix.munmap(stack_addr, stack_len) == 0);
 
     var stack_end: usize = stack_addr + stack_len;
     var arg: usize = undefined;

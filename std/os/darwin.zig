@@ -184,7 +184,7 @@ pub fn write(fd: i32, buf: &const u8, nbyte: usize) usize {
     return errnoWrap(c.write(fd, @ptrCast(&const c_void, buf), nbyte));
 }
 
-pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32,
+pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: u32, fd: i32,
     offset: isize) usize
 {
     const ptr_result = c.mmap(@ptrCast(&c_void, address), length,
@@ -193,8 +193,8 @@ pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32,
     return errnoWrap(isize_result);
 }
 
-pub fn munmap(address: &u8, length: usize) usize {
-    return errnoWrap(c.munmap(@ptrCast(&c_void, address), length));
+pub fn munmap(address: usize, length: usize) usize {
+    return errnoWrap(c.munmap(@intToPtr(&c_void, address), length));
 }
 
 pub fn unlink(path: &const u8) usize {

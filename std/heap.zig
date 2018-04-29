@@ -91,7 +91,7 @@ pub const DirectAllocator = struct {
                 const unused_start = addr;
                 const unused_len = aligned_addr - 1 - unused_start;
 
-                var err = p.munmap(@intToPtr(&u8, unused_start), unused_len);
+                var err = p.munmap(unused_start, unused_len);
                 debug.assert(p.getErrno(err) == 0);
                 
                 //It is impossible that there is an unoccupied page at the top of our
@@ -132,7 +132,7 @@ pub const DirectAllocator = struct {
                     const rem = @rem(new_addr_end, os.page_size);
                     const new_addr_end_rounded = new_addr_end + if (rem == 0) 0 else (os.page_size - rem);
                     if (old_addr_end > new_addr_end_rounded) {
-                        _ = os.posix.munmap(@intToPtr(&u8, new_addr_end_rounded), old_addr_end - new_addr_end_rounded);
+                        _ = os.posix.munmap(new_addr_end_rounded, old_addr_end - new_addr_end_rounded);
                     }
                     return old_mem[0..new_size];
                 }
@@ -170,7 +170,7 @@ pub const DirectAllocator = struct {
 
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
-                _ = os.posix.munmap(bytes.ptr, bytes.len);
+                _ = os.posix.munmap(@ptrToInt(bytes.ptr), bytes.len);
             },
             Os.windows => {
                 const record_addr = @ptrToInt(bytes.ptr) + bytes.len;
