@@ -44,24 +44,12 @@ test "access file" {
 }
 
 test "spawn threads" {
-    if (builtin.os != builtin.Os.linux) {
-        // TODO implement threads on macos and windows
-        return;
-    }
-
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
     var shared_ctx: i32 = 1;
 
-    const thread1 = try std.os.spawnThreadAllocator(&direct_allocator.allocator, {}, start1);
-    const thread4 = try std.os.spawnThreadAllocator(&direct_allocator.allocator, &shared_ctx, start2);
-
-    var stack1: [1024]u8 = undefined;
-    var stack2: [1024]u8 = undefined;
-
-    const thread2 = try std.os.spawnThread(stack1[0..], &shared_ctx, start2);
-    const thread3 = try std.os.spawnThread(stack2[0..], &shared_ctx, start2);
+    const thread1 = try std.os.spawnThread({}, start1);
+    const thread2 = try std.os.spawnThread(&shared_ctx, start2);
+    const thread3 = try std.os.spawnThread(&shared_ctx, start2);
+    const thread4 = try std.os.spawnThread(&shared_ctx, start2);
 
     thread1.wait();
     thread2.wait();

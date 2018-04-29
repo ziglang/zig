@@ -415,6 +415,9 @@ set(ZIG_CPP_SOURCES
 
 set(ZIG_STD_FILES
     "array_list.zig"
+    "atomic/index.zig"
+    "atomic/stack.zig"
+    "atomic/queue.zig"
     "base64.zig"
     "buf_map.zig"
     "buf_set.zig"

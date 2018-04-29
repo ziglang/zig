@@ -2,6 +2,10 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
+const is_posix = switch (builtin.os) {
+    builtin.Os.linux, builtin.Os.macosx => true,
+    else => false,
+};
 const os = this;
 
 test "std.os" {
@@ -2343,24 +2347,58 @@ pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
 }
 
 pub const Thread = struct {
-    pid: i32,
-    allocator: ?&mem.Allocator,
-    stack: []u8,
+    data: Data,
+
+    pub const use_pthreads = is_posix and builtin.link_libc;
+    const Data = if (use_pthreads) struct {
+      handle: c.pthread_t,
+      stack_addr: usize,
+      stack_len: usize,
+    } else switch (builtin.os) {
+        builtin.Os.linux => struct {
+            pid: i32,
+            stack_addr: usize,
+            stack_len: usize,
+        },
+        builtin.Os.windows => struct {
+            handle: windows.HANDLE,
+            alloc_start: &c_void,
+            heap_handle: windows.HANDLE,
+        },
+        else => @compileError("Unsupported OS"),
+    };
 
     pub fn wait(self: &const Thread) void {
-        while (true) {
-            const pid_value = @atomicLoad(i32, &self.pid, builtin.AtomicOrder.SeqCst);
-            if (pid_value == 0) break;
-            const rc = linux.futex_wait(@ptrToInt(&self.pid), linux.FUTEX_WAIT, pid_value, null);
-            switch (linux.getErrno(rc)) {
-                0 => continue,
-                posix.EINTR => continue,
-                posix.EAGAIN => continue,
+        if (use_pthreads) {
+            const err = c.pthread_join(self.data.handle, null);
+            switch (err) {
+                0 => {},
+                posix.EINVAL => unreachable,
+                posix.ESRCH => unreachable,
+                posix.EDEADLK => unreachable,
                 else => unreachable,
             }
-        }
-        if (self.allocator) |a| {
-            a.free(self.stack);
+            assert(posix.munmap(self.data.stack_addr, self.data.stack_len) == 0);
+        } else switch (builtin.os) {
+            builtin.Os.linux => {
+                while (true) {
+                    const pid_value = @atomicLoad(i32, &self.data.pid, builtin.AtomicOrder.SeqCst);
+                    if (pid_value == 0) break;
+                    const rc = linux.futex_wait(@ptrToInt(&self.data.pid), linux.FUTEX_WAIT, pid_value, null);
+                    switch (linux.getErrno(rc)) {
+                        0 => continue,
+                        posix.EINTR => continue,
+                        posix.EAGAIN => continue,
+                        else => unreachable,
+                    }
+                }
+                assert(posix.munmap(self.data.stack_addr, self.data.stack_len) == 0);
+            },
+            builtin.Os.windows => {
+                assert(windows.WaitForSingleObject(self.data.handle, windows.INFINITE) == windows.WAIT_OBJECT_0);
+                assert(windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start) != 0);
+            },
+            else => @compileError("Unsupported OS"),
         }
     }
 };
@@ -2385,38 +2423,94 @@ pub const SpawnThreadError = error {
     /// be copied.
     SystemResources,
 
+    /// Not enough userland memory to spawn the thread.
+    OutOfMemory,
+
     Unexpected,
 };
 
-pub const SpawnThreadAllocatorError = SpawnThreadError || error{OutOfMemory};
-
 /// caller must call wait on the returned thread
 /// fn startFn(@typeOf(context)) T
 /// where T is u8, noreturn, void, or !void
-pub fn spawnThreadAllocator(allocator: &mem.Allocator, context: var, comptime startFn: var) SpawnThreadAllocatorError!&Thread {
+/// caller must call wait on the returned thread
+pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread {
     // TODO compile-time call graph analysis to determine stack upper bound
     // https://github.com/zig-lang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;
-    const stack_bytes = try allocator.alloc(u8, default_stack_size);
-    const thread = try spawnThread(stack_bytes, context, startFn);
-    thread.allocator = allocator;
-    return thread;
-}
 
-/// stack must be big enough to store one Thread and one @typeOf(context), each with default alignment, at the end
-/// fn startFn(@typeOf(context)) T
-/// where T is u8, noreturn, void, or !void
-/// caller must call wait on the returned thread
-pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThreadError!&Thread {
     const Context = @typeOf(context);
     comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
 
-    var stack_end: usize = @ptrToInt(stack.ptr) + stack.len;
+    if (builtin.os == builtin.Os.windows) {
+        const WinThread = struct {
+            const OuterContext = struct {
+                thread: Thread,
+                inner: Context,
+            };
+            extern fn threadMain(arg: windows.LPVOID) windows.DWORD {
+                if (@sizeOf(Context) == 0) {
+                    return startFn({});
+                } else {
+                    return startFn(*@ptrCast(&Context, @alignCast(@alignOf(Context), arg)));
+                }
+            }
+        };
+
+        const heap_handle = windows.GetProcessHeap() ?? return SpawnThreadError.OutOfMemory;
+        const byte_count = @alignOf(WinThread.OuterContext) + @sizeOf(WinThread.OuterContext);
+        const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) ?? return SpawnThreadError.OutOfMemory;
+        errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
+        const bytes = @ptrCast(&u8, bytes_ptr)[0..byte_count];
+        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
+        outer_context.inner = context;
+        outer_context.thread.data.heap_handle = heap_handle;
+        outer_context.thread.data.alloc_start = bytes_ptr;
+
+        const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(&c_void, &outer_context.inner);
+        outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain,
+            parameter, 0, null) ??
+        {
+            const err = windows.GetLastError();
+            return switch (err) {
+                else => os.unexpectedErrorWindows(err),
+            };
+        };
+        return &outer_context.thread;
+    }
+
+    const MainFuncs = struct {
+        extern fn linuxThreadMain(ctx_addr: usize) u8 {
+            if (@sizeOf(Context) == 0) {
+                return startFn({});
+            } else {
+                return startFn(*@intToPtr(&const Context, ctx_addr));
+            }
+        }
+        extern fn posixThreadMain(ctx: ?&c_void) ?&c_void {
+            if (@sizeOf(Context) == 0) {
+                _ = startFn({});
+                return null;
+            } else {
+                _ = startFn(*@ptrCast(&const Context, @alignCast(@alignOf(Context), ctx)));
+                return null;
+            }
+        }
+    };
+
+    const MAP_GROWSDOWN = if (builtin.os == builtin.Os.linux) linux.MAP_GROWSDOWN else 0;
+
+    const mmap_len = default_stack_size;
+    const stack_addr = posix.mmap(null, mmap_len, posix.PROT_READ|posix.PROT_WRITE,
+            posix.MAP_PRIVATE|posix.MAP_ANONYMOUS|MAP_GROWSDOWN, -1, 0);
+    if (stack_addr == posix.MAP_FAILED) return error.OutOfMemory;
+    errdefer assert(posix.munmap(stack_addr, mmap_len) == 0);
+
+    var stack_end: usize = stack_addr + mmap_len;
     var arg: usize = undefined;
     if (@sizeOf(Context) != 0) {
         stack_end -= @sizeOf(Context);
         stack_end -= stack_end % @alignOf(Context);
-        assert(stack_end >= @ptrToInt(stack.ptr));
+        assert(stack_end >= stack_addr);
         const context_ptr = @alignCast(@alignOf(Context), @intToPtr(&Context, stack_end));
         *context_ptr = context;
         arg = stack_end;
@@ -2424,36 +2518,53 @@ pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThread
 
     stack_end -= @sizeOf(Thread);
     stack_end -= stack_end % @alignOf(Thread);
-    assert(stack_end >= @ptrToInt(stack.ptr));
+    assert(stack_end >= stack_addr);
     const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(&Thread, stack_end));
-    thread_ptr.stack = stack;
-    thread_ptr.allocator = null;
 
-    const threadMain = struct {
-        extern fn threadMain(ctx_addr: usize) u8 {
-            if (@sizeOf(Context) == 0) {
-                return startFn({});
-            } else {
-                return startFn(*@intToPtr(&const Context, ctx_addr));
-            }
+    thread_ptr.data.stack_addr = stack_addr;
+    thread_ptr.data.stack_len = mmap_len;
+
+    if (builtin.os == builtin.Os.windows) {
+        // use windows API directly
+        @compileError("TODO support spawnThread for Windows");
+    } else if (Thread.use_pthreads) {
+        // use pthreads
+        var attr: c.pthread_attr_t = undefined;
+        if (c.pthread_attr_init(&attr) != 0) return SpawnThreadError.SystemResources;
+        defer assert(c.pthread_attr_destroy(&attr) == 0);
+
+        // align to page
+        stack_end -= stack_end % os.page_size;
+        assert(c.pthread_attr_setstack(&attr, @intToPtr(&c_void, stack_addr), stack_end - stack_addr) == 0);
+
+        const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(&c_void, arg));
+        switch (err) {
+            0 => return thread_ptr,
+            posix.EAGAIN => return SpawnThreadError.SystemResources,
+            posix.EPERM => unreachable,
+            posix.EINVAL => unreachable,
+            else => return unexpectedErrorPosix(usize(err)),
         }
-    }.threadMain;
-
-    const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND
-        | posix.CLONE_THREAD | posix.CLONE_SYSVSEM // | posix.CLONE_SETTLS
-        | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
-    const newtls: usize = 0;
-    const rc = posix.clone(threadMain, stack_end, flags, arg, &thread_ptr.pid, newtls, &thread_ptr.pid);
-    const err = posix.getErrno(rc);
-    switch (err) {
-        0 => return thread_ptr,
-        posix.EAGAIN => return SpawnThreadError.ThreadQuotaExceeded,
-        posix.EINVAL => unreachable,
-        posix.ENOMEM => return SpawnThreadError.SystemResources,
-        posix.ENOSPC => unreachable,
-        posix.EPERM => unreachable,
-        posix.EUSERS => unreachable,
-        else => return unexpectedErrorPosix(err),
+    } else if (builtin.os == builtin.Os.linux) {
+        // use linux API directly
+        const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND
+            | posix.CLONE_THREAD | posix.CLONE_SYSVSEM // | posix.CLONE_SETTLS
+            | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
+        const newtls: usize = 0;
+        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.pid, newtls, &thread_ptr.data.pid);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return thread_ptr,
+            posix.EAGAIN => return SpawnThreadError.ThreadQuotaExceeded,
+            posix.EINVAL => unreachable,
+            posix.ENOMEM => return SpawnThreadError.SystemResources,
+            posix.ENOSPC => unreachable,
+            posix.EPERM => unreachable,
+            posix.EUSERS => unreachable,
+            else => return unexpectedErrorPosix(err),
+        }
+    } else {
+        @compileError("Unsupported OS");
     }
 }
 

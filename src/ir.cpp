@@ -18184,6 +18184,11 @@ static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstr
     } else {
         if (!ir_resolve_atomic_order(ira, instruction->ordering->other, &ordering))
             return ira->codegen->builtin_types.entry_invalid;
+        if (ordering == AtomicOrderUnordered) {
+            ir_add_error(ira, instruction->ordering,
+                buf_sprintf("@atomicRmw atomic ordering must not be Unordered"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     }
 
     if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)

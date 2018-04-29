@@ -28,6 +28,9 @@ pub extern "kernel32" stdcallcc fn CreateProcessA(lpApplicationName: ?LPCSTR, lp
 pub extern "kernel32" stdcallcc fn CreateSymbolicLinkA(lpSymlinkFileName: LPCSTR, lpTargetFileName: LPCSTR,
     dwFlags: DWORD) BOOLEAN;
 
+
+pub extern "kernel32" stdcallcc fn CreateThread(lpThreadAttributes: ?LPSECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?LPDWORD) ?HANDLE;
+
 pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) BOOL;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) noreturn;
@@ -317,6 +320,9 @@ pub const FILE_END = 2;
 pub const HEAP_CREATE_ENABLE_EXECUTE = 0x00040000;
 pub const HEAP_GENERATE_EXCEPTIONS = 0x00000004;
 pub const HEAP_NO_SERIALIZE = 0x00000001;
+
+pub const PTHREAD_START_ROUTINE = extern fn(LPVOID) DWORD;
+pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
 test "import" {
     _ = @import("util.zig");
