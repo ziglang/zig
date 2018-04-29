@@ -3,7 +3,7 @@
 const std = @import("std");
 
 comptime {
-    @export("_DllMainCRTStartup", _DllMainCRTStartup);
+    @export("_DllMainCRTStartup", _DllMainCRTStartup, builtin.GlobalLinkage.Strong);
 }
 
 stdcallcc fn _DllMainCRTStartup(hinstDLL: std.os.windows.HINSTANCE, fdwReason: std.os.windows.DWORD,
