@@ -1,6 +1,7 @@
 // This file is included in the compilation unit when exporting a library on windows.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 comptime {
     @export("_DllMainCRTStartup", _DllMainCRTStartup, builtin.GlobalLinkage.Strong);
