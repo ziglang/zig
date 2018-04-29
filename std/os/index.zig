@@ -2499,13 +2499,13 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
 
     const MAP_GROWSDOWN = if (builtin.os == builtin.Os.linux) linux.MAP_GROWSDOWN else 0;
 
-    const stack_len = default_stack_size;
-    const stack_addr = posix.mmap(null, stack_len, posix.PROT_READ|posix.PROT_WRITE, 
+    const mmap_len = default_stack_size;
+    const stack_addr = posix.mmap(null, mmap_len, posix.PROT_READ|posix.PROT_WRITE,
             posix.MAP_PRIVATE|posix.MAP_ANONYMOUS|MAP_GROWSDOWN, -1, 0);
     if (stack_addr == posix.MAP_FAILED) return error.OutOfMemory;
-    errdefer assert(posix.munmap(stack_addr, stack_len) == 0);
+    errdefer assert(posix.munmap(stack_addr, mmap_len) == 0);
 
-    var stack_end: usize = stack_addr + stack_len;
+    var stack_end: usize = stack_addr + mmap_len;
     var arg: usize = undefined;
     if (@sizeOf(Context) != 0) {
         stack_end -= @sizeOf(Context);
@@ -2521,6 +2521,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
     assert(stack_end >= stack_addr);
     const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(&Thread, stack_end));
 
+    thread_ptr.data.stack_addr = stack_addr;
+    thread_ptr.data.stack_len = mmap_len;
 
     if (builtin.os == builtin.Os.windows) {
         // use windows API directly
@@ -2533,10 +2535,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
 
         // align to page
         stack_end -= stack_end % os.page_size;
-        assert(c.pthread_attr_setstack(&attr, @intToPtr(&c_void, stack_addr), stack_len) == 0);
-
-        thread_ptr.data.stack_addr = stack_addr;
-        thread_ptr.data.stack_len = stack_len;
+        assert(c.pthread_attr_setstack(&attr, @intToPtr(&c_void, stack_addr), stack_end - stack_addr) == 0);
 
         const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(&c_void, arg));
         switch (err) {
@@ -2552,7 +2551,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
             | posix.CLONE_THREAD | posix.CLONE_SYSVSEM // | posix.CLONE_SETTLS
             | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
         const newtls: usize = 0;
-        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.pid, newtls, &thread_ptr.pid);
+        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.pid, newtls, &thread_ptr.data.pid);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return thread_ptr,
