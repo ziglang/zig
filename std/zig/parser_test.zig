@@ -1,5 +1,16 @@
+test "zig fmt: doc comments before struct field" {
+    try testCanonical(
+        \\pub const Allocator = struct {
+        \\    /// Allocate byte_count bytes and return them in a slice, with the
+        \\    /// slice's pointer aligned at least to alignment bytes.
+        \\    allocFn: fn() void,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: error set declaration" {
-      try testCanonical(
+    try testCanonical(
         \\const E = error{
         \\    A,
         \\    B,

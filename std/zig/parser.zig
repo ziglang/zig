@@ -3525,6 +3525,7 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.StructField => {
                             const field = @fieldParentPtr(ast.Node.StructField, "base", decl);
+                            try self.renderComments(stream, &field.base, indent);
                             if (field.visib_token) |visib_token| {
                                 try stream.print("{} ", self.tokenizer.getTokenSlice(visib_token));
                             }
@@ -3534,6 +3535,7 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.UnionTag => {
                             const tag = @fieldParentPtr(ast.Node.UnionTag, "base", decl);
+                            try self.renderComments(stream, &tag.base, indent);
                             try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
 
                             try stack.append(RenderState { .Text = "," });
@@ -3550,6 +3552,7 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.EnumTag => {
                             const tag = @fieldParentPtr(ast.Node.EnumTag, "base", decl);
+                            try self.renderComments(stream, &tag.base, indent);
                             try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
 
                             try stack.append(RenderState { .Text = "," });
