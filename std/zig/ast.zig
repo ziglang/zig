@@ -1371,6 +1371,7 @@ pub const Node = struct {
 
     pub const Suspend = struct {
         base: Node,
+        label: ?Token,
         suspend_token: Token,
         payload: ?&Node,
         body: ?&Node,
@@ -1392,6 +1393,7 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &Suspend) Token {
+            if (self.label) |label| return label;
             return self.suspend_token;
         }
 

@@ -1093,6 +1093,23 @@ pub const Parser = struct {
                             }) catch unreachable;
                             continue;
                         },
+                        Token.Id.Keyword_suspend => {
+                            const node = try arena.construct(ast.Node.Suspend {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.Suspend,
+                                    .doc_comments = null,
+                                    .same_line_comment = null,
+                                },
+                                .label = ctx.label,
+                                .suspend_token = token,
+                                .payload = null,
+                                .body = null,
+                            });
+                            ctx.opt_ctx.store(&node.base);
+                            stack.append(State { .SuspendBody = node }) catch unreachable;
+                            try stack.append(State { .Payload = OptionalCtx { .Optional = &node.payload } });
+                            continue;
+                        },
                         Token.Id.Keyword_inline => {
                             stack.append(State {
                                 .Inline = InlineCtx {
@@ -3046,6 +3063,7 @@ pub const Parser = struct {
                 const node = try self.createToCtxNode(arena, ctx, ast.Node.Suspend,
                     ast.Node.Suspend {
                         .base = undefined,
+                        .label = null,
                         .suspend_token = *token,
                         .payload = null,
                         .body = null,
@@ -3655,6 +3673,9 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.Suspend => {
                         const suspend_node = @fieldParentPtr(ast.Node.Suspend, "base", base);
+                        if (suspend_node.label) |label| {
+                            try stream.print("{}: ", self.tokenizer.getTokenSlice(label));
+                        }
                         try stream.print("{}", self.tokenizer.getTokenSlice(suspend_node.suspend_token));
 
                         if (suspend_node.body) |body| {

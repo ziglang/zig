@@ -1,3 +1,14 @@
+test "zig fmt: labeled suspend" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    s: suspend |p| {
+        \\        break :s;
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: comments before error set decl" {
     try testCanonical(
         \\const UnexpectedError = error {
