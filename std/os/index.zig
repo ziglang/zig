@@ -2546,9 +2546,9 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
             else => return unexpectedErrorPosix(usize(err)),
         }
     } else if (builtin.os == builtin.Os.linux) {
-        // use linux API directly
+        // use linux API directly.  TODO use posix.CLONE_SETTLS and initialize thread local storage correctly
         const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND
-            | posix.CLONE_THREAD | posix.CLONE_SYSVSEM // | posix.CLONE_SETTLS
+            | posix.CLONE_THREAD | posix.CLONE_SYSVSEM
             | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
         const newtls: usize = 0;
         const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.pid, newtls, &thread_ptr.data.pid);
