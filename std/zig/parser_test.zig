@@ -1,3 +1,15 @@
+test "zig fmt: same-line comment after switch prong" {
+    try testCanonical(
+        \\test "" {
+        \\    switch (err) {
+        \\        error.PathAlreadyExists => {}, // comment 2
+        \\        else => return err, // comment 1
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: comments before var decl in struct" {
     try testCanonical(
         \\pub const vfs_cap_data = extern struct {

@@ -1505,11 +1505,11 @@ pub const Parser = struct {
                     if (try self.expectCommaOrEnd(Token.Id.RBrace)) |end| {
                         container_decl.rbrace_token = end;
                         continue;
-                    } else {
-                        try self.lookForSameLineComment(arena, container_decl.fields_and_decls.toSlice()[container_decl.fields_and_decls.len - 1]);
-                        try stack.append(State { .ContainerDecl = container_decl });
-                        continue;
                     }
+
+                    try self.lookForSameLineComment(arena, container_decl.fields_and_decls.toSlice()[container_decl.fields_and_decls.len - 1]);
+                    try stack.append(State { .ContainerDecl = container_decl });
+                    continue;
                 },
                 State.IdentifierListItemOrEnd => |list_state| {
                     if (self.eatToken(Token.Id.RBrace)) |rbrace| {
@@ -1536,30 +1536,36 @@ pub const Parser = struct {
                         continue;
                     }
 
-                    const node = try self.createNode(arena, ast.Node.SwitchCase,
-                        ast.Node.SwitchCase {
-                            .base = undefined,
-                            .items = ArrayList(&ast.Node).init(arena),
-                            .payload = null,
-                            .expr = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.SwitchCase {
+                        .base = ast.Node {
+                            .id = ast.Node.Id.SwitchCase,
+                            .before_comments = null,
+                            .same_line_comment = null,
+                        },
+                        .items = ArrayList(&ast.Node).init(arena),
+                        .payload = null,
+                        .expr = undefined,
+                    });
                     try list_state.list.append(node);
-                    stack.append(State { .SwitchCaseCommaOrEnd = list_state }) catch unreachable;
+                    try stack.append(State { .SwitchCaseCommaOrEnd = list_state });
                     try stack.append(State { .AssignmentExpressionBegin = OptionalCtx { .Required = &node.expr  } });
                     try stack.append(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
                     try stack.append(State { .SwitchCaseFirstItem = &node.items });
                     continue;
                 },
+
                 State.SwitchCaseCommaOrEnd => |list_state| {
                     if (try self.expectCommaOrEnd(Token.Id.RBrace)) |end| {
                         *list_state.ptr = end;
                         continue;
-                    } else {
-                        stack.append(State { .SwitchCaseOrEnd = list_state }) catch unreachable;
-                        continue;
                     }
+
+                    const switch_case = list_state.list.toSlice()[list_state.list.len - 1];
+                    try self.lookForSameLineComment(arena, &switch_case.base);
+                    try stack.append(State { .SwitchCaseOrEnd = list_state });
+                    continue;
                 },
+
                 State.SwitchCaseFirstItem => |case_items| {
                     const token = self.getNextToken();
                     if (token.id == Token.Id.Keyword_else) {
@@ -4095,7 +4101,6 @@ pub const Parser = struct {
                         while (i != 0) {
                             i -= 1;
                             const node = cases[i];
-                            try stack.append(RenderState { .Text = ","});
                             try stack.append(RenderState { .Expression = &node.base});
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
@@ -4118,6 +4123,8 @@ pub const Parser = struct {
                     ast.Node.Id.SwitchCase => {
                         const switch_case = @fieldParentPtr(ast.Node.SwitchCase, "base", base);
 
+                        try stack.append(RenderState { .PrintSameLineComment = switch_case.base.same_line_comment });
+                        try stack.append(RenderState { .Text = "," });
                         try stack.append(RenderState { .Expression = switch_case.expr });
                         if (switch_case.payload) |payload| {
                             try stack.append(RenderState { .Text = " " });
