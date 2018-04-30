@@ -124,6 +124,7 @@ test "zig fmt: comments before statements" {
         \\    _ = @import("foo/bar.zig");
         \\
         \\    // middle
+        \\    // middle2
         \\
         \\    // end
         \\}

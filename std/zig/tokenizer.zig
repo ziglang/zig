@@ -260,6 +260,7 @@ pub const Tokenizer = struct {
         Slash,
         LineCommentStart,
         LineComment,
+        DocComment,
         Zero,
         IntegerLiteral,
         IntegerLiteralWithRadix,
@@ -825,6 +826,7 @@ pub const Tokenizer = struct {
                 State.Slash => switch (c) {
                     '/' => {
                         state = State.LineCommentStart;
+                        result.id = Token.Id.LineComment;
                     },
                     '=' => {
                         result.id = Token.Id.SlashEqual;
@@ -839,15 +841,15 @@ pub const Tokenizer = struct {
                 State.LineCommentStart => switch (c) {
                     '/' => {
                         result.id = Token.Id.DocComment;
+                        state = State.DocComment;
+                    },
+                    '\n' => break,
+                    else => {
                         state = State.LineComment;
+                        self.checkLiteralCharacter();
                     },
-                    '\n' => {
-                        result.id = Token.Id.LineComment;
-                        break;
-                    },
-                    else => self.checkLiteralCharacter(),
                 },
-                State.LineComment => switch (c) {
+                State.LineComment, State.DocComment => switch (c) {
                     '\n' => break,
                     else => self.checkLiteralCharacter(),
                 },
@@ -934,7 +936,10 @@ pub const Tokenizer = struct {
                 },
                 State.LineCommentStart,
                 State.LineComment => {
-                    result.id = Token.Id.Eof;
+                    result.id = Token.Id.LineComment;
+                },
+                State.DocComment => {
+                    result.id = Token.Id.DocComment;
                 },
 
                 State.NumberDot,
@@ -1105,41 +1110,77 @@ test "tokenizer - invalid literal/comment characters" {
         Token.Id.Invalid,
     });
     testTokenize("//\x00", []Token.Id {
+        Token.Id.LineComment,
         Token.Id.Invalid,
     });
     testTokenize("//\x1f", []Token.Id {
+        Token.Id.LineComment,
         Token.Id.Invalid,
     });
     testTokenize("//\x7f", []Token.Id {
+        Token.Id.LineComment,
         Token.Id.Invalid,
     });
 }
 
 test "tokenizer - utf8" {
-    testTokenize("//\xc2\x80", []Token.Id{});
-    testTokenize("//\xf4\x8f\xbf\xbf", []Token.Id{});
+    testTokenize("//\xc2\x80", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xf4\x8f\xbf\xbf", []Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - invalid utf8" {
-    testTokenize("//\x80", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xbf", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xf8", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xff", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xc2\xc0", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xe0", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xf0", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xf0\x90\x80\xc0", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\x80", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xbf", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xf8", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xff", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xc2\xc0", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xe0", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xf0", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xf0\x90\x80\xc0", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
 }
 
 test "tokenizer - illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", []Token.Id{});
-    testTokenize("//\xc2\x85", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xc2\x86", []Token.Id{});
-    testTokenize("//\xe2\x80\xa7", []Token.Id{});
-    testTokenize("//\xe2\x80\xa8", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xe2\x80\xa9", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xe2\x80\xaa", []Token.Id{});
+    testTokenize("//\xc2\x84", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xc2\x85", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xc2\x86", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xe2\x80\xa7", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xe2\x80\xa8", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xe2\x80\xa9", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xe2\x80\xaa", []Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - string identifier and builtin fns" {
@@ -1166,11 +1207,35 @@ test "tokenizer - pipe and then invalid" {
     });
 }
 
+test "tokenizer - line comment and doc comment" {
+    testTokenize("//", []Token.Id{Token.Id.LineComment});
+    testTokenize("// a / b", []Token.Id{Token.Id.LineComment});
+    testTokenize("// /", []Token.Id{Token.Id.LineComment});
+    testTokenize("/// a", []Token.Id{Token.Id.DocComment});
+    testTokenize("///", []Token.Id{Token.Id.DocComment});
+}
+
+test "tokenizer - line comment followed by identifier" {
+    testTokenize(
+        \\    Unexpected,
+        \\    // another
+        \\    Another,
+    , []Token.Id{
+        Token.Id.Identifier,
+        Token.Id.Comma,
+        Token.Id.LineComment,
+        Token.Id.Identifier,
+        Token.Id.Comma,
+    });
+}
+
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
-        std.debug.assert(@TagType(Token.Id)(token.id) == @TagType(Token.Id)(expected_token_id));
+        if (@TagType(Token.Id)(token.id) != @TagType(Token.Id)(expected_token_id)) {
+            std.debug.panic("expected {}, found {}\n", @tagName(@TagType(Token.Id)(expected_token_id)), @tagName(@TagType(Token.Id)(token.id)));
+        }
         switch (expected_token_id) {
             Token.Id.StringLiteral => |expected_kind| {
                 std.debug.assert(expected_kind == switch (token.id) { Token.Id.StringLiteral => |kind| kind, else => unreachable });
