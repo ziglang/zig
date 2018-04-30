@@ -4110,14 +4110,30 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.ErrorSetDecl => {
                         const err_set_decl = @fieldParentPtr(ast.Node.ErrorSetDecl, "base", base);
-                        try stream.print("error ");
+
+                        const decls = err_set_decl.decls.toSliceConst();
+                        if (decls.len == 0) {
+                            try stream.write("error{}");
+                            continue;
+                        }
+
+                        if (decls.len == 1) blk: {
+                            const node = decls[0];
+                            if (node.same_line_comment != null or node.doc_comments != null) break :blk;
+
+                            try stream.write("error{");
+                            try stack.append(RenderState { .Text = "}" });
+                            try stack.append(RenderState { .Expression = node });
+                            continue;
+                        }
+
+                        try stream.write("error{");
 
                         try stack.append(RenderState { .Text = "}"});
                         try stack.append(RenderState.PrintIndent);
                         try stack.append(RenderState { .Indent = indent });
                         try stack.append(RenderState { .Text = "\n"});
 
-                        const decls = err_set_decl.decls.toSliceConst();
                         var i = decls.len;
                         while (i != 0) {
                             i -= 1;
@@ -4142,7 +4158,6 @@ pub const Parser = struct {
                             });
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
-                        try stack.append(RenderState { .Text = "{"});
                     },
                     ast.Node.Id.MultilineStringLiteral => {
                         const multiline_str_literal = @fieldParentPtr(ast.Node.MultilineStringLiteral, "base", base);

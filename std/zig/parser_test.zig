@@ -1,5 +1,35 @@
-test "zig fmt: union(enum(u32)) with assigned enum values" {
+test "zig fmt: error set declaration" {
       try testCanonical(
+        \\const E = error{
+        \\    A,
+        \\    B,
+        \\
+        \\    C,
+        \\};
+        \\
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\};
+        \\
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\
+        \\    /// another
+        \\    Another,
+        \\
+        \\    // end
+        \\};
+        \\
+        \\const Error = error{OutOfMemory};
+        \\const Error = error{};
+        \\
+    );
+}
+
+test "zig fmt: union(enum(u32)) with assigned enum values" {
+    try testCanonical(
         \\const MultipleChoice = union(enum(u32)) {
         \\    A = 20,
         \\    B = 40,
@@ -23,7 +53,7 @@ test "zig fmt: labeled suspend" {
 
 test "zig fmt: comments before error set decl" {
     try testCanonical(
-        \\const UnexpectedError = error {
+        \\const UnexpectedError = error{
         \\    /// The Operating System returned an undocumented error code.
         \\    Unexpected,
         \\    // another
@@ -596,18 +626,6 @@ test "zig fmt: union declaration" {
         \\    Float: f32,
         \\    None,
         \\    Bool: bool,
-        \\};
-        \\
-    );
-}
-
-test "zig fmt: error set declaration" {
-      try testCanonical(
-        \\const E = error {
-        \\    A,
-        \\    B,
-        \\
-        \\    C,
         \\};
         \\
     );
