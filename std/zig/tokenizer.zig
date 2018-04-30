@@ -260,6 +260,7 @@ pub const Tokenizer = struct {
         Slash,
         LineCommentStart,
         LineComment,
+        DocCommentStart,
         DocComment,
         Zero,
         IntegerLiteral,
@@ -840,12 +841,25 @@ pub const Tokenizer = struct {
                 },
                 State.LineCommentStart => switch (c) {
                     '/' => {
-                        result.id = Token.Id.DocComment;
-                        state = State.DocComment;
+                        state = State.DocCommentStart;
                     },
                     '\n' => break,
                     else => {
                         state = State.LineComment;
+                        self.checkLiteralCharacter();
+                    },
+                },
+                State.DocCommentStart => switch (c) {
+                    '/' => {
+                        state = State.LineComment;
+                    },
+                    '\n' => {
+                        result.id = Token.Id.DocComment;
+                        break;
+                    },
+                    else => {
+                        state = State.DocComment;
+                        result.id = Token.Id.DocComment;
                         self.checkLiteralCharacter();
                     },
                 },
@@ -938,7 +952,7 @@ pub const Tokenizer = struct {
                 State.LineComment => {
                     result.id = Token.Id.LineComment;
                 },
-                State.DocComment => {
+                State.DocComment, State.DocCommentStart => {
                     result.id = Token.Id.DocComment;
                 },
 
@@ -1213,6 +1227,7 @@ test "tokenizer - line comment and doc comment" {
     testTokenize("// /", []Token.Id{Token.Id.LineComment});
     testTokenize("/// a", []Token.Id{Token.Id.DocComment});
     testTokenize("///", []Token.Id{Token.Id.DocComment});
+    testTokenize("////", []Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - line comment followed by identifier" {
