@@ -1517,8 +1517,15 @@ pub const Parser = struct {
                         continue;
                     }
 
-                    stack.append(State { .IdentifierListCommaOrEnd = list_state }) catch unreachable;
-                    try stack.append(State { .Identifier = OptionalCtx { .Required = try list_state.list.addOne() } });
+                    const comments = try self.eatComments(arena);
+                    const node_ptr = try list_state.list.addOne();
+
+                    try stack.append(State { .AddComments = AddCommentsCtx {
+                        .node_ptr = node_ptr,
+                        .comments = comments,
+                    }});
+                    try stack.append(State { .IdentifierListCommaOrEnd = list_state });
+                    try stack.append(State { .Identifier = OptionalCtx { .Required = node_ptr } });
                     continue;
                 },
                 State.IdentifierListCommaOrEnd => |list_state| {
@@ -2739,14 +2746,17 @@ pub const Parser = struct {
                         continue;
                     }
 
-                    const node = try self.createToCtxNode(arena, ctx.opt_ctx, ast.Node.ErrorSetDecl,
-                        ast.Node.ErrorSetDecl {
-                            .base = undefined,
-                            .error_token = ctx.error_token,
-                            .decls = ArrayList(&ast.Node).init(arena),
-                            .rbrace_token = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.ErrorSetDecl {
+                        .base = ast.Node {
+                            .id = ast.Node.Id.ErrorSetDecl,
+                            .before_comments = null,
+                            .same_line_comment = null,
+                        },
+                        .error_token = ctx.error_token,
+                        .decls = ArrayList(&ast.Node).init(arena),
+                        .rbrace_token = undefined,
+                    });
+                    ctx.opt_ctx.store(&node.base);
 
                     stack.append(State {
                         .IdentifierListItemOrEnd = ListSave(&ast.Node) {
@@ -3337,6 +3347,7 @@ pub const Parser = struct {
         PrintIndent,
         Indent: usize,
         PrintSameLineComment: ?&Token,
+        PrintComments: &ast.Node,
     };
 
     pub fn renderSource(self: &Parser, stream: var, root_node: &ast.Node.Root) !void {
@@ -3978,6 +3989,7 @@ pub const Parser = struct {
                             const node = decls[i];
                             try stack.append(RenderState { .Text = "," });
                             try stack.append(RenderState { .Expression = node });
+                            try stack.append(RenderState { .PrintComments = node });
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
                                 .Text = blk: {
@@ -4465,6 +4477,10 @@ pub const Parser = struct {
                 RenderState.PrintSameLineComment => |maybe_comment| blk: {
                     const comment_token = maybe_comment ?? break :blk;
                     try stream.print(" {}", self.tokenizer.getTokenSlice(comment_token));
+                },
+
+                RenderState.PrintComments => |node| blk: {
+                    try self.renderComments(stream, node, indent);
                 },
             }
         }

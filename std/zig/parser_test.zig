@@ -1,3 +1,16 @@
+test "zig fmt: comments before error set decl" {
+    try testCanonical(
+        \\const UnexpectedError = error {
+        \\    /// The Operating System returned an undocumented error code.
+        \\    Unexpected,
+        \\
+        \\    // another
+        \\    Another,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: comments before switch prong" {
     try testCanonical(
         \\test "" {
