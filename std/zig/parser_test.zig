@@ -1,12 +1,3 @@
-test "zig fmt: aggregate type init with only 1 field" {
-    try testCanonical(
-        \\comptime {
-        \\    assert(bar(Payload {.A = 1234}) == -10);
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: union(enum(u32)) with assigned enum values" {
       try testCanonical(
         \\const MultipleChoice = union(enum(u32)) {
@@ -124,7 +115,7 @@ test "zig fmt: same-line comment after field decl" {
 
 test "zig fmt: array literal with 1 item on 1 line" {
     try testCanonical(
-        \\var s = []const u64 {0} ** 25;
+        \\var s = []const u64{0} ** 25;
         \\
     );
 }
@@ -625,11 +616,11 @@ test "zig fmt: error set declaration" {
 test "zig fmt: arrays" {
     try testCanonical(
         \\test "test array" {
-        \\    const a: [2]u8 = [2]u8 {
+        \\    const a: [2]u8 = [2]u8{
         \\        1,
         \\        2,
         \\    };
-        \\    const a: [2]u8 = []u8 {
+        \\    const a: [2]u8 = []u8{
         \\        1,
         \\        2,
         \\    };
@@ -641,15 +632,17 @@ test "zig fmt: arrays" {
 
 test "zig fmt: container initializers" {
     try testCanonical(
-        \\const a1 = []u8{};
-        \\const a2 = []u8 {
+        \\const a0 = []u8{};
+        \\const a1 = []u8{1};
+        \\const a2 = []u8{
         \\    1,
         \\    2,
         \\    3,
         \\    4,
         \\};
-        \\const s1 = S{};
-        \\const s2 = S {
+        \\const s0 = S{};
+        \\const s1 = S{ .a = 1 };
+        \\const s2 = S{
         \\    .a = 1,
         \\    .b = 2,
         \\};
@@ -718,7 +711,6 @@ test "zig fmt: switch" {
         \\        Float: f64,
         \\    };
         \\
-        \\    const u = Union {.Int = 0};
         \\    switch (u) {
         \\        Union.Int => |int| {},
         \\        Union.Float => |*float| unreachable,
@@ -797,11 +789,6 @@ test "zig fmt: while" {
 test "zig fmt: for" {
     try testCanonical(
         \\test "for" {
-        \\    const a = []u8 {
-        \\        1,
-        \\        2,
-        \\        3,
-        \\    };
         \\    for (a) |v| {
         \\        continue;
         \\    }
@@ -1028,16 +1015,6 @@ test "zig fmt: error return" {
         \\    call();
         \\    return error.InvalidArgs;
         \\}
-        \\
-    );
-}
-
-test "zig fmt: struct literals with fields on each line" {
-    try testCanonical(
-        \\var self = BufSet {
-        \\    .hash_map = BufSetHashMap.init(a),
-        \\    .hash_map2 = xyz,
-        \\};
         \\
     );
 }
