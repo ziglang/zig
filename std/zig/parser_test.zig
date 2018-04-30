@@ -948,12 +948,12 @@ test "zig fmt: coroutines" {
         \\    suspend;
         \\    x += 1;
         \\    suspend |p| {}
-        \\    const p = async simpleAsyncFn() catch unreachable;
+        \\    const p: promise->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
         \\
         \\test "coroutine suspend, resume, cancel" {
-        \\    const p = try async<std.debug.global_allocator> testAsyncSeq();
+        \\    const p: promise = try async<std.debug.global_allocator> testAsyncSeq();
         \\    resume p;
         \\    cancel p;
         \\}

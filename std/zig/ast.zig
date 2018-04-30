@@ -36,6 +36,7 @@ pub const Node = struct {
         VarType,
         ErrorType,
         FnProto,
+        PromiseType,
 
         // Primary expressions
         IntegerLiteral,
@@ -492,6 +493,37 @@ pub const Node = struct {
                 ReturnType.Explicit => |node| return node.lastToken(),
                 ReturnType.InferErrorSet => |node| return node.lastToken(),
             }
+        }
+    };
+
+    pub const PromiseType = struct {
+        base: Node,
+        promise_token: Token,
+        result: ?Result,
+
+        pub const Result = struct {
+            arrow_token: Token,
+            return_type: &Node,
+        };
+
+        pub fn iterate(self: &PromiseType, index: usize) ?&Node {
+            var i = index;
+
+            if (self.result) |result| {
+                if (i < 1) return result.return_type;
+                i -= 1;
+            }
+
+            return null;
+        }
+
+        pub fn firstToken(self: &PromiseType) Token {
+            return self.promise_token;
+        }
+
+        pub fn lastToken(self: &PromiseType) Token {
+            if (self.result) |result| return result.return_type.lastToken();
+            return self.promise_token;
         }
     };
 

@@ -2550,6 +2550,30 @@ pub const Parser = struct {
                             _ = try self.createToCtxLiteral(arena, opt_ctx, ast.Node.Unreachable, token);
                             continue;
                         },
+                        Token.Id.Keyword_promise => {
+                            const node = try arena.construct(ast.Node.PromiseType {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.PromiseType,
+                                    .doc_comments = null,
+                                    .same_line_comment = null,
+                                },
+                                .promise_token = token,
+                                .result = null,
+                            });
+                            opt_ctx.store(&node.base);
+                            const next_token = self.getNextToken();
+                            if (next_token.id != Token.Id.Arrow) {
+                                self.putBackToken(next_token);
+                                continue;
+                            }
+                            node.result = ast.Node.PromiseType.Result {
+                                .arrow_token = next_token,
+                                .return_type = undefined,
+                            };
+                            const return_type_ptr = &((??node.result).return_type);
+                            try stack.append(State { .Expression = OptionalCtx { .Required = return_type_ptr, } });
+                            continue;
+                        },
                         Token.Id.StringLiteral, Token.Id.MultilineStringLiteralLine => {
                             opt_ctx.store((try self.parseStringLiteral(arena, token)) ?? unreachable);
                             continue;
@@ -4145,6 +4169,14 @@ pub const Parser = struct {
                             assert(visib_token.id == Token.Id.Keyword_pub or visib_token.id == Token.Id.Keyword_export);
                             try stack.append(RenderState { .Text = " " });
                             try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(visib_token) });
+                        }
+                    },
+                    ast.Node.Id.PromiseType => {
+                        const promise_type = @fieldParentPtr(ast.Node.PromiseType, "base", base);
+                        try stream.write(self.tokenizer.getTokenSlice(promise_type.promise_token));
+                        if (promise_type.result) |result| {
+                            try stream.write(self.tokenizer.getTokenSlice(result.arrow_token));
+                            try stack.append(RenderState { .Expression = result.return_type});
                         }
                     },
                     ast.Node.Id.LineComment => {
