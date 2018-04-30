@@ -1,3 +1,18 @@
+test "zig fmt: comments before switch prong" {
+    try testCanonical(
+        \\test "" {
+        \\    switch (err) {
+        \\        error.PathAlreadyExists => continue,
+        \\
+        \\        // comment 1
+        \\        // comment 2
+        \\        else => return err,
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: same-line comment after switch prong" {
     try testCanonical(
         \\test "" {

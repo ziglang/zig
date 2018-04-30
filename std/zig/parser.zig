@@ -1536,10 +1536,11 @@ pub const Parser = struct {
                         continue;
                     }
 
+                    const comments = try self.eatComments(arena);
                     const node = try arena.construct(ast.Node.SwitchCase {
                         .base = ast.Node {
                             .id = ast.Node.Id.SwitchCase,
-                            .before_comments = null,
+                            .before_comments = comments,
                             .same_line_comment = null,
                         },
                         .items = ArrayList(&ast.Node).init(arena),
@@ -1551,6 +1552,7 @@ pub const Parser = struct {
                     try stack.append(State { .AssignmentExpressionBegin = OptionalCtx { .Required = &node.expr  } });
                     try stack.append(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
                     try stack.append(State { .SwitchCaseFirstItem = &node.items });
+
                     continue;
                 },
 
@@ -4123,7 +4125,9 @@ pub const Parser = struct {
                     ast.Node.Id.SwitchCase => {
                         const switch_case = @fieldParentPtr(ast.Node.SwitchCase, "base", base);
 
-                        try stack.append(RenderState { .PrintSameLineComment = switch_case.base.same_line_comment });
+                        try self.renderComments(stream, base, indent);
+
+                        try stack.append(RenderState { .PrintSameLineComment = base.same_line_comment });
                         try stack.append(RenderState { .Text = "," });
                         try stack.append(RenderState { .Expression = switch_case.expr });
                         if (switch_case.payload) |payload| {
