@@ -3512,7 +3512,8 @@ pub const Parser = struct {
                     try stack.append(RenderState { .Text = ";" });
                     if (var_decl.init_node) |init_node| {
                         try stack.append(RenderState { .Expression = init_node });
-                        try stack.append(RenderState { .Text = " = " });
+                        const text = if (init_node.id == ast.Node.Id.MultilineStringLiteral) " =" else " = ";
+                        try stack.append(RenderState { .Text = text });
                     }
                     if (var_decl.align_node) |align_node| {
                         try stack.append(RenderState { .Text = ")" });
@@ -4063,7 +4064,7 @@ pub const Parser = struct {
                             try stream.writeByteNTimes(' ', indent + indent_delta);
                             try stream.print("{}", self.tokenizer.getTokenSlice(t));
                         }
-                        try stream.writeByteNTimes(' ', indent + indent_delta);
+                        try stream.writeByteNTimes(' ', indent);
                     },
                     ast.Node.Id.UndefinedLiteral => {
                         const undefined_literal = @fieldParentPtr(ast.Node.UndefinedLiteral, "base", base);

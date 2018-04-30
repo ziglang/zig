@@ -423,10 +423,18 @@ test "zig fmt: functions" {
 
 test "zig fmt: multiline string" {
     try testCanonical(
-        \\const s = 
-        \\    \\ something
-        \\    \\ something else
+        \\test "" {
+        \\    const s1 =
+        \\        \\one
+        \\        \\two)
+        \\        \\three
         \\    ;
+        \\    const s2 =
+        \\        c\\one
+        \\        c\\two)
+        \\        c\\three
+        \\    ;
+        \\}
         \\
     );
 }
