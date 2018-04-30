@@ -379,6 +379,7 @@ enum NodeType {
     NodeTypeArrayAccessExpr,
     NodeTypeSliceExpr,
     NodeTypeFieldAccessExpr,
+    NodeTypePtrDeref,
     NodeTypeUse,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
@@ -601,6 +602,10 @@ struct AstNodeSliceExpr {
 struct AstNodeFieldAccessExpr {
     AstNode *struct_expr;
     Buf *field_name;
+};
+
+struct AstNodePtrDerefExpr {
+    AstNode *target;
 };
 
 enum PrefixOp {
@@ -911,6 +916,7 @@ struct AstNode {
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
+        AstNodePtrDerefExpr ptr_deref_expr;
         AstNodeContainerDecl container_decl;
         AstNodeStructField struct_field;
         AstNodeStringLiteral string_literal;

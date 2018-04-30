@@ -1046,11 +1046,12 @@ static AstNode *ast_parse_fn_proto_partial(ParseContext *pc, size_t *token_index
 }
 
 /*
-SuffixOpExpression = ("async" option("<" SuffixOpExpression ">") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = ("async" option("<" SuffixOpExpression ">") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | PtrDerefExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 SliceExpression = "[" Expression ".." option(Expression) "]"
 FieldAccessExpression : token(Dot) token(Symbol)
+PtrDerefExpression = ".*"
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
 static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -1131,13 +1132,27 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
         } else if (first_token->id == TokenIdDot) {
             *token_index += 1;
 
-            Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
+            Token *token = &pc->tokens->at(*token_index);
 
-            AstNode *node = ast_create_node(pc, NodeTypeFieldAccessExpr, first_token);
-            node->data.field_access_expr.struct_expr = primary_expr;
-            node->data.field_access_expr.field_name = token_buf(name_token);
+            if (token->id == TokenIdSymbol) {
+                *token_index += 1;
 
-            primary_expr = node;
+                AstNode *node = ast_create_node(pc, NodeTypeFieldAccessExpr, first_token);
+                node->data.field_access_expr.struct_expr = primary_expr;
+                node->data.field_access_expr.field_name = token_buf(token);
+
+                primary_expr = node;
+            } else if (token->id == TokenIdStar) {
+                *token_index += 1;
+
+                AstNode *node = ast_create_node(pc, NodeTypePtrDeref, first_token);
+                node->data.ptr_deref_expr.target = primary_expr;
+
+                primary_expr = node;
+            } else {
+                ast_invalid_token_error(pc, token);
+            }
+
         } else {
             return primary_expr;
         }
@@ -3011,6 +3026,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeFieldAccessExpr:
             visit_field(&node->data.field_access_expr.struct_expr, visit, context);
+            break;
+        case NodeTypePtrDeref:
+            visit_field(&node->data.ptr_deref_expr.target, visit, context);
             break;
         case NodeTypeUse:
             visit_field(&node->data.use.expr, visit, context);
