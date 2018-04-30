@@ -137,6 +137,7 @@ pub const Token = struct {
         IntegerLiteral,
         FloatLiteral,
         LineComment,
+        DocComment,
         Keyword_align,
         Keyword_and,
         Keyword_asm,
@@ -257,6 +258,7 @@ pub const Tokenizer = struct {
         Asterisk,
         AsteriskPercent,
         Slash,
+        LineCommentStart,
         LineComment,
         Zero,
         IntegerLiteral,
@@ -822,8 +824,7 @@ pub const Tokenizer = struct {
 
                 State.Slash => switch (c) {
                     '/' => {
-                        result.id = Token.Id.LineComment;
-                        state = State.LineComment;
+                        state = State.LineCommentStart;
                     },
                     '=' => {
                         result.id = Token.Id.SlashEqual;
@@ -834,6 +835,17 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Slash;
                         break;
                     },
+                },
+                State.LineCommentStart => switch (c) {
+                    '/' => {
+                        result.id = Token.Id.DocComment;
+                        state = State.LineComment;
+                    },
+                    '\n' => {
+                        result.id = Token.Id.LineComment;
+                        break;
+                    },
+                    else => self.checkLiteralCharacter(),
                 },
                 State.LineComment => switch (c) {
                     '\n' => break,
@@ -920,6 +932,7 @@ pub const Tokenizer = struct {
                         result.id = id;
                     }
                 },
+                State.LineCommentStart,
                 State.LineComment => {
                     result.id = Token.Id.Eof;
                 },

@@ -6,7 +6,7 @@ const mem = std.mem;
 
 pub const Node = struct {
     id: Id,
-    before_comments: ?&LineComment,
+    doc_comments: ?&DocComment,
     same_line_comment: ?&Token,
 
     pub const Id = enum {
@@ -59,6 +59,7 @@ pub const Node = struct {
 
         // Misc
         LineComment,
+        DocComment,
         SwitchCase,
         SwitchElse,
         Else,
@@ -718,7 +719,8 @@ pub const Node = struct {
         base: Node,
         switch_token: Token,
         expr: &Node,
-        cases: ArrayList(&SwitchCase),
+        /// these can be SwitchCase nodes or LineComment nodes
+        cases: ArrayList(&Node),
         rbrace: Token,
 
         pub fn iterate(self: &Switch, index: usize) ?&Node {
@@ -727,7 +729,7 @@ pub const Node = struct {
             if (i < 1) return self.expr;
             i -= 1;
 
-            if (i < self.cases.len) return &self.cases.at(i).base;
+            if (i < self.cases.len) return self.cases.at(i);
             i -= self.cases.len;
 
             return null;
@@ -1715,17 +1717,34 @@ pub const Node = struct {
 
     pub const LineComment = struct {
         base: Node,
-        lines: ArrayList(Token),
+        token: Token,
 
         pub fn iterate(self: &LineComment, index: usize) ?&Node {
             return null;
         }
 
         pub fn firstToken(self: &LineComment) Token {
-            return self.lines.at(0);
+            return self.token;
         }
 
         pub fn lastToken(self: &LineComment) Token {
+            return self.token;
+        }
+    };
+
+    pub const DocComment = struct {
+        base: Node,
+        lines: ArrayList(Token),
+
+        pub fn iterate(self: &DocComment, index: usize) ?&Node {
+            return null;
+        }
+
+        pub fn firstToken(self: &DocComment) Token {
+            return self.lines.at(0);
+        }
+
+        pub fn lastToken(self: &DocComment) Token {
             return self.lines.at(self.lines.len - 1);
         }
     };

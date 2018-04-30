@@ -3,9 +3,12 @@ test "zig fmt: comments before error set decl" {
         \\const UnexpectedError = error {
         \\    /// The Operating System returned an undocumented error code.
         \\    Unexpected,
-        \\
         \\    // another
         \\    Another,
+        \\
+        \\    // in between
+        \\
+        \\    // at end
         \\};
         \\
     );
@@ -18,8 +21,10 @@ test "zig fmt: comments before switch prong" {
         \\        error.PathAlreadyExists => continue,
         \\
         \\        // comment 1
+        \\
         \\        // comment 2
         \\        else => return err,
+        \\        // at end
         \\    }
         \\}
         \\
@@ -47,6 +52,17 @@ test "zig fmt: comments before var decl in struct" {
         \\        permitted: u32,
         \\        inheritable: u32,
         \\    };
+        \\
+        \\    // in between
+        \\
+        \\    /// All of these are mandated as little endian
+        \\    /// when on disk.
+        \\    const Data = struct {
+        \\        permitted: u32,
+        \\        inheritable: u32,
+        \\    };
+        \\
+        \\    // at end
         \\};
         \\
     );
@@ -106,6 +122,10 @@ test "zig fmt: comments before statements" {
         \\test "std" {
         \\    // statement comment
         \\    _ = @import("foo/bar.zig");
+        \\
+        \\    // middle
+        \\
+        \\    // end
         \\}
         \\
     );
@@ -113,17 +133,27 @@ test "zig fmt: comments before statements" {
 
 test "zig fmt: comments before test decl" {
     try testCanonical(
-        \\// top level comment
+        \\/// top level doc comment
         \\test "hi" {}
+        \\
+        \\// top level normal comment
+        \\test "hi" {}
+        \\
+        \\// middle
+        \\
+        \\// end
         \\
     );
 }
 
-test "zig fmt: get stdout or fail" {
+test "zig fmt: comments before variable declarations" {
     try testCanonical(
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
+        \\    /// If this program is run without stdout attached, exit with an error.
+        \\    /// another comment
+        \\    var stdout_file = try std.io.getStdOut;
         \\    // If this program is run without stdout attached, exit with an error.
         \\    // another comment
         \\    var stdout_file = try std.io.getStdOut;
