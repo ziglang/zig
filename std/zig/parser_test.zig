@@ -1,3 +1,15 @@
+test "zig fmt: union(enum(u32)) with assigned enum values" {
+      try testCanonical(
+        \\const MultipleChoice = union(enum(u32)) {
+        \\    A = 20,
+        \\    B = 40,
+        \\    C = 60,
+        \\    D = 1000,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: labeled suspend" {
     try testCanonical(
         \\fn foo() void {

@@ -261,7 +261,7 @@ pub const Node = struct {
 
         const InitArg = union(enum) {
             None,
-            Enum,
+            Enum: ?&Node,
             Type: &Node,
         };
 
@@ -321,12 +321,18 @@ pub const Node = struct {
         base: Node,
         name_token: Token,
         type_expr: ?&Node,
+        value_expr: ?&Node,
 
         pub fn iterate(self: &UnionTag, index: usize) ?&Node {
             var i = index;
 
             if (self.type_expr) |type_expr| {
                 if (i < 1) return type_expr;
+                i -= 1;
+            }
+
+            if (self.value_expr) |value_expr| {
+                if (i < 1) return value_expr;
                 i -= 1;
             }
 
@@ -338,6 +344,9 @@ pub const Node = struct {
         }
 
         pub fn lastToken(self: &UnionTag) Token {
+            if (self.value_expr) |value_expr| {
+                return value_expr.lastToken();
+            }
             if (self.type_expr) |type_expr| {
                 return type_expr.lastToken();
             }

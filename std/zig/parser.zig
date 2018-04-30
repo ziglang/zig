@@ -242,6 +242,7 @@ pub const Parser = struct {
         FieldInitListItemOrEnd: ListSave(&ast.Node.FieldInitializer),
         FieldInitListCommaOrEnd: ListSave(&ast.Node.FieldInitializer),
         FieldListCommaOrEnd: &ast.Node.ContainerDecl,
+        FieldInitValue: OptionalCtx,
         IdentifierListItemOrEnd: ListSave(&ast.Node),
         IdentifierListCommaOrEnd: ListSave(&ast.Node),
         SwitchCaseOrEnd: ListSave(&ast.Node),
@@ -653,6 +654,15 @@ pub const Parser = struct {
                     continue;
                 },
 
+                State.FieldInitValue => |ctx| {
+                    const eq_tok = self.getNextToken();
+                    if (eq_tok.id != Token.Id.Equal) {
+                        self.putBackToken(eq_tok);
+                        continue;
+                    }
+                    stack.append(State { .Expression = ctx }) catch unreachable;
+                    continue;
+                },
 
                 State.ContainerKind => |ctx| {
                     const token = self.getNextToken();
@@ -699,7 +709,16 @@ pub const Parser = struct {
                     const init_arg_token = self.getNextToken();
                     switch (init_arg_token.id) {
                         Token.Id.Keyword_enum => {
-                            container_decl.init_arg_expr = ast.Node.ContainerDecl.InitArg.Enum;
+                            container_decl.init_arg_expr = ast.Node.ContainerDecl.InitArg {.Enum = null};
+                            const lparen_tok = self.getNextToken();
+                            if (lparen_tok.id == Token.Id.LParen) {
+                                try stack.append(State { .ExpectToken = Token.Id.RParen } );
+                                try stack.append(State { .Expression = OptionalCtx {
+                                    .RequiredNull = &container_decl.init_arg_expr.Enum,
+                                } });
+                            } else {
+                                self.putBackToken(lparen_tok);
+                            }
                         },
                         else => {
                             self.putBackToken(init_arg_token);
@@ -709,6 +728,7 @@ pub const Parser = struct {
                     }
                     continue;
                 },
+
                 State.ContainerDecl => |container_decl| {
                     while (try self.eatLineComment(arena)) |line_comment| {
                         try container_decl.fields_and_decls.append(&line_comment.base);
@@ -744,10 +764,12 @@ pub const Parser = struct {
                                             .base = undefined,
                                             .name_token = token,
                                             .type_expr = null,
+                                            .value_expr = null,
                                         }
                                     );
 
                                     stack.append(State { .FieldListCommaOrEnd = container_decl }) catch unreachable;
+                                    try stack.append(State { .FieldInitValue = OptionalCtx { .RequiredNull = &node.value_expr } });
                                     try stack.append(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &node.type_expr } });
                                     try stack.append(State { .IfToken = Token.Id.Colon });
                                     continue;
@@ -3515,6 +3537,12 @@ pub const Parser = struct {
                             try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
 
                             try stack.append(RenderState { .Text = "," });
+
+                            if (tag.value_expr) |value_expr| {
+                                try stack.append(RenderState { .Expression = value_expr });
+                                try stack.append(RenderState { .Text = " = " });
+                            }
+
                             if (tag.type_expr) |type_expr| {
                                 try stream.print(": ");
                                 try stack.append(RenderState { .Expression = type_expr});
@@ -4055,7 +4083,15 @@ pub const Parser = struct {
 
                         switch (container_decl.init_arg_expr) {
                             ast.Node.ContainerDecl.InitArg.None => try stack.append(RenderState { .Text = " "}),
-                            ast.Node.ContainerDecl.InitArg.Enum => try stack.append(RenderState { .Text = "(enum) "}),
+                            ast.Node.ContainerDecl.InitArg.Enum => |enum_tag_type| {
+                                if (enum_tag_type) |expr| {
+                                    try stack.append(RenderState { .Text = ")) "});
+                                    try stack.append(RenderState { .Expression = expr});
+                                    try stack.append(RenderState { .Text = "(enum("});
+                                } else {
+                                    try stack.append(RenderState { .Text = "(enum) "});
+                                }
+                            },
                             ast.Node.ContainerDecl.InitArg.Type => |type_expr| {
                                 try stack.append(RenderState { .Text = ") "});
                                 try stack.append(RenderState { .Expression = type_expr});
