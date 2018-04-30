@@ -3872,6 +3872,15 @@ pub const Parser = struct {
                                     try stack.append(RenderState { .Expression = suffix_op.lhs });
                                     continue;
                                 }
+                                if (field_inits.len == 1) {
+                                    const field_init = field_inits.at(0);
+
+                                    try stack.append(RenderState { .Text = "}" });
+                                    try stack.append(RenderState { .FieldInitializer = field_init });
+                                    try stack.append(RenderState { .Text = " {" });
+                                    try stack.append(RenderState { .Expression = suffix_op.lhs });
+                                    continue;
+                                }
                                 try stack.append(RenderState { .Text = "}"});
                                 try stack.append(RenderState.PrintIndent);
                                 try stack.append(RenderState { .Indent = indent });

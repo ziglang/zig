@@ -1,3 +1,12 @@
+test "zig fmt: aggregate type init with only 1 field" {
+    try testCanonical(
+        \\comptime {
+        \\    assert(bar(Payload {.A = 1234}) == -10);
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: union(enum(u32)) with assigned enum values" {
       try testCanonical(
         \\const MultipleChoice = union(enum(u32)) {
@@ -709,9 +718,7 @@ test "zig fmt: switch" {
         \\        Float: f64,
         \\    };
         \\
-        \\    const u = Union {
-        \\        .Int = 0,
-        \\    };
+        \\    const u = Union {.Int = 0};
         \\    switch (u) {
         \\        Union.Int => |int| {},
         \\        Union.Float => |*float| unreachable,
@@ -1029,6 +1036,7 @@ test "zig fmt: struct literals with fields on each line" {
     try testCanonical(
         \\var self = BufSet {
         \\    .hash_map = BufSetHashMap.init(a),
+        \\    .hash_map2 = xyz,
         \\};
         \\
     );
