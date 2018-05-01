@@ -4812,6 +4812,182 @@ pub const TypeId = enum {
 };
       {#code_end#}
       {#header_close#}
+      {#header_open|@typeInfo#}
+      <pre><code class="zig">@typeInfo(comptime T: type) -&gt; @import("builtin").TypeInfo</code></pre>
+      <p>
+      Returns information on the type. Returns a value of the following union:
+      </p>
+      {#code_begin|syntax#}
+pub const TypeInfo = union(TypeId) {
+    Type: void,
+    Void: void,
+    Bool: void,
+    NoReturn: void,
+    Int: Int,
+    Float: Float,
+    Pointer: Pointer,
+    Array: Array,
+    Struct: Struct,
+    FloatLiteral: void,
+    IntLiteral: void,
+    UndefinedLiteral: void,
+    NullLiteral: void,
+    Nullable: Nullable,
+    ErrorUnion: ErrorUnion,
+    ErrorSet: ErrorSet,
+    Enum: Enum,
+    Union: Union,
+    Fn: Fn,
+    Namespace: void,
+    Block: void,
+    BoundFn: Fn,
+    ArgTuple: void,
+    Opaque: void,
+    Promise: Promise,
+
+
+    pub const Int = struct {
+        is_signed: bool,
+        bits: u8,
+    };
+
+    pub const Float = struct {
+        bits: u8,
+    };
+
+    pub const Pointer = struct {
+        is_const: bool,
+        is_volatile: bool,
+        alignment: u32,
+        child: type,
+    };
+
+    pub const Array = struct {
+        len: usize,
+        child: type,
+    };
+
+    pub const ContainerLayout = enum {
+        Auto,
+        Extern,
+        Packed,
+    };
+
+    pub const StructField = struct {
+        name: []const u8,
+        offset: ?usize,
+        field_type: type,
+    };
+
+    pub const Struct = struct {
+        layout: ContainerLayout,
+        fields: []StructField,
+        defs: []Definition,
+    };
+
+    pub const Nullable = struct {
+        child: type,
+    };
+
+    pub const ErrorUnion = struct {
+        error_set: type,
+        payload: type,
+    };
+
+    pub const Error = struct {
+        name: []const u8,
+        value: usize,
+    };
+
+    pub const ErrorSet = struct {
+        errors: []Error,
+    };
+
+    pub const EnumField = struct {
+        name: []const u8,
+        value: usize,
+    };
+
+    pub const Enum = struct {
+        layout: ContainerLayout,
+        tag_type: type,
+        fields: []EnumField,
+        defs: []Definition,
+    };
+
+    pub const UnionField = struct {
+        name: []const u8,
+        enum_field: ?EnumField,
+        field_type: type,
+    };
+
+    pub const Union = struct {
+        layout: ContainerLayout,
+        tag_type: type,
+        fields: []UnionField,
+        defs: []Definition,
+    };
+
+    pub const CallingConvention = enum {
+        Unspecified,
+        C,
+        Cold,
+        Naked,
+        Stdcall,
+        Async,
+    };
+
+    pub const FnArg = struct {
+        is_generic: bool,
+        is_noalias: bool,
+        arg_type: type,
+    };
+
+    pub const Fn = struct {
+        calling_convention: CallingConvention,
+        is_generic: bool,
+        is_var_args: bool,
+        return_type: type,
+        async_allocator_type: type,
+        args: []FnArg,
+    };
+
+    pub const Promise = struct {
+        child: type,
+    };
+
+    pub const Definition = struct {
+        name: []const u8,
+        is_pub: bool,
+        data: Data,
+
+        pub const Data = union(enum) {
+            Type: type,
+            Var: type,
+            Fn: FnDef,
+
+            pub const FnDef = struct {
+                fn_type: type,
+                inline_type: Inline,
+                calling_convention: CallingConvention,
+                is_var_args: bool,
+                is_extern: bool,
+                is_export: bool,
+                lib_name: ?[]const u8,
+                return_type: type,
+                arg_names: [][] const u8,
+
+                pub const Inline = enum {
+                    Auto,
+                    Always,
+                    Never,
+                };
+            };
+        };
+    };
+};
+      {#code_end#}
+      {#header_close#}
       {#header_open|@typeName#}
       <pre><code class="zig">@typeName(T: type) -&gt; []u8</code></pre>
       <p>
@@ -5226,7 +5402,6 @@ pub const Os = enum {
     rtems,
     nacl,
     cnk,
-    bitrig,
     aix,
     cuda,
     nvcl,
@@ -5237,10 +5412,12 @@ pub const Os = enum {
     watchos,
     mesa3d,
     contiki,
+    amdpal,
     zen,
 };
 
 pub const Arch = enum {
+    armv8_3a,
     armv8_2a,
     armv8_1a,
     armv8,
@@ -5260,9 +5437,29 @@ pub const Arch = enum {
     armv5,
     armv5te,
     armv4t,
-    armeb,
+    armebv8_3a,
+    armebv8_2a,
+    armebv8_1a,
+    armebv8,
+    armebv8r,
+    armebv8m_baseline,
+    armebv8m_mainline,
+    armebv7,
+    armebv7em,
+    armebv7m,
+    armebv7s,
+    armebv7k,
+    armebv7ve,
+    armebv6,
+    armebv6m,
+    armebv6k,
+    armebv6t2,
+    armebv5,
+    armebv5te,
+    armebv4t,
     aarch64,
     aarch64_be,
+    arc,
     avr,
     bpfel,
     bpfeb,
@@ -5315,6 +5512,7 @@ pub const Arch = enum {
 pub const Environ = enum {
     unknown,
     gnu,
+    gnuabin32,
     gnuabi64,
     gnueabi,
     gnueabihf,
@@ -5332,6 +5530,7 @@ pub const Environ = enum {
     amdopencl,
     coreclr,
     opencl,
+    simulator,
 };
 
 pub const ObjectFormat = enum {
@@ -5358,10 +5557,23 @@ pub const AtomicOrder = enum {
     SeqCst,
 };
 
+pub const AtomicRmwOp = enum {
+    Xchg,
+    Add,
+    Sub,
+    And,
+    Nand,
+    Or,
+    Xor,
+    Max,
+    Min,
+};
+
 pub const Mode = enum {
     Debug,
     ReleaseSafe,
     ReleaseFast,
+    ReleaseSmall,
 };
 
 pub const TypeId = enum {
@@ -5380,7 +5592,7 @@ pub const TypeId = enum {
     NullLiteral,
     Nullable,
     ErrorUnion,
-    Error,
+    ErrorSet,
     Enum,
     Union,
     Fn,
@@ -5389,6 +5601,176 @@ pub const TypeId = enum {
     BoundFn,
     ArgTuple,
     Opaque,
+    Promise,
+};
+
+pub const TypeInfo = union(TypeId) {
+    Type: void,
+    Void: void,
+    Bool: void,
+    NoReturn: void,
+    Int: Int,
+    Float: Float,
+    Pointer: Pointer,
+    Array: Array,
+    Struct: Struct,
+    FloatLiteral: void,
+    IntLiteral: void,
+    UndefinedLiteral: void,
+    NullLiteral: void,
+    Nullable: Nullable,
+    ErrorUnion: ErrorUnion,
+    ErrorSet: ErrorSet,
+    Enum: Enum,
+    Union: Union,
+    Fn: Fn,
+    Namespace: void,
+    Block: void,
+    BoundFn: Fn,
+    ArgTuple: void,
+    Opaque: void,
+    Promise: Promise,
+
+
+    pub const Int = struct {
+        is_signed: bool,
+        bits: u8,
+    };
+
+    pub const Float = struct {
+        bits: u8,
+    };
+
+    pub const Pointer = struct {
+        is_const: bool,
+        is_volatile: bool,
+        alignment: u32,
+        child: type,
+    };
+
+    pub const Array = struct {
+        len: usize,
+        child: type,
+    };
+
+    pub const ContainerLayout = enum {
+        Auto,
+        Extern,
+        Packed,
+    };
+
+    pub const StructField = struct {
+        name: []const u8,
+        offset: ?usize,
+        field_type: type,
+    };
+
+    pub const Struct = struct {
+        layout: ContainerLayout,
+        fields: []StructField,
+        defs: []Definition,
+    };
+
+    pub const Nullable = struct {
+        child: type,
+    };
+
+    pub const ErrorUnion = struct {
+        error_set: type,
+        payload: type,
+    };
+
+    pub const Error = struct {
+        name: []const u8,
+        value: usize,
+    };
+
+    pub const ErrorSet = struct {
+        errors: []Error,
+    };
+
+    pub const EnumField = struct {
+        name: []const u8,
+        value: usize,
+    };
+
+    pub const Enum = struct {
+        layout: ContainerLayout,
+        tag_type: type,
+        fields: []EnumField,
+        defs: []Definition,
+    };
+
+    pub const UnionField = struct {
+        name: []const u8,
+        enum_field: ?EnumField,
+        field_type: type,
+    };
+
+    pub const Union = struct {
+        layout: ContainerLayout,
+        tag_type: type,
+        fields: []UnionField,
+        defs: []Definition,
+    };
+
+    pub const CallingConvention = enum {
+        Unspecified,
+        C,
+        Cold,
+        Naked,
+        Stdcall,
+        Async,
+    };
+
+    pub const FnArg = struct {
+        is_generic: bool,
+        is_noalias: bool,
+        arg_type: type,
+    };
+
+    pub const Fn = struct {
+        calling_convention: CallingConvention,
+        is_generic: bool,
+        is_var_args: bool,
+        return_type: type,
+        async_allocator_type: type,
+        args: []FnArg,
+    };
+
+    pub const Promise = struct {
+        child: type,
+    };
+
+    pub const Definition = struct {
+        name: []const u8,
+        is_pub: bool,
+        data: Data,
+
+        pub const Data = union(enum) {
+            Type: type,
+            Var: type,
+            Fn: FnDef,
+
+            pub const FnDef = struct {
+                fn_type: type,
+                inline_type: Inline,
+                calling_convention: CallingConvention,
+                is_var_args: bool,
+                is_extern: bool,
+                is_export: bool,
+                lib_name: ?[]const u8,
+                return_type: type,
+                arg_names: [][] const u8,
+
+                pub const Inline = enum {
+                    Auto,
+                    Always,
+                    Never,
+                };
+            };
+        };
+    };
 };
 
 pub const FloatMode = enum {
@@ -5402,7 +5784,7 @@ pub const Endian = enum {
 };
 
 pub const endian = Endian.Little;
-pub const is_test = false;
+pub const is_test = true;
 pub const os = Os.linux;
 pub const arch = Arch.x86_64;
 pub const environ = Environ.gnu;
@@ -5410,6 +5792,7 @@ pub const object_format = ObjectFormat.elf;
 pub const mode = Mode.Debug;
 pub const link_libc = false;
 pub const have_error_return_tracing = true;
+pub const __zig_test_fn_slice = {}; // overwritten later
       {#code_end#}
       {#see_also|Build Mode#}
       {#header_close#}

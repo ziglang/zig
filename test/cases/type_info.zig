@@ -70,7 +70,7 @@ test "type info: error set, error union info" {
         assert(TypeId(error_set_info) == TypeId.ErrorSet);
         assert(error_set_info.ErrorSet.errors.len == 3);
         assert(mem.eql(u8, error_set_info.ErrorSet.errors[0].name, "First"));
-        assert(error_set_info.ErrorSet.errors[2].value == 3);
+        assert(error_set_info.ErrorSet.errors[2].value == usize(TestErrorSet.Third));
 
         const error_union_info = @typeInfo(TestErrorSet!usize);
         assert(TypeId(error_union_info) == TypeId.ErrorUnion);
@@ -103,7 +103,7 @@ test "type info: union info" {
         assert(typeinfo_info.Union.fields.len == 25);
         assert(typeinfo_info.Union.fields[4].enum_field != null);
         assert((??typeinfo_info.Union.fields[4].enum_field).value == 4);
-        assert(typeinfo_info.Union.fields[4].field_type == @typeOf(u8_info.Int));
+        assert(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
         assert(typeinfo_info.Union.defs.len == 20);
 
         const TestNoTagUnion = union {
