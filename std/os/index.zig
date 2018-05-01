@@ -2,6 +2,11 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
+const is_posix = switch (builtin.os) {
+    builtin.Os.linux,
+    builtin.Os.macosx => true,
+    else => false,
+};
 const os = this;
 
 test "std.os" {
@@ -20,9 +25,10 @@ pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
 pub const zen = @import("zen.zig");
-pub const posix = switch(builtin.os) {
+pub const posix = switch (builtin.os) {
     Os.linux => linux,
-    Os.macosx, Os.ios => darwin,
+    Os.macosx,
+    Os.ios => darwin,
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
@@ -54,7 +60,7 @@ pub const windowsWrite = windows_util.windowsWrite;
 pub const windowsIsCygwinPty = windows_util.windowsIsCygwinPty;
 pub const windowsOpen = windows_util.windowsOpen;
 pub const windowsLoadDll = windows_util.windowsLoadDll;
-pub const windowsUnloadDll = windows_util.windowsUnloadDll; 
+pub const windowsUnloadDll = windows_util.windowsUnloadDll;
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
 pub const WindowsWaitError = windows_util.WaitError;
@@ -93,9 +99,9 @@ pub fn getRandomBytes(buf: []u8) !void {
                 switch (err) {
                     posix.EINVAL => unreachable,
                     posix.EFAULT => unreachable,
-                    posix.EINTR  => continue,
+                    posix.EINTR => continue,
                     posix.ENOSYS => {
-                        const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC, 0);
+                        const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
                         defer close(fd);
 
                         try posixRead(fd, buf);
@@ -106,8 +112,9 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
             return;
         },
-        Os.macosx, Os.ios => {
-            const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC, 0);
+        Os.macosx,
+        Os.ios => {
+            const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
             defer close(fd);
 
             try posixRead(fd, buf);
@@ -130,7 +137,20 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
         },
         Os.zen => {
-            const randomness = []u8 {42, 1, 7, 12, 22, 17, 99, 16, 26, 87, 41, 45};
+            const randomness = []u8 {
+                42,
+                1,
+                7,
+                12,
+                22,
+                17,
+                99,
+                16,
+                26,
+                87,
+                41,
+                45,
+            };
             var i: usize = 0;
             while (i < buf.len) : (i += 1) {
                 if (i > randomness.len) return error.Unknown;
@@ -155,7 +175,9 @@ pub fn abort() noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux,
+        Os.macosx,
+        Os.ios => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -177,7 +199,9 @@ pub fn exit(status: u8) noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux,
+        Os.macosx,
+        Os.ios => {
             posix.exit(status);
         },
         Os.windows => {
@@ -226,12 +250,14 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
         if (err > 0) {
             return switch (err) {
                 posix.EINTR => continue,
-                posix.EINVAL, posix.EFAULT => unreachable,
+                posix.EINVAL,
+                posix.EFAULT => unreachable,
                 posix.EAGAIN => error.WouldBlock,
                 posix.EBADF => error.FileClosed,
                 posix.EIO => error.InputOutput,
                 posix.EISDIR => error.IsDir,
-                posix.ENOBUFS, posix.ENOMEM => error.SystemResources,
+                posix.ENOBUFS,
+                posix.ENOMEM => error.SystemResources,
                 else => unexpectedErrorPosix(err),
             };
         }
@@ -265,18 +291,19 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
         const write_err = posix.getErrno(rc);
         if (write_err > 0) {
             return switch (write_err) {
-                posix.EINTR  => continue,
-                posix.EINVAL, posix.EFAULT => unreachable,
+                posix.EINTR => continue,
+                posix.EINVAL,
+                posix.EFAULT => unreachable,
                 posix.EAGAIN => PosixWriteError.WouldBlock,
                 posix.EBADF => PosixWriteError.FileClosed,
                 posix.EDESTADDRREQ => PosixWriteError.DestinationAddressRequired,
                 posix.EDQUOT => PosixWriteError.DiskQuota,
-                posix.EFBIG  => PosixWriteError.FileTooBig,
-                posix.EIO    => PosixWriteError.InputOutput,
+                posix.EFBIG => PosixWriteError.FileTooBig,
+                posix.EIO => PosixWriteError.InputOutput,
                 posix.ENOSPC => PosixWriteError.NoSpaceLeft,
-                posix.EPERM  => PosixWriteError.AccessDenied,
-                posix.EPIPE  => PosixWriteError.BrokenPipe,
-                else         => unexpectedErrorPosix(write_err),
+                posix.EPERM => PosixWriteError.AccessDenied,
+                posix.EPIPE => PosixWriteError.BrokenPipe,
+                else => unexpectedErrorPosix(write_err),
             };
         }
         index += rc;
@@ -322,7 +349,8 @@ pub fn posixOpenC(file_path: &const u8, flags: u32, perm: usize) !i32 {
                 posix.EFAULT => unreachable,
                 posix.EINVAL => unreachable,
                 posix.EACCES => return PosixOpenError.AccessDenied,
-                posix.EFBIG, posix.EOVERFLOW => return PosixOpenError.FileTooBig,
+                posix.EFBIG,
+                posix.EOVERFLOW => return PosixOpenError.FileTooBig,
                 posix.EISDIR => return PosixOpenError.IsDir,
                 posix.ELOOP => return PosixOpenError.SymLinkLoop,
                 posix.EMFILE => return PosixOpenError.ProcessFdQuotaExceeded,
@@ -347,7 +375,8 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
         const err = posix.getErrno(posix.dup2(old_fd, new_fd));
         if (err > 0) {
             return switch (err) {
-                posix.EBUSY, posix.EINTR => continue,
+                posix.EBUSY,
+                posix.EINTR => continue,
                 posix.EMFILE => error.ProcessFdQuotaExceeded,
                 posix.EINVAL => unreachable,
                 else => unexpectedErrorPosix(err),
@@ -382,7 +411,7 @@ pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) 
 
 pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) void {
     for (envp_buf) |env| {
-        const env_buf = if (env) |ptr| ptr[0 .. cstr.len(ptr) + 1] else break;
+        const env_buf = if (env) |ptr| ptr[0..cstr.len(ptr) + 1] else break;
         allocator.free(env_buf);
     }
     allocator.free(envp_buf);
@@ -393,9 +422,7 @@ pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) void {
 /// pointers after the args and after the environment variables.
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
-pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
-    allocator: &Allocator) !void
-{
+pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap, allocator: &Allocator) !void {
     const argv_buf = try allocator.alloc(?&u8, argv.len + 1);
     mem.set(?&u8, argv_buf, null);
     defer {
@@ -434,7 +461,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     while (it.next()) |search_path| {
         mem.copy(u8, path_buf, search_path);
         path_buf[search_path.len] = '/';
-        mem.copy(u8, path_buf[search_path.len + 1 ..], exe_path);
+        mem.copy(u8, path_buf[search_path.len + 1..], exe_path);
         path_buf[search_path.len + exe_path.len + 1] = 0;
         err = posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr));
         assert(err > 0);
@@ -466,10 +493,17 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     assert(err > 0);
     return switch (err) {
         posix.EFAULT => unreachable,
-        posix.E2BIG, posix.EMFILE, posix.ENAMETOOLONG, posix.ENFILE, posix.ENOMEM => error.SystemResources,
-        posix.EACCES, posix.EPERM => error.AccessDenied,
-        posix.EINVAL, posix.ENOEXEC => error.InvalidExe,
-        posix.EIO, posix.ELOOP => error.FileSystem,
+        posix.E2BIG,
+        posix.EMFILE,
+        posix.ENAMETOOLONG,
+        posix.ENFILE,
+        posix.ENOMEM => error.SystemResources,
+        posix.EACCES,
+        posix.EPERM => error.AccessDenied,
+        posix.EINVAL,
+        posix.ENOEXEC => error.InvalidExe,
+        posix.EIO,
+        posix.ELOOP => error.FileSystem,
         posix.EISDIR => error.IsDir,
         posix.ENOENT => error.FileNotFound,
         posix.ENOTDIR => error.NotDir,
@@ -478,7 +512,7 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     };
 }
 
-pub var linux_aux_raw = []usize{0} ** 38;
+pub var linux_aux_raw = []usize {0} ** 38;
 pub var posix_environ_raw: []&u8 = undefined;
 
 /// Caller must free result when done.
@@ -492,8 +526,7 @@ pub fn getEnvMap(allocator: &Allocator) !BufMap {
 
         var i: usize = 0;
         while (true) {
-            if (ptr[i] == 0)
-                return result;
+            if (ptr[i] == 0) return result;
 
             const key_start = i;
 
@@ -531,8 +564,7 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
         const this_key = ptr[0..line_i];
-        if (!mem.eql(u8, key, this_key))
-            continue;
+        if (!mem.eql(u8, key, this_key)) continue;
 
         var end_i: usize = line_i;
         while (ptr[end_i] != 0) : (end_i += 1) {}
@@ -685,8 +717,10 @@ pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: 
     const err = posix.getErrno(posix.symlink(existing_buf.ptr, new_buf.ptr));
     if (err > 0) {
         return switch (err) {
-            posix.EFAULT, posix.EINVAL => unreachable,
-            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EFAULT,
+            posix.EINVAL => unreachable,
+            posix.EACCES,
+            posix.EPERM => error.AccessDenied,
             posix.EDQUOT => error.DiskQuota,
             posix.EEXIST => error.PathAlreadyExists,
             posix.EIO => error.FileSystem,
@@ -703,9 +737,7 @@ pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: 
 }
 
 // here we replace the standard +/ with -_ so that it can be used in a file name
-const b64_fs_encoder = base64.Base64Encoder.init(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
-    base64.standard_pad_char);
+const b64_fs_encoder = base64.Base64Encoder.init("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", base64.standard_pad_char);
 
 pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) !void {
     if (symLink(allocator, existing_path, new_path)) {
@@ -724,7 +756,7 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
     tmp_path[dirname.len] = os.path.sep;
     while (true) {
         try getRandomBytes(rand_buf[0..]);
-        b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
+        b64_fs_encoder.encode(tmp_path[dirname.len + 1..], rand_buf);
 
         if (symLink(allocator, existing_path, tmp_path)) {
             return rename(allocator, tmp_path, new_path);
@@ -733,7 +765,6 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
             else => return err, // TODO zig should know this set does not include PathAlreadyExists
         }
     }
-
 }
 
 pub fn deleteFile(allocator: &Allocator, file_path: []const u8) !void {
@@ -756,7 +787,8 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) !void {
         return switch (err) {
             windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
             windows.ERROR.ACCESS_DENIED => error.AccessDenied,
-            windows.ERROR.FILENAME_EXCED_RANGE, windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
+            windows.ERROR.FILENAME_EXCED_RANGE,
+            windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
             else => unexpectedErrorWindows(err),
         };
     }
@@ -772,9 +804,11 @@ pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) !void {
     const err = posix.getErrno(posix.unlink(buf.ptr));
     if (err > 0) {
         return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EACCES,
+            posix.EPERM => error.AccessDenied,
             posix.EBUSY => error.FileBusy,
-            posix.EFAULT, posix.EINVAL => unreachable,
+            posix.EFAULT,
+            posix.EINVAL => unreachable,
             posix.EIO => error.FileSystem,
             posix.EISDIR => error.IsDir,
             posix.ELOOP => error.SymLinkLoop,
@@ -852,7 +886,7 @@ pub const AtomicFile = struct {
 
         while (true) {
             try getRandomBytes(rand_buf[0..]);
-            b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
+            b64_fs_encoder.encode(tmp_path[dirname.len + 1..], rand_buf);
 
             const file = os.File.openWriteNoClobber(allocator, tmp_path, mode) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
@@ -903,7 +937,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     new_buf[new_path.len] = 0;
 
     if (is_windows) {
-        const flags = windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH;
+        const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
         if (windows.MoveFileExA(old_buf.ptr, new_buf.ptr, flags) == 0) {
             const err = windows.GetLastError();
             return switch (err) {
@@ -914,10 +948,12 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
         const err = posix.getErrno(posix.rename(old_buf.ptr, new_buf.ptr));
         if (err > 0) {
             return switch (err) {
-                posix.EACCES, posix.EPERM => error.AccessDenied,
+                posix.EACCES,
+                posix.EPERM => error.AccessDenied,
                 posix.EBUSY => error.FileBusy,
                 posix.EDQUOT => error.DiskQuota,
-                posix.EFAULT, posix.EINVAL => unreachable,
+                posix.EFAULT,
+                posix.EINVAL => unreachable,
                 posix.EISDIR => error.IsDir,
                 posix.ELOOP => error.SymLinkLoop,
                 posix.EMLINK => error.LinkQuotaExceeded,
@@ -926,7 +962,8 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
                 posix.ENOTDIR => error.NotDir,
                 posix.ENOMEM => error.SystemResources,
                 posix.ENOSPC => error.NoSpaceLeft,
-                posix.EEXIST, posix.ENOTEMPTY => error.PathAlreadyExists,
+                posix.EEXIST,
+                posix.ENOTEMPTY => error.PathAlreadyExists,
                 posix.EROFS => error.ReadOnlyFileSystem,
                 posix.EXDEV => error.RenameAcrossMountPoints,
                 else => unexpectedErrorPosix(err),
@@ -964,7 +1001,8 @@ pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) !void {
     const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
     if (err > 0) {
         return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EACCES,
+            posix.EPERM => error.AccessDenied,
             posix.EDQUOT => error.DiskQuota,
             posix.EEXIST => error.PathAlreadyExists,
             posix.EFAULT => unreachable,
@@ -994,27 +1032,23 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) !void {
                 // TODO stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
                 // could cause an infinite loop
-                if (end_index == resolved_path.len)
-                    return;
+                if (end_index == resolved_path.len) return;
             } else if (err == error.FileNotFound) {
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
-                    if (os.path.isSep(resolved_path[end_index]))
-                        break;
+                    if (os.path.isSep(resolved_path[end_index])) break;
                 }
                 continue;
             } else {
                 return err;
             }
         };
-        if (end_index == resolved_path.len)
-            return;
+        if (end_index == resolved_path.len) return;
         // march end_index forward until next path component
         while (true) {
             end_index += 1;
-            if (end_index == resolved_path.len or os.path.isSep(resolved_path[end_index]))
-                break;
+            if (end_index == resolved_path.len or os.path.isSep(resolved_path[end_index])) break;
         }
     }
 }
@@ -1031,15 +1065,18 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) !void {
     const err = posix.getErrno(posix.rmdir(path_buf.ptr));
     if (err > 0) {
         return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EACCES,
+            posix.EPERM => error.AccessDenied,
             posix.EBUSY => error.FileBusy,
-            posix.EFAULT, posix.EINVAL => unreachable,
+            posix.EFAULT,
+            posix.EINVAL => unreachable,
             posix.ELOOP => error.SymLinkLoop,
             posix.ENAMETOOLONG => error.NameTooLong,
             posix.ENOENT => error.FileNotFound,
             posix.ENOMEM => error.SystemResources,
             posix.ENOTDIR => error.NotDir,
-            posix.EEXIST, posix.ENOTEMPTY => error.DirNotEmpty,
+            posix.EEXIST,
+            posix.ENOTEMPTY => error.DirNotEmpty,
             posix.EROFS => error.ReadOnlyFileSystem,
             else => unexpectedErrorPosix(err),
         };
@@ -1049,7 +1086,7 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) !void {
 /// Whether ::full_path describes a symlink, file, or directory, this function
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
-// TODO non-recursive implementation
+/// TODO non-recursive implementation
 const DeleteTreeError = error {
     OutOfMemory,
     AccessDenied,
@@ -1091,8 +1128,7 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
             error.NotDir,
             error.FileSystem,
             error.FileBusy,
-            error.Unexpected
-                => return err,
+            error.Unexpected => return err,
         }
         {
             var dir = Dir.open(allocator, full_path) catch |err| switch (err) {
@@ -1116,8 +1152,7 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
                 error.SystemResources,
                 error.NoSpaceLeft,
                 error.PathAlreadyExists,
-                error.Unexpected
-                    => return err,
+                error.Unexpected => return err,
             };
             defer dir.close();
 
@@ -1147,7 +1182,8 @@ pub const Dir = struct {
     end_index: usize,
 
     const darwin_seek_t = switch (builtin.os) {
-        Os.macosx, Os.ios => i64,
+        Os.macosx,
+        Os.ios => i64,
         else => void,
     };
 
@@ -1171,12 +1207,14 @@ pub const Dir = struct {
     pub fn open(allocator: &Allocator, dir_path: []const u8) !Dir {
         const fd = switch (builtin.os) {
             Os.windows => @compileError("TODO support Dir.open for windows"),
-            Os.linux => try posixOpen(allocator, dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0),
-            Os.macosx, Os.ios => try posixOpen(allocator, dir_path, posix.O_RDONLY|posix.O_NONBLOCK|posix.O_DIRECTORY|posix.O_CLOEXEC, 0),
+            Os.linux => try posixOpen(allocator, dir_path, posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC, 0),
+            Os.macosx,
+            Os.ios => try posixOpen(allocator, dir_path, posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC, 0),
             else => @compileError("Dir.open is not supported for this platform"),
         };
         const darwin_seek_init = switch (builtin.os) {
-            Os.macosx, Os.ios => 0,
+            Os.macosx,
+            Os.ios => 0,
             else => {},
         };
         return Dir {
@@ -1199,7 +1237,8 @@ pub const Dir = struct {
     pub fn next(self: &Dir) !?Entry {
         switch (builtin.os) {
             Os.linux => return self.nextLinux(),
-            Os.macosx, Os.ios => return self.nextDarwin(),
+            Os.macosx,
+            Os.ios => return self.nextDarwin(),
             Os.windows => return self.nextWindows(),
             else => @compileError("Dir.next not supported on " ++ @tagName(builtin.os)),
         }
@@ -1213,12 +1252,13 @@ pub const Dir = struct {
                 }
 
                 while (true) {
-                    const result = posix.getdirentries64(self.fd, self.buf.ptr, self.buf.len,
-                        &self.darwin_seek);
+                    const result = posix.getdirentries64(self.fd, self.buf.ptr, self.buf.len, &self.darwin_seek);
                     const err = posix.getErrno(result);
                     if (err > 0) {
                         switch (err) {
-                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                            posix.EBADF,
+                            posix.EFAULT,
+                            posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
                                 self.buf = try self.allocator.realloc(u8, self.buf, self.buf.len * 2);
                                 continue;
@@ -1226,14 +1266,13 @@ pub const Dir = struct {
                             else => return unexpectedErrorPosix(err),
                         }
                     }
-                    if (result == 0)
-                        return null;
+                    if (result == 0) return null;
                     self.index = 0;
                     self.end_index = result;
                     break;
                 }
             }
-            const darwin_entry = @ptrCast(& align(1) posix.dirent, &self.buf[self.index]);
+            const darwin_entry = @ptrCast(&align(1) posix.dirent, &self.buf[self.index]);
             const next_index = self.index + darwin_entry.d_reclen;
             self.index = next_index;
 
@@ -1278,7 +1317,9 @@ pub const Dir = struct {
                     const err = posix.getErrno(result);
                     if (err > 0) {
                         switch (err) {
-                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                            posix.EBADF,
+                            posix.EFAULT,
+                            posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
                                 self.buf = try self.allocator.realloc(u8, self.buf, self.buf.len * 2);
                                 continue;
@@ -1286,14 +1327,13 @@ pub const Dir = struct {
                             else => return unexpectedErrorPosix(err),
                         }
                     }
-                    if (result == 0)
-                        return null;
+                    if (result == 0) return null;
                     self.index = 0;
                     self.end_index = result;
                     break;
                 }
             }
-            const linux_entry = @ptrCast(& align(1) posix.dirent, &self.buf[self.index]);
+            const linux_entry = @ptrCast(&align(1) posix.dirent, &self.buf[self.index]);
             const next_index = self.index + linux_entry.d_reclen;
             self.index = next_index;
 
@@ -1362,7 +1402,8 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) ![]u8 {
         if (err > 0) {
             return switch (err) {
                 posix.EACCES => error.AccessDenied,
-                posix.EFAULT, posix.EINVAL => unreachable,
+                posix.EFAULT,
+                posix.EINVAL => unreachable,
                 posix.EIO => error.FileSystem,
                 posix.ELOOP => error.SymLinkLoop,
                 posix.ENAMETOOLONG => error.NameTooLong,
@@ -1455,8 +1496,7 @@ pub const ArgIteratorPosix = struct {
     }
 
     pub fn next(self: &ArgIteratorPosix) ?[]const u8 {
-        if (self.index == self.count)
-            return null;
+        if (self.index == self.count) return null;
 
         const s = raw[self.index];
         self.index += 1;
@@ -1464,8 +1504,7 @@ pub const ArgIteratorPosix = struct {
     }
 
     pub fn skip(self: &ArgIteratorPosix) bool {
-        if (self.index == self.count)
-            return false;
+        if (self.index == self.count) return false;
 
         self.index += 1;
         return true;
@@ -1483,7 +1522,9 @@ pub const ArgIteratorWindows = struct {
     quote_count: usize,
     seen_quote_count: usize,
 
-    pub const NextError = error{OutOfMemory};
+    pub const NextError = error {
+        OutOfMemory,
+    };
 
     pub fn init() ArgIteratorWindows {
         return initWithCmdLine(windows.GetCommandLineA());
@@ -1506,7 +1547,8 @@ pub const ArgIteratorWindows = struct {
             const byte = self.cmd_line[self.index];
             switch (byte) {
                 0 => return null,
-                ' ', '\t' => continue,
+                ' ',
+                '\t' => continue,
                 else => break,
             }
         }
@@ -1520,7 +1562,8 @@ pub const ArgIteratorWindows = struct {
             const byte = self.cmd_line[self.index];
             switch (byte) {
                 0 => return false,
-                ' ', '\t' => continue,
+                ' ',
+                '\t' => continue,
                 else => break,
             }
         }
@@ -1539,7 +1582,8 @@ pub const ArgIteratorWindows = struct {
                 '\\' => {
                     backslash_count += 1;
                 },
-                ' ', '\t' => {
+                ' ',
+                '\t' => {
                     if (self.seen_quote_count % 2 == 0 or self.seen_quote_count == self.quote_count) {
                         return true;
                     }
@@ -1579,7 +1623,8 @@ pub const ArgIteratorWindows = struct {
                 '\\' => {
                     backslash_count += 1;
                 },
-                ' ', '\t' => {
+                ' ',
+                '\t' => {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
                     if (self.seen_quote_count % 2 == 1 and self.seen_quote_count != self.quote_count) {
@@ -1623,7 +1668,6 @@ pub const ArgIteratorWindows = struct {
             }
         }
     }
-
 };
 
 pub const ArgIterator = struct {
@@ -1638,7 +1682,7 @@ pub const ArgIterator = struct {
     }
 
     pub const NextError = ArgIteratorWindows.NextError;
-    
+
     /// You must free the returned memory when done.
     pub fn next(self: &ArgIterator, allocator: &Allocator) ?(NextError![]u8) {
         if (builtin.os == Os.windows) {
@@ -1713,15 +1757,47 @@ pub fn argsFree(allocator: &mem.Allocator, args_alloc: []const []u8) void {
 }
 
 test "windows arg parsing" {
-    testWindowsCmdLine(c"a   b\tc d", [][]const u8{"a", "b", "c", "d"});
-    testWindowsCmdLine(c"\"abc\" d e", [][]const u8{"abc", "d", "e"});
-    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8{"a\\\\\\b", "de fg", "h"});
-    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{"a\\\"b", "c", "d"});
-    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{"a\\\\b c", "d", "e"});
-    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{"a", "b", "c", "\"d", "f"});
+    testWindowsCmdLine(c"a   b\tc d", [][]const u8 {
+        "a",
+        "b",
+        "c",
+        "d",
+    });
+    testWindowsCmdLine(c"\"abc\" d e", [][]const u8 {
+        "abc",
+        "d",
+        "e",
+    });
+    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8 {
+        "a\\\\\\b",
+        "de fg",
+        "h",
+    });
+    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8 {
+        "a\\\"b",
+        "c",
+        "d",
+    });
+    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8 {
+        "a\\\\b c",
+        "d",
+        "e",
+    });
+    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8 {
+        "a",
+        "b",
+        "c",
+        "\"d",
+        "f",
+    });
 
-    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"",
-        [][]const u8{".\\..\\zig-cache\\build", "bin\\zig.exe", ".\\..", ".\\..\\zig-cache", "--help"});
+    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [][]const u8 {
+        ".\\..\\zig-cache\\build",
+        "bin\\zig.exe",
+        ".\\..",
+        ".\\..\\zig-cache",
+        "--help",
+    });
 }
 
 fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const u8) void {
@@ -1768,7 +1844,8 @@ pub fn openSelfExe() !os.File {
             var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
         },
-        Os.macosx, Os.ios => {
+        Os.macosx,
+        Os.ios => {
             var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
             var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             const self_exe_path = try selfExePath(&fixed_allocator.allocator);
@@ -1780,8 +1857,10 @@ pub fn openSelfExe() !os.File {
 
 test "openSelfExe" {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => (try openSelfExe()).close(),
-        else => return,  // Unsupported OS.
+        Os.linux,
+        Os.macosx,
+        Os.ios => (try openSelfExe()).close(),
+        else => return, // Unsupported OS.
     }
 }
 
@@ -1818,7 +1897,8 @@ pub fn selfExePath(allocator: &mem.Allocator) ![]u8 {
                 try out_path.resize(new_len);
             }
         },
-        Os.macosx, Os.ios => {
+        Os.macosx,
+        Os.ios => {
             var u32_len: u32 = 0;
             const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
             assert(ret1 != 0);
@@ -1846,7 +1926,9 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) ![]u8 {
             const dir = path.dirname(full_exe_path);
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
-        Os.windows, Os.macosx, Os.ios => {
+        Os.windows,
+        Os.macosx,
+        Os.ios => {
             const self_exe_path = try selfExePath(allocator);
             errdefer allocator.free(self_exe_path);
             const dirname = os.path.dirname(self_exe_path);
@@ -1903,7 +1985,8 @@ pub fn posixSocket(domain: u32, socket_type: u32, protocol: u32) !i32 {
         posix.EINVAL => return PosixSocketError.ProtocolFamilyNotAvailable,
         posix.EMFILE => return PosixSocketError.ProcessFdQuotaExceeded,
         posix.ENFILE => return PosixSocketError.SystemFdQuotaExceeded,
-        posix.ENOBUFS, posix.ENOMEM => return PosixSocketError.SystemResources,
+        posix.ENOBUFS,
+        posix.ENOMEM => return PosixSocketError.SystemResources,
         posix.EPROTONOSUPPORT => return PosixSocketError.ProtocolNotSupported,
         else => return unexpectedErrorPosix(err),
     }
@@ -1934,7 +2017,7 @@ pub const PosixBindError = error {
 
     /// A nonexistent interface was requested or the requested address was not local.
     AddressNotAvailable,
-            
+
     /// addr points outside the user's accessible address space.
     PageFault,
 
@@ -2023,7 +2106,7 @@ pub const PosixAcceptError = error {
     FileDescriptorClosed,
 
     ConnectionAborted,
-              
+
     /// The addr argument is not in a writable part of the user address space.
     PageFault,
 
@@ -2036,7 +2119,7 @@ pub const PosixAcceptError = error {
 
     /// The system-wide limit on the total number of open files has been reached.
     SystemFdQuotaExceeded,
-    
+
     /// Not enough free memory.  This often means that the memory allocation  is  limited
     /// by the socket buffer limits, not by the system memory.
     SystemResources,
@@ -2072,7 +2155,8 @@ pub fn posixAccept(fd: i32, addr: &posix.sockaddr, flags: u32) PosixAcceptError!
             posix.EINVAL => return PosixAcceptError.InvalidSyscall,
             posix.EMFILE => return PosixAcceptError.ProcessFdQuotaExceeded,
             posix.ENFILE => return PosixAcceptError.SystemFdQuotaExceeded,
-            posix.ENOBUFS, posix.ENOMEM => return PosixAcceptError.SystemResources,
+            posix.ENOBUFS,
+            posix.ENOMEM => return PosixAcceptError.SystemResources,
             posix.ENOTSOCK => return PosixAcceptError.FileDescriptorNotASocket,
             posix.EOPNOTSUPP => return PosixAcceptError.OperationNotSupported,
             posix.EPROTO => return PosixAcceptError.ProtocolFailure,
@@ -2283,7 +2367,8 @@ pub fn posixConnectAsync(sockfd: i32, sockaddr: &const posix.sockaddr) PosixConn
         const rc = posix.connect(sockfd, sockaddr, @sizeOf(posix.sockaddr));
         const err = posix.getErrno(rc);
         switch (err) {
-            0, posix.EINPROGRESS => return,
+            0,
+            posix.EINPROGRESS => return,
             else => return unexpectedErrorPosix(err),
 
             posix.EACCES => return PosixConnectError.PermissionDenied,
@@ -2343,24 +2428,58 @@ pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
 }
 
 pub const Thread = struct {
-    pid: i32,
-    allocator: ?&mem.Allocator,
-    stack: []u8,
+    data: Data,
+
+    pub const use_pthreads = is_posix and builtin.link_libc;
+    const Data = if (use_pthreads) struct {
+        handle: c.pthread_t,
+        stack_addr: usize,
+        stack_len: usize,
+    } else switch (builtin.os) {
+        builtin.Os.linux => struct {
+            pid: i32,
+            stack_addr: usize,
+            stack_len: usize,
+        },
+        builtin.Os.windows => struct {
+            handle: windows.HANDLE,
+            alloc_start: &c_void,
+            heap_handle: windows.HANDLE,
+        },
+        else => @compileError("Unsupported OS"),
+    };
 
     pub fn wait(self: &const Thread) void {
-        while (true) {
-            const pid_value = @atomicLoad(i32, &self.pid, builtin.AtomicOrder.SeqCst);
-            if (pid_value == 0) break;
-            const rc = linux.futex_wait(@ptrToInt(&self.pid), linux.FUTEX_WAIT, pid_value, null);
-            switch (linux.getErrno(rc)) {
-                0 => continue,
-                posix.EINTR => continue,
-                posix.EAGAIN => continue,
+        if (use_pthreads) {
+            const err = c.pthread_join(self.data.handle, null);
+            switch (err) {
+                0 => {},
+                posix.EINVAL => unreachable,
+                posix.ESRCH => unreachable,
+                posix.EDEADLK => unreachable,
                 else => unreachable,
             }
-        }
-        if (self.allocator) |a| {
-            a.free(self.stack);
+            assert(posix.munmap(self.data.stack_addr, self.data.stack_len) == 0);
+        } else switch (builtin.os) {
+            builtin.Os.linux => {
+                while (true) {
+                    const pid_value = @atomicLoad(i32, &self.data.pid, builtin.AtomicOrder.SeqCst);
+                    if (pid_value == 0) break;
+                    const rc = linux.futex_wait(@ptrToInt(&self.data.pid), linux.FUTEX_WAIT, pid_value, null);
+                    switch (linux.getErrno(rc)) {
+                        0 => continue,
+                        posix.EINTR => continue,
+                        posix.EAGAIN => continue,
+                        else => unreachable,
+                    }
+                }
+                assert(posix.munmap(self.data.stack_addr, self.data.stack_len) == 0);
+            },
+            builtin.Os.windows => {
+                assert(windows.WaitForSingleObject(self.data.handle, windows.INFINITE) == windows.WAIT_OBJECT_0);
+                assert(windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start) != 0);
+            },
+            else => @compileError("Unsupported OS"),
         }
     }
 };
@@ -2385,38 +2504,91 @@ pub const SpawnThreadError = error {
     /// be copied.
     SystemResources,
 
+    /// Not enough userland memory to spawn the thread.
+    OutOfMemory,
+
     Unexpected,
 };
 
-pub const SpawnThreadAllocatorError = SpawnThreadError || error{OutOfMemory};
-
 /// caller must call wait on the returned thread
 /// fn startFn(@typeOf(context)) T
 /// where T is u8, noreturn, void, or !void
-pub fn spawnThreadAllocator(allocator: &mem.Allocator, context: var, comptime startFn: var) SpawnThreadAllocatorError!&Thread {
+/// caller must call wait on the returned thread
+pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread {
     // TODO compile-time call graph analysis to determine stack upper bound
     // https://github.com/zig-lang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;
-    const stack_bytes = try allocator.alloc(u8, default_stack_size);
-    const thread = try spawnThread(stack_bytes, context, startFn);
-    thread.allocator = allocator;
-    return thread;
-}
 
-/// stack must be big enough to store one Thread and one @typeOf(context), each with default alignment, at the end
-/// fn startFn(@typeOf(context)) T
-/// where T is u8, noreturn, void, or !void
-/// caller must call wait on the returned thread
-pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThreadError!&Thread {
     const Context = @typeOf(context);
     comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
 
-    var stack_end: usize = @ptrToInt(stack.ptr) + stack.len;
+    if (builtin.os == builtin.Os.windows) {
+        const WinThread = struct {
+            const OuterContext = struct {
+                thread: Thread,
+                inner: Context,
+            };
+            extern fn threadMain(arg: windows.LPVOID) windows.DWORD {
+                if (@sizeOf(Context) == 0) {
+                    return startFn({});
+                } else {
+                    return startFn(*@ptrCast(&Context, @alignCast(@alignOf(Context), arg)));
+                }
+            }
+        };
+
+        const heap_handle = windows.GetProcessHeap() ?? return SpawnThreadError.OutOfMemory;
+        const byte_count = @alignOf(WinThread.OuterContext) + @sizeOf(WinThread.OuterContext);
+        const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) ?? return SpawnThreadError.OutOfMemory;
+        errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
+        const bytes = @ptrCast(&u8, bytes_ptr)[0..byte_count];
+        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
+        outer_context.inner = context;
+        outer_context.thread.data.heap_handle = heap_handle;
+        outer_context.thread.data.alloc_start = bytes_ptr;
+
+        const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(&c_void, &outer_context.inner);
+        outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) ?? {
+            const err = windows.GetLastError();
+            return switch (err) {
+                else => os.unexpectedErrorWindows(err),
+            };
+        };
+        return &outer_context.thread;
+    }
+
+    const MainFuncs = struct {
+        extern fn linuxThreadMain(ctx_addr: usize) u8 {
+            if (@sizeOf(Context) == 0) {
+                return startFn({});
+            } else {
+                return startFn(*@intToPtr(&const Context, ctx_addr));
+            }
+        }
+        extern fn posixThreadMain(ctx: ?&c_void) ?&c_void {
+            if (@sizeOf(Context) == 0) {
+                _ = startFn({});
+                return null;
+            } else {
+                _ = startFn(*@ptrCast(&const Context, @alignCast(@alignOf(Context), ctx)));
+                return null;
+            }
+        }
+    };
+
+    const MAP_GROWSDOWN = if (builtin.os == builtin.Os.linux) linux.MAP_GROWSDOWN else 0;
+
+    const mmap_len = default_stack_size;
+    const stack_addr = posix.mmap(null, mmap_len, posix.PROT_READ | posix.PROT_WRITE, posix.MAP_PRIVATE | posix.MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
+    if (stack_addr == posix.MAP_FAILED) return error.OutOfMemory;
+    errdefer assert(posix.munmap(stack_addr, mmap_len) == 0);
+
+    var stack_end: usize = stack_addr + mmap_len;
     var arg: usize = undefined;
     if (@sizeOf(Context) != 0) {
         stack_end -= @sizeOf(Context);
         stack_end -= stack_end % @alignOf(Context);
-        assert(stack_end >= @ptrToInt(stack.ptr));
+        assert(stack_end >= stack_addr);
         const context_ptr = @alignCast(@alignOf(Context), @intToPtr(&Context, stack_end));
         *context_ptr = context;
         arg = stack_end;
@@ -2424,36 +2596,51 @@ pub fn spawnThread(stack: []u8, context: var, comptime startFn: var) SpawnThread
 
     stack_end -= @sizeOf(Thread);
     stack_end -= stack_end % @alignOf(Thread);
-    assert(stack_end >= @ptrToInt(stack.ptr));
+    assert(stack_end >= stack_addr);
     const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(&Thread, stack_end));
-    thread_ptr.stack = stack;
-    thread_ptr.allocator = null;
 
-    const threadMain = struct {
-        extern fn threadMain(ctx_addr: usize) u8 {
-            if (@sizeOf(Context) == 0) {
-                return startFn({});
-            } else {
-                return startFn(*@intToPtr(&const Context, ctx_addr));
-            }
+    thread_ptr.data.stack_addr = stack_addr;
+    thread_ptr.data.stack_len = mmap_len;
+
+    if (builtin.os == builtin.Os.windows) {
+        // use windows API directly
+        @compileError("TODO support spawnThread for Windows");
+    } else if (Thread.use_pthreads) {
+        // use pthreads
+        var attr: c.pthread_attr_t = undefined;
+        if (c.pthread_attr_init(&attr) != 0) return SpawnThreadError.SystemResources;
+        defer assert(c.pthread_attr_destroy(&attr) == 0);
+
+        // align to page
+        stack_end -= stack_end % os.page_size;
+        assert(c.pthread_attr_setstack(&attr, @intToPtr(&c_void, stack_addr), stack_end - stack_addr) == 0);
+
+        const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(&c_void, arg));
+        switch (err) {
+            0 => return thread_ptr,
+            posix.EAGAIN => return SpawnThreadError.SystemResources,
+            posix.EPERM => unreachable,
+            posix.EINVAL => unreachable,
+            else => return unexpectedErrorPosix(usize(err)),
         }
-    }.threadMain;
-
-    const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND
-        | posix.CLONE_THREAD | posix.CLONE_SYSVSEM // | posix.CLONE_SETTLS
-        | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
-    const newtls: usize = 0;
-    const rc = posix.clone(threadMain, stack_end, flags, arg, &thread_ptr.pid, newtls, &thread_ptr.pid);
-    const err = posix.getErrno(rc);
-    switch (err) {
-        0 => return thread_ptr,
-        posix.EAGAIN => return SpawnThreadError.ThreadQuotaExceeded,
-        posix.EINVAL => unreachable,
-        posix.ENOMEM => return SpawnThreadError.SystemResources,
-        posix.ENOSPC => unreachable,
-        posix.EPERM => unreachable,
-        posix.EUSERS => unreachable,
-        else => return unexpectedErrorPosix(err),
+    } else if (builtin.os == builtin.Os.linux) {
+        // use linux API directly.  TODO use posix.CLONE_SETTLS and initialize thread local storage correctly
+        const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND | posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
+        const newtls: usize = 0;
+        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.pid, newtls, &thread_ptr.data.pid);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return thread_ptr,
+            posix.EAGAIN => return SpawnThreadError.ThreadQuotaExceeded,
+            posix.EINVAL => unreachable,
+            posix.ENOMEM => return SpawnThreadError.SystemResources,
+            posix.ENOSPC => unreachable,
+            posix.EPERM => unreachable,
+            posix.EUSERS => unreachable,
+            else => return unexpectedErrorPosix(err),
+        }
+    } else {
+        @compileError("Unsupported OS");
     }
 }
 

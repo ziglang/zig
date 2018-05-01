@@ -81,3 +81,8 @@ pub const sockaddr = extern struct {
 };
 
 pub const sa_family_t = u8;
+
+pub const pthread_attr_t = extern struct {
+    __sig: c_long,
+    __opaque: [56]u8,
+};

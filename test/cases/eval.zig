@@ -529,3 +529,10 @@ test "comptime shlWithOverflow" {
 
     assert(ct_shifted == rt_shifted);
 }
+
+test "runtime 128 bit integer division" {
+    var a: u128 = 152313999999999991610955792383;
+    var b: u128 = 10000000000000000000;
+    var c = a / b;
+    assert(c == 15231399999);
+}

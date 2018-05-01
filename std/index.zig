@@ -8,6 +8,7 @@ pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const IntrusiveLinkedList = @import("linked_list.zig").IntrusiveLinkedList;
 
+pub const atomic = @import("atomic/index.zig");
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
 pub const c = @import("c/index.zig");
@@ -34,6 +35,7 @@ pub const zig = @import("zig/index.zig");
 
 test "std" {
     // run tests from these
+    _ = @import("atomic/index.zig");
     _ = @import("array_list.zig");
     _ = @import("buf_map.zig");
     _ = @import("buf_set.zig");

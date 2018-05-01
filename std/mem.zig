@@ -20,7 +20,7 @@ pub const Allocator = struct {
     /// * alignment >= alignment of old_mem.ptr
     ///
     /// If `new_byte_count <= old_mem.len`:
-    /// * this function must return successfully. 
+    /// * this function must return successfully.
     /// * alignment <= alignment of old_mem.ptr
     ///
     /// The returned newly allocated memory is undefined.
@@ -32,8 +32,23 @@ pub const Allocator = struct {
     freeFn: fn (self: &Allocator, old_mem: []u8) void,
 
     fn create(self: &Allocator, comptime T: type) !&T {
+        if (@sizeOf(T) == 0) return &{};
         const slice = try self.alloc(T, 1);
         return &slice[0];
+    }
+
+    // TODO once #733 is solved, this will replace create
+    fn construct(self: &Allocator, init: var) t: {
+        // TODO this is a workaround for type getting parsed as Error!&const T
+        const T = @typeOf(init).Child;
+        break :t Error!&T;
+    } {
+        const T = @typeOf(init).Child;
+        if (@sizeOf(T) == 0) return &{};
+        const slice = try self.alloc(T, 1);
+        const ptr = &slice[0];
+        *ptr = *init;
+        return ptr;
     }
 
     fn destroy(self: &Allocator, ptr: var) void {
@@ -53,7 +68,7 @@ pub const Allocator = struct {
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
         assert(byte_slice.len == byte_count);
-        // This loop should get optimized out in ReleaseFast mode
+        // This loop gets optimized out in ReleaseFast mode
         for (byte_slice) |*byte| {
             *byte = undefined;
         }
@@ -80,7 +95,7 @@ pub const Allocator = struct {
         const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
         assert(byte_slice.len == byte_count);
         if (n > old_mem.len) {
-            // This loop should get optimized out in ReleaseFast mode
+            // This loop gets optimized out in ReleaseFast mode
             for (byte_slice[old_byte_slice.len..]) |*byte| {
                 *byte = undefined;
             }
@@ -174,6 +189,20 @@ pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) ![]T {
     return new_buf;
 }
 
+/// Remove values from the beginning of a slice.
+pub fn trimLeft(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+    var begin: usize = 0;
+    while (begin < slice.len and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
+    return slice[begin..];
+}
+
+/// Remove values from the end of a slice.
+pub fn trimRight(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+    var end: usize = slice.len;
+    while (end > 0 and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+    return slice[0..end];
+}
+
 /// Remove values from the beginning and end of a slice.
 pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var begin: usize = 0;
@@ -184,6 +213,8 @@ pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []co
 }
 
 test "mem.trim" {
+    assert(eql(u8, trimLeft(u8, " foo\n ", " \n"), "foo\n "));
+    assert(eql(u8, trimRight(u8, " foo\n ", " \n"), " foo"));
     assert(eql(u8, trim(u8, " foo\n ", " \n"), "foo"));
     assert(eql(u8, trim(u8, "foo", " \n"), "foo"));
 }
@@ -191,6 +222,17 @@ test "mem.trim" {
 /// Linear search for the index of a scalar value inside a slice.
 pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     return indexOfScalarPos(T, slice, 0, value);
+}
+
+/// Linear search for the last index of a scalar value inside a slice.
+pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
+    var i: usize = slice.len;
+    while (i != 0) {
+        i -= 1;
+        if (slice[i] == value)
+            return i;
+    }
+    return null;
 }
 
 pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
@@ -206,6 +248,18 @@ pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize 
     return indexOfAnyPos(T, slice, 0, values);
 }
 
+pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
+    var i: usize = slice.len;
+    while (i != 0) {
+        i -= 1;
+        for (values) |value| {
+            if (slice[i] == value)
+                return i;
+        }
+    }
+    return null;
+}
+
 pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
     var i: usize = start_index;
     while (i < slice.len) : (i += 1) {
@@ -219,6 +273,22 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
 
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
+}
+
+/// Find the index in a slice of a sub-slice, searching from the end backwards.
+/// To start looking at a different index, slice the haystack first.
+/// TODO is there even a better algorithm for this?
+pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+    if (needle.len > haystack.len)
+        return null;
+
+    var i: usize = haystack.len - needle.len;
+    while (true) : (i -= 1) {
+        if (mem.eql(T, haystack[i..i+needle.len], needle))
+            return i;
+        if (i == 0)
+            return null;
+    }
 }
 
 // TODO boyer-moore algorithm
@@ -237,9 +307,19 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
 
 test "mem.indexOf" {
     assert(??indexOf(u8, "one two three four", "four") == 14);
+    assert(??lastIndexOf(u8, "one two three two four", "two") == 14);
     assert(indexOf(u8, "one two three four", "gour") == null);
+    assert(lastIndexOf(u8, "one two three four", "gour") == null);
     assert(??indexOf(u8, "foo", "foo") == 0);
+    assert(??lastIndexOf(u8, "foo", "foo") == 0);
     assert(indexOf(u8, "foo", "fool") == null);
+    assert(lastIndexOf(u8, "foo", "lfoo") == null);
+    assert(lastIndexOf(u8, "foo", "fool") == null);
+
+    assert(??indexOf(u8, "foo foo", "foo") == 0);
+    assert(??lastIndexOf(u8, "foo foo", "foo") == 4);
+    assert(??lastIndexOfAny(u8, "boo, cat", "abo") == 6);
+    assert(??lastIndexOfScalar(u8, "boo", 'o') == 2);
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -359,9 +439,24 @@ pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool
     return if (needle.len > haystack.len) false else eql(T, haystack[0 .. needle.len], needle);
 }
 
+test "mem.startsWith" {
+    assert(startsWith(u8, "Bob", "Bo"));
+    assert(!startsWith(u8, "Needle in haystack", "haystack"));
+}
+
+pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
+    return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len ..], needle);
+}
+
+
+test "mem.endsWith" {
+    assert(endsWith(u8, "Needle in haystack", "haystack"));
+    assert(!endsWith(u8, "Bob", "Bo"));
+}
+
 pub const SplitIterator = struct {
     buffer: []const u8,
-    split_bytes: []const u8, 
+    split_bytes: []const u8,
     index: usize,
 
     pub fn next(self: &SplitIterator) ?[]const u8 {

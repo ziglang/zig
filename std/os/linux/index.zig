@@ -706,13 +706,13 @@ pub fn umount2(special: &const u8, flags: u32) usize {
     return syscall2(SYS_umount2, @ptrToInt(special), flags);
 }
 
-pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: isize) usize {
+pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
     return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, usize(fd),
         @bitCast(usize, offset));
 }
 
-pub fn munmap(address: &u8, length: usize) usize {
-    return syscall2(SYS_munmap, @ptrToInt(address), length);
+pub fn munmap(address: usize, length: usize) usize {
+    return syscall2(SYS_munmap, address, length);
 }
 
 pub fn read(fd: i32, buf: &u8, count: usize) usize {

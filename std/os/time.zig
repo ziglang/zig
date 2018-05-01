@@ -281,7 +281,7 @@ test "os.time.Timer" {
     debug.assert(time_0 > 0 and time_0 < margin);
     
     const time_1 = timer.lap();
-    debug.assert(time_1 > time_0);
+    debug.assert(time_1 >= time_0);
     
     timer.reset();
     debug.assert(timer.read() < time_1);

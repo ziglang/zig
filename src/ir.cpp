@@ -3161,6 +3161,9 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         if (block_node->data.block.name == nullptr || incoming_blocks.length == 0) {
             return noreturn_return_value;
         }
+
+        ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
+        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
     } else {
         incoming_blocks.append(irb->current_basic_block);
         incoming_values.append(ir_mark_gen(ir_build_const_void(irb, parent_scope, block_node)));
@@ -6187,16 +6190,10 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
     buf_init_from_buf(&err_set_type->name, type_name);
     err_set_type->is_copyable = true;
     err_set_type->data.error_set.err_count = err_count;
-
-    if (err_count == 0) {
-        err_set_type->zero_bits = true;
-        err_set_type->di_type = irb->codegen->builtin_types.entry_void->di_type;
-    } else {
-        err_set_type->type_ref = irb->codegen->builtin_types.entry_global_error_set->type_ref;
-        err_set_type->di_type = irb->codegen->builtin_types.entry_global_error_set->di_type;
-        irb->codegen->error_di_types.append(&err_set_type->di_type);
-        err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(err_count);
-    }
+    err_set_type->type_ref = irb->codegen->builtin_types.entry_global_error_set->type_ref;
+    err_set_type->di_type = irb->codegen->builtin_types.entry_global_error_set->di_type;
+    irb->codegen->error_di_types.append(&err_set_type->di_type);
+    err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(err_count);
 
     ErrorTableEntry **errors = allocate<ErrorTableEntry *>(irb->codegen->errors_by_index.length + err_count);
 
@@ -8138,7 +8135,7 @@ static void update_errors_helper(CodeGen *g, ErrorTableEntry ***errors, size_t *
     *errors = reallocate(*errors, old_errors_count, *errors_count);
 }
 
-static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, IrInstruction **instructions, size_t instruction_count) {
+static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, TypeTableEntry *expected_type, IrInstruction **instructions, size_t instruction_count) {
     assert(instruction_count >= 1);
     IrInstruction *prev_inst = instructions[0];
     if (type_is_invalid(prev_inst->value.type)) {
@@ -8182,16 +8179,6 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         }
 
         if (cur_type->id == TypeTableEntryIdUnreachable) {
-            continue;
-        }
-
-        if (prev_type->id == TypeTableEntryIdNullLit) {
-            prev_inst = cur_inst;
-            continue;
-        }
-
-        if (cur_type->id == TypeTableEntryIdNullLit) {
-            any_are_null = true;
             continue;
         }
 
@@ -8454,6 +8441,16 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             }
         }
 
+        if (prev_type->id == TypeTableEntryIdNullLit) {
+            prev_inst = cur_inst;
+            continue;
+        }
+
+        if (cur_type->id == TypeTableEntryIdNullLit) {
+            any_are_null = true;
+            continue;
+        }
+
         if (types_match_const_cast_only(ira, prev_type, cur_type, source_node).id == ConstCastResultIdOk) {
             continue;
         }
@@ -8637,6 +8634,10 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
     } else if (err_set_type != nullptr) {
         if (prev_inst->value.type->id == TypeTableEntryIdErrorSet) {
             return err_set_type;
+        } else if (prev_inst->value.type->id == TypeTableEntryIdErrorUnion) {
+            return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type->data.error_union.payload_type);
+        } else if (expected_type != nullptr && expected_type->id == TypeTableEntryIdErrorUnion) {
+            return get_error_union_type(ira->codegen, err_set_type, expected_type->data.error_union.payload_type);
         } else {
             if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
                 prev_inst->value.type->id == TypeTableEntryIdNumLitFloat)
@@ -8648,8 +8649,6 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to make error union out of null literal"));
                 return ira->codegen->builtin_types.entry_invalid;
-            } else if (prev_inst->value.type->id == TypeTableEntryIdErrorUnion) {
-                return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type->data.error_union.payload_type);
             } else {
                 return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type);
             }
@@ -10672,7 +10671,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     }
 
     IrInstruction *instructions[] = {op1, op2};
-    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, source_node, instructions, 2);
+    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, source_node, nullptr, instructions, 2);
     if (type_is_invalid(resolved_type))
         return resolved_type;
     type_ensure_zero_bits_known(ira->codegen, resolved_type);
@@ -11062,7 +11061,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     IrInstruction *op1 = bin_op_instruction->op1->other;
     IrInstruction *op2 = bin_op_instruction->op2->other;
     IrInstruction *instructions[] = {op1, op2};
-    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, instructions, 2);
+    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, nullptr, instructions, 2);
     if (type_is_invalid(resolved_type))
         return resolved_type;
     IrBinOp op_id = bin_op_instruction->op_id;
@@ -13031,7 +13030,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         return first_value->value.type;
     }
 
-    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node,
+    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node, nullptr,
             new_incoming_values.items, new_incoming_values.length);
     if (type_is_invalid(resolved_type))
         return resolved_type;
@@ -13928,6 +13927,15 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             }
         } else if (child_type->id == TypeTableEntryIdFn) {
             if (buf_eql_str(field_name, "ReturnType")) {
+                if (child_type->data.fn.fn_type_id.return_type == nullptr) {
+                    // Return type can only ever be null, if the function is generic
+                    assert(child_type->data.fn.is_generic);
+
+                    ir_add_error(ira, &field_ptr_instruction->base,
+                        buf_sprintf("ReturnType has not been resolved because '%s' is generic", buf_ptr(&child_type->name)));
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
@@ -18816,6 +18824,16 @@ static TypeTableEntry *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruc
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->data.x_type = fn_type_id->param_info[arg_index].type;
+    if (out_val->data.x_type == nullptr) {
+        // Args are only unresolved if our function is generic.
+        assert(fn_type->data.fn.is_generic);
+
+        ir_add_error(ira, arg_index_inst,
+            buf_sprintf("@ArgType could not resolve the type of arg %" ZIG_PRI_u64 " because '%s' is generic",
+                arg_index, buf_ptr(&fn_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     return ira->codegen->builtin_types.entry_type;
 }
 
@@ -19121,6 +19139,11 @@ static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstr
     } else {
         if (!ir_resolve_atomic_order(ira, instruction->ordering->other, &ordering))
             return ira->codegen->builtin_types.entry_invalid;
+        if (ordering == AtomicOrderUnordered) {
+            ir_add_error(ira, instruction->ordering,
+                buf_sprintf("@atomicRmw atomic ordering must not be Unordered"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     }
 
     if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
@@ -19656,7 +19679,7 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
     } else if (ira->src_implicit_return_type_list.length == 0) {
         return codegen->builtin_types.entry_unreachable;
     } else {
-        return ir_resolve_peer_types(ira, expected_type_source_node, ira->src_implicit_return_type_list.items,
+        return ir_resolve_peer_types(ira, expected_type_source_node, expected_type, ira->src_implicit_return_type_list.items,
                 ira->src_implicit_return_type_list.length);
     }
 }

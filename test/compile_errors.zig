@@ -3221,4 +3221,20 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:7:24: error: accessing union field 'Bar' while field 'Baz' is set");
+
+    cases.add("getting return type of generic function",
+        \\fn generic(a: var) void {}
+        \\comptime {
+        \\    _ = @typeOf(generic).ReturnType;
+        \\}
+    ,
+        ".tmp_source.zig:3:25: error: ReturnType has not been resolved because 'fn(var)var' is generic");
+
+    cases.add("getting @ArgType of generic function",
+        \\fn generic(a: var) void {}
+        \\comptime {
+        \\    _ = @ArgType(@typeOf(generic), 0);
+        \\}
+    ,
+        ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic");
 }

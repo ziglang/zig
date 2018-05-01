@@ -175,3 +175,69 @@ fn baz_1() !i32 {
 fn quux_1() !i32 {
     return error.C;
 }
+
+
+test "error: fn returning empty error set can be passed as fn returning any error" {
+    entry();
+    comptime entry();
+}
+
+fn entry() void {
+    foo2(bar2);
+}
+
+fn foo2(f: fn()error!void) void {
+    const x = f();
+}
+
+fn bar2() (error{}!void) { }
+
+
+test "error: Zero sized error set returned with value payload crash" {
+    _ = foo3(0);
+    _ = comptime foo3(0);
+}
+
+const Error = error{};
+fn foo3(b: usize) Error!usize {
+    return b;
+}
+
+
+test "error: Infer error set from literals" {
+    _ = nullLiteral("n") catch |err| handleErrors(err);
+    _ = floatLiteral("n") catch |err| handleErrors(err);
+    _ = intLiteral("n") catch |err| handleErrors(err);
+    _ = comptime nullLiteral("n") catch |err| handleErrors(err);
+    _ = comptime floatLiteral("n") catch |err| handleErrors(err);
+    _ = comptime intLiteral("n") catch |err| handleErrors(err);
+}
+
+fn handleErrors(err: var) noreturn {
+    switch (err) {
+        error.T => {}
+    }
+
+    unreachable;
+}
+
+fn nullLiteral(str: []const u8) !?i64 {
+    if (str[0] == 'n')
+        return null;
+
+    return error.T;
+}
+
+fn floatLiteral(str: []const u8) !?f64 {
+    if (str[0] == 'n')
+        return 1.0;
+
+    return error.T;
+}
+
+fn intLiteral(str: []const u8) !?i64 {
+    if (str[0] == 'n')
+        return 1;
+
+    return error.T;
+}
