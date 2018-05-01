@@ -15975,7 +15975,6 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     ensure_field_index(fn_def_val->type, "return_type", 7);
                     fn_def_fields[7].special = ConstValSpecialStatic;
                     fn_def_fields[7].type = ira->codegen->builtin_types.entry_type;
-                    // @TODO Check whether this is correct.
                     if (fn_entry->src_implicit_return_type != nullptr)
                         fn_def_fields[7].data.x_type = fn_entry->src_implicit_return_type;
                     else if (fn_entry->type_entry->data.fn.gen_return_type != nullptr)
