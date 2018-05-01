@@ -9,4 +9,3 @@ pub extern fn __fixunssfti(a: f32) u128 {
 test "import fixunssfti" {
     _ = @import("fixunssfti_test.zig");
 }
-

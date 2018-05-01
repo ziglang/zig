@@ -137,7 +137,7 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
         },
         Os.zen => {
-            const randomness = []u8 {
+            const randomness = []u8{
                 42,
                 1,
                 7,
@@ -265,7 +265,7 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
     }
 }
 
-pub const PosixWriteError = error {
+pub const PosixWriteError = error{
     WouldBlock,
     FileClosed,
     DestinationAddressRequired,
@@ -310,7 +310,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
     }
 }
 
-pub const PosixOpenError = error {
+pub const PosixOpenError = error{
     OutOfMemory,
     AccessDenied,
     FileTooBig,
@@ -477,7 +477,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap, allocator: 
     return posixExecveErrnoToErr(err);
 }
 
-pub const PosixExecveError = error {
+pub const PosixExecveError = error{
     SystemResources,
     AccessDenied,
     InvalidExe,
@@ -512,7 +512,7 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     };
 }
 
-pub var linux_aux_raw = []usize {0} ** 38;
+pub var linux_aux_raw = []usize{0} ** 38;
 pub var posix_environ_raw: []&u8 = undefined;
 
 /// Caller must free result when done.
@@ -667,7 +667,7 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
     }
 }
 
-pub const WindowsSymLinkError = error {
+pub const WindowsSymLinkError = error{
     OutOfMemory,
     Unexpected,
 };
@@ -686,7 +686,7 @@ pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path
     }
 }
 
-pub const PosixSymLinkError = error {
+pub const PosixSymLinkError = error{
     OutOfMemory,
     AccessDenied,
     DiskQuota,
@@ -895,7 +895,7 @@ pub const AtomicFile = struct {
                 else => return err,
             };
 
-            return AtomicFile {
+            return AtomicFile{
                 .allocator = allocator,
                 .file = file,
                 .tmp_path = tmp_path,
@@ -1087,7 +1087,7 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) !void {
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 /// TODO non-recursive implementation
-const DeleteTreeError = error {
+const DeleteTreeError = error{
     OutOfMemory,
     AccessDenied,
     FileTooBig,
@@ -1217,7 +1217,7 @@ pub const Dir = struct {
             Os.ios => 0,
             else => {},
         };
-        return Dir {
+        return Dir{
             .allocator = allocator,
             .fd = fd,
             .darwin_seek = darwin_seek_init,
@@ -1294,7 +1294,7 @@ pub const Dir = struct {
                 posix.DT_WHT => Entry.Kind.Whiteout,
                 else => Entry.Kind.Unknown,
             };
-            return Entry {
+            return Entry{
                 .name = name,
                 .kind = entry_kind,
             };
@@ -1355,7 +1355,7 @@ pub const Dir = struct {
                 posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
                 else => Entry.Kind.Unknown,
             };
-            return Entry {
+            return Entry{
                 .name = name,
                 .kind = entry_kind,
             };
@@ -1465,7 +1465,7 @@ pub fn posix_setregid(rgid: u32, egid: u32) !void {
     };
 }
 
-pub const WindowsGetStdHandleErrs = error {
+pub const WindowsGetStdHandleErrs = error{
     NoStdHandles,
     Unexpected,
 };
@@ -1489,7 +1489,7 @@ pub const ArgIteratorPosix = struct {
     count: usize,
 
     pub fn init() ArgIteratorPosix {
-        return ArgIteratorPosix {
+        return ArgIteratorPosix{
             .index = 0,
             .count = raw.len,
         };
@@ -1522,16 +1522,14 @@ pub const ArgIteratorWindows = struct {
     quote_count: usize,
     seen_quote_count: usize,
 
-    pub const NextError = error {
-        OutOfMemory,
-    };
+    pub const NextError = error{OutOfMemory};
 
     pub fn init() ArgIteratorWindows {
         return initWithCmdLine(windows.GetCommandLineA());
     }
 
     pub fn initWithCmdLine(cmd_line: &const u8) ArgIteratorWindows {
-        return ArgIteratorWindows {
+        return ArgIteratorWindows{
             .index = 0,
             .cmd_line = cmd_line,
             .in_quote = false,
@@ -1676,9 +1674,7 @@ pub const ArgIterator = struct {
     inner: InnerType,
 
     pub fn init() ArgIterator {
-        return ArgIterator {
-            .inner = InnerType.init(),
-        };
+        return ArgIterator{ .inner = InnerType.init() };
     }
 
     pub const NextError = ArgIteratorWindows.NextError;
@@ -1757,33 +1753,33 @@ pub fn argsFree(allocator: &mem.Allocator, args_alloc: []const []u8) void {
 }
 
 test "windows arg parsing" {
-    testWindowsCmdLine(c"a   b\tc d", [][]const u8 {
+    testWindowsCmdLine(c"a   b\tc d", [][]const u8{
         "a",
         "b",
         "c",
         "d",
     });
-    testWindowsCmdLine(c"\"abc\" d e", [][]const u8 {
+    testWindowsCmdLine(c"\"abc\" d e", [][]const u8{
         "abc",
         "d",
         "e",
     });
-    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8 {
+    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8{
         "a\\\\\\b",
         "de fg",
         "h",
     });
-    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8 {
+    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{
         "a\\\"b",
         "c",
         "d",
     });
-    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8 {
+    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{
         "a\\\\b c",
         "d",
         "e",
     });
-    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8 {
+    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{
         "a",
         "b",
         "c",
@@ -1791,7 +1787,7 @@ test "windows arg parsing" {
         "f",
     });
 
-    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [][]const u8 {
+    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [][]const u8{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",
@@ -1811,7 +1807,7 @@ fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const 
 
 // TODO make this a build variable that you can set
 const unexpected_error_tracing = false;
-const UnexpectedError = error {
+const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
     Unexpected,
 };
@@ -1950,7 +1946,7 @@ pub fn isTty(handle: FileHandle) bool {
     }
 }
 
-pub const PosixSocketError = error {
+pub const PosixSocketError = error{
     /// Permission to create a socket of the specified type and/or
     /// pro‐tocol is denied.
     PermissionDenied,
@@ -1992,7 +1988,7 @@ pub fn posixSocket(domain: u32, socket_type: u32, protocol: u32) !i32 {
     }
 }
 
-pub const PosixBindError = error {
+pub const PosixBindError = error{
     /// The address is protected, and the user is not the superuser.
     /// For UNIX domain sockets: Search permission is denied on  a  component 
     /// of  the  path  prefix.
@@ -2065,7 +2061,7 @@ pub fn posixBind(fd: i32, addr: &const posix.sockaddr) PosixBindError!void {
     }
 }
 
-const PosixListenError = error {
+const PosixListenError = error{
     /// Another socket is already listening on the same port.
     /// For Internet domain sockets, the  socket referred to by sockfd had not previously
     /// been bound to an address and, upon attempting to bind it to an ephemeral port, it
@@ -2098,7 +2094,7 @@ pub fn posixListen(sockfd: i32, backlog: u32) PosixListenError!void {
     }
 }
 
-pub const PosixAcceptError = error {
+pub const PosixAcceptError = error{
     /// The  socket  is marked nonblocking and no connections are present to be accepted.
     WouldBlock,
 
@@ -2165,7 +2161,7 @@ pub fn posixAccept(fd: i32, addr: &posix.sockaddr, flags: u32) PosixAcceptError!
     }
 }
 
-pub const LinuxEpollCreateError = error {
+pub const LinuxEpollCreateError = error{
     /// Invalid value specified in flags.
     InvalidSyscall,
 
@@ -2198,7 +2194,7 @@ pub fn linuxEpollCreate(flags: u32) LinuxEpollCreateError!i32 {
     }
 }
 
-pub const LinuxEpollCtlError = error {
+pub const LinuxEpollCtlError = error{
     /// epfd or fd is not a valid file descriptor.
     InvalidFileDescriptor,
 
@@ -2271,7 +2267,7 @@ pub fn linuxEpollWait(epfd: i32, events: []linux.epoll_event, timeout: i32) usiz
     }
 }
 
-pub const PosixGetSockNameError = error {
+pub const PosixGetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
 
@@ -2295,7 +2291,7 @@ pub fn posixGetSockName(sockfd: i32) PosixGetSockNameError!posix.sockaddr {
     }
 }
 
-pub const PosixConnectError = error {
+pub const PosixConnectError = error{
     /// For UNIX domain sockets, which are identified by pathname: Write permission is denied on  the  socket
     /// file,  or  search  permission  is  denied  for  one of the directories in the path prefix.
     /// or
@@ -2484,7 +2480,7 @@ pub const Thread = struct {
     }
 };
 
-pub const SpawnThreadError = error {
+pub const SpawnThreadError = error{
     /// A system-imposed limit on the number of threads was encountered.
     /// There are a number of limits that may trigger this error:
     /// *  the  RLIMIT_NPROC soft resource limit (set via setrlimit(2)),
@@ -2532,7 +2528,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
                 if (@sizeOf(Context) == 0) {
                     return startFn({});
                 } else {
-                    return startFn(*@ptrCast(&Context, @alignCast(@alignOf(Context), arg)));
+                    return startFn(@ptrCast(&Context, @alignCast(@alignOf(Context), arg)).*);
                 }
             }
         };
@@ -2562,7 +2558,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
             if (@sizeOf(Context) == 0) {
                 return startFn({});
             } else {
-                return startFn(*@intToPtr(&const Context, ctx_addr));
+                return startFn(@intToPtr(&const Context, ctx_addr).*);
             }
         }
         extern fn posixThreadMain(ctx: ?&c_void) ?&c_void {
@@ -2570,7 +2566,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
                 _ = startFn({});
                 return null;
             } else {
-                _ = startFn(*@ptrCast(&const Context, @alignCast(@alignOf(Context), ctx)));
+                _ = startFn(@ptrCast(&const Context, @alignCast(@alignOf(Context), ctx)).*);
                 return null;
             }
         }
@@ -2590,7 +2586,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
         stack_end -= stack_end % @alignOf(Context);
         assert(stack_end >= stack_addr);
         const context_ptr = @alignCast(@alignOf(Context), @intToPtr(&Context, stack_end));
-        *context_ptr = context;
+        context_ptr.* = context;
         arg = stack_end;
     }
 

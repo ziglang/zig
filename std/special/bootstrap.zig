@@ -27,10 +27,10 @@ extern fn zen_start() noreturn {
 nakedcc fn _start() noreturn {
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
-            argc_ptr = asm("lea (%%rsp), %[argc]": [argc] "=r" (-> &usize));
+            argc_ptr = asm ("lea (%%rsp), %[argc]" : [argc] "=r" (-> &usize));
         },
         builtin.Arch.i386 => {
-            argc_ptr = asm("lea (%%esp), %[argc]": [argc] "=r" (-> &usize));
+            argc_ptr = asm ("lea (%%esp), %[argc]" : [argc] "=r" (-> &usize));
         },
         else => @compileError("unsupported arch"),
     }
@@ -46,7 +46,7 @@ extern fn WinMainCRTStartup() noreturn {
 }
 
 fn posixCallMainAndExit() noreturn {
-    const argc = *argc_ptr;
+    const argc = argc_ptr.*;
     const argv = @ptrCast(&&u8, &argc_ptr[1]);
     const envp_nullable = @ptrCast(&?&u8, &argv[argc + 1]);
     var envp_count: usize = 0;
@@ -56,7 +56,7 @@ fn posixCallMainAndExit() noreturn {
         const auxv = &@ptrCast(&usize, envp.ptr)[envp_count + 1];
         var i: usize = 0;
         while (auxv[i] != 0) : (i += 2) {
-            if (auxv[i] < std.os.linux_aux_raw.len) std.os.linux_aux_raw[auxv[i]] = auxv[i+1];
+            if (auxv[i] < std.os.linux_aux_raw.len) std.os.linux_aux_raw[auxv[i]] = auxv[i + 1];
         }
         std.debug.assert(std.os.linux_aux_raw[std.elf.AT_PAGESZ] == std.os.page_size);
     }

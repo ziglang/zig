@@ -14,7 +14,7 @@ test "integer literal to pointer cast" {
 }
 
 test "pointer reinterpret const float to int" {
-    const float: f64 = 5.99999999999994648725e - 01;
+    const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
     const int_ptr = @ptrCast(&const i32, float_ptr);
     const int_val = int_ptr.*;
@@ -121,13 +121,13 @@ test "implicitly cast indirect pointer to maybe-indirect pointer" {
             return (p.*).x;
         }
         fn maybeConstConst(p: ?&const &const Self) u8 {
-            return (??p.*).x;
+            return ((??p).*).x;
         }
         fn constConstConst(p: &const &const &const Self) u8 {
             return (p.*.*).x;
         }
         fn maybeConstConstConst(p: ?&const &const &const Self) u8 {
-            return (??p.*.*).x;
+            return ((??p).*.*).x;
         }
     };
     const s = S {

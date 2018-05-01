@@ -36,12 +36,10 @@ pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t
     const significand: rep_t = (aAbs & significandMask) | implicitBit;
 
     // If either the value or the exponent is negative, the result is zero.
-    if (sign == -1 or exponent < 0)
-        return 0;
+    if (sign == -1 or exponent < 0) return 0;
 
     // If the value is too large for the integer type, saturate.
-    if (c_uint(exponent) >= fixuint_t.bit_count)
-        return ~fixuint_t(0);
+    if (c_uint(exponent) >= fixuint_t.bit_count) return ~fixuint_t(0);
 
     // If 0 <= exponent < significandBits, right shift to get the result.
     // Otherwise, shift left.

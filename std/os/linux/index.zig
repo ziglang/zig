@@ -30,96 +30,95 @@ pub const FUTEX_PRIVATE_FLAG = 128;
 
 pub const FUTEX_CLOCK_REALTIME = 256;
 
-
-pub const PROT_NONE      = 0;
-pub const PROT_READ      = 1;
-pub const PROT_WRITE     = 2;
-pub const PROT_EXEC      = 4;
+pub const PROT_NONE = 0;
+pub const PROT_READ = 1;
+pub const PROT_WRITE = 2;
+pub const PROT_EXEC = 4;
 pub const PROT_GROWSDOWN = 0x01000000;
-pub const PROT_GROWSUP   = 0x02000000;
+pub const PROT_GROWSUP = 0x02000000;
 
-pub const MAP_FAILED     = @maxValue(usize);
-pub const MAP_SHARED     = 0x01;
-pub const MAP_PRIVATE    = 0x02;
-pub const MAP_TYPE       = 0x0f;
-pub const MAP_FIXED      = 0x10;
-pub const MAP_ANONYMOUS  = 0x20;
-pub const MAP_NORESERVE  = 0x4000;
-pub const MAP_GROWSDOWN  = 0x0100;
-pub const MAP_DENYWRITE  = 0x0800;
+pub const MAP_FAILED = @maxValue(usize);
+pub const MAP_SHARED = 0x01;
+pub const MAP_PRIVATE = 0x02;
+pub const MAP_TYPE = 0x0f;
+pub const MAP_FIXED = 0x10;
+pub const MAP_ANONYMOUS = 0x20;
+pub const MAP_NORESERVE = 0x4000;
+pub const MAP_GROWSDOWN = 0x0100;
+pub const MAP_DENYWRITE = 0x0800;
 pub const MAP_EXECUTABLE = 0x1000;
-pub const MAP_LOCKED     = 0x2000;
-pub const MAP_POPULATE   = 0x8000;
-pub const MAP_NONBLOCK   = 0x10000;
-pub const MAP_STACK      = 0x20000;
-pub const MAP_HUGETLB    = 0x40000;
-pub const MAP_FILE       = 0;
+pub const MAP_LOCKED = 0x2000;
+pub const MAP_POPULATE = 0x8000;
+pub const MAP_NONBLOCK = 0x10000;
+pub const MAP_STACK = 0x20000;
+pub const MAP_HUGETLB = 0x40000;
+pub const MAP_FILE = 0;
 
 pub const F_OK = 0;
 pub const X_OK = 1;
 pub const W_OK = 2;
 pub const R_OK = 4;
 
-pub const WNOHANG    = 1;
-pub const WUNTRACED  = 2;
-pub const WSTOPPED   = 2;
-pub const WEXITED    = 4;
+pub const WNOHANG = 1;
+pub const WUNTRACED = 2;
+pub const WSTOPPED = 2;
+pub const WEXITED = 4;
 pub const WCONTINUED = 8;
-pub const WNOWAIT    = 0x1000000;
+pub const WNOWAIT = 0x1000000;
 
-pub const SA_NOCLDSTOP  = 1;
-pub const SA_NOCLDWAIT  = 2;
-pub const SA_SIGINFO    = 4;
-pub const SA_ONSTACK    = 0x08000000;
-pub const SA_RESTART    = 0x10000000;
-pub const SA_NODEFER    = 0x40000000;
-pub const SA_RESETHAND  = 0x80000000;
-pub const SA_RESTORER   = 0x04000000;
+pub const SA_NOCLDSTOP = 1;
+pub const SA_NOCLDWAIT = 2;
+pub const SA_SIGINFO = 4;
+pub const SA_ONSTACK = 0x08000000;
+pub const SA_RESTART = 0x10000000;
+pub const SA_NODEFER = 0x40000000;
+pub const SA_RESETHAND = 0x80000000;
+pub const SA_RESTORER = 0x04000000;
 
-pub const SIGHUP    = 1;
-pub const SIGINT    = 2;
-pub const SIGQUIT   = 3;
-pub const SIGILL    = 4;
-pub const SIGTRAP   = 5;
-pub const SIGABRT   = 6;
-pub const SIGIOT    = SIGABRT;
-pub const SIGBUS    = 7;
-pub const SIGFPE    = 8;
-pub const SIGKILL   = 9;
-pub const SIGUSR1   = 10;
-pub const SIGSEGV   = 11;
-pub const SIGUSR2   = 12;
-pub const SIGPIPE   = 13;
-pub const SIGALRM   = 14;
-pub const SIGTERM   = 15;
+pub const SIGHUP = 1;
+pub const SIGINT = 2;
+pub const SIGQUIT = 3;
+pub const SIGILL = 4;
+pub const SIGTRAP = 5;
+pub const SIGABRT = 6;
+pub const SIGIOT = SIGABRT;
+pub const SIGBUS = 7;
+pub const SIGFPE = 8;
+pub const SIGKILL = 9;
+pub const SIGUSR1 = 10;
+pub const SIGSEGV = 11;
+pub const SIGUSR2 = 12;
+pub const SIGPIPE = 13;
+pub const SIGALRM = 14;
+pub const SIGTERM = 15;
 pub const SIGSTKFLT = 16;
-pub const SIGCHLD   = 17;
-pub const SIGCONT   = 18;
-pub const SIGSTOP   = 19;
-pub const SIGTSTP   = 20;
-pub const SIGTTIN   = 21;
-pub const SIGTTOU   = 22;
-pub const SIGURG    = 23;
-pub const SIGXCPU   = 24;
-pub const SIGXFSZ   = 25;
+pub const SIGCHLD = 17;
+pub const SIGCONT = 18;
+pub const SIGSTOP = 19;
+pub const SIGTSTP = 20;
+pub const SIGTTIN = 21;
+pub const SIGTTOU = 22;
+pub const SIGURG = 23;
+pub const SIGXCPU = 24;
+pub const SIGXFSZ = 25;
 pub const SIGVTALRM = 26;
-pub const SIGPROF   = 27;
-pub const SIGWINCH  = 28;
-pub const SIGIO     = 29;
-pub const SIGPOLL   = 29;
-pub const SIGPWR    = 30;
-pub const SIGSYS    = 31;
+pub const SIGPROF = 27;
+pub const SIGWINCH = 28;
+pub const SIGIO = 29;
+pub const SIGPOLL = 29;
+pub const SIGPWR = 30;
+pub const SIGSYS = 31;
 pub const SIGUNUSED = SIGSYS;
 
 pub const O_RDONLY = 0o0;
 pub const O_WRONLY = 0o1;
-pub const O_RDWR   = 0o2;
+pub const O_RDWR = 0o2;
 
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
 
-pub const SIG_BLOCK   = 0;
+pub const SIG_BLOCK = 0;
 pub const SIG_UNBLOCK = 1;
 pub const SIG_SETMASK = 2;
 
@@ -408,7 +407,6 @@ pub const DT_LNK = 10;
 pub const DT_SOCK = 12;
 pub const DT_WHT = 14;
 
-
 pub const TCGETS = 0x5401;
 pub const TCSETS = 0x5402;
 pub const TCSETSW = 0x5403;
@@ -539,23 +537,23 @@ pub const MS_BIND = 4096;
 pub const MS_MOVE = 8192;
 pub const MS_REC = 16384;
 pub const MS_SILENT = 32768;
-pub const MS_POSIXACL = (1<<16);
-pub const MS_UNBINDABLE = (1<<17);
-pub const MS_PRIVATE = (1<<18);
-pub const MS_SLAVE = (1<<19);
-pub const MS_SHARED = (1<<20);
-pub const MS_RELATIME = (1<<21);
-pub const MS_KERNMOUNT = (1<<22);
-pub const MS_I_VERSION = (1<<23);
-pub const MS_STRICTATIME = (1<<24);
-pub const MS_LAZYTIME = (1<<25);
-pub const MS_NOREMOTELOCK = (1<<27);
-pub const MS_NOSEC = (1<<28);
-pub const MS_BORN = (1<<29);
-pub const MS_ACTIVE = (1<<30);
-pub const MS_NOUSER = (1<<31);
+pub const MS_POSIXACL = (1 << 16);
+pub const MS_UNBINDABLE = (1 << 17);
+pub const MS_PRIVATE = (1 << 18);
+pub const MS_SLAVE = (1 << 19);
+pub const MS_SHARED = (1 << 20);
+pub const MS_RELATIME = (1 << 21);
+pub const MS_KERNMOUNT = (1 << 22);
+pub const MS_I_VERSION = (1 << 23);
+pub const MS_STRICTATIME = (1 << 24);
+pub const MS_LAZYTIME = (1 << 25);
+pub const MS_NOREMOTELOCK = (1 << 27);
+pub const MS_NOSEC = (1 << 28);
+pub const MS_BORN = (1 << 29);
+pub const MS_ACTIVE = (1 << 30);
+pub const MS_NOUSER = (1 << 31);
 
-pub const MS_RMT_MASK = (MS_RDONLY|MS_SYNCHRONOUS|MS_MANDLOCK|MS_I_VERSION|MS_LAZYTIME);
+pub const MS_RMT_MASK = (MS_RDONLY | MS_SYNCHRONOUS | MS_MANDLOCK | MS_I_VERSION | MS_LAZYTIME);
 
 pub const MS_MGC_VAL = 0xc0ed0000;
 pub const MS_MGC_MSK = 0xffff0000;
@@ -564,7 +562,6 @@ pub const MNT_FORCE = 1;
 pub const MNT_DETACH = 2;
 pub const MNT_EXPIRE = 4;
 pub const UMOUNT_NOFOLLOW = 8;
-
 
 pub const S_IFMT = 0o170000;
 
@@ -626,15 +623,30 @@ pub const TFD_CLOEXEC = O_CLOEXEC;
 pub const TFD_TIMER_ABSTIME = 1;
 pub const TFD_TIMER_CANCEL_ON_SET = (1 << 1);
 
-fn unsigned(s: i32) u32 { return @bitCast(u32, s); }
-fn signed(s: u32) i32 { return @bitCast(i32, s); }
-pub fn WEXITSTATUS(s: i32) i32 { return signed((unsigned(s) & 0xff00) >> 8); }
-pub fn WTERMSIG(s: i32) i32 { return signed(unsigned(s) & 0x7f); }
-pub fn WSTOPSIG(s: i32) i32 { return WEXITSTATUS(s); }
-pub fn WIFEXITED(s: i32) bool { return WTERMSIG(s) == 0; }
-pub fn WIFSTOPPED(s: i32) bool { return (u16)(((unsigned(s)&0xffff)*%0x10001)>>8) > 0x7f00; }
-pub fn WIFSIGNALED(s: i32) bool { return (unsigned(s)&0xffff)-%1 < 0xff; }
-
+fn unsigned(s: i32) u32 {
+    return @bitCast(u32, s);
+}
+fn signed(s: u32) i32 {
+    return @bitCast(i32, s);
+}
+pub fn WEXITSTATUS(s: i32) i32 {
+    return signed((unsigned(s) & 0xff00) >> 8);
+}
+pub fn WTERMSIG(s: i32) i32 {
+    return signed(unsigned(s) & 0x7f);
+}
+pub fn WSTOPSIG(s: i32) i32 {
+    return WEXITSTATUS(s);
+}
+pub fn WIFEXITED(s: i32) bool {
+    return WTERMSIG(s) == 0;
+}
+pub fn WIFSTOPPED(s: i32) bool {
+    return (u16)(((unsigned(s) & 0xffff) *% 0x10001) >> 8) > 0x7f00;
+}
+pub fn WIFSIGNALED(s: i32) bool {
+    return (unsigned(s) & 0xffff) -% 1 < 0xff;
+}
 
 pub const winsize = extern struct {
     ws_row: u16,
@@ -707,8 +719,7 @@ pub fn umount2(special: &const u8, flags: u32) usize {
 }
 
 pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
-    return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, usize(fd),
-        @bitCast(usize, offset));
+    return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, usize(fd), @bitCast(usize, offset));
 }
 
 pub fn munmap(address: usize, length: usize) usize {
@@ -812,7 +823,8 @@ pub fn clock_gettime(clk_id: i32, tp: &timespec) usize {
         if (@ptrToInt(f) != 0) {
             const rc = f(clk_id, tp);
             switch (rc) {
-                0, @bitCast(usize, isize(-EINVAL)) => return rc,
+                0,
+                @bitCast(usize, isize(-EINVAL)) => return rc,
                 else => {},
             }
         }
@@ -823,8 +835,7 @@ var vdso_clock_gettime = init_vdso_clock_gettime;
 extern fn init_vdso_clock_gettime(clk: i32, ts: &timespec) usize {
     const addr = vdso.lookup(VDSO_CGT_VER, VDSO_CGT_SYM);
     var f = @intToPtr(@typeOf(init_vdso_clock_gettime), addr);
-    _ = @cmpxchgStrong(@typeOf(init_vdso_clock_gettime), &vdso_clock_gettime, init_vdso_clock_gettime, f,
-        builtin.AtomicOrder.Monotonic, builtin.AtomicOrder.Monotonic);
+    _ = @cmpxchgStrong(@typeOf(init_vdso_clock_gettime), &vdso_clock_gettime, init_vdso_clock_gettime, f, builtin.AtomicOrder.Monotonic, builtin.AtomicOrder.Monotonic);
     if (@ptrToInt(f) == 0) return @bitCast(usize, isize(-ENOSYS));
     return f(clk, ts);
 }
@@ -918,18 +929,18 @@ pub fn getpid() i32 {
 }
 
 pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) usize {
-    return syscall4(SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG/8);
+    return syscall4(SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG / 8);
 }
 
 pub fn sigaction(sig: u6, noalias act: &const Sigaction, noalias oact: ?&Sigaction) usize {
     assert(sig >= 1);
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
-    var ksa = k_sigaction {
+    var ksa = k_sigaction{
         .handler = act.handler,
         .flags = act.flags | SA_RESTORER,
         .mask = undefined,
-        .restorer = @ptrCast(extern fn()void, restore_rt),
+        .restorer = @ptrCast(extern fn() void, restore_rt),
     };
     var ksa_old: k_sigaction = undefined;
     @memcpy(@ptrCast(&u8, &ksa.mask), @ptrCast(&const u8, &act.mask), 8);
@@ -952,22 +963,22 @@ const all_mask = []usize{@maxValue(usize)};
 const app_mask = []usize{0xfffffffc7fffffff};
 
 const k_sigaction = extern struct {
-    handler: extern fn(i32)void,
+    handler: extern fn(i32) void,
     flags: usize,
-    restorer: extern fn()void,
+    restorer: extern fn() void,
     mask: [2]u32,
 };
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {
-    handler: extern fn(i32)void,
+    handler: extern fn(i32) void,
     mask: sigset_t,
     flags: u32,
 };
 
-pub const SIG_ERR = @intToPtr(extern fn(i32)void, @maxValue(usize));
-pub const SIG_DFL = @intToPtr(extern fn(i32)void, 0);
-pub const SIG_IGN = @intToPtr(extern fn(i32)void, 1);
+pub const SIG_ERR = @intToPtr(extern fn(i32) void, @maxValue(usize));
+pub const SIG_DFL = @intToPtr(extern fn(i32) void, 0);
+pub const SIG_IGN = @intToPtr(extern fn(i32) void, 1);
 pub const empty_sigset = []usize{0} ** sigset_t.len;
 
 pub fn raise(sig: i32) usize {
@@ -980,25 +991,25 @@ pub fn raise(sig: i32) usize {
 }
 
 fn blockAllSignals(set: &sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&all_mask), @ptrToInt(set), NSIG/8);
+    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&all_mask), @ptrToInt(set), NSIG / 8);
 }
 
 fn blockAppSignals(set: &sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&app_mask), @ptrToInt(set), NSIG/8);
+    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&app_mask), @ptrToInt(set), NSIG / 8);
 }
 
 fn restoreSignals(set: &sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_SETMASK, @ptrToInt(set), 0, NSIG/8);
+    _ = syscall4(SYS_rt_sigprocmask, SIG_SETMASK, @ptrToInt(set), 0, NSIG / 8);
 }
 
 pub fn sigaddset(set: &sigset_t, sig: u6) void {
     const s = sig - 1;
-    (*set)[usize(s) / usize.bit_count] |= usize(1) << (s & (usize.bit_count - 1));
+    (set.*)[usize(s) / usize.bit_count] |= usize(1) << (s & (usize.bit_count - 1));
 }
 
 pub fn sigismember(set: &const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((*set)[usize(s) / usize.bit_count] & (usize(1) << (s & (usize.bit_count - 1)))) != 0;
+    return ((set.*)[usize(s) / usize.bit_count] & (usize(1) << (s & (usize.bit_count - 1)))) != 0;
 }
 
 pub const in_port_t = u16;
@@ -1062,9 +1073,7 @@ pub fn recvmsg(fd: i32, msg: &msghdr, flags: u32) usize {
     return syscall3(SYS_recvmsg, usize(fd), @ptrToInt(msg), flags);
 }
 
-pub fn recvfrom(fd: i32, noalias buf: &u8, len: usize, flags: u32,
-    noalias addr: ?&sockaddr, noalias alen: ?&socklen_t) usize
-{
+pub fn recvfrom(fd: i32, noalias buf: &u8, len: usize, flags: u32, noalias addr: ?&sockaddr, noalias alen: ?&socklen_t) usize {
     return syscall6(SYS_recvfrom, usize(fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
 }
 
@@ -1132,25 +1141,16 @@ pub fn fgetxattr(fd: usize, name: &const u8, value: &void, size: usize) usize {
     return syscall4(SYS_lgetxattr, fd, @ptrToInt(name), @ptrToInt(value), size);
 }
 
-pub fn setxattr(path: &const u8, name: &const u8, value: &const void,
-    size: usize, flags: usize) usize {
-
-    return syscall5(SYS_setxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value),
-        size, flags);
+pub fn setxattr(path: &const u8, name: &const u8, value: &const void, size: usize, flags: usize) usize {
+    return syscall5(SYS_setxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value), size, flags);
 }
 
-pub fn lsetxattr(path: &const u8, name: &const u8, value: &const void,
-    size: usize, flags: usize) usize {
-
-    return syscall5(SYS_lsetxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value),
-        size, flags);
+pub fn lsetxattr(path: &const u8, name: &const u8, value: &const void, size: usize, flags: usize) usize {
+    return syscall5(SYS_lsetxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value), size, flags);
 }
 
-pub fn fsetxattr(fd: usize, name: &const u8, value: &const void,
-    size: usize, flags: usize) usize {
-
-    return syscall5(SYS_fsetxattr, fd, @ptrToInt(name), @ptrToInt(value),
-        size, flags);
+pub fn fsetxattr(fd: usize, name: &const u8, value: &const void, size: usize, flags: usize) usize {
+    return syscall5(SYS_fsetxattr, fd, @ptrToInt(name), @ptrToInt(value), size, flags);
 }
 
 pub fn removexattr(path: &const u8, name: &const u8) usize {
@@ -1199,7 +1199,7 @@ pub fn timerfd_create(clockid: i32, flags: u32) usize {
 
 pub const itimerspec = extern struct {
     it_interval: timespec,
-    it_value: timespec
+    it_value: timespec,
 };
 
 pub fn timerfd_gettime(fd: i32, curr_value: &itimerspec) usize {
@@ -1211,30 +1211,30 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_va
 }
 
 pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
-pub const _LINUX_CAPABILITY_U32S_1    = 1;
+pub const _LINUX_CAPABILITY_U32S_1 = 1;
 
 pub const _LINUX_CAPABILITY_VERSION_2 = 0x20071026;
-pub const _LINUX_CAPABILITY_U32S_2    = 2;
+pub const _LINUX_CAPABILITY_U32S_2 = 2;
 
 pub const _LINUX_CAPABILITY_VERSION_3 = 0x20080522;
-pub const _LINUX_CAPABILITY_U32S_3    = 2;
+pub const _LINUX_CAPABILITY_U32S_3 = 2;
 
-pub const VFS_CAP_REVISION_MASK   = 0xFF000000;
-pub const VFS_CAP_REVISION_SHIFT  = 24;
-pub const VFS_CAP_FLAGS_MASK      = ~VFS_CAP_REVISION_MASK;
+pub const VFS_CAP_REVISION_MASK = 0xFF000000;
+pub const VFS_CAP_REVISION_SHIFT = 24;
+pub const VFS_CAP_FLAGS_MASK = ~VFS_CAP_REVISION_MASK;
 pub const VFS_CAP_FLAGS_EFFECTIVE = 0x000001;
 
 pub const VFS_CAP_REVISION_1 = 0x01000000;
-pub const VFS_CAP_U32_1      = 1;
-pub const XATTR_CAPS_SZ_1    = @sizeOf(u32)*(1 + 2*VFS_CAP_U32_1);
+pub const VFS_CAP_U32_1 = 1;
+pub const XATTR_CAPS_SZ_1 = @sizeOf(u32) * (1 + 2 * VFS_CAP_U32_1);
 
 pub const VFS_CAP_REVISION_2 = 0x02000000;
-pub const VFS_CAP_U32_2      = 2;
-pub const XATTR_CAPS_SZ_2    = @sizeOf(u32)*(1 + 2*VFS_CAP_U32_2);
+pub const VFS_CAP_U32_2 = 2;
+pub const XATTR_CAPS_SZ_2 = @sizeOf(u32) * (1 + 2 * VFS_CAP_U32_2);
 
-pub const XATTR_CAPS_SZ      = XATTR_CAPS_SZ_2;
-pub const VFS_CAP_U32        = VFS_CAP_U32_2;
-pub const VFS_CAP_REVISION   = VFS_CAP_REVISION_2;
+pub const XATTR_CAPS_SZ = XATTR_CAPS_SZ_2;
+pub const VFS_CAP_U32 = VFS_CAP_U32_2;
+pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 
 pub const vfs_cap_data = extern struct {
     //all of these are mandated as little endian
@@ -1245,49 +1245,48 @@ pub const vfs_cap_data = extern struct {
     };
 
     magic_etc: u32,
-    data:  [VFS_CAP_U32]Data,
+    data: [VFS_CAP_U32]Data,
 };
 
-
-pub const CAP_CHOWN             = 0;
-pub const CAP_DAC_OVERRIDE      = 1;
-pub const CAP_DAC_READ_SEARCH   = 2;
-pub const CAP_FOWNER            = 3;
-pub const CAP_FSETID            = 4;
-pub const CAP_KILL              = 5;
-pub const CAP_SETGID            = 6;
-pub const CAP_SETUID            = 7;
-pub const CAP_SETPCAP           = 8;
-pub const CAP_LINUX_IMMUTABLE   = 9;
-pub const CAP_NET_BIND_SERVICE  = 10;
-pub const CAP_NET_BROADCAST     = 11;
-pub const CAP_NET_ADMIN         = 12;
-pub const CAP_NET_RAW           = 13;
-pub const CAP_IPC_LOCK          = 14;
-pub const CAP_IPC_OWNER         = 15;
-pub const CAP_SYS_MODULE        = 16;
-pub const CAP_SYS_RAWIO         = 17;
-pub const CAP_SYS_CHROOT        = 18;
-pub const CAP_SYS_PTRACE        = 19;
-pub const CAP_SYS_PACCT         = 20;
-pub const CAP_SYS_ADMIN         = 21;
-pub const CAP_SYS_BOOT          = 22;
-pub const CAP_SYS_NICE          = 23;
-pub const CAP_SYS_RESOURCE      = 24;
-pub const CAP_SYS_TIME          = 25;
-pub const CAP_SYS_TTY_CONFIG    = 26;
-pub const CAP_MKNOD             = 27;
-pub const CAP_LEASE             = 28;
-pub const CAP_AUDIT_WRITE       = 29;
-pub const CAP_AUDIT_CONTROL     = 30;
-pub const CAP_SETFCAP           = 31;
-pub const CAP_MAC_OVERRIDE      = 32;
-pub const CAP_MAC_ADMIN         = 33;
-pub const CAP_SYSLOG            = 34;
-pub const CAP_WAKE_ALARM        = 35;
-pub const CAP_BLOCK_SUSPEND     = 36;
-pub const CAP_AUDIT_READ        = 37;
-pub const CAP_LAST_CAP          = CAP_AUDIT_READ;
+pub const CAP_CHOWN = 0;
+pub const CAP_DAC_OVERRIDE = 1;
+pub const CAP_DAC_READ_SEARCH = 2;
+pub const CAP_FOWNER = 3;
+pub const CAP_FSETID = 4;
+pub const CAP_KILL = 5;
+pub const CAP_SETGID = 6;
+pub const CAP_SETUID = 7;
+pub const CAP_SETPCAP = 8;
+pub const CAP_LINUX_IMMUTABLE = 9;
+pub const CAP_NET_BIND_SERVICE = 10;
+pub const CAP_NET_BROADCAST = 11;
+pub const CAP_NET_ADMIN = 12;
+pub const CAP_NET_RAW = 13;
+pub const CAP_IPC_LOCK = 14;
+pub const CAP_IPC_OWNER = 15;
+pub const CAP_SYS_MODULE = 16;
+pub const CAP_SYS_RAWIO = 17;
+pub const CAP_SYS_CHROOT = 18;
+pub const CAP_SYS_PTRACE = 19;
+pub const CAP_SYS_PACCT = 20;
+pub const CAP_SYS_ADMIN = 21;
+pub const CAP_SYS_BOOT = 22;
+pub const CAP_SYS_NICE = 23;
+pub const CAP_SYS_RESOURCE = 24;
+pub const CAP_SYS_TIME = 25;
+pub const CAP_SYS_TTY_CONFIG = 26;
+pub const CAP_MKNOD = 27;
+pub const CAP_LEASE = 28;
+pub const CAP_AUDIT_WRITE = 29;
+pub const CAP_AUDIT_CONTROL = 30;
+pub const CAP_SETFCAP = 31;
+pub const CAP_MAC_OVERRIDE = 32;
+pub const CAP_MAC_ADMIN = 33;
+pub const CAP_SYSLOG = 34;
+pub const CAP_WAKE_ALARM = 35;
+pub const CAP_BLOCK_SUSPEND = 36;
+pub const CAP_AUDIT_READ = 37;
+pub const CAP_LAST_CAP = CAP_AUDIT_READ;
 
 pub fn cap_valid(u8: x) bool {
     return x >= 0 and x <= CAP_LAST_CAP;

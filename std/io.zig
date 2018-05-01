@@ -18,32 +18,17 @@ const is_windows = builtin.os == builtin.Os.windows;
 const GetStdIoErrs = os.WindowsGetStdHandleErrs;
 
 pub fn getStdErr() GetStdIoErrs!File {
-    const handle = if (is_windows)
-        try os.windowsGetStdHandle(os.windows.STD_ERROR_HANDLE)
-    else if (is_posix)
-        os.posix.STDERR_FILENO
-    else
-        unreachable;
+    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_ERROR_HANDLE) else if (is_posix) os.posix.STDERR_FILENO else unreachable;
     return File.openHandle(handle);
 }
 
 pub fn getStdOut() GetStdIoErrs!File {
-    const handle = if (is_windows)
-        try os.windowsGetStdHandle(os.windows.STD_OUTPUT_HANDLE)
-    else if (is_posix)
-        os.posix.STDOUT_FILENO
-    else
-        unreachable;
+    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_OUTPUT_HANDLE) else if (is_posix) os.posix.STDOUT_FILENO else unreachable;
     return File.openHandle(handle);
 }
 
 pub fn getStdIn() GetStdIoErrs!File {
-    const handle = if (is_windows)
-        try os.windowsGetStdHandle(os.windows.STD_INPUT_HANDLE)
-    else if (is_posix)
-        os.posix.STDIN_FILENO
-    else
-        unreachable;
+    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_INPUT_HANDLE) else if (is_posix) os.posix.STDIN_FILENO else unreachable;
     return File.openHandle(handle);
 }
 
@@ -56,11 +41,9 @@ pub const FileInStream = struct {
     pub const Stream = InStream(Error);
 
     pub fn init(file: &File) FileInStream {
-        return FileInStream {
+        return FileInStream{
             .file = file,
-            .stream = Stream {
-                .readFn = readFn,
-            },
+            .stream = Stream{ .readFn = readFn },
         };
     }
 
@@ -79,11 +62,9 @@ pub const FileOutStream = struct {
     pub const Stream = OutStream(Error);
 
     pub fn init(file: &File) FileOutStream {
-        return FileOutStream {
+        return FileOutStream{
             .file = file,
-            .stream = Stream {
-                .writeFn = writeFn,
-            },
+            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
@@ -121,8 +102,7 @@ pub fn InStream(comptime ReadError: type) type {
                 }
 
                 const new_buf_size = math.min(max_size, actual_buf_len + os.page_size);
-                if (new_buf_size == actual_buf_len)
-                    return error.StreamTooLong;
+                if (new_buf_size == actual_buf_len) return error.StreamTooLong;
                 try buffer.resize(new_buf_size);
             }
         }
@@ -165,9 +145,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readUntilDelimiterAlloc(self: &Self, allocator: &mem.Allocator,
-            delimiter: u8, max_size: usize) ![]u8
-        {
+        pub fn readUntilDelimiterAlloc(self: &Self, allocator: &mem.Allocator, delimiter: u8, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -283,7 +261,7 @@ pub fn BufferedInStream(comptime Error: type) type {
 pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
     return struct {
         const Self = this;
-        const Stream = InStream(Error); 
+        const Stream = InStream(Error);
 
         pub stream: Stream,
 
@@ -294,7 +272,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
         end_index: usize,
 
         pub fn init(unbuffered_in_stream: &Stream) Self {
-            return Self {
+            return Self{
                 .unbuffered_in_stream = unbuffered_in_stream,
                 .buffer = undefined,
 
@@ -305,9 +283,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                 .start_index = buffer_size,
                 .end_index = buffer_size,
 
-                .stream = Stream {
-                    .readFn = readFn,
-                },
+                .stream = Stream{ .readFn = readFn },
             };
         }
 
@@ -368,13 +344,11 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         index: usize,
 
         pub fn init(unbuffered_out_stream: &Stream) Self {
-            return Self {
+            return Self{
                 .unbuffered_out_stream = unbuffered_out_stream,
                 .buffer = undefined,
                 .index = 0,
-                .stream = Stream {
-                    .writeFn = writeFn,
-                },
+                .stream = Stream{ .writeFn = writeFn },
             };
         }
 
@@ -416,11 +390,9 @@ pub const BufferOutStream = struct {
     pub const Stream = OutStream(Error);
 
     pub fn init(buffer: &Buffer) BufferOutStream {
-        return BufferOutStream {
+        return BufferOutStream{
             .buffer = buffer,
-            .stream = Stream {
-                .writeFn = writeFn,
-            },
+            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
@@ -429,7 +401,6 @@ pub const BufferOutStream = struct {
         return self.buffer.append(bytes);
     }
 };
-
 
 pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
@@ -441,7 +412,7 @@ pub const BufferedAtomicFile = struct {
         var self = try allocator.create(BufferedAtomicFile);
         errdefer allocator.destroy(self);
 
-        *self = BufferedAtomicFile {
+        self.* = BufferedAtomicFile{
             .atomic_file = undefined,
             .file_stream = undefined,
             .buffered_stream = undefined,
@@ -489,7 +460,7 @@ pub fn readLine(buf: []u8) !usize {
             '\r' => {
                 // trash the following \n
                 _ = stream.readByte() catch return error.EndOfFile;
-               return index;
+                return index;
             },
             '\n' => return index,
             else => {
