@@ -1,3 +1,44 @@
+test "zig fmt: line comments in struct initializer" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    return Self{
+        \\        .a = b,
+        \\
+        \\        // Initialize these two fields to buffer_size so that
+        \\        // in `readFn` we treat the state as being able to read
+        \\        .start_index = buffer_size,
+        \\        .end_index = buffer_size,
+        \\
+        \\        // middle
+        \\
+        \\        .a = b,
+        \\
+        \\        // end
+        \\    };
+        \\}
+        \\
+    );
+}
+
+//TODO
+//test "zig fmt: same-line comptime" {
+//    try testCanonical(
+//        \\test "" {
+//        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
+//        \\}
+//        \\
+//    );
+//}
+
+
+//TODO
+//test "zig fmt: number literals" {
+//    try testCanonical(
+//        \\pub const f64_true_min = 4.94065645841246544177e-324;
+//        \\
+//    );
+//}
+
 test "zig fmt: doc comments before struct field" {
     try testCanonical(
         \\pub const Allocator = struct {

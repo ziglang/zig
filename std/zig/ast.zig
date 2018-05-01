@@ -1269,7 +1269,7 @@ pub const Node = struct {
             ArrayAccess: &Node,
             Slice: SliceRange,
             ArrayInitializer: ArrayList(&Node),
-            StructInitializer: ArrayList(&FieldInitializer),
+            StructInitializer: ArrayList(&Node),
         };
 
         const CallInfo = struct {
@@ -1311,7 +1311,7 @@ pub const Node = struct {
                     i -= exprs.len;
                 },
                 Op.StructInitializer => |fields| {
-                    if (i < fields.len) return &fields.at(i).base;
+                    if (i < fields.len) return fields.at(i);
                     i -= fields.len;
                 },
             }

@@ -238,8 +238,8 @@ pub const Parser = struct {
 
         ExprListItemOrEnd: ExprListCtx,
         ExprListCommaOrEnd: ExprListCtx,
-        FieldInitListItemOrEnd: ListSave(&ast.Node.FieldInitializer),
-        FieldInitListCommaOrEnd: ListSave(&ast.Node.FieldInitializer),
+        FieldInitListItemOrEnd: ListSave(&ast.Node),
+        FieldInitListCommaOrEnd: ListSave(&ast.Node),
         FieldListCommaOrEnd: &ast.Node.ContainerDecl,
         FieldInitValue: OptionalCtx,
         ErrorTagListItemOrEnd: ListSave(&ast.Node),
@@ -1510,6 +1510,10 @@ pub const Parser = struct {
                     }
                 },
                 State.FieldInitListItemOrEnd => |list_state| {
+                    while (try self.eatLineComment(arena)) |line_comment| {
+                        try list_state.list.append(&line_comment.base);
+                    }
+
                     if (self.eatToken(Token.Id.RBrace)) |rbrace| {
                         *list_state.ptr = rbrace;
                         continue;
@@ -1524,7 +1528,7 @@ pub const Parser = struct {
                         .name_token = undefined,
                         .expr = undefined,
                     });
-                    try list_state.list.append(node);
+                    try list_state.list.append(&node.base);
 
                     stack.append(State { .FieldInitListCommaOrEnd = list_state }) catch unreachable;
                     try stack.append(State { .Expression = OptionalCtx{ .Required = &node.expr } });
@@ -2346,7 +2350,7 @@ pub const Parser = struct {
                                 .base = undefined,
                                 .lhs = lhs,
                                 .op = ast.Node.SuffixOp.Op {
-                                    .StructInitializer = ArrayList(&ast.Node.FieldInitializer).init(arena),
+                                    .StructInitializer = ArrayList(&ast.Node).init(arena),
                                 },
                                 .rtoken = undefined,
                             }
@@ -2354,7 +2358,7 @@ pub const Parser = struct {
                         stack.append(State { .CurlySuffixExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                         try stack.append(State { .IfToken = Token.Id.LBrace });
                         try stack.append(State {
-                            .FieldInitListItemOrEnd = ListSave(&ast.Node.FieldInitializer) {
+                            .FieldInitListItemOrEnd = ListSave(&ast.Node) {
                                 .list = &node.op.StructInitializer,
                                 .ptr = &node.rtoken,
                             }
@@ -3452,7 +3456,6 @@ pub const Parser = struct {
         Expression: &ast.Node,
         VarDecl: &ast.Node.VarDecl,
         Statement: &ast.Node,
-        FieldInitializer: &ast.Node.FieldInitializer,
         PrintIndent,
         Indent: usize,
         PrintSameLineComment: ?&Token,
@@ -3582,12 +3585,6 @@ pub const Parser = struct {
                         },
                         else => unreachable,
                     }
-                },
-
-                RenderState.FieldInitializer => |field_init| {
-                    try stream.print(".{}", self.tokenizer.getTokenSlice(field_init.name_token));
-                    try stream.print(" = ");
-                    try stack.append(RenderState { .Expression = field_init.expr });
                 },
 
                 RenderState.VarDecl => |var_decl| {
@@ -3888,7 +3885,7 @@ pub const Parser = struct {
                                     const field_init = field_inits.at(0);
 
                                     try stack.append(RenderState { .Text = " }" });
-                                    try stack.append(RenderState { .FieldInitializer = field_init });
+                                    try stack.append(RenderState { .Expression = field_init });
                                     try stack.append(RenderState { .Text = "{ " });
                                     try stack.append(RenderState { .Expression = suffix_op.lhs });
                                     continue;
@@ -3896,13 +3893,26 @@ pub const Parser = struct {
                                 try stack.append(RenderState { .Text = "}"});
                                 try stack.append(RenderState.PrintIndent);
                                 try stack.append(RenderState { .Indent = indent });
+                                try stack.append(RenderState { .Text = "\n" });
                                 var i = field_inits.len;
                                 while (i != 0) {
                                     i -= 1;
                                     const field_init = field_inits.at(i);
-                                    try stack.append(RenderState { .Text = ",\n" });
-                                    try stack.append(RenderState { .FieldInitializer = field_init });
+                                    if (field_init.id != ast.Node.Id.LineComment) {
+                                        try stack.append(RenderState { .Text = "," });
+                                    }
+                                    try stack.append(RenderState { .Expression = field_init });
                                     try stack.append(RenderState.PrintIndent);
+                                    if (i != 0) {
+                                        try stack.append(RenderState { .Text = blk: {
+                                            const prev_node = field_inits.at(i - 1);
+                                            const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, field_init.firstToken());
+                                            if (loc.line >= 2) {
+                                                break :blk "\n\n";
+                                            }
+                                            break :blk "\n";
+                                        }});
+                                    }
                                 }
                                 try stack.append(RenderState { .Indent = indent + indent_delta });
                                 try stack.append(RenderState { .Text = "{\n"});
