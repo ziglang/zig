@@ -8,5 +8,5 @@ test "function with &const parameter with type dereferenced by namespace" {
 }
 
 fn foo(x: &const other_file.Integer) void {
-    std.debug.assert(*x == 1234);
+    std.debug.assert(x.* == 1234);
 }

@@ -23,7 +23,7 @@ fn foo(c: bool, k: Num, c2: bool, b: []const u8) void {
             if (c) {
                 const output_path = b;
 
-                if (c2) { }
+                if (c2) {}
 
                 a(output_path);
             }

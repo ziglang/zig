@@ -3705,7 +3705,9 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.PrefixOp => {
                         const prefix_op_node = @fieldParentPtr(ast.Node.PrefixOp, "base", base);
-                        try stack.append(RenderState { .Expression = prefix_op_node.rhs });
+                        if (prefix_op_node.op != ast.Node.PrefixOp.Op.Deref) {
+                            try stack.append(RenderState { .Expression = prefix_op_node.rhs });
+                        }
                         switch (prefix_op_node.op) {
                             ast.Node.PrefixOp.Op.AddrOf => |addr_of_info| {
                                 try stream.write("&");
@@ -3742,7 +3744,10 @@ pub const Parser = struct {
                             },
                             ast.Node.PrefixOp.Op.BitNot => try stream.write("~"),
                             ast.Node.PrefixOp.Op.BoolNot => try stream.write("!"),
-                            ast.Node.PrefixOp.Op.Deref => try stream.write("*"),
+                            ast.Node.PrefixOp.Op.Deref => {
+                                try stack.append(RenderState { .Text = ".*" });
+                                try stack.append(RenderState { .Expression = prefix_op_node.rhs });
+                            },
                             ast.Node.PrefixOp.Op.Negation => try stream.write("-"),
                             ast.Node.PrefixOp.Op.NegationWrap => try stream.write("-%"),
                             ast.Node.PrefixOp.Op.Try => try stream.write("try "),

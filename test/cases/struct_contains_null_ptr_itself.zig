@@ -19,4 +19,3 @@ pub const Node = struct {
 pub const NodeLineComment = struct {
     base: Node,
 };
-

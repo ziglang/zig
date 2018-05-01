@@ -66,7 +66,6 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpNegationWrap: return "-%";
         case PrefixOpBoolNot: return "!";
         case PrefixOpBinNot: return "~";
-        case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpUnwrapMaybe: return "??";
     }

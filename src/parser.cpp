@@ -1165,10 +1165,8 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdDash: return PrefixOpNegation;
         case TokenIdMinusPercent: return PrefixOpNegationWrap;
         case TokenIdTilde: return PrefixOpBinNot;
-        case TokenIdStar: return PrefixOpDereference;
         case TokenIdMaybe: return PrefixOpMaybe;
         case TokenIdDoubleQuestion: return PrefixOpUnwrapMaybe;
-        case TokenIdStarStar: return PrefixOpDereference;
         default: return PrefixOpInvalid;
     }
 }
@@ -1214,7 +1212,7 @@ static AstNode *ast_parse_addr_of(ParseContext *pc, size_t *token_index) {
 
 /*
 PrefixOpExpression = PrefixOp ErrorSetExpr | SuffixOpExpression
-PrefixOp = "!" | "-" | "~" | "*" | ("&" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
+PrefixOp = "!" | "-" | "~" | ("*" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1237,15 +1235,6 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
 
     AstNode *node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
     AstNode *parent_node = node;
-    if (token->id == TokenIdStarStar) {
-        // pretend that we got 2 star tokens
-
-        parent_node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
-        parent_node->data.prefix_op_expr.primary_expr = node;
-        parent_node->data.prefix_op_expr.prefix_op = PrefixOpDereference;
-
-        node->column += 1;
-    }
 
     AstNode *prefix_op_expr = ast_parse_error_set_expr(pc, token_index, true);
     node->data.prefix_op_expr.primary_expr = prefix_op_expr;

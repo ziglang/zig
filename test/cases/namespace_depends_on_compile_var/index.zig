@@ -8,7 +8,7 @@ test "namespace depends on compile var" {
         assert(!some_namespace.a_bool);
     }
 }
-const some_namespace = switch(builtin.os) {
+const some_namespace = switch (builtin.os) {
     builtin.Os.linux => @import("a.zig"),
     else => @import("b.zig"),
 };

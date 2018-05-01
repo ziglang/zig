@@ -614,7 +614,6 @@ enum PrefixOp {
     PrefixOpBinNot,
     PrefixOpNegation,
     PrefixOpNegationWrap,
-    PrefixOpDereference,
     PrefixOpMaybe,
     PrefixOpUnwrapMaybe,
 };

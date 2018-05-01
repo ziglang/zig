@@ -36,7 +36,7 @@ async fn testAsyncSeq() void {
     suspend;
     seq('d');
 }
-var points = []u8{0} ** "abcdefg".len;
+var points = []u8 {0} ** "abcdefg".len;
 var index: usize = 0;
 
 fn seq(c: u8) void {
@@ -94,14 +94,13 @@ async fn await_another() i32 {
     return 1234;
 }
 
-var await_points = []u8{0} ** "abcdefghi".len;
+var await_points = []u8 {0} ** "abcdefghi".len;
 var await_seq_index: usize = 0;
 
 fn await_seq(c: u8) void {
     await_points[await_seq_index] = c;
     await_seq_index += 1;
 }
-
 
 var early_final_result: i32 = 0;
 
@@ -126,7 +125,7 @@ async fn early_another() i32 {
     return 1234;
 }
 
-var early_points = []u8{0} ** "abcdef".len;
+var early_points = []u8 {0} ** "abcdef".len;
 var early_seq_index: usize = 0;
 
 fn early_seq(c: u8) void {
@@ -175,8 +174,8 @@ test "async fn pointer in a struct field" {
 }
 
 async<&std.mem.Allocator> fn simpleAsyncFn2(y: &i32) void {
-    defer *y += 2;
-    *y += 1;
+    defer y.* += 2;
+    y.* += 1;
     suspend;
 }
 
@@ -205,7 +204,8 @@ test "error return trace across suspend points - async return" {
     cancel p2;
 }
 
-fn nonFailing() promise->error!void {
+// TODO https://github.com/zig-lang/zig/issues/760
+fn nonFailing() (promise->error!void) {
     return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
 }
 
@@ -238,7 +238,7 @@ async fn testBreakFromSuspend(my_result: &i32) void {
     s: suspend |p| {
         break :s;
     }
-    *my_result += 1;
+    my_result.* += 1;
     suspend;
-    *my_result += 1;
+    my_result.* += 1;
 }
