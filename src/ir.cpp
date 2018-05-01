@@ -15765,6 +15765,7 @@ static TypeTableEntry *ir_type_info_get_type(IrAnalyze *ira, const char *type_na
         type_info_var = get_builtin_value(ira->codegen, "TypeInfo");
         assert(type_info_var->type->id == TypeTableEntryIdMetaType);
 
+        ensure_complete_type(ira->codegen, type_info_var->data.x_type);
         type_info_type = type_info_var->data.x_type;
         assert(type_info_type->id == TypeTableEntryIdUnion);
     }
@@ -15790,6 +15791,7 @@ static TypeTableEntry *ir_type_info_get_type(IrAnalyze *ira, const char *type_na
 
     VariableTableEntry *var = tld->var;
 
+    ensure_complete_type(ira->codegen, var->value->type);
     assert(var->value->type->id == TypeTableEntryIdMetaType);
     return var->value->data.x_type;
 }
