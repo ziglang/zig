@@ -181,7 +181,7 @@ test "zig fmt: comments before global variables" {
     );
 }
 
-test "zig fmt: comments before statements" {
+test "zig fmt: comments in statements" {
     try testCanonical(
         \\test "std" {
         \\    // statement comment
@@ -207,22 +207,6 @@ test "zig fmt: comments before test decl" {
         \\// middle
         \\
         \\// end
-        \\
-    );
-}
-
-test "zig fmt: comments before variable declarations" {
-    try testCanonical(
-        \\const std = @import("std");
-        \\
-        \\pub fn main() !void {
-        \\    /// If this program is run without stdout attached, exit with an error.
-        \\    /// another comment
-        \\    var stdout_file = try std.io.getStdOut;
-        \\    // If this program is run without stdout attached, exit with an error.
-        \\    // another comment
-        \\    var stdout_file = try std.io.getStdOut;
-        \\}
         \\
     );
 }

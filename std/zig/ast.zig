@@ -6,7 +6,6 @@ const mem = std.mem;
 
 pub const Node = struct {
     id: Id,
-    doc_comments: ?&DocComment,
     same_line_comment: ?&Token,
 
     pub const Id = enum {
@@ -70,12 +69,20 @@ pub const Node = struct {
         StructField,
         UnionTag,
         EnumTag,
+        ErrorTag,
         AsmInput,
         AsmOutput,
         AsyncAttribute,
         ParamDecl,
         FieldInitializer,
     };
+
+    pub fn cast(base: &Node, comptime T: type) ?&T {
+        if (base.id == comptime typeToId(T)) {
+            return @fieldParentPtr(T, "base", base);
+        }
+        return null;
+    }
 
     pub fn iterate(base: &Node, index: usize) ?&Node {
         comptime var i = 0;
@@ -122,6 +129,7 @@ pub const Node = struct {
 
     pub const Root = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         decls: ArrayList(&Node),
         eof_token: Token,
 
@@ -143,6 +151,7 @@ pub const Node = struct {
 
     pub const VarDecl = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         visib_token: ?Token,
         name_token: Token,
         eq_token: Token,
@@ -191,6 +200,7 @@ pub const Node = struct {
 
     pub const Use = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         visib_token: ?Token,
         expr: &Node,
         semicolon_token: Token,
@@ -294,6 +304,7 @@ pub const Node = struct {
 
     pub const StructField = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         visib_token: ?Token,
         name_token: Token,
         type_expr: &Node,
@@ -319,6 +330,7 @@ pub const Node = struct {
 
     pub const UnionTag = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         name_token: Token,
         type_expr: ?&Node,
         value_expr: ?&Node,
@@ -357,6 +369,7 @@ pub const Node = struct {
 
     pub const EnumTag = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         name_token: Token,
         value: ?&Node,
 
@@ -380,6 +393,31 @@ pub const Node = struct {
                 return value.lastToken();
             }
 
+            return self.name_token;
+        }
+    };
+
+    pub const ErrorTag = struct {
+        base: Node,
+        doc_comments: ?&DocComment,
+        name_token: Token,
+
+        pub fn iterate(self: &ErrorTag, index: usize) ?&Node {
+            var i = index;
+
+            if (self.doc_comments) |comments| {
+                if (i < 1) return &comments.base;
+                i -= 1;
+            }
+
+            return null;
+        }
+
+        pub fn firstToken(self: &ErrorTag) Token {
+            return self.name_token;
+        }
+
+        pub fn lastToken(self: &ErrorTag) Token {
             return self.name_token;
         }
     };
@@ -433,6 +471,7 @@ pub const Node = struct {
 
     pub const FnProto = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         visib_token: ?Token,
         fn_token: Token,
         name_token: ?Token,
@@ -626,6 +665,7 @@ pub const Node = struct {
 
     pub const Comptime = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         comptime_token: Token,
         expr: &Node,
 
@@ -1794,6 +1834,7 @@ pub const Node = struct {
 
     pub const TestDecl = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         test_token: Token,
         name: &Node,
         body_node: &Node,
