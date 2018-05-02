@@ -454,6 +454,7 @@ set(ZIG_STD_FILES
     "heap.zig"
     "index.zig"
     "io.zig"
+    "json.zig"
     "linked_list.zig"
     "macho.zig"
     "math/acos.zig"
