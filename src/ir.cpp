@@ -142,7 +142,6 @@ static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
     if (exec->is_inline)
         return true;
 
-    // Look at parent scopes until we find a function scope or a comptime scope.
     while (scope != nullptr) {
         if (scope->id == ScopeIdCompTime)
             return true;
