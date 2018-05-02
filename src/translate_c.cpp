@@ -731,6 +731,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::Char_U:
                     case BuiltinType::UChar:
                     case BuiltinType::Char_S:
+                    case BuiltinType::Char8:
                         return trans_create_node_symbol_str(c, "u8");
                     case BuiltinType::SChar:
                         return trans_create_node_symbol_str(c, "i8");
@@ -2245,9 +2246,6 @@ static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt
             case Decl::TranslationUnit:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TranslationUnit");
                 return ErrorUnexpected;
-            case Decl::Concept:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Concept");
-                return ErrorUnexpected;
         }
         zig_unreachable();
     }
@@ -2336,6 +2334,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::Float128:
                 case BuiltinType::LongDouble:
                 case BuiltinType::WChar_U:
+                case BuiltinType::Char8:
                 case BuiltinType::Char16:
                 case BuiltinType::Char32:
                 case BuiltinType::WChar_S:
