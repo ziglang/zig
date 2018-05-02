@@ -23,6 +23,7 @@ pub const fmt = @import("fmt/index.zig");
 pub const hash = @import("hash/index.zig");
 pub const heap = @import("heap.zig");
 pub const io = @import("io.zig");
+pub const json = @import("json.zig");
 pub const macho = @import("macho.zig");
 pub const math = @import("math/index.zig");
 pub const mem = @import("mem.zig");
@@ -56,6 +57,7 @@ test "std" {
     _ = @import("fmt/index.zig");
     _ = @import("hash/index.zig");
     _ = @import("io.zig");
+    _ = @import("json.zig");
     _ = @import("macho.zig");
     _ = @import("math/index.zig");
     _ = @import("mem.zig");
