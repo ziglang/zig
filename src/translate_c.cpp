@@ -3744,6 +3744,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         return demote_enum_to_opaque(c, enum_decl, full_type_name, bare_name);
     }
 
+
     bool pure_enum = true;
     uint32_t field_count = 0;
     for (auto it = enum_def->enumerator_begin(),
@@ -3755,84 +3756,53 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
             pure_enum = false;
         }
     }
-
     AstNode *tag_int_type = trans_qual_type(c, enum_decl->getIntegerType(), enum_decl->getLocation());
     assert(tag_int_type);
 
-    if (pure_enum) {
-        AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
-        enum_node->data.container_decl.kind = ContainerKindEnum;
-        enum_node->data.container_decl.layout = ContainerLayoutExtern;
-        // TODO only emit this tag type if the enum tag type is not the default.
-        // I don't know what the default is, need to figure out how clang is deciding.
-        // it appears to at least be different across gcc/msvc
-        if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt) &&
-            !c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::Int))
-        {
-            enum_node->data.container_decl.init_arg_expr = tag_int_type;
-        }
-
-        enum_node->data.container_decl.fields.resize(field_count);
-        uint32_t i = 0;
-        for (auto it = enum_def->enumerator_begin(),
-                it_end = enum_def->enumerator_end();
-                it != it_end; ++it, i += 1)
-        {
-            const EnumConstantDecl *enum_const = *it;
-
-            Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
-            Buf *field_name;
-            if (bare_name != nullptr && buf_starts_with_buf(enum_val_name, bare_name)) {
-                field_name = buf_slice(enum_val_name, buf_len(bare_name), buf_len(enum_val_name));
-            } else {
-                field_name = enum_val_name;
-            }
-
-            AstNode *field_node = trans_create_node(c, NodeTypeStructField);
-            field_node->data.struct_field.name = field_name;
-            field_node->data.struct_field.type = nullptr;
-            enum_node->data.container_decl.fields.items[i] = field_node;
-
-            // in C each enum value is in the global namespace. so we put them there too.
-            // at this point we can rely on the enum emitting successfully
-            if (is_anonymous) {
-                AstNode *lit_node = trans_create_node_unsigned(c, i);
-                add_global_var(c, enum_val_name, lit_node);
-            } else {
-                AstNode *field_access_node = trans_create_node_field_access(c,
-                        trans_create_node_symbol(c, full_type_name), field_name);
-                add_global_var(c, enum_val_name, field_access_node);
-            }
-        }
-
-        if (is_anonymous) {
-            c->decl_table.put(enum_decl->getCanonicalDecl(), enum_node);
-            return enum_node;
-        } else {
-            AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
-            add_global_weak_alias(c, bare_name, full_type_name);
-            add_global_var(c, full_type_name, enum_node);
-            c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
-            return enum_node;
-        }
+    AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
+    enum_node->data.container_decl.kind = ContainerKindEnum;
+    enum_node->data.container_decl.layout = ContainerLayoutExtern;
+    // TODO only emit this tag type if the enum tag type is not the default.
+    // I don't know what the default is, need to figure out how clang is deciding.
+    // it appears to at least be different across gcc/msvc
+    if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt) &&
+        !c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::Int))
+    {
+        enum_node->data.container_decl.init_arg_expr = tag_int_type;
     }
-
-    // TODO after issue #305 is solved, make this be an enum with tag_int_type
-    // as the integer type and set the custom enum values
-    AstNode *enum_node = tag_int_type;
-
-
-    // add variables for all the values with enum_node
+    enum_node->data.container_decl.fields.resize(field_count);
+    uint32_t i = 0;
     for (auto it = enum_def->enumerator_begin(),
             it_end = enum_def->enumerator_end();
-            it != it_end; ++it)
+            it != it_end; ++it, i += 1)
     {
         const EnumConstantDecl *enum_const = *it;
 
         Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
-        AstNode *int_node = trans_create_node_apint(c, enum_const->getInitVal());
-        AstNode *var_node = add_global_var(c, enum_val_name, int_node);
-        var_node->data.variable_declaration.type = tag_int_type;
+        Buf *field_name;
+        if (bare_name != nullptr && buf_starts_with_buf(enum_val_name, bare_name)) {
+            field_name = buf_slice(enum_val_name, buf_len(bare_name), buf_len(enum_val_name));
+        } else {
+            field_name = enum_val_name;
+        }
+
+        AstNode *int_node = pure_enum && !is_anonymous ? nullptr : trans_create_node_apint(c, enum_const->getInitVal());
+        AstNode *field_node = trans_create_node(c, NodeTypeStructField);
+        field_node->data.struct_field.name = field_name;
+        field_node->data.struct_field.type = nullptr;
+        field_node->data.struct_field.value = int_node;
+        enum_node->data.container_decl.fields.items[i] = field_node;
+
+        // in C each enum value is in the global namespace. so we put them there too.
+        // at this point we can rely on the enum emitting successfully
+        if (is_anonymous) {
+            Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
+            add_global_var(c, enum_val_name, int_node);
+        } else {
+            AstNode *field_access_node = trans_create_node_field_access(c,
+                    trans_create_node_symbol(c, full_type_name), field_name);
+            add_global_var(c, enum_val_name, field_access_node);
+        }
     }
 
     if (is_anonymous) {
@@ -3843,7 +3813,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         add_global_weak_alias(c, bare_name, full_type_name);
         add_global_var(c, full_type_name, enum_node);
         c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
-        return symbol_node;
+        return enum_node;
     }
 }
 
