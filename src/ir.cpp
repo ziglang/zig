@@ -145,6 +145,8 @@ static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
     while (scope != nullptr) {
         if (scope->id == ScopeIdCompTime)
             return true;
+        if (scope->id == ScopeIdFnDef)
+            break;
         scope = scope->parent;
     }
     return false;
