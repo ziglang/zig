@@ -8,37 +8,37 @@ const mem = std.mem;
 const u1 = @IntType(false, 1);
 const u256 = @IntType(false, 256);
 
-pub const TokenId = enum(u5) {
-    ObjectBegin,
-    ObjectEnd,
-    ArrayBegin,
-    ArrayEnd,
-    String,
-    Number,
-    True,
-    False,
-    Null,
-};
-
 // A single token slice into the parent string.
 //
 // Use `token.slice()` on the inptu at the current position to get the current slice.
 pub const Token = struct {
-    id: TokenId,
+    id: Id,
     // How many bytes do we skip before counting
     offset: u1,
     // Whether string contains a \uXXXX sequence and cannot be zero-copied
-    string_has_unicode_escape: bool,
+    string_has_escape: bool,
     // Whether number is simple and can be represented by an integer (i.e. no `.` or `e`)
     number_is_integer: bool,
     // How many bytes from the current position behind the start of this token is.
     count: usize,
 
-    pub fn init(id: TokenId, count: usize, offset: u1) Token {
+    pub const Id = enum {
+        ObjectBegin,
+        ObjectEnd,
+        ArrayBegin,
+        ArrayEnd,
+        String,
+        Number,
+        True,
+        False,
+        Null,
+    };
+
+    pub fn init(id: Id, count: usize, offset: u1) Token {
         return Token {
             .id = id,
             .offset = offset,
-            .string_has_unicode_escape = false,
+            .string_has_escape = false,
             .number_is_integer = true,
             .count = count,
         };
@@ -46,9 +46,9 @@ pub const Token = struct {
 
     pub fn initString(count: usize, has_unicode_escape: bool) Token {
         return Token {
-            .id = TokenId.String,
+            .id = Id.String,
             .offset = 0,
-            .string_has_unicode_escape = has_unicode_escape,
+            .string_has_escape = has_unicode_escape,
             .number_is_integer = true,
             .count = count,
         };
@@ -56,20 +56,20 @@ pub const Token = struct {
 
     pub fn initNumber(count: usize, number_is_integer: bool) Token {
         return Token {
-            .id = TokenId.Number,
+            .id = Id.Number,
             .offset = 0,
-            .string_has_unicode_escape = false,
+            .string_has_escape = false,
             .number_is_integer = number_is_integer,
             .count = count,
         };
     }
 
     // A marker token is a zero-length
-    pub fn initMarker(id: TokenId) Token {
+    pub fn initMarker(id: Id) Token {
         return Token {
             .id = id,
             .offset = 0,
-            .string_has_unicode_escape = false,
+            .string_has_escape = false,
             .number_is_integer = true,
             .count = 0,
         };
@@ -98,7 +98,7 @@ const StreamingJsonParser = struct {
     // If we stopped now, would the complete parsed string to now be a valid json string
     complete: bool,
     // Current token flags to pass through to the next generated, see Token.
-    string_has_unicode_escape: bool,
+    string_has_escape: bool,
     number_is_integer: bool,
 
     // Bit-stack for nested object/map literals (max 255 nestings).
@@ -124,13 +124,11 @@ const StreamingJsonParser = struct {
         p.stack = 0;
         p.stack_used = 0;
         p.complete = false;
-        p.string_has_unicode_escape = false;
+        p.string_has_escape = false;
         p.number_is_integer = true;
     }
 
     pub const State = enum {
-        // NOTE: @tagName determines the name based on index, not value.
-
         // These must be first with these explicit values as we rely on them for indexing the
         // bit-stack directly and avoiding a branch.
         ObjectSeparator = 0,
@@ -178,7 +176,8 @@ const StreamingJsonParser = struct {
         // Only call this function to generate array/object final state.
         pub fn fromInt(x: var) State {
             std.debug.assert(x == 0 or x == 1);
-            return State(u6(x));
+            const T = @TagType(State);
+            return State(T(x));
         }
     };
 
@@ -229,7 +228,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    *token = Token.initMarker(TokenId.ObjectBegin);
+                    *token = Token.initMarker(Token.Id.ObjectBegin);
                 },
                 '[' => {
                     p.stack <<= 1;
@@ -239,7 +238,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    *token = Token.initMarker(TokenId.ArrayBegin);
+                    *token = Token.initMarker(Token.Id.ArrayBegin);
                 },
                 '-' => {
                     p.number_is_integer = true;
@@ -264,7 +263,7 @@ const StreamingJsonParser = struct {
                     p.after_value_state = State.TopLevelEnd;
                     // We don't actually need the following since after_value_state should override.
                     p.after_string_state = State.ValueEnd;
-                    p.string_has_unicode_escape = false;
+                    p.string_has_escape = false;
                     p.count = 0;
                 },
                 't' => {
@@ -325,7 +324,7 @@ const StreamingJsonParser = struct {
                         else => {},
                     }
 
-                    *token = Token.initMarker(TokenId.ObjectEnd);
+                    *token = Token.initMarker(Token.Id.ObjectEnd);
                 },
                 ']' => {
                     if (p.stack & 1 != array_bit) {
@@ -349,7 +348,7 @@ const StreamingJsonParser = struct {
                         else => {},
                     }
 
-                    *token = Token.initMarker(TokenId.ArrayEnd);
+                    *token = Token.initMarker(Token.Id.ArrayEnd);
                 },
                 '{' => {
                     if (p.stack_used == max_stack_size) {
@@ -363,7 +362,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    *token = Token.initMarker(TokenId.ObjectBegin);
+                    *token = Token.initMarker(Token.Id.ObjectBegin);
                 },
                 '[' => {
                     if (p.stack_used == max_stack_size) {
@@ -377,7 +376,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    *token = Token.initMarker(TokenId.ArrayBegin);
+                    *token = Token.initMarker(Token.Id.ArrayBegin);
                 },
                 '-' => {
                     p.state = State.Number;
@@ -429,7 +428,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    *token = Token.initMarker(TokenId.ObjectBegin);
+                    *token = Token.initMarker(Token.Id.ObjectBegin);
                 },
                 '[' => {
                     if (p.stack_used == max_stack_size) {
@@ -443,7 +442,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    *token = Token.initMarker(TokenId.ArrayBegin);
+                    *token = Token.initMarker(Token.Id.ArrayBegin);
                 },
                 '-' => {
                     p.state = State.Number;
@@ -502,7 +501,7 @@ const StreamingJsonParser = struct {
                         p.state = State.TopLevelEnd;
                     }
 
-                    *token = Token.initMarker(TokenId.ArrayEnd);
+                    *token = Token.initMarker(Token.Id.ArrayEnd);
                 },
                 '}' => {
                     if (p.stack_used == 0) {
@@ -520,7 +519,7 @@ const StreamingJsonParser = struct {
                         p.state = State.TopLevelEnd;
                     }
 
-                    *token = Token.initMarker(TokenId.ObjectEnd);
+                    *token = Token.initMarker(Token.Id.ObjectEnd);
                 },
                 0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
@@ -554,7 +553,7 @@ const StreamingJsonParser = struct {
                         p.complete = true;
                     }
 
-                    *token = Token.initString(p.count - 1, p.string_has_unicode_escape);
+                    *token = Token.initString(p.count - 1, p.string_has_escape);
                 },
                 '\\' => {
                     p.state = State.StringEscapeCharacter;
@@ -601,10 +600,11 @@ const StreamingJsonParser = struct {
                 // however, so we default to the status quo where both are accepted until this
                 // is further clarified.
                 '"', '\\', '/', 'b', 'f', 'n', 'r', 't' => {
+                    p.string_has_escape = true;
                     p.state = State.String;
                 },
                 'u' => {
-                    p.string_has_unicode_escape = true;
+                    p.string_has_escape = true;
                     p.state = State.StringEscapeHexUnicode4;
                 },
                 else => {
@@ -793,7 +793,7 @@ const StreamingJsonParser = struct {
                 'e' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    *token = Token.init(TokenId.True, p.count + 1, 1);
+                    *token = Token.init(Token.Id.True, p.count + 1, 1);
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -819,7 +819,7 @@ const StreamingJsonParser = struct {
                 'e' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    *token = Token.init(TokenId.False, p.count + 1, 1);
+                    *token = Token.init(Token.Id.False, p.count + 1, 1);
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -840,7 +840,7 @@ const StreamingJsonParser = struct {
                 'l' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    *token = Token.init(TokenId.Null, p.count + 1, 1);
+                    *token = Token.init(Token.Id.Null, p.count + 1, 1);
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -894,7 +894,7 @@ pub const Value = union(enum) {
     Array: ArrayList(Value),
     Object: ObjectMap,
 
-    pub fn toString(self: &const Value) void {
+    pub fn dump(self: &const Value) void {
         switch (*self) {
             Value.Null => {
                 std.debug.warn("null");
@@ -919,7 +919,7 @@ pub const Value = union(enum) {
                         std.debug.warn(",");
                     }
                     not_first = true;
-                    value.toString();
+                    value.dump();
                 }
                 std.debug.warn("]");
             },
@@ -934,22 +934,22 @@ pub const Value = union(enum) {
                     }
                     not_first = true;
                     std.debug.warn("\"{}\":", entry.key);
-                    entry.value.toString();
+                    entry.value.dump();
                 }
                 std.debug.warn("}}");
             },
         }
     }
 
-    pub fn toStringIndent(self: &const Value, indent: usize) void {
+    pub fn dumpIndent(self: &const Value, indent: usize) void {
         if (indent == 0) {
-            self.toString();
+            self.dump();
         } else {
-            self.toStringIndentLevel(indent, 0);
+            self.dumpIndentLevel(indent, 0);
         }
     }
 
-    fn toStringIndentLevel(self: &const Value, indent: usize, level: usize) void {
+    fn dumpIndentLevel(self: &const Value, indent: usize, level: usize) void {
         switch (*self) {
             Value.Null => {
                 std.debug.warn("null");
@@ -976,7 +976,7 @@ pub const Value = union(enum) {
                     }
                     not_first = true;
                     padSpace(level + indent);
-                    value.toStringIndentLevel(indent, level + indent);
+                    value.dumpIndentLevel(indent, level + indent);
                 }
                 std.debug.warn("\n");
                 padSpace(level);
@@ -994,7 +994,7 @@ pub const Value = union(enum) {
                     not_first = true;
                     padSpace(level + indent);
                     std.debug.warn("\"{}\": ", entry.key);
-                    entry.value.toStringIndentLevel(indent, level + indent);
+                    entry.value.dumpIndentLevel(indent, level + indent);
                 }
                 std.debug.warn("\n");
                 padSpace(level);
@@ -1092,7 +1092,7 @@ const JsonParser = struct {
     fn transition(p: &JsonParser, allocator: &Allocator, input: []const u8, i: usize, token: &const Token) !void {
         switch (p.state) {
             State.ObjectKey => switch (token.id) {
-                TokenId.ObjectEnd => {
+                Token.Id.ObjectEnd => {
                     if (p.stack_used == 1) {
                         return;
                     }
@@ -1101,7 +1101,7 @@ const JsonParser = struct {
                     p.stack_used -= 1;
                     try p.pushToParent(value);
                 },
-                TokenId.String => {
+                Token.Id.String => {
                     p.pushStack(try p.parseString(allocator, token, input, i));
                     p.state = State.ObjectValue;
                 },
@@ -1114,35 +1114,35 @@ const JsonParser = struct {
                 var key = p.stack[p.stack_used - 1].String;
 
                 switch (token.id) {
-                    TokenId.ObjectBegin => {
+                    Token.Id.ObjectBegin => {
                         p.pushStack(Value { .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
-                    TokenId.ArrayBegin => {
+                    Token.Id.ArrayBegin => {
                         p.pushStack(Value { .Array = ArrayList(Value).init(allocator) });
                         p.state = State.ArrayValue;
                     },
-                    TokenId.String => {
+                    Token.Id.String => {
                         _ = try object.put(key, try p.parseString(allocator, token, input, i));
                         p.stack_used -= 1;
                         p.state = State.ObjectKey;
                     },
-                    TokenId.Number => {
+                    Token.Id.Number => {
                         _ = try object.put(key, try p.parseNumber(token, input, i));
                         p.stack_used -= 1;
                         p.state = State.ObjectKey;
                     },
-                    TokenId.True => {
+                    Token.Id.True => {
                         _ = try object.put(key, Value { .Bool = true });
                         p.stack_used -= 1;
                         p.state = State.ObjectKey;
                     },
-                    TokenId.False => {
+                    Token.Id.False => {
                         _ = try object.put(key, Value { .Bool = false });
                         p.stack_used -= 1;
                         p.state = State.ObjectKey;
                     },
-                    TokenId.Null => {
+                    Token.Id.Null => {
                         _ = try object.put(key, Value.Null);
                         p.stack_used -= 1;
                         p.state = State.ObjectKey;
@@ -1156,7 +1156,7 @@ const JsonParser = struct {
                 var array = &p.stack[p.stack_used - 1].Array;
 
                 switch (token.id) {
-                    TokenId.ArrayEnd => {
+                    Token.Id.ArrayEnd => {
                         if (p.stack_used == 1) {
                             return;
                         }
@@ -1165,27 +1165,27 @@ const JsonParser = struct {
                         p.stack_used -= 1;
                         try p.pushToParent(value);
                     },
-                    TokenId.ObjectBegin => {
+                    Token.Id.ObjectBegin => {
                         p.pushStack(Value { .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
-                    TokenId.ArrayBegin => {
+                    Token.Id.ArrayBegin => {
                         p.pushStack(Value { .Array = ArrayList(Value).init(allocator) });
                         p.state = State.ArrayValue;
                     },
-                    TokenId.String => {
+                    Token.Id.String => {
                         try array.append(try p.parseString(allocator, token, input, i));
                     },
-                    TokenId.Number => {
+                    Token.Id.Number => {
                         try array.append(try p.parseNumber(token, input, i));
                     },
-                    TokenId.True => {
+                    Token.Id.True => {
                         try array.append(Value { .Bool = true });
                     },
-                    TokenId.False => {
+                    Token.Id.False => {
                         try array.append(Value { .Bool = false });
                     },
-                    TokenId.Null => {
+                    Token.Id.Null => {
                         try array.append(Value.Null);
                     },
                     else => {
@@ -1194,30 +1194,30 @@ const JsonParser = struct {
                 }
             },
             State.Simple => switch (token.id) {
-                TokenId.ObjectBegin => {
+                Token.Id.ObjectBegin => {
                     p.pushStack(Value { .Object = ObjectMap.init(allocator) });
                     p.state = State.ObjectKey;
                 },
-                TokenId.ArrayBegin => {
+                Token.Id.ArrayBegin => {
                     p.pushStack(Value { .Array = ArrayList(Value).init(allocator) });
                     p.state = State.ArrayValue;
                 },
-                TokenId.String => {
+                Token.Id.String => {
                     p.pushStack(try p.parseString(allocator, token, input, i));
                 },
-                TokenId.Number => {
+                Token.Id.Number => {
                     p.pushStack(try p.parseNumber(token, input, i));
                 },
-                TokenId.True => {
+                Token.Id.True => {
                     p.pushStack(Value { .Bool = true });
                 },
-                TokenId.False => {
+                Token.Id.False => {
                     p.pushStack(Value { .Bool = false });
                 },
-                TokenId.Null => {
+                Token.Id.Null => {
                     p.pushStack(Value.Null);
                 },
-                TokenId.ObjectEnd, TokenId.ArrayEnd => {
+                Token.Id.ObjectEnd, Token.Id.ArrayEnd => {
                     unreachable;
                 },
             },
