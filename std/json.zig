@@ -1017,9 +1017,7 @@ const JsonParser = struct {
     state: State,
     copy_strings: bool,
     // Stores parent nodes and un-combined Values.
-    // Worst case scenario we have nested key, values and so need two times the stack size.
-    stack: [2 * StreamingJsonParser.max_stack_size]Value,
-    stack_used: u16,
+    stack: ArrayList(Value),
 
     const State = enum {
         ObjectKey,
@@ -1033,14 +1031,17 @@ const JsonParser = struct {
             .allocator = allocator,
             .state = State.Simple,
             .copy_strings = copy_strings,
-            .stack = undefined,
-            .stack_used = 0,
+            .stack = ArrayList(Value).init(allocator),
         };
+    }
+
+    pub fn deinit(p: &JsonParser) void {
+        p.stack.deinit();
     }
 
     pub fn reset(p: &JsonParser) void {
         p.state = State.Simple;
-        p.stack_used = 0;
+        p.stack.shrink(0);
     }
 
     pub fn parse(p: &JsonParser, input: []const u8) !ValueTree {
@@ -1079,11 +1080,11 @@ const JsonParser = struct {
             return error.IncompleteJsonInput;
         }
 
-        std.debug.assert(p.stack_used == 1);
+        std.debug.assert(p.stack.len == 1);
 
         return ValueTree {
             .arena = arena,
-            .root = p.stack[0],
+            .root = p.stack.at(0),
         };
     }
 
@@ -1093,16 +1094,15 @@ const JsonParser = struct {
         switch (p.state) {
             State.ObjectKey => switch (token.id) {
                 Token.Id.ObjectEnd => {
-                    if (p.stack_used == 1) {
+                    if (p.stack.len == 1) {
                         return;
                     }
 
-                    var value = p.stack[p.stack_used - 1];
-                    p.stack_used -= 1;
+                    var value = p.stack.pop();
                     try p.pushToParent(value);
                 },
                 Token.Id.String => {
-                    p.pushStack(try p.parseString(allocator, token, input, i));
+                    try p.stack.append(try p.parseString(allocator, token, input, i));
                     p.state = State.ObjectValue;
                 },
                 else => {
@@ -1110,41 +1110,41 @@ const JsonParser = struct {
                 },
             },
             State.ObjectValue => {
-                var object = &p.stack[p.stack_used - 2].Object;
-                var key = p.stack[p.stack_used - 1].String;
+                var object = &p.stack.items[p.stack.len - 2].Object;
+                var key = p.stack.items[p.stack.len - 1].String;
 
                 switch (token.id) {
                     Token.Id.ObjectBegin => {
-                        p.pushStack(Value { .Object = ObjectMap.init(allocator) });
+                        try p.stack.append(Value { .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
                     Token.Id.ArrayBegin => {
-                        p.pushStack(Value { .Array = ArrayList(Value).init(allocator) });
+                        try p.stack.append(Value { .Array = ArrayList(Value).init(allocator) });
                         p.state = State.ArrayValue;
                     },
                     Token.Id.String => {
                         _ = try object.put(key, try p.parseString(allocator, token, input, i));
-                        p.stack_used -= 1;
+                        _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
                     Token.Id.Number => {
                         _ = try object.put(key, try p.parseNumber(token, input, i));
-                        p.stack_used -= 1;
+                        _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
                     Token.Id.True => {
                         _ = try object.put(key, Value { .Bool = true });
-                        p.stack_used -= 1;
+                        _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
                     Token.Id.False => {
                         _ = try object.put(key, Value { .Bool = false });
-                        p.stack_used -= 1;
+                        _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
                     Token.Id.Null => {
                         _ = try object.put(key, Value.Null);
-                        p.stack_used -= 1;
+                        _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
                     else => {
@@ -1153,24 +1153,23 @@ const JsonParser = struct {
                 }
             },
             State.ArrayValue => {
-                var array = &p.stack[p.stack_used - 1].Array;
+                var array = &p.stack.items[p.stack.len - 1].Array;
 
                 switch (token.id) {
                     Token.Id.ArrayEnd => {
-                        if (p.stack_used == 1) {
+                        if (p.stack.len == 1) {
                             return;
                         }
 
-                        var value = p.stack[p.stack_used - 1];
-                        p.stack_used -= 1;
+                        var value = p.stack.pop();
                         try p.pushToParent(value);
                     },
                     Token.Id.ObjectBegin => {
-                        p.pushStack(Value { .Object = ObjectMap.init(allocator) });
+                        try p.stack.append(Value { .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
                     Token.Id.ArrayBegin => {
-                        p.pushStack(Value { .Array = ArrayList(Value).init(allocator) });
+                        try p.stack.append(Value { .Array = ArrayList(Value).init(allocator) });
                         p.state = State.ArrayValue;
                     },
                     Token.Id.String => {
@@ -1195,27 +1194,27 @@ const JsonParser = struct {
             },
             State.Simple => switch (token.id) {
                 Token.Id.ObjectBegin => {
-                    p.pushStack(Value { .Object = ObjectMap.init(allocator) });
+                    try p.stack.append(Value { .Object = ObjectMap.init(allocator) });
                     p.state = State.ObjectKey;
                 },
                 Token.Id.ArrayBegin => {
-                    p.pushStack(Value { .Array = ArrayList(Value).init(allocator) });
+                    try p.stack.append(Value { .Array = ArrayList(Value).init(allocator) });
                     p.state = State.ArrayValue;
                 },
                 Token.Id.String => {
-                    p.pushStack(try p.parseString(allocator, token, input, i));
+                    try p.stack.append(try p.parseString(allocator, token, input, i));
                 },
                 Token.Id.Number => {
-                    p.pushStack(try p.parseNumber(token, input, i));
+                    try p.stack.append(try p.parseNumber(token, input, i));
                 },
                 Token.Id.True => {
-                    p.pushStack(Value { .Bool = true });
+                    try p.stack.append(Value { .Bool = true });
                 },
                 Token.Id.False => {
-                    p.pushStack(Value { .Bool = false });
+                    try p.stack.append(Value { .Bool = false });
                 },
                 Token.Id.Null => {
-                    p.pushStack(Value.Null);
+                    try p.stack.append(Value.Null);
                 },
                 Token.Id.ObjectEnd, Token.Id.ArrayEnd => {
                     unreachable;
@@ -1225,12 +1224,12 @@ const JsonParser = struct {
     }
 
     fn pushToParent(p: &JsonParser, value: &const Value) !void {
-        switch (p.stack[p.stack_used - 1]) {
+        switch (p.stack.at(p.stack.len - 1)) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
-                p.stack_used -= 1;
+                _ = p.stack.pop();
 
-                var object = &p.stack[p.stack_used - 1].Object;
+                var object = &p.stack.items[p.stack.len - 1].Object;
                 _ = try object.put(key, value);
                 p.state = State.ObjectKey;
             },
@@ -1243,11 +1242,6 @@ const JsonParser = struct {
                 unreachable;
             },
         }
-    }
-
-    fn pushStack(p: &JsonParser, value: &const Value) void {
-        p.stack[p.stack_used] = *value;
-        p.stack_used += 1;
     }
 
     fn parseString(p: &JsonParser, allocator: &Allocator, token: &const Token, input: []const u8, i: usize) !Value {
@@ -1270,6 +1264,7 @@ const debug = std.debug;
 
 test "json parser dynamic" {
     var p = JsonParser.init(std.debug.global_allocator, false);
+    defer p.deinit();
 
     const s =
       \\{
@@ -1289,7 +1284,8 @@ test "json parser dynamic" {
       ;
 
     var tree = try p.parse(s);
-    tree.deinit();
+    defer tree.deinit();
+
     var root = tree.root;
 
     var image = (??root.Object.get("Image")).value;
