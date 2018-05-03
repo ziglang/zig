@@ -50,7 +50,7 @@ pub const BufMap = struct {
     }
 
     pub fn count(self: &const BufMap) usize {
-        return self.hash_map.size;
+        return self.hash_map.count();
     }
 
     pub fn iterator(self: &const BufMap) BufMapHashMap.Iterator {
