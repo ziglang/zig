@@ -1,3 +1,30 @@
+// TODO
+//if (sr > n_uword_bits - 1)  // d > r
+//    return 0;
+
+// TODO switch with no body
+// format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
+
+
+//TODO
+//test "zig fmt: same-line comptime" {
+//    try testCanonical(
+//        \\test "" {
+//        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
+//        \\}
+//        \\
+//    );
+//}
+
+
+//TODO
+//test "zig fmt: number literals" {
+//    try testCanonical(
+//        \\pub const f64_true_min = 4.94065645841246544177e-324;
+//        \\
+//    );
+//}
+
 test "zig fmt: line comments in struct initializer" {
     try testCanonical(
         \\fn foo() void {
@@ -19,25 +46,6 @@ test "zig fmt: line comments in struct initializer" {
         \\
     );
 }
-
-//TODO
-//test "zig fmt: same-line comptime" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
-//        \\}
-//        \\
-//    );
-//}
-
-
-//TODO
-//test "zig fmt: number literals" {
-//    try testCanonical(
-//        \\pub const f64_true_min = 4.94065645841246544177e-324;
-//        \\
-//    );
-//}
 
 test "zig fmt: doc comments before struct field" {
     try testCanonical(
