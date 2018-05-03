@@ -35,7 +35,7 @@ pub fn Stack(comptime T: type) type {
         }
 
         pub fn pop(self: &Self) ?&Node {
-            var root = @atomicLoad(?&Node, &self.root, AtomicOrder.Acquire);
+            var root = @atomicLoad(?&Node, &self.root, AtomicOrder.SeqCst);
             while (true) {
                 root = @cmpxchgWeak(?&Node, &self.root, root, (root ?? return null).next, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return root;
             }
@@ -63,7 +63,7 @@ test "std.atomic.stack" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 64 * 1024 * 1024);
+    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 600 * 1024);
     defer direct_allocator.allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);

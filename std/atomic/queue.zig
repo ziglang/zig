@@ -31,10 +31,10 @@ pub fn Queue(comptime T: type) type {
         }
 
         pub fn get(self: &Self) ?&Node {
-            var head = @atomicLoad(&Node, &self.head, AtomicOrder.Acquire);
+            var head = @atomicLoad(&Node, &self.head, AtomicOrder.SeqCst);
             while (true) {
                 const node = head.next ?? return null;
-                head = @cmpxchgWeak(&Node, &self.head, head, node, AtomicOrder.Release, AtomicOrder.Acquire) ?? return node;
+                head = @cmpxchgWeak(&Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return node;
             }
         }
     };
@@ -56,7 +56,7 @@ test "std.atomic.queue" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 64 * 1024 * 1024);
+    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 600 * 1024);
     defer direct_allocator.allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
