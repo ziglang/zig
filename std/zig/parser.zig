@@ -4298,14 +4298,21 @@ pub const Parser = struct {
                     ast.Node.Id.DocComment => unreachable, // doc comments are attached to nodes
                     ast.Node.Id.Switch => {
                         const switch_node = @fieldParentPtr(ast.Node.Switch, "base", base);
+                        const cases = switch_node.cases.toSliceConst();
+
                         try stream.print("{} (", self.tokenizer.getTokenSlice(switch_node.switch_token));
+
+                        if (cases.len == 0) {
+                            try stack.append(RenderState { .Text = ") {}"});
+                            try stack.append(RenderState { .Expression = switch_node.expr });
+                            continue;
+                        }
 
                         try stack.append(RenderState { .Text = "}"});
                         try stack.append(RenderState.PrintIndent);
                         try stack.append(RenderState { .Indent = indent });
                         try stack.append(RenderState { .Text = "\n"});
 
-                        const cases = switch_node.cases.toSliceConst();
                         var i = cases.len;
                         while (i != 0) {
                             i -= 1;

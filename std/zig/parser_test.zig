@@ -2,9 +2,14 @@
 //if (sr > n_uword_bits - 1)  // d > r
 //    return 0;
 
-// TODO switch with no body
-// format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
-
+test "zig fmt: switch with empty body" {
+    try testCanonical(
+        \\test "" {
+        \\    foo() catch |err| switch (err) {};
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: same-line comment on comptime expression" {
     try testCanonical(
