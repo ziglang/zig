@@ -44,6 +44,10 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
             return l.toSliceConst()[n];
         }
 
+        pub fn count(self: &const Self) usize {
+            return self.len;
+        }
+
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
@@ -128,6 +132,27 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
                 return null;
             return self.pop();
         }
+
+        pub const Iterator = struct {
+            list: &const Self,
+            // how many items have we returned
+            count: usize,
+
+            pub fn next(it: &Iterator) ?T {
+                if (it.count >= it.list.len) return null;
+                const val = it.list.at(it.count);
+                it.count += 1;
+                return val;
+            }
+
+            pub fn reset(it: &Iterator) void {
+                it.count = 0;
+            }
+        };
+
+        pub fn iterator(self: &Self) Iterator {
+            return Iterator { .list = self, .count = 0 };
+        }
     };
 }
 
@@ -155,6 +180,35 @@ test "basic ArrayList test" {
 
     list.appendSlice([]const i32 {}) catch unreachable;
     assert(list.len == 9);
+}
+
+test "iterator ArrayList test" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+
+    var count : i32 = 0;
+    var it = list.iterator();
+    while (it.next()) |next| {
+        assert(next == count + 1);
+        count += 1;
+    }
+
+    assert(count == 3);
+    assert(it.next() == null);
+    it.reset();
+    count = 0;
+    while (it.next()) |next| {
+        assert(next == count + 1);
+        count += 1;
+        if (count == 2) break;
+    }
+
+    it.reset();
+    assert(?? it.next() == 1);
 }
 
 test "insert ArrayList test" {

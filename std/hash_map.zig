@@ -54,6 +54,14 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 }
                 unreachable; // no next item
             }
+
+            // Reset the iterator to the initial index
+            pub fn reset(it: &Iterator) void {
+                it.count = 0;
+                it.index = 0;
+                // Resetting the modification count too
+                it.initial_modification_count = it.hm.modification_count;
+            }
         };
 
         pub fn init(allocator: &Allocator) Self {
@@ -77,6 +85,10 @@ pub fn HashMap(comptime K: type, comptime V: type,
             hm.size = 0;
             hm.max_distance_from_start_index = 0;
             hm.incrementModificationCount();
+        }
+
+        pub fn count(hm: &const Self) usize {
+            return hm.size;
         }
 
         /// Returns the value that was already there.
@@ -256,6 +268,45 @@ test "basic hash map usage" {
     _ = map.remove(2);
     assert(map.remove(2) == null);
     assert(map.get(2) == null);
+}
+
+test "iterator hash map" {
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+    
+    var reset_map = HashMap(i32, i32, hash_i32, eql_i32).init(&direct_allocator.allocator);
+    defer reset_map.deinit();
+
+    assert((reset_map.put(1, 11) catch unreachable) == null);
+    assert((reset_map.put(2, 22) catch unreachable) == null);
+    assert((reset_map.put(3, 33) catch unreachable) == null);
+
+    var keys = []i32 { 1, 2, 3 };
+    var values = []i32 { 11, 22, 33 };
+
+    var it = reset_map.iterator();
+    var count : usize = 0;
+    while (it.next()) |next| {
+        assert(next.key == keys[count]);
+        assert(next.value == values[count]);
+        count += 1;
+    }
+
+    assert(count == 3);
+    assert(it.next() == null);
+    it.reset();
+    count = 0;
+    while (it.next()) |next| {
+        assert(next.key == keys[count]);
+        assert(next.value == values[count]);
+        count += 1;
+        if (count == 2) break;
+    }
+
+    it.reset();
+    var entry = ?? it.next();
+    assert(entry.key == keys[0]);
+    assert(entry.value == values[0]);
 }
 
 fn hash_i32(x: i32) u32 {
