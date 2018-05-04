@@ -1382,9 +1382,10 @@ pub const Parser = struct {
                         else => {
                             self.putBackToken(token);
                             self.putBackToken(ctx.comptime_token);
-                            const statememt = try ctx.block.statements.addOne();
-                            stack.append(State { .Semicolon = statememt }) catch unreachable;
-                            try stack.append(State { .Expression = OptionalCtx { .Required = statememt } });
+                            const statement = try ctx.block.statements.addOne();
+                            stack.append(State { .LookForSameLineComment = statement }) catch unreachable;
+                            try stack.append(State { .Semicolon = statement });
+                            try stack.append(State { .Expression = OptionalCtx { .Required = statement } });
                             continue;
                         }
                     }

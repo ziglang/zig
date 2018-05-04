@@ -6,16 +6,14 @@
 // format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
 
 
-//TODO
-//test "zig fmt: same-line comptime" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
-//        \\}
-//        \\
-//    );
-//}
-
+test "zig fmt: same-line comment on comptime expression" {
+    try testCanonical(
+        \\test "" {
+        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: float literal with exponent" {
     try testCanonical(
