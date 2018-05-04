@@ -17,13 +17,12 @@
 //}
 
 
-//TODO
-//test "zig fmt: number literals" {
-//    try testCanonical(
-//        \\pub const f64_true_min = 4.94065645841246544177e-324;
-//        \\
-//    );
-//}
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\pub const f64_true_min = 4.94065645841246544177e-324;
+        \\
+    );
+}
 
 test "zig fmt: line comments in struct initializer" {
     try testCanonical(
