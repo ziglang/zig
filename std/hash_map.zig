@@ -74,7 +74,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             };
         }
 
-        pub fn deinit(hm: &Self) void {
+        pub fn deinit(hm: &const Self) void {
             hm.allocator.free(hm.entries);
         }
 
@@ -114,14 +114,14 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return hm.internalPut(key, value);
         }
 
-        pub fn get(hm: &Self, key: K) ?&Entry {
+        pub fn get(hm: &const Self, key: K) ?&Entry {
             if (hm.entries.len == 0) {
                 return null;
             }
             return hm.internalGet(key);
         }
 
-        pub fn contains(hm: &Self, key: K) bool {
+        pub fn contains(hm: &const Self, key: K) bool {
             return hm.get(key) != null;
         }
 
@@ -230,7 +230,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             unreachable; // put into a full map
         }
 
-        fn internalGet(hm: &Self, key: K) ?&Entry {
+        fn internalGet(hm: &const Self, key: K) ?&Entry {
             const start_index = hm.keyToIndex(key);
             {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
                 const index = (start_index + roll_over) % hm.entries.len;
@@ -242,7 +242,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return null;
         }
 
-        fn keyToIndex(hm: &Self, key: K) usize {
+        fn keyToIndex(hm: &const Self, key: K) usize {
             return usize(hash(key)) % hm.entries.len;
         }
     };
@@ -264,6 +264,7 @@ test "basic hash map usage" {
     assert(??(map.put(5, 66) catch unreachable) == 55);
     assert(??(map.put(5, 55) catch unreachable) == 66);
 
+    assert(map.contains(2));
     assert((??map.get(2)).value == 22);
     _ = map.remove(2);
     assert(map.remove(2) == null);
@@ -273,7 +274,7 @@ test "basic hash map usage" {
 test "iterator hash map" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
-    
+
     var reset_map = HashMap(i32, i32, hash_i32, eql_i32).init(&direct_allocator.allocator);
     defer reset_map.deinit();
 

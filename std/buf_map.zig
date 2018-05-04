@@ -18,10 +18,10 @@ pub const BufMap = struct {
         return self;
     }
 
-    pub fn deinit(self: &BufMap) void {
+    pub fn deinit(self: &const BufMap) void {
         var it = self.hash_map.iterator();
         while (true) {
-            const entry = it.next() ?? break; 
+            const entry = it.next() ?? break;
             self.free(entry.key);
             self.free(entry.value);
         }
@@ -38,7 +38,7 @@ pub const BufMap = struct {
         _ = try self.hash_map.put(key_copy, value_copy);
     }
 
-    pub fn get(self: &BufMap, key: []const u8) ?[]const u8 {
+    pub fn get(self: &const BufMap, key: []const u8) ?[]const u8 {
         const entry = self.hash_map.get(key) ?? return null;
         return entry.value;
     }
@@ -57,11 +57,11 @@ pub const BufMap = struct {
         return self.hash_map.iterator();
     }
 
-    fn free(self: &BufMap, value: []const u8) void {
+    fn free(self: &const BufMap, value: []const u8) void {
         self.hash_map.allocator.free(value);
     }
 
-    fn copy(self: &BufMap, value: []const u8) ![]const u8 {
+    fn copy(self: &const BufMap, value: []const u8) ![]const u8 {
         return mem.dupe(self.hash_map.allocator, u8, value);
     }
 };

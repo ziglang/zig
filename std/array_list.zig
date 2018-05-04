@@ -28,11 +28,11 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
             };
         }
 
-        pub fn deinit(l: &Self) void {
+        pub fn deinit(l: &const Self) void {
             l.allocator.free(l.items);
         }
 
-        pub fn toSlice(l: &Self) []align(A) T {
+        pub fn toSlice(l: &const Self) []align(A) T {
             return l.items[0..l.len];
         }
 
@@ -150,7 +150,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
             }
         };
 
-        pub fn iterator(self: &Self) Iterator {
+        pub fn iterator(self: &const Self) Iterator {
             return Iterator { .list = self, .count = 0 };
         }
     };
@@ -167,6 +167,14 @@ test "basic ArrayList test" {
     {var i: usize = 0; while (i < 10) : (i += 1) {
         assert(list.items[i] == i32(i + 1));
     }}
+
+    for (list.toSlice()) |v, i| {
+        assert(v == i32(i + 1));
+    }
+
+    for (list.toSliceConst()) |v, i| {
+        assert(v == i32(i + 1));
+    }
 
     assert(list.pop() == 10);
     assert(list.len == 9);

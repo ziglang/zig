@@ -66,7 +66,7 @@ pub const Buffer = struct {
         self.list.deinit();
     }
 
-    pub fn toSlice(self: &Buffer) []u8 {
+    pub fn toSlice(self: &const Buffer) []u8 {
         return self.list.toSlice()[0..self.len()];
     }
 
@@ -166,5 +166,5 @@ test "simple Buffer" {
     assert(buf.endsWith("orld"));
 
     try buf2.resize(4);
-    assert(buf.startsWith(buf2.toSliceConst()));
+    assert(buf.startsWith(buf2.toSlice()));
 }
