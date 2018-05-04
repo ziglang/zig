@@ -1,6 +1,14 @@
-// TODO
-//if (sr > n_uword_bits - 1)  // d > r
-//    return 0;
+test "zig fmt: same-line comment after non-block if expression" {
+    try testCanonical(
+        \\comptime {
+        \\    if (sr > n_uword_bits - 1) {
+        \\        // d > r
+        \\        return 0;
+        \\    }
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: switch with empty body" {
     try testCanonical(
@@ -1108,15 +1116,15 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
     return buffer.toOwnedSlice();
 }
 
-fn testCanonical(source: []const u8) !void {
+fn testTransform(source: []const u8, expected_source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
         const result_source = try testParse(source, &failing_allocator.allocator);
-        if (!mem.eql(u8, result_source, source)) {
+        if (!mem.eql(u8, result_source, expected_source)) {
             warn("\n====== expected this output: =========\n");
-            warn("{}", source);
+            warn("{}", expected_source);
             warn("\n======== instead found this: =========\n");
             warn("{}", result_source);
             warn("\n======================================\n");
@@ -1145,5 +1153,9 @@ fn testCanonical(source: []const u8) !void {
             error.ParseError => @panic("test failed"),
         }
     }
+}
+
+fn testCanonical(source: []const u8) !void {
+    return testTransform(source, source);
 }
 

@@ -1891,12 +1891,13 @@ pub const Parser = struct {
                         }
                     );
 
-                    stack.append(State {
+                    stack.append(State {.LookForSameLineCommentDirect = &node.base }) catch unreachable;
+                    try stack.append(State {
                         .ExpectTokenSave = ExpectTokenSave {
                             .id = Token.Id.Pipe,
                             .ptr = &node.rpipe,
                         }
-                    }) catch unreachable;
+                    });
                     try stack.append(State { .Identifier = OptionalCtx { .Required = &node.value_symbol } });
                     try stack.append(State {
                         .OptionalTokenSave = OptionalTokenSave {
@@ -3122,6 +3123,7 @@ pub const Parser = struct {
                 stack.append(State { .Else = &node.@"else" }) catch unreachable;
                 try stack.append(State { .Expression = OptionalCtx { .Required = &node.body } });
                 try stack.append(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
+                try stack.append(State { .LookForSameLineComment = &node.condition });
                 try stack.append(State { .ExpectToken = Token.Id.RParen });
                 try stack.append(State { .Expression = OptionalCtx { .Required = &node.condition } });
                 try stack.append(State { .ExpectToken = Token.Id.LParen });
@@ -3460,6 +3462,7 @@ pub const Parser = struct {
         PrintIndent,
         Indent: usize,
         PrintSameLineComment: ?&Token,
+        PrintLineComment: &Token,
     };
 
     pub fn renderSource(self: &Parser, stream: var, root_node: &ast.Node.Root) !void {
@@ -4517,7 +4520,18 @@ pub const Parser = struct {
                             }
                         }
 
-                        try stack.append(RenderState { .Expression = if_node.body });
+                        if (if_node.condition.same_line_comment) |comment| {
+                            try stack.append(RenderState { .Indent = indent });
+                            try stack.append(RenderState { .Expression = if_node.body });
+                            try stack.append(RenderState.PrintIndent);
+                            try stack.append(RenderState { .Indent = indent + indent_delta });
+                            try stack.append(RenderState { .Text = "\n" });
+                            try stack.append(RenderState { .PrintLineComment = comment });
+                        } else {
+                            try stack.append(RenderState { .Expression = if_node.body });
+                        }
+
+
                         try stack.append(RenderState { .Text = " " });
 
                         if (if_node.payload) |payload| {
@@ -4677,6 +4691,9 @@ pub const Parser = struct {
                 RenderState.PrintSameLineComment => |maybe_comment| blk: {
                     const comment_token = maybe_comment ?? break :blk;
                     try stream.print(" {}", self.tokenizer.getTokenSlice(comment_token));
+                },
+                RenderState.PrintLineComment => |comment_token| {
+                    try stream.write(self.tokenizer.getTokenSlice(comment_token));
                 },
             }
         }
