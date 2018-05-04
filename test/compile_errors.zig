@@ -3210,6 +3210,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset");
 
+    cases.add("invalid union field access in comptime",
+        \\const Foo = union {
+        \\    Bar: u8,
+        \\    Baz: void,
+        \\};
+        \\comptime {
+        \\    var foo = Foo {.Baz = {}};    
+        \\    const bar_val = foo.Bar;
+        \\}
+    ,
+        ".tmp_source.zig:7:24: error: accessing union field 'Bar' while field 'Baz' is set");
+
     cases.add("getting return type of generic function",
         \\fn generic(a: var) void {}
         \\comptime {
@@ -3225,5 +3237,4 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic");
-
 }
