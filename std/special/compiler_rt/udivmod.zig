@@ -9,7 +9,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
 
     const SingleInt = @IntType(false, @divExact(DoubleInt.bit_count, 2));
     const SignedDoubleInt = @IntType(true, DoubleInt.bit_count);
-    const Log2SingleInt = @import("../../math/index.zig").Log2Int(SingleInt);
+    const Log2SingleInt = @import("std").math.Log2Int(SingleInt);
 
     const n = *@ptrCast(&const [2]SingleInt, &a); // TODO issue #421
     const d = *@ptrCast(&const [2]SingleInt, &b); // TODO issue #421

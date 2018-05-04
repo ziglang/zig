@@ -38,7 +38,7 @@ pub const BufSet = struct {
     }
 
     pub fn count(self: &const BufSet) usize {
-        return self.hash_map.size;
+        return self.hash_map.count();
     }
 
     pub fn iterator(self: &const BufSet) BufSetHashMap.Iterator {
@@ -59,4 +59,3 @@ pub const BufSet = struct {
         return result;
     }
 };
-

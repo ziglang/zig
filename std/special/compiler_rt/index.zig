@@ -71,7 +71,8 @@ comptime {
     }
 }
 
-const assert = @import("../../index.zig").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
@@ -80,7 +81,7 @@ const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
     @setCold(true);
     if (is_test) {
-        @import("std").debug.panic("{}", msg);
+        std.debug.panic("{}", msg);
     } else {
         unreachable;
     }

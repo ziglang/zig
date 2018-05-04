@@ -53,6 +53,28 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub const Foo = enum_Foo;
     );
 
+    cases.add("enums",
+        \\enum Foo {
+        \\    FooA = 2,
+        \\    FooB = 5,
+        \\    Foo1,
+        \\};
+    ,
+        \\pub const enum_Foo = extern enum {
+        \\    A = 2,
+        \\    B = 5,
+        \\    @"1" = 6,
+        \\};
+    ,
+        \\pub const FooA = enum_Foo.A;
+    ,
+        \\pub const FooB = enum_Foo.B;
+    ,
+        \\pub const Foo1 = enum_Foo.@"1";
+    ,
+        \\pub const Foo = enum_Foo;
+    );
+
     cases.add("restrict -> noalias",
         \\void foo(void *restrict bar, void *restrict);
     ,

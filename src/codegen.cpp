@@ -88,6 +88,7 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->exported_symbol_names.init(8);
     g->external_prototypes.init(8);
     g->string_literals_table.init(16);
+    g->type_info_cache.init(32);
     g->is_test_build = false;
     g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
     buf_resize(&g->global_asm, 0);
@@ -4417,6 +4418,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdOffsetOf:
+        case IrInstructionIdTypeInfo:
         case IrInstructionIdTypeId:
         case IrInstructionIdSetEvalBranchQuota:
         case IrInstructionIdPtrTypeOf:
@@ -6040,6 +6042,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
     create_builtin_fn(g, BuiltinFnIdField, "field", 2);
+    create_builtin_fn(g, BuiltinFnIdTypeInfo, "typeInfo", 1);
     create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
@@ -6258,6 +6261,190 @@ static void define_builtin_compile_vars(CodeGen *g) {
             buf_appendf(contents, "    %s,\n", type_id_name(id));
         }
         buf_appendf(contents, "};\n\n");
+    }
+    {
+        buf_appendf(contents,
+            "pub const TypeInfo = union(TypeId) {\n"
+            "    Type: void,\n"
+            "    Void: void,\n"
+            "    Bool: void,\n"
+            "    NoReturn: void,\n"
+            "    Int: Int,\n"
+            "    Float: Float,\n"
+            "    Pointer: Pointer,\n"
+            "    Array: Array,\n"
+            "    Struct: Struct,\n"
+            "    FloatLiteral: void,\n"
+            "    IntLiteral: void,\n"
+            "    UndefinedLiteral: void,\n"
+            "    NullLiteral: void,\n"
+            "    Nullable: Nullable,\n"
+            "    ErrorUnion: ErrorUnion,\n"
+            "    ErrorSet: ErrorSet,\n"
+            "    Enum: Enum,\n"
+            "    Union: Union,\n"
+            "    Fn: Fn,\n"
+            "    Namespace: void,\n"
+            "    Block: void,\n"
+            "    BoundFn: Fn,\n"
+            "    ArgTuple: void,\n"
+            "    Opaque: void,\n"
+            "    Promise: Promise,\n"
+            "\n\n"
+            "    pub const Int = struct {\n"
+            "        is_signed: bool,\n"
+            "        bits: u8,\n"
+            "    };\n"
+            "\n"
+            "    pub const Float = struct {\n"
+            "        bits: u8,\n"
+            "    };\n"
+            "\n"
+            "    pub const Pointer = struct {\n"
+            "        is_const: bool,\n"
+            "        is_volatile: bool,\n"
+            "        alignment: u32,\n"
+            "        child: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const Array = struct {\n"
+            "        len: usize,\n"
+            "        child: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const ContainerLayout = enum {\n"
+            "        Auto,\n"
+            "        Extern,\n"
+            "        Packed,\n"
+            "    };\n"
+            "\n"
+            "    pub const StructField = struct {\n"
+            "        name: []const u8,\n"
+            "        offset: ?usize,\n"
+            "        field_type: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const Struct = struct {\n"
+            "        layout: ContainerLayout,\n"
+            "        fields: []StructField,\n"
+            "        defs: []Definition,\n"
+            "    };\n"
+            "\n"
+            "    pub const Nullable = struct {\n"
+            "        child: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const ErrorUnion = struct {\n"
+            "        error_set: type,\n"
+            "        payload: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const Error = struct {\n"
+            "        name: []const u8,\n"
+            "        value: usize,\n"
+            "    };\n"
+            "\n"
+            "    pub const ErrorSet = struct {\n"
+            "        errors: []Error,\n"
+            "    };\n"
+            "\n"
+            "    pub const EnumField = struct {\n"
+            "        name: []const u8,\n"
+            "        value: usize,\n"
+            "    };\n"
+            "\n"
+            "    pub const Enum = struct {\n"
+            "        layout: ContainerLayout,\n"
+            "        tag_type: type,\n"
+            "        fields: []EnumField,\n"
+            "        defs: []Definition,\n"
+            "    };\n"
+            "\n"
+            "    pub const UnionField = struct {\n"
+            "        name: []const u8,\n"
+            "        enum_field: ?EnumField,\n"
+            "        field_type: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const Union = struct {\n"
+            "        layout: ContainerLayout,\n"
+            "        tag_type: type,\n"
+            "        fields: []UnionField,\n"
+            "        defs: []Definition,\n"
+            "    };\n"
+            "\n"
+            "    pub const CallingConvention = enum {\n"
+            "        Unspecified,\n"
+            "        C,\n"
+            "        Cold,\n"
+            "        Naked,\n"
+            "        Stdcall,\n"
+            "        Async,\n"
+            "    };\n"
+            "\n"
+            "    pub const FnArg = struct {\n"
+            "        is_generic: bool,\n"
+            "        is_noalias: bool,\n"
+            "        arg_type: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const Fn = struct {\n"
+            "        calling_convention: CallingConvention,\n"
+            "        is_generic: bool,\n"
+            "        is_var_args: bool,\n"
+            "        return_type: type,\n"
+            "        async_allocator_type: type,\n"
+            "        args: []FnArg,\n"
+            "    };\n"
+            "\n"
+            "    pub const Promise = struct {\n"
+            "        child: type,\n"
+            "    };\n"
+            "\n"
+            "    pub const Definition = struct {\n"
+            "        name: []const u8,\n"
+            "        is_pub: bool,\n"
+            "        data: Data,\n"
+            "\n"
+            "        pub const Data = union(enum) {\n"
+            "            Type: type,\n"
+            "            Var: type,\n"
+            "            Fn: FnDef,\n"
+            "\n"
+            "            pub const FnDef = struct {\n"
+            "                fn_type: type,\n"
+            "                inline_type: Inline,\n"
+            "                calling_convention: CallingConvention,\n"
+            "                is_var_args: bool,\n"
+            "                is_extern: bool,\n"
+            "                is_export: bool,\n"
+            "                lib_name: ?[]const u8,\n"
+            "                return_type: type,\n"
+            "                arg_names: [][] const u8,\n"
+            "\n"
+            "                pub const Inline = enum {\n"
+            "                    Auto,\n"
+            "                    Always,\n"
+            "                    Never,\n"
+            "                };\n"
+            "            };\n"
+            "        };\n"
+            "    };\n"
+            "};\n\n");
+        assert(ContainerLayoutAuto == 0);
+        assert(ContainerLayoutExtern == 1);
+        assert(ContainerLayoutPacked == 2);
+    
+        assert(CallingConventionUnspecified == 0);
+        assert(CallingConventionC == 1);
+        assert(CallingConventionCold == 2);
+        assert(CallingConventionNaked == 3);
+        assert(CallingConventionStdcall == 4);
+        assert(CallingConventionAsync == 5);
+
+        assert(FnInlineAuto == 0);
+        assert(FnInlineAlways == 1);
+        assert(FnInlineNever == 2);
     }
     {
         buf_appendf(contents,
