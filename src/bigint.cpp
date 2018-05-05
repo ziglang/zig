@@ -1259,12 +1259,11 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
             bigint_normalize(dest);
             return;
         }
-        // TODO this code path is untested
-        uint64_t first_digit = dest->data.digit;
+
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
-        dest->data.digits[0] = first_digit;
-        size_t i = 1;
+
+        size_t i = 0;
         for (; i < op1->digit_count && i < op2->digit_count; i += 1) {
             dest->data.digits[i] = op1_digits[i] & op2_digits[i];
         }
@@ -1412,7 +1411,6 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         return;
     }
 
-    // TODO this code path is untested
     size_t digit_shift_count = shift_amt / 64;
     size_t leftover_shift_count = shift_amt % 64;
 
@@ -1427,7 +1425,7 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         uint64_t digit = op1_digits[op_digit_index];
         size_t dest_digit_index = op_digit_index - digit_shift_count;
         dest->data.digits[dest_digit_index] = carry | (digit >> leftover_shift_count);
-        carry = (0xffffffffffffffffULL << leftover_shift_count) & digit;
+        carry = digit << leftover_shift_count;
 
         if (dest_digit_index == 0) { break; }
         op_digit_index -= 1;
