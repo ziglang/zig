@@ -762,7 +762,7 @@ set_target_properties(zig PROPERTIES
     LINK_FLAGS ${EXE_LDFLAGS}
 )
 
-if(ENABLED_CLANG_TIDY)
+if(ENABLE_CLANG_TIDY)
     set_target_properties(zig_cpp PROPERTIES
         C_CLANG_TIDY ${CLANG_TIDY_PATH}
         CXX_CLANG_TIDY ${CLANG_TIDY_PATH})
