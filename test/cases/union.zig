@@ -272,3 +272,15 @@ const PartialInstWithPayload = union(enum) {
     Compiled: i32,
 };
 
+
+test "access a member of tagged union with conflicting enum tag name" {
+    const Bar = union(enum) {
+        A: A,
+        B: B,
+
+        const A = u8;
+        const B = void;
+    };
+
+    comptime assert(Bar.A == u8);
+}
