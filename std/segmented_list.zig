@@ -139,22 +139,23 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         pub fn addOne(self: &Self) !&T {
             const new_length = self.len + 1;
-            try self.setCapacity(new_length);
+            try self.growCapacity(new_length);
             const result = self.uncheckedAt(self.len);
             self.len = new_length;
             return result;
         }
 
+        /// Grows or shrinks capacity to match usage.
         pub fn setCapacity(self: &Self, new_capacity: usize) !void {
-            if (new_capacity <= prealloc_item_count) {
-                const len = ShelfIndex(self.dynamic_segments.len);
-                if (len == 0) return;
-                self.freeShelves(len, 0);
-                self.allocator.free(self.dynamic_segments);
-                self.dynamic_segments = []&T{};
-                return;
+            if (new_capacity <= usize(1) << (prealloc_exp + self.dynamic_segments.len)) {
+                return self.shrinkCapacity(new_capacity);
+            } else {
+                return self.growCapacity(new_capacity);
             }
+        }
 
+        /// Only grows capacity, or retains current capacity
+        pub fn growCapacity(self: &Self, new_capacity: usize) !void {
             const new_cap_shelf_count = shelfCount(new_capacity);
             const old_shelf_count = ShelfIndex(self.dynamic_segments.len);
             if (new_cap_shelf_count > old_shelf_count) {
@@ -167,18 +168,28 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 while (i < new_cap_shelf_count) : (i += 1) {
                     self.dynamic_segments[i] = (try self.allocator.alloc(T, shelfSize(i))).ptr;
                 }
+            }
+        }
+
+        /// Only shrinks capacity or retains current capacity
+        pub fn shrinkCapacity(self: &Self, new_capacity: usize) void {
+            if (new_capacity <= prealloc_item_count) {
+                const len = ShelfIndex(self.dynamic_segments.len);
+                self.freeShelves(len, 0);
+                self.allocator.free(self.dynamic_segments);
+                self.dynamic_segments = []&T{};
                 return;
             }
+
+            const new_cap_shelf_count = shelfCount(new_capacity);
+            const old_shelf_count = ShelfIndex(self.dynamic_segments.len);
+            assert(new_cap_shelf_count <= old_shelf_count);
             if (new_cap_shelf_count == old_shelf_count) {
                 return;
             }
+
             self.freeShelves(old_shelf_count, new_cap_shelf_count);
             self.dynamic_segments = self.allocator.shrink(&T, self.dynamic_segments, new_cap_shelf_count);
-        }
-
-        pub fn shrinkCapacity(self: &Self, new_capacity: usize) void {
-            assert(new_capacity <= prealloc_item_count or shelfCount(new_capacity) <= self.dynamic_segments.len);
-            self.setCapacity(new_capacity) catch unreachable;
         }
 
         pub fn uncheckedAt(self: &Self, index: usize) &T {
