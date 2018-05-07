@@ -86,10 +86,10 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         };
         const ShelfIndex = std.math.Log2Int(usize);
 
-        allocator: &Allocator,
-        len: usize,
         prealloc_segment: [prealloc_item_count]T,
         dynamic_segments: []&T,
+        allocator: &Allocator,
+        len: usize,
 
         /// Deinitialize with `deinit`
         pub fn init(allocator: &Allocator) Self {
@@ -237,6 +237,54 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
         }
 
+        pub const Iterator = struct {
+            list: &Self,
+            index: usize,
+            box_index: usize,
+            shelf_index: ShelfIndex,
+            shelf_size: usize,
+
+            pub fn next(it: &Iterator) ?&T {
+                if (it.index >= it.list.len)
+                    return null;
+                if (it.index < prealloc_item_count) {
+                    const ptr = &it.list.prealloc_segment[it.index];
+                    it.index += 1;
+                    if (it.index == prealloc_item_count) {
+                        it.box_index = 0;
+                        it.shelf_index = 0;
+                        it.shelf_size = prealloc_item_count * 2;
+                    }
+                    return ptr;
+                }
+
+                const ptr = &it.list.dynamic_segments[it.shelf_index][it.box_index];
+                it.index += 1;
+                it.box_index += 1;
+                if (it.box_index == it.shelf_size) {
+                    it.shelf_index += 1;
+                    it.box_index = 0;
+                    it.shelf_size *= 2;
+                }
+                return ptr;
+            }
+        };
+
+        pub fn iterator(self: &Self, start_index: usize) Iterator {
+            var it = Iterator {
+                .list = self,
+                .index = start_index,
+                .shelf_index = undefined,
+                .box_index = undefined,
+                .shelf_size = undefined,
+            };
+            if (start_index >= prealloc_item_count) {
+                it.shelf_index = shelfIndex(start_index);
+                it.box_index = boxIndex(start_index, it.shelf_index);
+                it.shelf_size = shelfSize(it.shelf_index);
+            }
+            return it;
+        }
     };
 }
 
@@ -265,6 +313,14 @@ fn testSegmentedList(comptime prealloc: usize, allocator: &Allocator) !void {
     {var i: usize = 0; while (i < 100) : (i += 1) {
         assert(*list.at(i) == i32(i + 1));
     }}
+
+    {
+        var it = list.iterator(0);
+        var x: i32 = 1;
+        while (it.next()) |item| : (x += 1) {
+            assert(*item == x);
+        }
+    }
 
     assert(??list.pop() == 100);
     assert(list.len == 99);
