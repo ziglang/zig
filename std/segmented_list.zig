@@ -18,12 +18,12 @@ const Allocator = std.mem.Allocator;
 // ...
 //
 // warehouse indexes:
-// shelf 0: 0
-// shelf 1: 0 1
-// shelf 2: 0 1 2 3
-// shelf 3: 0 1 2 3 4 5 6 7
-// shelf 4: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
-// shelf 5: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+// shelf 0:  0
+// shelf 1:  0  1
+// shelf 2:  0  1  2  3
+// shelf 3:  0  1  2  3  4  5  6  7
+// shelf 4:  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+// shelf 5:  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
 // ...
 //
 // With this arrangement, here are the equations to get the shelf index and
@@ -66,6 +66,8 @@ const Allocator = std.mem.Allocator;
 ///
 /// Because it never has to copy elements from an old location to a new location, it does not require
 /// its elements to be copyable, and it avoids wasting memory when backed by an ArenaAllocator.
+/// Note that the push() and pop() convenience methods perform a copy, but you can instead use
+/// addOne(), at(), setCapacity(), and shrinkCapacity() to avoid copying items.
 ///
 /// This data structure has O(1) push and O(1) pop.
 ///
@@ -74,8 +76,10 @@ const Allocator = std.mem.Allocator;
 pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type {
     return struct {
         const Self = this;
-        const prealloc_base = blk: {
+        const prealloc_exp = blk: {
+            // we don't use the prealloc_exp constant when prealloc_item_count is 0.
             assert(prealloc_item_count != 0);
+
             const value = std.math.log2_int(usize, prealloc_item_count);
             assert((1 << value) == prealloc_item_count); // prealloc_item_count must be a power of 2
             break :blk @typeOf(1)(value);
@@ -190,28 +194,28 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             if (prealloc_item_count == 0) {
                 return std.math.log2_int_ceil(usize, box_count + 1);
             }
-            return std.math.log2_int_ceil(usize, box_count + prealloc_item_count) - prealloc_base - 1;
+            return std.math.log2_int_ceil(usize, box_count + prealloc_item_count) - prealloc_exp - 1;
         }
 
         fn shelfSize(shelf_index: ShelfIndex) usize {
             if (prealloc_item_count == 0) {
                 return usize(1) << shelf_index;
             }
-            return usize(1) << (shelf_index + (prealloc_base + 1));
+            return usize(1) << (shelf_index + (prealloc_exp + 1));
         }
 
         fn shelfIndex(list_index: usize) ShelfIndex {
             if (prealloc_item_count == 0) {
                 return std.math.log2_int(usize, list_index + 1);
             }
-            return std.math.log2_int(usize, list_index + prealloc_item_count) - prealloc_base - 1;
+            return std.math.log2_int(usize, list_index + prealloc_item_count) - prealloc_exp - 1;
         }
 
         fn boxIndex(list_index: usize, shelf_index: ShelfIndex) usize {
             if (prealloc_item_count == 0) {
                 return (list_index + 1) - (usize(1) << shelf_index);
             }
-            return list_index + prealloc_item_count - (usize(1) << ((prealloc_base + 1) + shelf_index));
+            return list_index + prealloc_item_count - (usize(1) << ((prealloc_exp + 1) + shelf_index));
         }
 
         fn freeShelves(self: &Self, from_count: ShelfIndex, to_count: ShelfIndex) void {
