@@ -2,6 +2,7 @@
 
 set -x
 
-brew install llvm@6
-brew outdated llvm@6 || brew upgrade llvm@6
-
+for pkg in llvm@6 cmake; do
+    brew install "$pkg"
+    brew outdated "$pkg" || brew upgrade "$pkg"
+done
