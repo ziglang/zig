@@ -268,6 +268,25 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 }
                 return ptr;
             }
+
+            pub fn prev(it: &Iterator) ?&T {
+                if (it.index == 0)
+                    return null;
+
+                it.index -= 1;
+                if (it.index < prealloc_item_count)
+                    return &it.list.prealloc_segment[it.index];
+
+                if (it.box_index == 0) {
+                    it.shelf_index -= 1;
+                    it.shelf_size /= 2;
+                    it.box_index = it.shelf_size - 1;
+                } else {
+                    it.box_index -= 1;
+                }
+
+                return &it.list.dynamic_segments[it.shelf_index][it.box_index];
+            }
         };
 
         pub fn iterator(self: &Self, start_index: usize) Iterator {
@@ -316,10 +335,16 @@ fn testSegmentedList(comptime prealloc: usize, allocator: &Allocator) !void {
 
     {
         var it = list.iterator(0);
-        var x: i32 = 1;
-        while (it.next()) |item| : (x += 1) {
+        var x: i32 = 0;
+        while (it.next()) |item| {
+            x += 1;
             assert(*item == x);
         }
+        assert(x == 100);
+        while (it.prev()) |item| : (x -= 1) {
+            assert(*item == x);
+        }
+        assert(x == 0);
     }
 
     assert(??list.pop() == 100);
