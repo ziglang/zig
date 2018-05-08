@@ -25,7 +25,10 @@ pub const Tree = struct {
     }
 
     pub fn tokenSlice(self: &Tree, token_index: TokenIndex) []const u8 {
-        const token = self.tokens.at(token_index);
+        return self.tokenSlicePtr(self.tokens.at(token_index));
+    }
+
+    pub fn tokenSlicePtr(self: &Tree, token: &const Token) []const u8 {
         return self.source[token.start..token.end];
     }
 
@@ -36,14 +39,14 @@ pub const Tree = struct {
         line_end: usize,
     };
 
-    pub fn tokenLocation(self: &Tree, start_index: usize, token_index: TokenIndex) Location {
+    pub fn tokenLocationPtr(self: &Tree, start_index: usize, token: &const Token) Location {
         var loc = Location {
             .line = 0,
             .column = 0,
             .line_start = start_index,
             .line_end = self.source.len,
         };
-        const token_start = self.tokens.at(token_index).start;
+        const token_start = token.start;
         for (self.source[start_index..]) |c, i| {
             if (i + start_index == token_start) {
                 loc.line_end = i + start_index;
@@ -61,6 +64,9 @@ pub const Tree = struct {
         return loc;
     }
 
+    pub fn tokenLocation(self: &Tree, start_index: usize, token_index: TokenIndex) Location {
+        return self.tokenLocationPtr(start_index, self.tokens.at(token_index));
+    }
 };
 
 pub const Error = union(enum) {
