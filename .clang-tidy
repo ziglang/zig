@@ -1,4 +1,4 @@
-Checks:          'clang-diagnostic-*,clang-analyzer-*'
+Checks:          'clang-diagnostic-*,clang-analyzer-*,-clang-analyzer-unix.Malloc,-clang-analyzer-cplusplus.NewDeleteLeaks'
 WarningsAsErrors: ''
 HeaderFilterRegex: ''
 AnalyzeTemporaryDtors: false

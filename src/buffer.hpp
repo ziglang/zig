@@ -33,6 +33,7 @@ static inline size_t buf_len(Buf *buf) {
 }
 
 static inline char *buf_ptr(Buf *buf) {
+    assert(buf != nullptr);
     assert(buf->list.length);
     return buf->list.items;
 }
@@ -119,6 +120,7 @@ static inline void buf_append_buf(Buf *buf, Buf *append_buf) {
 }
 
 static inline void buf_append_char(Buf *buf, uint8_t c) {
+    assert(buf != nullptr);
     assert(buf->list.length);
     buf_append_mem(buf, (const char *)&c, 1);
 }

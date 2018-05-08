@@ -205,6 +205,7 @@ static void ir_ref_bb(IrBasicBlock *bb) {
 }
 
 static void ir_ref_instruction(IrInstruction *instruction, IrBasicBlock *cur_bb) {
+    assert(instruction != nullptr);
     assert(instruction->id != IrInstructionIdInvalid);
     instruction->ref_count += 1;
     if (instruction->owner_bb != cur_bb && !instr_is_comptime(instruction))
@@ -12383,6 +12384,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
         }
 
+        assert(new_fn_arg_count > 0);
         IrInstruction **casted_args = allocate<IrInstruction *>(new_fn_arg_count);
 
         // Fork a scope of the function with known values for the parameters.
@@ -17421,6 +17423,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
 
         ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
 
+        assert(parent_ptr != nullptr);
         if (array_val) {
             size_t index = abs_offset + start_scalar;
             bool is_const = slice_is_const(return_type);
@@ -17433,6 +17436,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                 ptr_val->data.x_ptr.mut = parent_ptr->data.x_ptr.mut;
             }
         } else if (ptr_is_undef) {
+            assert(ptr_val != nullptr);
             ptr_val->type = get_pointer_to_type(ira->codegen, parent_ptr->type->data.pointer.child_type,
                     slice_is_const(return_type));
             ptr_val->special = ConstValSpecialUndef;
@@ -18395,7 +18399,9 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
             {
                 size_t buf_i = 0;
                 expand_undef_array(codegen, val);
-                for (size_t elem_i = 0; elem_i < val->type->data.array.len; elem_i += 1) {
+                size_t elem_i = 0;
+                assert(elem_i < val->type->data.array.len);
+                for (; elem_i < val->type->data.array.len; elem_i += 1) {
                     ConstExprValue *elem = &val->data.x_array.s_none.elements[elem_i];
                     buf_write_value_bytes(codegen, &buf[buf_i], elem);
                     buf_i += type_size(codegen, elem->type);
