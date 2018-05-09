@@ -756,7 +756,6 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateComment:
-                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '*':
                         ctok->state = CTokStateCommentStar;
@@ -766,7 +765,6 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateCommentStar:
-                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '/':
                         ctok->state = CTokStateStart;
@@ -779,7 +777,6 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateBackslash:
-                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '\n':
                         ctok->state = CTokStateStart;

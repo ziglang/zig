@@ -12384,7 +12384,6 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
         }
 
-        assert(new_fn_arg_count > 0);
         IrInstruction **casted_args = allocate<IrInstruction *>(new_fn_arg_count);
 
         // Fork a scope of the function with known values for the parameters.
@@ -17423,7 +17422,6 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
 
         ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
 
-        assert(parent_ptr != nullptr);
         if (array_val) {
             size_t index = abs_offset + start_scalar;
             bool is_const = slice_is_const(return_type);
@@ -17440,26 +17438,28 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             ptr_val->type = get_pointer_to_type(ira->codegen, parent_ptr->type->data.pointer.child_type,
                     slice_is_const(return_type));
             ptr_val->special = ConstValSpecialUndef;
-        } else switch (parent_ptr->data.x_ptr.special) {
-            case ConstPtrSpecialInvalid:
-            case ConstPtrSpecialDiscard:
-                zig_unreachable();
-            case ConstPtrSpecialRef:
-                init_const_ptr_ref(ira->codegen, ptr_val,
-                        parent_ptr->data.x_ptr.data.ref.pointee, slice_is_const(return_type));
-                break;
-            case ConstPtrSpecialBaseArray:
-                zig_unreachable();
-            case ConstPtrSpecialBaseStruct:
-                zig_panic("TODO");
-            case ConstPtrSpecialHardCodedAddr:
-                init_const_ptr_hard_coded_addr(ira->codegen, ptr_val,
-                    parent_ptr->type->data.pointer.child_type,
-                    parent_ptr->data.x_ptr.data.hard_coded_addr.addr + start_scalar,
-                    slice_is_const(return_type));
-                break;
-            case ConstPtrSpecialFunction:
-                zig_panic("TODO");
+        } else {
+            switch (parent_ptr->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                case ConstPtrSpecialDiscard:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    init_const_ptr_ref(ira->codegen, ptr_val,
+                            parent_ptr->data.x_ptr.data.ref.pointee, slice_is_const(return_type));
+                    break;
+                case ConstPtrSpecialBaseArray:
+                    zig_unreachable();
+                case ConstPtrSpecialBaseStruct:
+                    zig_panic("TODO");
+                case ConstPtrSpecialHardCodedAddr:
+                    init_const_ptr_hard_coded_addr(ira->codegen, ptr_val,
+                        parent_ptr->type->data.pointer.child_type,
+                        parent_ptr->data.x_ptr.data.hard_coded_addr.addr + start_scalar,
+                        slice_is_const(return_type));
+                    break;
+                case ConstPtrSpecialFunction:
+                    zig_panic("TODO");
+            }
         }
 
         ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
