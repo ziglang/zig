@@ -4306,7 +4306,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef alloc_fn_val = LLVMGetParam(fn_val, next_arg);
     next_arg += 1;
 
-    LLVMValueRef stack_trace_val;
+    LLVMValueRef stack_trace_val = nullptr;
     if (g->have_err_ret_tracing) {
         stack_trace_val = LLVMGetParam(fn_val, next_arg);
         next_arg += 1;
@@ -4317,7 +4317,6 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef err_code_ptr = LLVMGetParam(fn_val, next_arg);
     next_arg += 1;
     LLVMValueRef coro_size = LLVMGetParam(fn_val, next_arg);
-    next_arg += 1;
     LLVMValueRef alignment_val = LLVMConstInt(g->builtin_types.entry_u29->type_ref,
             get_coro_frame_align_bytes(g), false);
 
@@ -5828,20 +5827,20 @@ static const uint8_t int_sizes_in_bits[] = {
 };
 
 struct CIntTypeInfo {
-    CIntType id;
     const char *name;
+    CIntType id;
     bool is_signed;
 };
 
 static const CIntTypeInfo c_int_type_infos[] = {
-    {CIntTypeShort, "c_short", true},
-    {CIntTypeUShort, "c_ushort", false},
-    {CIntTypeInt, "c_int", true},
-    {CIntTypeUInt, "c_uint", false},
-    {CIntTypeLong, "c_long", true},
-    {CIntTypeULong, "c_ulong", false},
-    {CIntTypeLongLong, "c_longlong", true},
-    {CIntTypeULongLong, "c_ulonglong", false},
+    {"c_short", CIntTypeShort, true},
+    {"c_ushort", CIntTypeUShort, false},
+    {"c_int", CIntTypeInt, true},
+    {"c_uint", CIntTypeUInt, false},
+    {"c_long", CIntTypeLong,true},
+    {"c_ulong", CIntTypeULong, false},
+    {"c_longlong", CIntTypeLongLong,  true},
+    {"c_ulonglong", CIntTypeULongLong, false},
 };
 
 static const bool is_signed_list[] = { false, true, };

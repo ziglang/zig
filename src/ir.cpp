@@ -1117,8 +1117,10 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
 
     if (fn_ref)
         ir_ref_instruction(fn_ref, irb->current_basic_block);
-    for (size_t i = 0; i < arg_count; i += 1)
+    for (size_t i = 0; i < arg_count; i += 1) {
+        assert(args != nullptr);
         ir_ref_instruction(args[i], irb->current_basic_block);
+    }
     if (async_allocator)
         ir_ref_instruction(async_allocator, irb->current_basic_block);
 
@@ -12028,7 +12030,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
 
 static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_node,
     IrInstruction *arg, Scope **child_scope, size_t *next_proto_i,
-    GenericFnTypeId *generic_id, FnTypeId *fn_type_id, IrInstruction **casted_args,
+    GenericFnTypeId *generic_id, FnTypeId *fn_type_id, IrInstruction ***casted_args,
     FnTableEntry *impl_fn)
 {
     AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(*next_proto_i);
@@ -12096,7 +12098,10 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
             return false;
         }
 
-        casted_args[fn_type_id->param_count] = casted_arg;
+        if (*casted_args == nullptr) {
+            *casted_args = allocate<IrInstruction *>(1);
+        }
+        (*casted_args)[fn_type_id->param_count] = casted_arg;
         FnTypeParamInfo *param_info = &fn_type_id->param_info[fn_type_id->param_count];
         param_info->type = casted_arg->value.type;
         param_info->is_noalias = param_decl_node->data.param_decl.is_noalias;
@@ -12384,12 +12389,19 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
         }
 
-        IrInstruction **casted_args = allocate<IrInstruction *>(new_fn_arg_count);
+        IrInstruction **casted_args = nullptr;
+        if (new_fn_arg_count > 0) {
+            casted_args = allocate<IrInstruction *>(new_fn_arg_count);
+        }
 
         // Fork a scope of the function with known values for the parameters.
         Scope *parent_scope = fn_entry->fndef_scope->base.parent;
         FnTableEntry *impl_fn = create_fn(fn_proto_node);
-        impl_fn->param_source_nodes = allocate<AstNode *>(new_fn_arg_count);
+        if (new_fn_arg_count > 0) {
+            impl_fn->param_source_nodes = allocate<AstNode *>(new_fn_arg_count);
+        } else {
+            impl_fn->param_source_nodes = nullptr;
+        }
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
         impl_fn->fndef_scope = create_fndef_scope(impl_fn->body_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
@@ -12418,7 +12430,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
 
             if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, first_arg, &impl_fn->child_scope,
-                &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
+                &next_proto_i, generic_id, &inst_fn_type_id, &casted_args, impl_fn))
             {
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -12461,13 +12473,13 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                         return ira->codegen->builtin_types.entry_invalid;
 
                     if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg_tuple_arg, &impl_fn->child_scope,
-                        &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
+                        &next_proto_i, generic_id, &inst_fn_type_id, &casted_args, impl_fn))
                     {
                         return ira->codegen->builtin_types.entry_invalid;
                     }
                 }
             } else if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
-                &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
+                &next_proto_i, generic_id, &inst_fn_type_id, &casted_args, impl_fn))
             {
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -17439,6 +17451,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                     slice_is_const(return_type));
             ptr_val->special = ConstValSpecialUndef;
         } else {
+            assert(parent_ptr != nullptr);
             switch (parent_ptr->data.x_ptr.special) {
                 case ConstPtrSpecialInvalid:
                 case ConstPtrSpecialDiscard:
@@ -18399,9 +18412,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
             {
                 size_t buf_i = 0;
                 expand_undef_array(codegen, val);
-                size_t elem_i = 0;
-                assert(elem_i < val->type->data.array.len);
-                for (; elem_i < val->type->data.array.len; elem_i += 1) {
+                for (size_t elem_i = 0; elem_i < val->type->data.array.len; elem_i += 1) {
                     ConstExprValue *elem = &val->data.x_array.s_none.elements[elem_i];
                     buf_write_value_bytes(codegen, &buf[buf_i], elem);
                     buf_i += type_size(codegen, elem->type);
@@ -18446,7 +18457,7 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
         case TypeTableEntryIdVoid:
             return;
         case TypeTableEntryIdBool:
-            val->data.x_bool = (buf[0] != 0);
+            val->data.x_bool = (buf[0] != 0);  // NOLINT(clang-analyzer-core.UndefinedBinaryOperatorResult)
             return;
         case TypeTableEntryIdInt:
             bigint_read_twos_complement(&val->data.x_bigint, buf, val->type->data.integral.bit_count,

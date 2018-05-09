@@ -1025,7 +1025,7 @@ static AstNode *ast_parse_fn_proto_partial(ParseContext *pc, size_t *token_index
     if (next_token->id == TokenIdKeywordVar) {
         node->data.fn_proto.return_var_token = next_token;
         *token_index += 1;
-        next_token = &pc->tokens->at(*token_index);
+        pc->tokens->at(*token_index);
     } else {
         if (next_token->id == TokenIdKeywordError) {
             Token *maybe_lbrace_tok = &pc->tokens->at(*token_index + 1);
@@ -1037,7 +1037,7 @@ static AstNode *ast_parse_fn_proto_partial(ParseContext *pc, size_t *token_index
         } else if (next_token->id == TokenIdBang) {
             *token_index += 1;
             node->data.fn_proto.auto_err_set = true;
-            next_token = &pc->tokens->at(*token_index);
+            pc->tokens->at(*token_index);
         }
         node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, true);
     }
