@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.5)
+cmake_minimum_required(VERSION 3.1)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
@@ -6,18 +6,26 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 if(NOT CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE STRING
+  set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}" CACHE STRING
       "Directory to install zig to" FORCE)
 endif()
 
-project(zig C CXX)
-set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
+option(CMAKE_EXPORT_COMPILE_COMMANDS "Generate compilation database" ON)
 
+include(CMakeDependentOption)
+find_program(CLANG_TIDY_PATH clang-tidy)
+cmake_dependent_option(
+    ENABLE_CLANG_TIDY "Run clang-tidy on zig sources" ON
+    "CLANG_TIDY_PATH" OFF)
+
+set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 2)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+
+project(zig LANGUAGES C CXX VERSION "${ZIG_VERSION}")
 
 find_program(GIT_EXE NAMES git)
 if(GIT_EXE)
@@ -66,7 +74,7 @@ if(NOT MSVC)
     endif()
 endif()
 
-set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
+set(ZIG_CPP_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/zig_cpp")
 
 if(ZIG_FORCE_EXTERNAL_LLD)
     find_package(lld)
@@ -76,117 +84,117 @@ if(ZIG_FORCE_EXTERNAL_LLD)
 else()
     # This goes first so that we find embedded LLD instead
     # of system LLD.
-    include_directories("${CMAKE_SOURCE_DIR}/deps/lld/include")
+    include_directories("${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/include")
 
     include_directories(${LLVM_INCLUDE_DIRS})
     include_directories(${CLANG_INCLUDE_DIRS})
     set(EMBEDDED_LLD_LIB_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Args.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/ErrorHandler.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Memory.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Reproduce.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Strings.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/TargetOptionsCommandFlags.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Threads.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Version.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/DefinedAtom.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Error.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/File.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/LinkingContext.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Reader.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Resolver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/SymbolTable.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Writer.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Driver/DarwinLdDriver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/FileArchive.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_arm.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_arm64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_x86.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_x86_64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/CompactUnwindPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/GOTPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/LayoutPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachOLinkingContext.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileBinaryReader.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileBinaryWriter.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileFromAtoms.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileToAtoms.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileYAML.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ObjCPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ShimPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/StubsPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/TLVPass.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/WriterMachO.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/YAML/ReaderWriterYAML.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/Common/Args.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/Common/ErrorHandler.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/Common/Memory.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/Common/Reproduce.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/Common/Strings.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/Common/TargetOptionsCommandFlags.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/Common/Threads.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/Common/Version.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Core/DefinedAtom.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Core/Error.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Core/File.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Core/LinkingContext.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Core/Reader.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Core/Resolver.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Core/SymbolTable.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Core/Writer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/Driver/DarwinLdDriver.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/FileArchive.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_arm.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_arm64.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_x86.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_x86_64.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/CompactUnwindPass.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/GOTPass.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/LayoutPass.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachOLinkingContext.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileBinaryReader.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileBinaryWriter.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileFromAtoms.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileToAtoms.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileYAML.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ObjCPass.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ShimPass.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/StubsPass.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/TLVPass.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/WriterMachO.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/lib/ReaderWriter/YAML/ReaderWriterYAML.cpp"
     )
     set(EMBEDDED_LLD_ELF_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/AArch64ErrataFix.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AArch64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AMDGPU.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/ARM.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AVR.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/Mips.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/MipsArchTree.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/SPARCV9.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86_64.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Driver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/DriverUtils.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/EhFrame.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Filesystem.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/GdbIndex.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ICF.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputFiles.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputSection.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/LTO.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/LinkerScript.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/MapFile.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/MarkLive.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/OutputSections.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Relocations.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ScriptLexer.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ScriptParser.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Strings.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/SymbolTable.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Symbols.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/SyntheticSections.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Target.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Thunks.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Writer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/AArch64ErrataFix.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/AArch64.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/AMDGPU.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/ARM.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/AVR.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/Mips.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/MipsArchTree.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/PPC.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/PPC64.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/SPARCV9.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/X86.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Arch/X86_64.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Driver.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/DriverUtils.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/EhFrame.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Filesystem.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/GdbIndex.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/ICF.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/InputFiles.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/InputSection.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/LTO.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/LinkerScript.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/MapFile.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/MarkLive.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/OutputSections.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Relocations.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/ScriptLexer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/ScriptParser.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Strings.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/SymbolTable.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Symbols.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/SyntheticSections.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Target.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Thunks.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF/Writer.cpp"
     )
 
     set(EMBEDDED_LLD_COFF_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Chunks.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DLL.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Driver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DriverUtils.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/ICF.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/InputFiles.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/LTO.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MapFile.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MarkLive.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MinGW.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/PDB.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Strings.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/SymbolTable.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Symbols.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Writer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/Chunks.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/DLL.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/Driver.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/DriverUtils.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/ICF.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/InputFiles.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/LTO.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/MapFile.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/MarkLive.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/MinGW.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/PDB.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/Strings.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/SymbolTable.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/Symbols.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF/Writer.cpp"
     )
     set(EMBEDDED_LLD_MINGW_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/MinGW/Driver.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/MinGW/Driver.cpp"
     )
     set(EMBEDDED_LLD_WASM_SOURCES
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Driver.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/InputFiles.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/InputSegment.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/OutputSections.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Symbols.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/SymbolTable.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Writer.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/WriterUtils.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm/Driver.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm/InputFiles.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm/InputSegment.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm/OutputSections.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm/Symbols.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm/SymbolTable.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm/Writer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm/WriterUtils.cpp"
     )
     add_library(embedded_lld_lib ${EMBEDDED_LLD_LIB_SOURCES})
     add_library(embedded_lld_elf ${EMBEDDED_LLD_ELF_SOURCES})
@@ -219,32 +227,32 @@ else()
         LINK_FLAGS " "
     )
     target_include_directories(embedded_lld_lib PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt"
     )
     target_include_directories(embedded_lld_elf PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF"
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/ELF"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/ELF"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt/ELF"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt"
     )
     target_include_directories(embedded_lld_coff PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF"
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/COFF"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/COFF"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt/COFF"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt"
     )
     target_include_directories(embedded_lld_mingw PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/MinGW"
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/MinGW"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/MinGW"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt/MinGW"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt"
     )
     target_include_directories(embedded_lld_wasm PRIVATE
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm"
-        "${CMAKE_SOURCE_DIR}/deps/lld/include"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/wasm"
-        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/wasm"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt/wasm"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/lld-prebuilt"
     )
     set(LLD_INCLUDE_DIRS "")
     set(LLD_LIBRARIES
@@ -259,114 +267,114 @@ endif()
 
 # No patches have been applied to SoftFloat-3e
 set(EMBEDDED_SOFTFLOAT_SOURCES
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/f128M_isSignalingNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF32UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF64UI.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f128MToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f32UIToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f64UIToCommonNaN.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_propagateNaNF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/softfloat_raiseFlags.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_add.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_div.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_eq.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_eq_signaling.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_le.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_le_quiet.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_lt.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_lt_quiet.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_mul.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_mulAdd.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_rem.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_roundToInt.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_sqrt.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_sub.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_f16.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_f32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_f64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_i32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_i32_r_minMag.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_i64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_i64_r_minMag.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_ui32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_ui32_r_minMag.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_ui64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_ui64_r_minMag.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f32_to_f128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f64_to_f128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_add256M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addCarryM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addComplCarryM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addMagsF16.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addMagsF32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addMagsF64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_approxRecip32_1.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_approxRecipSqrt32_1.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_approxRecipSqrt_1Ks.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_approxRecip_1Ks.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_compare128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_compare96M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_countLeadingZeros16.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_countLeadingZeros32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_countLeadingZeros64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_countLeadingZeros8.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_eq128.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_invalidF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_isNaNF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_le128.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_lt128.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mul128MTo256M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mul64To128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mulAddF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mulAddF16.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mulAddF32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mulAddF64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_negXM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normRoundPackMToF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normRoundPackToF16.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normRoundPackToF32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normRoundPackToF64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normSubnormalF128SigM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normSubnormalF16Sig.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normSubnormalF32Sig.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normSubnormalF64Sig.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_remStepMBy32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundMToI64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundMToUI64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundPackMToF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundPackToF16.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundPackToF32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundPackToF64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundToI32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundToI64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundToUI32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundToUI64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftLeftM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftNormSigF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightJam256M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightJam32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightJam64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightJamM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftLeft64To96M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftLeftM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftRightExtendM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftRightJam64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftRightJamM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftRightM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_sub1XM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_sub256M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subM.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subMagsF16.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subMagsF32.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subMagsF64.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_tryPropagateNaNF128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/softfloat_state.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ui32_to_f128M.c"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ui64_to_f128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/f128M_isSignalingNaN.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF32UI.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_commonNaNToF64UI.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f128MToCommonNaN.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f32UIToCommonNaN.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_f64UIToCommonNaN.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/s_propagateNaNF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086/softfloat_raiseFlags.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_add.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_div.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_eq.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_eq_signaling.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_le.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_le_quiet.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_lt.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_lt_quiet.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_mul.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_mulAdd.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_rem.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_roundToInt.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_sqrt.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_sub.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_f16.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_f32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_f64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_i32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_i32_r_minMag.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_i64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_i64_r_minMag.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_ui32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_ui32_r_minMag.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_ui64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_to_ui64_r_minMag.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f32_to_f128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/f64_to_f128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_add256M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addCarryM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addComplCarryM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addMagsF16.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addMagsF32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addMagsF64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_approxRecip32_1.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_approxRecipSqrt32_1.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_approxRecipSqrt_1Ks.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_approxRecip_1Ks.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_compare128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_compare96M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_countLeadingZeros16.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_countLeadingZeros32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_countLeadingZeros64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_countLeadingZeros8.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_eq128.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_invalidF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_isNaNF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_le128.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_lt128.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mul128MTo256M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mul64To128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mulAddF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mulAddF16.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mulAddF32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_mulAddF64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_negXM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normRoundPackMToF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normRoundPackToF16.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normRoundPackToF32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normRoundPackToF64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normSubnormalF128SigM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normSubnormalF16Sig.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normSubnormalF32Sig.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_normSubnormalF64Sig.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_remStepMBy32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundMToI64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundMToUI64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundPackMToF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundPackToF16.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundPackToF32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundPackToF64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundToI32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundToI64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundToUI32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_roundToUI64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftLeftM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftNormSigF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightJam256M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightJam32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightJam64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightJamM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shiftRightM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftLeft64To96M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftLeftM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftRightExtendM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftRightJam64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftRightJamM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_shortShiftRightM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_sub1XM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_sub256M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subM.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subMagsF16.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subMagsF32.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subMagsF64.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/s_tryPropagateNaNF128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/softfloat_state.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/ui32_to_f128M.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/ui64_to_f128M.c"
 )
 add_library(embedded_softfloat ${EMBEDDED_SOFTFLOAT_SOURCES})
 if(MSVC)
@@ -379,38 +387,38 @@ else()
     )
 endif()
 target_include_directories(embedded_softfloat PUBLIC
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e-prebuilt"
-    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/8086"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e-prebuilt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/8086"
 )
-include_directories("${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/deps/SoftFloat-3e/source/include")
 set(SOFTFLOAT_LIBRARIES embedded_softfloat)
 
 find_package(Threads)
 
 set(ZIG_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
-    "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
-    "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
-    "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/c_tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
-    "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
-    "${CMAKE_SOURCE_DIR}/src/error.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ir.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
-    "${CMAKE_SOURCE_DIR}/src/link.cpp"
-    "${CMAKE_SOURCE_DIR}/src/main.cpp"
-    "${CMAKE_SOURCE_DIR}/src/os.cpp"
-    "${CMAKE_SOURCE_DIR}/src/parser.cpp"
-    "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
-    "${CMAKE_SOURCE_DIR}/src/target.cpp"
-    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/util.cpp"
-    "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/analyze.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ast_render.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bigfloat.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bigint.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/buffer.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/c_tokenizer.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/codegen.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/errmsg.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/error.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ir.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ir_print.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/link.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/os.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/parser.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/range_set.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/target.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/tokenizer.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/util.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/translate_c.cpp"
 )
 set(ZIG_CPP_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 
 set(ZIG_STD_FILES
@@ -703,16 +711,16 @@ endif()
 set(ZIG_LIB_DIR "lib/zig")
 set(C_HEADERS_DEST "${ZIG_LIB_DIR}/include")
 set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
-set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
+set(CONFIGURE_OUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/config.h")
 configure_file (
-    "${CMAKE_SOURCE_DIR}/src/config.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/config.h.in"
     ${CONFIGURE_OUT_FILE}
 )
 
 include_directories(
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_BINARY_DIR}
-    "${CMAKE_SOURCE_DIR}/src"
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
 if(MSVC)
@@ -755,13 +763,23 @@ set_target_properties(zig PROPERTIES
     LINK_FLAGS ${EXE_LDFLAGS}
 )
 
+if(ENABLE_CLANG_TIDY)
+    set_target_properties(zig_cpp PROPERTIES
+        C_CLANG_TIDY ${CLANG_TIDY_PATH}
+        CXX_CLANG_TIDY ${CLANG_TIDY_PATH})
+    set_target_properties(zig PROPERTIES
+        C_CLANG_TIDY ${CLANG_TIDY_PATH}
+        CXX_CLANG_TIDY ${CLANG_TIDY_PATH})
+endif()
+
+find_library(Threads REQUIRED)
 target_link_libraries(zig LINK_PUBLIC
     zig_cpp
     ${SOFTFLOAT_LIBRARIES}
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
-    ${CMAKE_THREAD_LIBS_INIT}
+    Threads::Threads
 )
 if(NOT MSVC)
     target_link_libraries(zig LINK_PUBLIC ${LIBXML2})
@@ -778,10 +796,10 @@ install(TARGETS zig_cpp DESTINATION "${ZIG_CPP_LIB_DIR}")
 
 foreach(file ${ZIG_C_HEADER_FILES})
     get_filename_component(file_dir "${C_HEADERS_DEST}/${file}" DIRECTORY)
-    install(FILES "${CMAKE_SOURCE_DIR}/c_headers/${file}" DESTINATION "${file_dir}")
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/c_headers/${file}" DESTINATION "${file_dir}")
 endforeach()
 
 foreach(file ${ZIG_STD_FILES})
     get_filename_component(file_dir "${ZIG_STD_DEST}/${file}" DIRECTORY)
-    install(FILES "${CMAKE_SOURCE_DIR}/std/${file}" DESTINATION "${file_dir}")
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/std/${file}" DESTINATION "${file_dir}")
 endforeach()

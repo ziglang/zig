@@ -27,6 +27,9 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
 static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
+    assert(node != nullptr);
+    assert(node->owner != nullptr);
+
     if (node->owner->c_import_node != nullptr) {
         // if this happens, then translate_c generated code that
         // failed semantic analysis, which isn't supposed to happen
@@ -4236,6 +4239,7 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_b
 }
 
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
+    assert(g != nullptr);
     TypeTableEntry **common_entry = get_int_type_ptr(g, is_signed, size_in_bits);
     if (common_entry)
         return *common_entry;

@@ -252,6 +252,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateFloat:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '.':
                         break;
@@ -276,6 +277,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateExpSign:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '+':
                     case '-':
@@ -291,6 +293,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateFloatExpFirst:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case DIGIT:
                         buf_append_char(&ctok->buf, *c);
@@ -301,6 +304,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateFloatExp:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case DIGIT:
                         buf_append_char(&ctok->buf, *c);
@@ -318,6 +322,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateDecimal:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case DIGIT:
                         buf_append_char(&ctok->buf, *c);
@@ -352,6 +357,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateGotZero:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case 'x':
                     case 'X':
@@ -369,6 +375,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateOctal:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '0':
                     case '1':
@@ -396,6 +403,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateHex:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '0':
                         hex_digit(ctok, 0);
@@ -476,6 +484,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateNumLitIntSuffixU:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case 'l':
                     case 'L':
@@ -490,6 +499,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateNumLitIntSuffixL:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case 'l':
                     case 'L':
@@ -510,6 +520,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateNumLitIntSuffixLL:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case 'u':
                     case 'U':
@@ -525,6 +536,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateNumLitIntSuffixUL:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case 'l':
                     case 'L':
@@ -540,6 +552,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateIdentifier:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case IDENT:
                         buf_append_char(&ctok->cur_tok->data.symbol, *c);
@@ -552,6 +565,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateString:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '\\':
                         ctok->state = CTokStateCharEscape;
@@ -565,6 +579,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateExpectChar:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '\\':
                         ctok->state = CTokStateCharEscape;
@@ -577,6 +592,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateCharEscape:
+                assert(ctok->cur_tok != nullptr);
                 switch (*c) {
                     case '\'':
                     case '"':
@@ -733,6 +749,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 }
                 break;
             case CTokStateLineComment:
+                assert(ctok->cur_tok != nullptr);
                 if (*c == '\n') {
                     ctok->state = CTokStateStart;
                     goto found_end_of_macro;
@@ -784,10 +801,12 @@ found_end_of_macro:
         case CTokStateNumLitIntSuffixL:
         case CTokStateNumLitIntSuffixUL:
         case CTokStateNumLitIntSuffixLL:
+            assert(ctok->cur_tok != nullptr);
             end_token(ctok);
             break;
         case CTokStateFloat:
         case CTokStateFloatExp:
+            assert(ctok->cur_tok != nullptr);
             end_float(ctok);
             break;
         case CTokStateExpectChar:
@@ -803,6 +822,7 @@ found_end_of_macro:
         case CTokStateFloatExpFirst:
         case CTokStateStrHex:
         case CTokStateStrOctal:
+            assert(ctok->cur_tok != nullptr);
             return mark_error(ctok);
     }
 
