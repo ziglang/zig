@@ -25,7 +25,7 @@ test "type info: integer, floating point type info" {
     }
 }
 
-test "type info: pointer, array and nullable type info" {
+test "type info: pointer type info" {
     comptime {
         const u32_ptr_info = @typeInfo(&u32);
         assert(TypeId(u32_ptr_info) == TypeId.Pointer);
@@ -33,12 +33,31 @@ test "type info: pointer, array and nullable type info" {
         assert(u32_ptr_info.Pointer.is_volatile == false);
         assert(u32_ptr_info.Pointer.alignment == 4);
         assert(u32_ptr_info.Pointer.child == u32);
+    }
+}
 
+test "type info: slice type info" {
+    comptime {
+        const u32_slice_info = @typeInfo([]u32);
+        assert(TypeId(u32_slice_info) == TypeId.Slice);
+        assert(u32_slice_info.Slice.is_const == false);
+        assert(u32_slice_info.Slice.is_volatile == false);
+        assert(u32_slice_info.Slice.alignment == 4);
+        assert(u32_slice_info.Slice.child == u32);
+    }
+}
+
+test "type info: array type info" {
+    comptime {
         const arr_info = @typeInfo([42]bool);
         assert(TypeId(arr_info) == TypeId.Array);
         assert(arr_info.Array.len == 42);
         assert(arr_info.Array.child == bool);
+    }
+}
 
+test "type info: nullable type info" {
+    comptime {
         const null_info = @typeInfo(?void);
         assert(TypeId(null_info) == TypeId.Nullable);
         assert(null_info.Nullable.child == void);
@@ -100,11 +119,11 @@ test "type info: union info" {
         assert(TypeId(typeinfo_info) == TypeId.Union);
         assert(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
         assert(typeinfo_info.Union.tag_type == TypeId);
-        assert(typeinfo_info.Union.fields.len == 25);
+        assert(typeinfo_info.Union.fields.len == 26);
         assert(typeinfo_info.Union.fields[4].enum_field != null);
         assert((??typeinfo_info.Union.fields[4].enum_field).value == 4);
         assert(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
-        assert(typeinfo_info.Union.defs.len == 20);
+        assert(typeinfo_info.Union.defs.len == 21);
 
         const TestNoTagUnion = union {
             Foo: void,
