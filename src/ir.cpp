@@ -16445,6 +16445,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     buf_init_from_str(&ptr_field_name, "ptr");
                     TypeTableEntry *ptr_type = type_entry->data.structure.fields_by_name.get(&ptr_field_name)->type_entry;
                     ensure_complete_type(ira->codegen, ptr_type);
+                    buf_deinit(&ptr_field_name);
 
                     result = create_ptr_like_type_info("Slice", ptr_type);
                     break;
