@@ -710,6 +710,7 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
         defer baf.destroy();
 
         try std.zig.render(allocator, baf.stream(), &tree);
+        try baf.finish();
     }
 }
 
