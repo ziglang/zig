@@ -671,34 +671,45 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
         };
         defer allocator.free(source_code);
 
-        var tokenizer = std.zig.Tokenizer.init(source_code);
-        var parser = std.zig.Parser.init(&tokenizer, allocator, file_path);
-        defer parser.deinit();
-
-        var tree = parser.parse() catch |err| {
+        var tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing file '{}': {}\n", file_path, err);
             continue;
         };
         defer tree.deinit();
 
-        var original_file_backup = try Buffer.init(allocator, file_path);
-        defer original_file_backup.deinit();
-        try original_file_backup.append(".backup");
 
-        try os.rename(allocator, file_path, original_file_backup.toSliceConst());
+        var error_it = tree.errors.iterator(0);
+        while (error_it.next()) |parse_error| {
+            const token = tree.tokens.at(parse_error.loc());
+            const loc = tree.tokenLocation(0, parse_error.loc());
+            try stderr.print("{}:{}:{}: error: ", file_path, loc.line + 1, loc.column + 1);
+            try tree.renderError(parse_error, stderr);
+            try stderr.print("\n{}\n", source_code[loc.line_start..loc.line_end]);
+            {
+                var i: usize = 0;
+                while (i < loc.column) : (i += 1) {
+                    try stderr.write(" ");
+                }
+            }
+            {
+                const caret_count = token.end - token.start;
+                var i: usize = 0;
+                while (i < caret_count) : (i += 1) {
+                    try stderr.write("~");
+                }
+            }
+            try stderr.write("\n");
+        }
+        if (tree.errors.len != 0) {
+            continue;
+        }
 
         try stderr.print("{}\n", file_path);
 
-        // TODO: BufferedAtomicFile has some access problems.
-        var out_file = try os.File.openWrite(allocator, file_path);
-        defer out_file.close();
+        const baf = try io.BufferedAtomicFile.create(allocator, file_path);
+        defer baf.destroy();
 
-        var out_file_stream = io.FileOutStream.init(&out_file);
-        try parser.renderSource(out_file_stream.stream, tree.root_node);
-
-        if (!flags.present("keep-backups")) {
-            try os.deleteFile(allocator, original_file_backup.toSliceConst());
-        }
+        try std.zig.render(allocator, baf.stream(), &tree);
     }
 }
 

@@ -576,7 +576,8 @@ set(ZIG_STD_FILES
     "unicode.zig"
     "zig/ast.zig"
     "zig/index.zig"
-    "zig/parser.zig"
+    "zig/parse.zig"
+    "zig/render.zig"
     "zig/tokenizer.zig"
 )
 

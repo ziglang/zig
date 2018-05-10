@@ -14709,7 +14709,7 @@ static IrInstruction *ir_analyze_union_tag(IrAnalyze *ira, IrInstruction *source
     }
 
     if (value->value.type->id != TypeTableEntryIdUnion) {
-        ir_add_error(ira, source_instr,
+        ir_add_error(ira, value,
             buf_sprintf("expected enum or union type, found '%s'", buf_ptr(&value->value.type->name)));
         return ira->codegen->invalid_instruction;
     }

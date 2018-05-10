@@ -8,9 +8,7 @@ const c = @import("c.zig");
 const builtin = @import("builtin");
 const Target = @import("target.zig").Target;
 const warn = std.debug.warn;
-const Tokenizer = std.zig.Tokenizer;
 const Token = std.zig.Token;
-const Parser = std.zig.Parser;
 const ArrayList = std.ArrayList;
 
 pub const Module = struct {
@@ -246,34 +244,17 @@ pub const Module = struct {
 
         warn("{}", source_code);
 
-        warn("====tokenization:====\n");
-        {
-            var tokenizer = Tokenizer.init(source_code);
-            while (true) {
-                const token = tokenizer.next();
-                tokenizer.dump(token);
-                if (token.id == Token.Id.Eof) {
-                    break;
-                }
-            }
-        }
-
         warn("====parse:====\n");
 
-        var tokenizer = Tokenizer.init(source_code);
-        var parser = Parser.init(&tokenizer, self.allocator, root_src_real_path);
-        defer parser.deinit();
-
-        var tree = try parser.parse();
+        var tree = try std.zig.parse(self.allocator, source_code);
         defer tree.deinit();
 
         var stderr_file = try std.io.getStdErr();
         var stderr_file_out_stream = std.io.FileOutStream.init(&stderr_file);
         const out_stream = &stderr_file_out_stream.stream;
-        try parser.renderAst(out_stream, tree.root_node);
 
         warn("====fmt:====\n");
-        try parser.renderSource(out_stream, tree.root_node);
+        try std.zig.render(self.allocator, out_stream, &tree);
 
         warn("====ir:====\n");
         warn("TODO\n\n");
