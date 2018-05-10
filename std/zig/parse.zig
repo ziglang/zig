@@ -1,6 +1,5 @@
 const std = @import("../index.zig");
 const assert = std.debug.assert;
-const SegmentedList = std.SegmentedList;
 const mem = std.mem;
 const ast = std.zig.ast;
 const Tokenizer = std.zig.Tokenizer;
@@ -15,7 +14,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
     var tree_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer tree_arena.deinit();
 
-    var stack = SegmentedList(State, 32).init(allocator);
+    var stack = std.ArrayList(State).init(allocator);
     defer stack.deinit();
 
     const arena = &tree_arena.allocator;
@@ -46,11 +45,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
     }
     var tok_it = tree.tokens.iterator(0);
 
-    try stack.push(State.TopLevel);
+    try stack.append(State.TopLevel);
 
     while (true) {
         // This gives us 1 free push that can't fail
-        const state = ??stack.pop();
+        const state = stack.pop();
 
         switch (state) {
             State.TopLevel => {
@@ -65,7 +64,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Keyword_test => {
-                        stack.push(State.TopLevel) catch unreachable;
+                        stack.append(State.TopLevel) catch unreachable;
 
                         const block = try arena.construct(ast.Node.Block {
                             .base = ast.Node {
@@ -86,14 +85,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .body_node = &block.base,
                         });
                         try root_node.decls.push(&test_node.base);
-                        try stack.push(State { .Block = block });
-                        try stack.push(State {
+                        try stack.append(State { .Block = block });
+                        try stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.LBrace,
                                 .ptr = &block.rbrace,
                             }
                         });
-                        try stack.push(State { .StringLiteral = OptionalCtx { .Required = &test_node.name } });
+                        try stack.append(State { .StringLiteral = OptionalCtx { .Required = &test_node.name } });
                         continue;
                     },
                     Token.Id.Eof => {
@@ -102,8 +101,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         return tree;
                     },
                     Token.Id.Keyword_pub => {
-                        stack.push(State.TopLevel) catch unreachable;
-                        try stack.push(State {
+                        stack.append(State.TopLevel) catch unreachable;
+                        try stack.append(State {
                             .TopLevelExtern = TopLevelDeclCtx {
                                 .decls = &root_node.decls,
                                 .visib_token = token_index,
@@ -134,9 +133,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         });
                         try root_node.decls.push(&node.base);
 
-                        stack.push(State.TopLevel) catch unreachable;
-                        try stack.push(State { .Block = block });
-                        try stack.push(State {
+                        stack.append(State.TopLevel) catch unreachable;
+                        try stack.append(State { .Block = block });
+                        try stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.LBrace,
                                 .ptr = &block.rbrace,
@@ -146,8 +145,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         putBackToken(&tok_it, &tree);
-                        stack.push(State.TopLevel) catch unreachable;
-                        try stack.push(State {
+                        stack.append(State.TopLevel) catch unreachable;
+                        try stack.append(State {
                             .TopLevelExtern = TopLevelDeclCtx {
                                 .decls = &root_node.decls,
                                 .visib_token = null,
@@ -166,7 +165,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Keyword_export, Token.Id.Keyword_inline => {
-                        stack.push(State {
+                        stack.append(State {
                             .TopLevelDecl = TopLevelDeclCtx {
                                 .decls = ctx.decls,
                                 .visib_token = ctx.visib_token,
@@ -181,7 +180,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_extern => {
-                        stack.push(State {
+                        stack.append(State {
                             .TopLevelLibname = TopLevelDeclCtx {
                                 .decls = ctx.decls,
                                 .visib_token = ctx.visib_token,
@@ -197,7 +196,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         putBackToken(&tok_it, &tree);
-                        stack.push(State { .TopLevelDecl = ctx }) catch unreachable;
+                        stack.append(State { .TopLevelDecl = ctx }) catch unreachable;
                         continue;
                     }
                 }
@@ -213,7 +212,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     };
                 };
 
-                stack.push(State {
+                stack.append(State {
                     .TopLevelDecl = TopLevelDeclCtx {
                         .decls = ctx.decls,
                         .visib_token = ctx.visib_token,
@@ -246,13 +245,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         });
                         try ctx.decls.push(&node.base);
 
-                        stack.push(State {
+                        stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.Semicolon,
                                 .ptr = &node.semicolon_token,
                             }
                         }) catch unreachable;
-                        try stack.push(State { .Expression = OptionalCtx { .Required = &node.expr } });
+                        try stack.append(State { .Expression = OptionalCtx { .Required = &node.expr } });
                         continue;
                     },
                     Token.Id.Keyword_var, Token.Id.Keyword_const => {
@@ -265,7 +264,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             }
                         }
 
-                        try stack.push(State {
+                        try stack.append(State {
                             .VarDecl = VarDeclCtx {
                                 .comments = ctx.comments,
                                 .visib_token = ctx.visib_token,
@@ -299,13 +298,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .align_expr = null,
                         });
                         try ctx.decls.push(&fn_proto.base);
-                        stack.push(State { .FnDef = fn_proto }) catch unreachable;
-                        try stack.push(State { .FnProto = fn_proto });
+                        stack.append(State { .FnDef = fn_proto }) catch unreachable;
+                        try stack.append(State { .FnProto = fn_proto });
 
                         switch (token_ptr.id) {
                             Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
                                 fn_proto.cc_token = token_index;
-                                try stack.push(State {
+                                try stack.append(State {
                                     .ExpectTokenSave = ExpectTokenSave {
                                         .id = Token.Id.Keyword_fn,
                                         .ptr = &fn_proto.fn_token,
@@ -324,13 +323,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 );
                                 fn_proto.async_attr = async_node;
 
-                                try stack.push(State {
+                                try stack.append(State {
                                     .ExpectTokenSave = ExpectTokenSave {
                                         .id = Token.Id.Keyword_fn,
                                         .ptr = &fn_proto.fn_token,
                                     }
                                 });
-                                try stack.push(State { .AsyncAllocator = async_node });
+                                try stack.append(State { .AsyncAllocator = async_node });
                                 continue;
                             },
                             Token.Id.Keyword_fn => {
@@ -363,14 +362,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     const node_ptr = try ctx.container_decl.fields_and_decls.addOne();
                     *node_ptr = &node.base;
 
-                    stack.push(State { .FieldListCommaOrEnd = ctx.container_decl }) catch unreachable;
-                    try stack.push(State { .Expression = OptionalCtx { .Required = &node.type_expr } });
-                    try stack.push(State { .ExpectToken = Token.Id.Colon });
+                    stack.append(State { .FieldListCommaOrEnd = ctx.container_decl }) catch unreachable;
+                    try stack.append(State { .Expression = OptionalCtx { .Required = &node.type_expr } });
+                    try stack.append(State { .ExpectToken = Token.Id.Colon });
                     continue;
                 }
 
-                stack.push(State{ .ContainerDecl = ctx.container_decl }) catch unreachable;
-                try stack.push(State {
+                stack.append(State{ .ContainerDecl = ctx.container_decl }) catch unreachable;
+                try stack.append(State {
                     .TopLevelExtern = TopLevelDeclCtx {
                         .decls = &ctx.container_decl.fields_and_decls,
                         .visib_token = ctx.visib_token,
@@ -390,7 +389,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     putBackToken(&tok_it, &tree);
                     continue;
                 }
-                stack.push(State { .Expression = ctx }) catch unreachable;
+                stack.append(State { .Expression = ctx }) catch unreachable;
                 continue;
             },
 
@@ -420,9 +419,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     }
                 );
 
-                stack.push(State { .ContainerDecl = node }) catch unreachable;
-                try stack.push(State { .ExpectToken = Token.Id.LBrace });
-                try stack.push(State { .ContainerInitArgStart = node });
+                stack.append(State { .ContainerDecl = node }) catch unreachable;
+                try stack.append(State { .ExpectToken = Token.Id.LBrace });
+                try stack.append(State { .ContainerInitArgStart = node });
                 continue;
             },
 
@@ -431,8 +430,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                stack.push(State { .ExpectToken = Token.Id.RParen }) catch unreachable;
-                try stack.push(State { .ContainerInitArg = container_decl });
+                stack.append(State { .ExpectToken = Token.Id.RParen }) catch unreachable;
+                try stack.append(State { .ContainerInitArg = container_decl });
                 continue;
             },
 
@@ -447,8 +446,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         const lparen_tok_index = lparen_tok.index;
                         const lparen_tok_ptr = lparen_tok.ptr;
                         if (lparen_tok_ptr.id == Token.Id.LParen) {
-                            try stack.push(State { .ExpectToken = Token.Id.RParen } );
-                            try stack.push(State { .Expression = OptionalCtx {
+                            try stack.append(State { .ExpectToken = Token.Id.RParen } );
+                            try stack.append(State { .Expression = OptionalCtx {
                                 .RequiredNull = &container_decl.init_arg_expr.Enum,
                             } });
                         } else {
@@ -458,7 +457,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     else => {
                         putBackToken(&tok_it, &tree);
                         container_decl.init_arg_expr = ast.Node.ContainerDecl.InitArg { .Type = undefined };
-                        stack.push(State { .Expression = OptionalCtx { .Required = &container_decl.init_arg_expr.Type } }) catch unreachable;
+                        stack.append(State { .Expression = OptionalCtx { .Required = &container_decl.init_arg_expr.Type } }) catch unreachable;
                     },
                 }
                 continue;
@@ -489,9 +488,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 const node_ptr = try container_decl.fields_and_decls.addOne();
                                 *node_ptr = &node.base;
 
-                                try stack.push(State { .FieldListCommaOrEnd = container_decl });
-                                try stack.push(State { .TypeExprBegin = OptionalCtx { .Required = &node.type_expr } });
-                                try stack.push(State { .ExpectToken = Token.Id.Colon });
+                                try stack.append(State { .FieldListCommaOrEnd = container_decl });
+                                try stack.append(State { .TypeExprBegin = OptionalCtx { .Required = &node.type_expr } });
+                                try stack.append(State { .ExpectToken = Token.Id.Colon });
                                 continue;
                             },
                             ast.Node.ContainerDecl.Kind.Union => {
@@ -504,10 +503,10 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 });
                                 try container_decl.fields_and_decls.push(&node.base);
 
-                                stack.push(State { .FieldListCommaOrEnd = container_decl }) catch unreachable;
-                                try stack.push(State { .FieldInitValue = OptionalCtx { .RequiredNull = &node.value_expr } });
-                                try stack.push(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &node.type_expr } });
-                                try stack.push(State { .IfToken = Token.Id.Colon });
+                                stack.append(State { .FieldListCommaOrEnd = container_decl }) catch unreachable;
+                                try stack.append(State { .FieldInitValue = OptionalCtx { .RequiredNull = &node.value_expr } });
+                                try stack.append(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &node.type_expr } });
+                                try stack.append(State { .IfToken = Token.Id.Colon });
                                 continue;
                             },
                             ast.Node.ContainerDecl.Kind.Enum => {
@@ -519,9 +518,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 });
                                 try container_decl.fields_and_decls.push(&node.base);
 
-                                stack.push(State { .FieldListCommaOrEnd = container_decl }) catch unreachable;
-                                try stack.push(State { .Expression = OptionalCtx { .RequiredNull = &node.value } });
-                                try stack.push(State { .IfToken = Token.Id.Equal });
+                                stack.append(State { .FieldListCommaOrEnd = container_decl }) catch unreachable;
+                                try stack.append(State { .Expression = OptionalCtx { .RequiredNull = &node.value } });
+                                try stack.append(State { .IfToken = Token.Id.Equal });
                                 continue;
                             },
                         }
@@ -529,7 +528,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Keyword_pub => {
                         switch (container_decl.kind) {
                             ast.Node.ContainerDecl.Kind.Struct => {
-                                try stack.push(State {
+                                try stack.append(State {
                                     .TopLevelExternOrField = TopLevelExternOrFieldCtx {
                                         .visib_token = token_index,
                                         .container_decl = container_decl,
@@ -539,8 +538,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 continue;
                             },
                             else => {
-                                stack.push(State{ .ContainerDecl = container_decl }) catch unreachable;
-                                try stack.push(State {
+                                stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
+                                try stack.append(State {
                                     .TopLevelExtern = TopLevelDeclCtx {
                                         .decls = &container_decl.fields_and_decls,
                                         .visib_token = token_index,
@@ -554,8 +553,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         }
                     },
                     Token.Id.Keyword_export => {
-                        stack.push(State{ .ContainerDecl = container_decl }) catch unreachable;
-                        try stack.push(State {
+                        stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
+                        try stack.append(State {
                             .TopLevelExtern = TopLevelDeclCtx {
                                 .decls = &container_decl.fields_and_decls,
                                 .visib_token = token_index,
@@ -578,8 +577,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         putBackToken(&tok_it, &tree);
-                        stack.push(State{ .ContainerDecl = container_decl }) catch unreachable;
-                        try stack.push(State {
+                        stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
+                        try stack.append(State {
                             .TopLevelExtern = TopLevelDeclCtx {
                                 .decls = &container_decl.fields_and_decls,
                                 .visib_token = null,
@@ -615,10 +614,10 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 });
                 try ctx.list.push(&var_decl.base);
 
-                try stack.push(State { .VarDeclAlign = var_decl });
-                try stack.push(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &var_decl.type_node} });
-                try stack.push(State { .IfToken = Token.Id.Colon });
-                try stack.push(State {
+                try stack.append(State { .VarDeclAlign = var_decl });
+                try stack.append(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &var_decl.type_node} });
+                try stack.append(State { .IfToken = Token.Id.Colon });
+                try stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
                         .id = Token.Id.Identifier,
                         .ptr = &var_decl.name_token,
@@ -627,15 +626,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.VarDeclAlign => |var_decl| {
-                try stack.push(State { .VarDeclEq = var_decl });
+                try stack.append(State { .VarDeclEq = var_decl });
 
                 const next_token = nextToken(&tok_it, &tree);
                 const next_token_index = next_token.index;
                 const next_token_ptr = next_token.ptr;
                 if (next_token_ptr.id == Token.Id.Keyword_align) {
-                    try stack.push(State { .ExpectToken = Token.Id.RParen });
-                    try stack.push(State { .Expression = OptionalCtx { .RequiredNull = &var_decl.align_node} });
-                    try stack.push(State { .ExpectToken = Token.Id.LParen });
+                    try stack.append(State { .ExpectToken = Token.Id.RParen });
+                    try stack.append(State { .Expression = OptionalCtx { .RequiredNull = &var_decl.align_node} });
+                    try stack.append(State { .ExpectToken = Token.Id.LParen });
                     continue;
                 }
 
@@ -649,13 +648,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 switch (token_ptr.id) {
                     Token.Id.Equal => {
                         var_decl.eq_token = token_index;
-                        stack.push(State {
+                        stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.Semicolon,
                                 .ptr = &var_decl.semicolon_token,
                             },
                         }) catch unreachable;
-                        try stack.push(State { .Expression = OptionalCtx { .RequiredNull = &var_decl.init_node } });
+                        try stack.append(State { .Expression = OptionalCtx { .RequiredNull = &var_decl.init_node } });
                         continue;
                     },
                     Token.Id.Semicolon => {
@@ -686,7 +685,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rbrace = undefined,
                         });
                         fn_proto.body_node = &block.base;
-                        stack.push(State { .Block = block }) catch unreachable;
+                        stack.append(State { .Block = block }) catch unreachable;
                         continue;
                     },
                     Token.Id.Semicolon => continue,
@@ -699,9 +698,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.FnProto => |fn_proto| {
-                stack.push(State { .FnProtoAlign = fn_proto }) catch unreachable;
-                try stack.push(State { .ParamDecl = fn_proto });
-                try stack.push(State { .ExpectToken = Token.Id.LParen });
+                stack.append(State { .FnProtoAlign = fn_proto }) catch unreachable;
+                try stack.append(State { .ParamDecl = fn_proto });
+                try stack.append(State { .ExpectToken = Token.Id.LParen });
 
                 if (eatToken(&tok_it, &tree, Token.Id.Identifier)) |name_token| {
                     fn_proto.name_token = name_token;
@@ -709,12 +708,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.FnProtoAlign => |fn_proto| {
-                stack.push(State { .FnProtoReturnType = fn_proto }) catch unreachable;
+                stack.append(State { .FnProtoReturnType = fn_proto }) catch unreachable;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_align)) |align_token| {
-                    try stack.push(State { .ExpectToken = Token.Id.RParen });
-                    try stack.push(State { .Expression = OptionalCtx { .RequiredNull = &fn_proto.align_expr } });
-                    try stack.push(State { .ExpectToken = Token.Id.LParen });
+                    try stack.append(State { .ExpectToken = Token.Id.RParen });
+                    try stack.append(State { .Expression = OptionalCtx { .RequiredNull = &fn_proto.align_expr } });
+                    try stack.append(State { .ExpectToken = Token.Id.LParen });
                 }
                 continue;
             },
@@ -725,7 +724,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 switch (token_ptr.id) {
                     Token.Id.Bang => {
                         fn_proto.return_type = ast.Node.FnProto.ReturnType { .InferErrorSet = undefined };
-                        stack.push(State {
+                        stack.append(State {
                             .TypeExprBegin = OptionalCtx { .Required = &fn_proto.return_type.InferErrorSet },
                         }) catch unreachable;
                         continue;
@@ -747,7 +746,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 
                         putBackToken(&tok_it, &tree);
                         fn_proto.return_type = ast.Node.FnProto.ReturnType { .Explicit = undefined };
-                        stack.push(State { .TypeExprBegin = OptionalCtx { .Required = &fn_proto.return_type.Explicit }, }) catch unreachable;
+                        stack.append(State { .TypeExprBegin = OptionalCtx { .Required = &fn_proto.return_type.Explicit }, }) catch unreachable;
                         continue;
                     },
                 }
@@ -768,14 +767,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 });
                 try fn_proto.params.push(&param_decl.base);
 
-                stack.push(State {
+                stack.append(State {
                     .ParamDeclEnd = ParamDeclEndCtx {
                         .param_decl = param_decl,
                         .fn_proto = fn_proto,
                     }
                 }) catch unreachable;
-                try stack.push(State { .ParamDeclName = param_decl });
-                try stack.push(State { .ParamDeclAliasOrComptime = param_decl });
+                try stack.append(State { .ParamDeclName = param_decl });
+                try stack.append(State { .ParamDeclAliasOrComptime = param_decl });
                 continue;
             },
             State.ParamDeclAliasOrComptime => |param_decl| {
@@ -801,12 +800,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             State.ParamDeclEnd => |ctx| {
                 if (eatToken(&tok_it, &tree, Token.Id.Ellipsis3)) |ellipsis3| {
                     ctx.param_decl.var_args_token = ellipsis3;
-                    stack.push(State { .ExpectToken = Token.Id.RParen }) catch unreachable;
+                    stack.append(State { .ExpectToken = Token.Id.RParen }) catch unreachable;
                     continue;
                 }
 
-                try stack.push(State { .ParamDeclComma = ctx.fn_proto });
-                try stack.push(State {
+                try stack.append(State { .ParamDeclComma = ctx.fn_proto });
+                try stack.append(State {
                     .TypeExprBegin = OptionalCtx { .Required = &ctx.param_decl.type_node }
                 });
                 continue;
@@ -815,7 +814,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RParen)) {
                     ExpectCommaOrEndResult.end_token => |t| {
                         if (t == null) {
-                            stack.push(State { .ParamDecl = fn_proto }) catch unreachable;
+                            stack.append(State { .ParamDecl = fn_proto }) catch unreachable;
                         }
                         continue;
                     },
@@ -828,7 +827,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 
             State.MaybeLabeledExpression => |ctx| {
                 if (eatToken(&tok_it, &tree, Token.Id.Colon)) |_| {
-                    stack.push(State {
+                    stack.append(State {
                         .LabeledExpression = LabelCtx {
                             .label = ctx.label,
                             .opt_ctx = ctx.opt_ctx,
@@ -855,11 +854,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 .rbrace = undefined,
                             }
                         );
-                        stack.push(State { .Block = block }) catch unreachable;
+                        stack.append(State { .Block = block }) catch unreachable;
                         continue;
                     },
                     Token.Id.Keyword_while => {
-                        stack.push(State {
+                        stack.append(State {
                             .While = LoopCtx {
                                 .label = ctx.label,
                                 .inline_token = null,
@@ -870,7 +869,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_for => {
-                        stack.push(State {
+                        stack.append(State {
                             .For = LoopCtx {
                                 .label = ctx.label,
                                 .inline_token = null,
@@ -891,12 +890,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .body = null,
                         });
                         ctx.opt_ctx.store(&node.base);
-                        stack.push(State { .SuspendBody = node }) catch unreachable;
-                        try stack.push(State { .Payload = OptionalCtx { .Optional = &node.payload } });
+                        stack.append(State { .SuspendBody = node }) catch unreachable;
+                        try stack.append(State { .Payload = OptionalCtx { .Optional = &node.payload } });
                         continue;
                     },
                     Token.Id.Keyword_inline => {
-                        stack.push(State {
+                        stack.append(State {
                             .Inline = InlineCtx {
                                 .label = ctx.label,
                                 .inline_token = token_index,
@@ -924,7 +923,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Keyword_while => {
-                        stack.push(State {
+                        stack.append(State {
                             .While = LoopCtx {
                                 .inline_token = ctx.inline_token,
                                 .label = ctx.label,
@@ -935,7 +934,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_for => {
-                        stack.push(State {
+                        stack.append(State {
                             .For = LoopCtx {
                                 .inline_token = ctx.inline_token,
                                 .label = ctx.label,
@@ -972,20 +971,20 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         .@"else" = null,
                     }
                 );
-                stack.push(State { .Else = &node.@"else" }) catch unreachable;
-                try stack.push(State { .Expression = OptionalCtx { .Required = &node.body } });
-                try stack.push(State { .WhileContinueExpr = &node.continue_expr });
-                try stack.push(State { .IfToken = Token.Id.Colon });
-                try stack.push(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
-                try stack.push(State { .ExpectToken = Token.Id.RParen });
-                try stack.push(State { .Expression = OptionalCtx { .Required = &node.condition } });
-                try stack.push(State { .ExpectToken = Token.Id.LParen });
+                stack.append(State { .Else = &node.@"else" }) catch unreachable;
+                try stack.append(State { .Expression = OptionalCtx { .Required = &node.body } });
+                try stack.append(State { .WhileContinueExpr = &node.continue_expr });
+                try stack.append(State { .IfToken = Token.Id.Colon });
+                try stack.append(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
+                try stack.append(State { .ExpectToken = Token.Id.RParen });
+                try stack.append(State { .Expression = OptionalCtx { .Required = &node.condition } });
+                try stack.append(State { .ExpectToken = Token.Id.LParen });
                 continue;
             },
             State.WhileContinueExpr => |dest| {
-                stack.push(State { .ExpectToken = Token.Id.RParen }) catch unreachable;
-                try stack.push(State { .AssignmentExpressionBegin = OptionalCtx { .RequiredNull = dest } });
-                try stack.push(State { .ExpectToken = Token.Id.LParen });
+                stack.append(State { .ExpectToken = Token.Id.RParen }) catch unreachable;
+                try stack.append(State { .AssignmentExpressionBegin = OptionalCtx { .RequiredNull = dest } });
+                try stack.append(State { .ExpectToken = Token.Id.LParen });
                 continue;
             },
             State.For => |ctx| {
@@ -1001,12 +1000,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         .@"else" = null,
                     }
                 );
-                stack.push(State { .Else = &node.@"else" }) catch unreachable;
-                try stack.push(State { .Expression = OptionalCtx { .Required = &node.body } });
-                try stack.push(State { .PointerIndexPayload = OptionalCtx { .Optional = &node.payload } });
-                try stack.push(State { .ExpectToken = Token.Id.RParen });
-                try stack.push(State { .Expression = OptionalCtx { .Required = &node.array_expr } });
-                try stack.push(State { .ExpectToken = Token.Id.LParen });
+                stack.append(State { .Else = &node.@"else" }) catch unreachable;
+                try stack.append(State { .Expression = OptionalCtx { .Required = &node.body } });
+                try stack.append(State { .PointerIndexPayload = OptionalCtx { .Optional = &node.payload } });
+                try stack.append(State { .ExpectToken = Token.Id.RParen });
+                try stack.append(State { .Expression = OptionalCtx { .Required = &node.array_expr } });
+                try stack.append(State { .ExpectToken = Token.Id.LParen });
                 continue;
             },
             State.Else => |dest| {
@@ -1021,8 +1020,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     );
                     *dest = node;
 
-                    stack.push(State { .Expression = OptionalCtx { .Required = &node.body } }) catch unreachable;
-                    try stack.push(State { .Payload = OptionalCtx { .Optional = &node.payload } });
+                    stack.append(State { .Expression = OptionalCtx { .Required = &node.body } }) catch unreachable;
+                    try stack.append(State { .Payload = OptionalCtx { .Optional = &node.payload } });
                     continue;
                 } else {
                     continue;
@@ -1041,7 +1040,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         putBackToken(&tok_it, &tree);
-                        stack.push(State { .Block = block }) catch unreachable;
+                        stack.append(State { .Block = block }) catch unreachable;
 
                         var any_comments = false;
                         while (try eatLineComment(arena, &tok_it, &tree)) |line_comment| {
@@ -1050,7 +1049,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         }
                         if (any_comments) continue;
 
-                        try stack.push(State { .Statement = block });
+                        try stack.append(State { .Statement = block });
                         continue;
                     },
                 }
@@ -1061,7 +1060,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Keyword_comptime => {
-                        stack.push(State {
+                        stack.append(State {
                             .ComptimeStatement = ComptimeStatementCtx {
                                 .comptime_token = token_index,
                                 .block = block,
@@ -1070,7 +1069,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_var, Token.Id.Keyword_const => {
-                        stack.push(State {
+                        stack.append(State {
                             .VarDecl = VarDeclCtx {
                                 .comments = null,
                                 .visib_token = null,
@@ -1099,8 +1098,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         const node_ptr = try block.statements.addOne();
                         *node_ptr = &node.base;
 
-                        stack.push(State { .Semicolon = node_ptr }) catch unreachable;
-                        try stack.push(State { .AssignmentExpressionBegin = OptionalCtx{ .Required = &node.expr } });
+                        stack.append(State { .Semicolon = node_ptr }) catch unreachable;
+                        try stack.append(State { .AssignmentExpressionBegin = OptionalCtx{ .Required = &node.expr } });
                         continue;
                     },
                     Token.Id.LBrace => {
@@ -1113,14 +1112,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         });
                         try block.statements.push(&inner_block.base);
 
-                        stack.push(State { .Block = inner_block }) catch unreachable;
+                        stack.append(State { .Block = inner_block }) catch unreachable;
                         continue;
                     },
                     else => {
                         putBackToken(&tok_it, &tree);
                         const statement = try block.statements.addOne();
-                        try stack.push(State { .Semicolon = statement });
-                        try stack.push(State { .AssignmentExpressionBegin = OptionalCtx{ .Required = statement } });
+                        try stack.append(State { .Semicolon = statement });
+                        try stack.append(State { .AssignmentExpressionBegin = OptionalCtx{ .Required = statement } });
                         continue;
                     }
                 }
@@ -1131,7 +1130,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Keyword_var, Token.Id.Keyword_const => {
-                        stack.push(State {
+                        stack.append(State {
                             .VarDecl = VarDeclCtx {
                                 .comments = null,
                                 .visib_token = null,
@@ -1148,8 +1147,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         putBackToken(&tok_it, &tree);
                         putBackToken(&tok_it, &tree);
                         const statement = try ctx.block.statements.addOne();
-                        try stack.push(State { .Semicolon = statement });
-                        try stack.push(State { .Expression = OptionalCtx { .Required = statement } });
+                        try stack.append(State { .Semicolon = statement });
+                        try stack.append(State { .Expression = OptionalCtx { .Required = statement } });
                         continue;
                     }
                 }
@@ -1157,7 +1156,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             State.Semicolon => |node_ptr| {
                 const node = *node_ptr;
                 if (node.requireSemiColon()) {
-                    stack.push(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
+                    stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
                     continue;
                 }
                 continue;
@@ -1182,14 +1181,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 );
                 try items.push(node);
 
-                stack.push(State { .AsmOutputItems = items }) catch unreachable;
-                try stack.push(State { .IfToken = Token.Id.Comma });
-                try stack.push(State { .ExpectToken = Token.Id.RParen });
-                try stack.push(State { .AsmOutputReturnOrType = node });
-                try stack.push(State { .ExpectToken = Token.Id.LParen });
-                try stack.push(State { .StringLiteral = OptionalCtx { .Required = &node.constraint } });
-                try stack.push(State { .ExpectToken = Token.Id.RBracket });
-                try stack.push(State { .Identifier = OptionalCtx { .Required = &node.symbolic_name } });
+                stack.append(State { .AsmOutputItems = items }) catch unreachable;
+                try stack.append(State { .IfToken = Token.Id.Comma });
+                try stack.append(State { .ExpectToken = Token.Id.RParen });
+                try stack.append(State { .AsmOutputReturnOrType = node });
+                try stack.append(State { .ExpectToken = Token.Id.LParen });
+                try stack.append(State { .StringLiteral = OptionalCtx { .Required = &node.constraint } });
+                try stack.append(State { .ExpectToken = Token.Id.RBracket });
+                try stack.append(State { .Identifier = OptionalCtx { .Required = &node.symbolic_name } });
                 continue;
             },
             State.AsmOutputReturnOrType => |node| {
@@ -1203,7 +1202,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     Token.Id.Arrow => {
                         node.kind = ast.Node.AsmOutput.Kind { .Return = undefined };
-                        try stack.push(State { .TypeExprBegin = OptionalCtx { .Required = &node.kind.Return } });
+                        try stack.append(State { .TypeExprBegin = OptionalCtx { .Required = &node.kind.Return } });
                         continue;
                     },
                     else => {
@@ -1235,20 +1234,20 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 );
                 try items.push(node);
 
-                stack.push(State { .AsmInputItems = items }) catch unreachable;
-                try stack.push(State { .IfToken = Token.Id.Comma });
-                try stack.push(State { .ExpectToken = Token.Id.RParen });
-                try stack.push(State { .Expression = OptionalCtx { .Required = &node.expr } });
-                try stack.push(State { .ExpectToken = Token.Id.LParen });
-                try stack.push(State { .StringLiteral = OptionalCtx { .Required = &node.constraint } });
-                try stack.push(State { .ExpectToken = Token.Id.RBracket });
-                try stack.push(State { .Identifier = OptionalCtx { .Required = &node.symbolic_name } });
+                stack.append(State { .AsmInputItems = items }) catch unreachable;
+                try stack.append(State { .IfToken = Token.Id.Comma });
+                try stack.append(State { .ExpectToken = Token.Id.RParen });
+                try stack.append(State { .Expression = OptionalCtx { .Required = &node.expr } });
+                try stack.append(State { .ExpectToken = Token.Id.LParen });
+                try stack.append(State { .StringLiteral = OptionalCtx { .Required = &node.constraint } });
+                try stack.append(State { .ExpectToken = Token.Id.RBracket });
+                try stack.append(State { .Identifier = OptionalCtx { .Required = &node.symbolic_name } });
                 continue;
             },
             State.AsmClobberItems => |items| {
-                stack.push(State { .AsmClobberItems = items }) catch unreachable;
-                try stack.push(State { .IfToken = Token.Id.Comma });
-                try stack.push(State { .StringLiteral = OptionalCtx { .Required = try items.addOne() } });
+                stack.append(State { .AsmClobberItems = items }) catch unreachable;
+                try stack.append(State { .IfToken = Token.Id.Comma });
+                try stack.append(State { .StringLiteral = OptionalCtx { .Required = try items.addOne() } });
                 continue;
             },
 
@@ -1259,8 +1258,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                stack.push(State { .ExprListCommaOrEnd = list_state }) catch unreachable;
-                try stack.push(State { .Expression = OptionalCtx { .Required = try list_state.list.addOne() } });
+                stack.append(State { .ExprListCommaOrEnd = list_state }) catch unreachable;
+                try stack.append(State { .Expression = OptionalCtx { .Required = try list_state.list.addOne() } });
                 continue;
             },
             State.ExprListCommaOrEnd => |list_state| {
@@ -1269,7 +1268,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         *list_state.ptr = end;
                         continue;
                     } else {
-                        stack.push(State { .ExprListItemOrEnd = list_state }) catch unreachable;
+                        stack.append(State { .ExprListItemOrEnd = list_state }) catch unreachable;
                         continue;
                     },
                     ExpectCommaOrEndResult.parse_error => |e| {
@@ -1298,16 +1297,16 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 });
                 try list_state.list.push(&node.base);
 
-                stack.push(State { .FieldInitListCommaOrEnd = list_state }) catch unreachable;
-                try stack.push(State { .Expression = OptionalCtx{ .Required = &node.expr } });
-                try stack.push(State { .ExpectToken = Token.Id.Equal });
-                try stack.push(State {
+                stack.append(State { .FieldInitListCommaOrEnd = list_state }) catch unreachable;
+                try stack.append(State { .Expression = OptionalCtx{ .Required = &node.expr } });
+                try stack.append(State { .ExpectToken = Token.Id.Equal });
+                try stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
                         .id = Token.Id.Identifier,
                         .ptr = &node.name_token,
                     }
                 });
-                try stack.push(State {
+                try stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
                         .id = Token.Id.Period,
                         .ptr = &node.period_token,
@@ -1321,7 +1320,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         *list_state.ptr = end;
                         continue;
                     } else {
-                        stack.push(State { .FieldInitListItemOrEnd = list_state }) catch unreachable;
+                        stack.append(State { .FieldInitListItemOrEnd = list_state }) catch unreachable;
                         continue;
                     },
                     ExpectCommaOrEndResult.parse_error => |e| {
@@ -1336,7 +1335,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         container_decl.rbrace_token = end;
                         continue;
                     } else {
-                        try stack.push(State { .ContainerDecl = container_decl });
+                        try stack.append(State { .ContainerDecl = container_decl });
                         continue;
                     },
                     ExpectCommaOrEndResult.parse_error => |e| {
@@ -1357,8 +1356,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 
                 const node_ptr = try list_state.list.addOne();
 
-                try stack.push(State { .ErrorTagListCommaOrEnd = list_state });
-                try stack.push(State { .ErrorTag = node_ptr });
+                try stack.append(State { .ErrorTagListCommaOrEnd = list_state });
+                try stack.append(State { .ErrorTag = node_ptr });
                 continue;
             },
             State.ErrorTagListCommaOrEnd => |list_state| {
@@ -1367,7 +1366,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         *list_state.ptr = end;
                         continue;
                     } else {
-                        stack.push(State { .ErrorTagListItemOrEnd = list_state }) catch unreachable;
+                        stack.append(State { .ErrorTagListItemOrEnd = list_state }) catch unreachable;
                         continue;
                     },
                     ExpectCommaOrEndResult.parse_error => |e| {
@@ -1396,10 +1395,10 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     .expr = undefined,
                 });
                 try list_state.list.push(&node.base);
-                try stack.push(State { .SwitchCaseCommaOrEnd = list_state });
-                try stack.push(State { .AssignmentExpressionBegin = OptionalCtx { .Required = &node.expr  } });
-                try stack.push(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
-                try stack.push(State { .SwitchCaseFirstItem = &node.items });
+                try stack.append(State { .SwitchCaseCommaOrEnd = list_state });
+                try stack.append(State { .AssignmentExpressionBegin = OptionalCtx { .Required = &node.expr  } });
+                try stack.append(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
+                try stack.append(State { .SwitchCaseFirstItem = &node.items });
 
                 continue;
             },
@@ -1410,7 +1409,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         *list_state.ptr = end;
                         continue;
                     } else {
-                        try stack.push(State { .SwitchCaseOrEnd = list_state });
+                        try stack.append(State { .SwitchCaseOrEnd = list_state });
                         continue;
                     },
                     ExpectCommaOrEndResult.parse_error => |e| {
@@ -1431,23 +1430,23 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     });
                     try case_items.push(&else_node.base);
 
-                    try stack.push(State { .ExpectToken = Token.Id.EqualAngleBracketRight });
+                    try stack.append(State { .ExpectToken = Token.Id.EqualAngleBracketRight });
                     continue;
                 } else {
                     putBackToken(&tok_it, &tree);
-                    try stack.push(State { .SwitchCaseItem = case_items });
+                    try stack.append(State { .SwitchCaseItem = case_items });
                     continue;
                 }
             },
             State.SwitchCaseItem => |case_items| {
-                stack.push(State { .SwitchCaseItemCommaOrEnd = case_items }) catch unreachable;
-                try stack.push(State { .RangeExpressionBegin = OptionalCtx { .Required = try case_items.addOne() } });
+                stack.append(State { .SwitchCaseItemCommaOrEnd = case_items }) catch unreachable;
+                try stack.append(State { .RangeExpressionBegin = OptionalCtx { .Required = try case_items.addOne() } });
             },
             State.SwitchCaseItemCommaOrEnd => |case_items| {
                 switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.EqualAngleBracketRight)) {
                     ExpectCommaOrEndResult.end_token => |t| {
                         if (t == null) {
-                            stack.push(State { .SwitchCaseItem = case_items }) catch unreachable;
+                            stack.append(State { .SwitchCaseItem = case_items }) catch unreachable;
                         }
                         continue;
                     },
@@ -1462,7 +1461,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 
             State.SuspendBody => |suspend_node| {
                 if (suspend_node.payload != null) {
-                    try stack.push(State { .AssignmentExpressionBegin = OptionalCtx { .RequiredNull = &suspend_node.body } });
+                    try stack.append(State { .AssignmentExpressionBegin = OptionalCtx { .RequiredNull = &suspend_node.body } });
                 }
                 continue;
             },
@@ -1472,13 +1471,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
 
                 async_node.rangle_bracket = TokenIndex(0);
-                try stack.push(State {
+                try stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
                         .id = Token.Id.AngleBracketRight,
                         .ptr = &??async_node.rangle_bracket,
                     }
                 });
-                try stack.push(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &async_node.allocator_type } });
+                try stack.append(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &async_node.allocator_type } });
                 continue;
             },
             State.AsyncEnd => |ctx| {
@@ -1533,11 +1532,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         .align_expr = null,
                     });
                     ctx.opt_ctx.store(&fn_proto.base);
-                    stack.push(State { .FnProto = fn_proto }) catch unreachable;
+                    stack.append(State { .FnProto = fn_proto }) catch unreachable;
                     continue;
                 }
 
-                stack.push(State {
+                stack.append(State {
                     .ContainerKind = ContainerKindCtx {
                         .opt_ctx = ctx.opt_ctx,
                         .ltoken = ctx.extern_token,
@@ -1560,13 +1559,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             }
                         };
 
-                        stack.push(State {
+                        stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.RBracket,
                                 .ptr = &node.rtoken,
                             }
                         }) catch unreachable;
-                        try stack.push(State { .Expression = OptionalCtx { .Optional = &node.op.Slice.end } });
+                        try stack.append(State { .Expression = OptionalCtx { .Optional = &node.op.Slice.end } });
                         continue;
                     },
                     Token.Id.RBracket => {
@@ -1592,15 +1591,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .volatile_token = null,
                         }
                     };
-                    stack.push(State { .TypeExprBegin = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
-                    try stack.push(State { .AddrOfModifiers = &node.op.SliceType });
+                    stack.append(State { .TypeExprBegin = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
+                    try stack.append(State { .AddrOfModifiers = &node.op.SliceType });
                     continue;
                 }
 
                 node.op = ast.Node.PrefixOp.Op { .ArrayType = undefined };
-                stack.push(State { .TypeExprBegin = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
-                try stack.push(State { .ExpectToken = Token.Id.RBracket });
-                try stack.push(State { .Expression = OptionalCtx { .Required = &node.op.ArrayType } });
+                stack.append(State { .TypeExprBegin = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
+                try stack.append(State { .ExpectToken = Token.Id.RBracket });
+                try stack.append(State { .Expression = OptionalCtx { .Required = &node.op.ArrayType } });
                 continue;
             },
             State.AddrOfModifiers => |addr_of_info| {
@@ -1609,20 +1608,20 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Keyword_align => {
-                        stack.push(state) catch unreachable;
+                        stack.append(state) catch unreachable;
                         if (addr_of_info.align_expr != null) {
                             *(try tree.errors.addOne()) = Error {
                                 .ExtraAlignQualifier = Error.ExtraAlignQualifier { .token = token_index },
                             };
                             return tree;
                         }
-                        try stack.push(State { .ExpectToken = Token.Id.RParen });
-                        try stack.push(State { .Expression = OptionalCtx { .RequiredNull = &addr_of_info.align_expr} });
-                        try stack.push(State { .ExpectToken = Token.Id.LParen });
+                        try stack.append(State { .ExpectToken = Token.Id.RParen });
+                        try stack.append(State { .Expression = OptionalCtx { .RequiredNull = &addr_of_info.align_expr} });
+                        try stack.append(State { .ExpectToken = Token.Id.LParen });
                         continue;
                     },
                     Token.Id.Keyword_const => {
-                        stack.push(state) catch unreachable;
+                        stack.append(state) catch unreachable;
                         if (addr_of_info.const_token != null) {
                             *(try tree.errors.addOne()) = Error {
                                 .ExtraConstQualifier = Error.ExtraConstQualifier { .token = token_index },
@@ -1633,7 +1632,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_volatile => {
-                        stack.push(state) catch unreachable;
+                        stack.append(state) catch unreachable;
                         if (addr_of_info.volatile_token != null) {
                             *(try tree.errors.addOne()) = Error {
                                 .ExtraVolatileQualifier = Error.ExtraVolatileQualifier { .token = token_index },
@@ -1679,13 +1678,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     }
                 );
 
-                stack.push(State {
+                stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
                         .id = Token.Id.Pipe,
                         .ptr = &node.rpipe,
                     }
                 }) catch unreachable;
-                try stack.push(State { .Identifier = OptionalCtx { .Required = &node.error_symbol } });
+                try stack.append(State { .Identifier = OptionalCtx { .Required = &node.error_symbol } });
                 continue;
             },
             State.PointerPayload => |opt_ctx| {
@@ -1717,14 +1716,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     }
                 );
 
-                try stack.push(State {
+                try stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
                         .id = Token.Id.Pipe,
                         .ptr = &node.rpipe,
                     }
                 });
-                try stack.push(State { .Identifier = OptionalCtx { .Required = &node.value_symbol } });
-                try stack.push(State {
+                try stack.append(State { .Identifier = OptionalCtx { .Required = &node.value_symbol } });
+                try stack.append(State {
                     .OptionalTokenSave = OptionalTokenSave {
                         .id = Token.Id.Asterisk,
                         .ptr = &node.ptr_token,
@@ -1762,16 +1761,16 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     }
                 );
 
-                stack.push(State {
+                stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
                         .id = Token.Id.Pipe,
                         .ptr = &node.rpipe,
                     }
                 }) catch unreachable;
-                try stack.push(State { .Identifier = OptionalCtx { .RequiredNull = &node.index_symbol } });
-                try stack.push(State { .IfToken = Token.Id.Comma });
-                try stack.push(State { .Identifier = OptionalCtx { .Required = &node.value_symbol } });
-                try stack.push(State {
+                try stack.append(State { .Identifier = OptionalCtx { .RequiredNull = &node.index_symbol } });
+                try stack.append(State { .IfToken = Token.Id.Comma });
+                try stack.append(State { .Identifier = OptionalCtx { .Required = &node.value_symbol } });
+                try stack.append(State {
                     .OptionalTokenSave = OptionalTokenSave {
                         .id = Token.Id.Asterisk,
                         .ptr = &node.ptr_token,
@@ -1796,18 +1795,18 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             }
                         );
 
-                        stack.push(State { .Expression = OptionalCtx { .Optional = &node.rhs } }) catch unreachable;
+                        stack.append(State { .Expression = OptionalCtx { .Optional = &node.rhs } }) catch unreachable;
 
                         switch (token_ptr.id) {
                             Token.Id.Keyword_break => {
                                 node.kind = ast.Node.ControlFlowExpression.Kind { .Break = null };
-                                try stack.push(State { .Identifier = OptionalCtx { .RequiredNull = &node.kind.Break } });
-                                try stack.push(State { .IfToken = Token.Id.Colon });
+                                try stack.append(State { .Identifier = OptionalCtx { .RequiredNull = &node.kind.Break } });
+                                try stack.append(State { .IfToken = Token.Id.Colon });
                             },
                             Token.Id.Keyword_continue => {
                                 node.kind = ast.Node.ControlFlowExpression.Kind { .Continue = null };
-                                try stack.push(State { .Identifier = OptionalCtx { .RequiredNull = &node.kind.Continue } });
-                                try stack.push(State { .IfToken = Token.Id.Colon });
+                                try stack.append(State { .Identifier = OptionalCtx { .RequiredNull = &node.kind.Continue } });
+                                try stack.append(State { .IfToken = Token.Id.Colon });
                             },
                             Token.Id.Keyword_return => {
                                 node.kind = ast.Node.ControlFlowExpression.Kind.Return;
@@ -1831,21 +1830,21 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             }
                         );
 
-                        stack.push(State { .Expression = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
+                        stack.append(State { .Expression = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
                         continue;
                     },
                     else => {
                         if (!try parseBlockExpr(&stack, arena, opt_ctx, token_ptr, token_index)) {
                             putBackToken(&tok_it, &tree);
-                            stack.push(State { .UnwrapExpressionBegin = opt_ctx }) catch unreachable;
+                            stack.append(State { .UnwrapExpressionBegin = opt_ctx }) catch unreachable;
                         }
                         continue;
                     }
                 }
             },
             State.RangeExpressionBegin => |opt_ctx| {
-                stack.push(State { .RangeExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .Expression = opt_ctx });
+                stack.append(State { .RangeExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .Expression = opt_ctx });
                 continue;
             },
             State.RangeExpressionEnd => |opt_ctx| {
@@ -1861,13 +1860,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .Expression = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
+                    stack.append(State { .Expression = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
                     continue;
                 }
             },
             State.AssignmentExpressionBegin => |opt_ctx| {
-                stack.push(State { .AssignmentExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .Expression = opt_ctx });
+                stack.append(State { .AssignmentExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .Expression = opt_ctx });
                 continue;
             },
 
@@ -1887,8 +1886,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .AssignmentExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .Expression = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .AssignmentExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .Expression = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 } else {
                     putBackToken(&tok_it, &tree);
@@ -1897,8 +1896,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.UnwrapExpressionBegin => |opt_ctx| {
-                stack.push(State { .UnwrapExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .BoolOrExpressionBegin = opt_ctx });
+                stack.append(State { .UnwrapExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .BoolOrExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -1919,11 +1918,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         }
                     );
 
-                    stack.push(State { .UnwrapExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .Expression = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .UnwrapExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .Expression = OptionalCtx { .Required = &node.rhs } });
 
                     if (node.op == ast.Node.InfixOp.Op.Catch) {
-                        try stack.push(State { .Payload = OptionalCtx { .Optional = &node.op.Catch } });
+                        try stack.append(State { .Payload = OptionalCtx { .Optional = &node.op.Catch } });
                     }
                     continue;
                 } else {
@@ -1933,8 +1932,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.BoolOrExpressionBegin => |opt_ctx| {
-                stack.push(State { .BoolOrExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .BoolAndExpressionBegin = opt_ctx });
+                stack.append(State { .BoolOrExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .BoolAndExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -1951,15 +1950,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .BoolOrExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .BoolAndExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .BoolOrExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .BoolAndExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 }
             },
 
             State.BoolAndExpressionBegin => |opt_ctx| {
-                stack.push(State { .BoolAndExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .ComparisonExpressionBegin = opt_ctx });
+                stack.append(State { .BoolAndExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .ComparisonExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -1976,15 +1975,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .BoolAndExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .ComparisonExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .BoolAndExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .ComparisonExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 }
             },
 
             State.ComparisonExpressionBegin => |opt_ctx| {
-                stack.push(State { .ComparisonExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .BinaryOrExpressionBegin = opt_ctx });
+                stack.append(State { .ComparisonExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .BinaryOrExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -2004,8 +2003,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .ComparisonExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .BinaryOrExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .ComparisonExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .BinaryOrExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 } else {
                     putBackToken(&tok_it, &tree);
@@ -2014,8 +2013,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.BinaryOrExpressionBegin => |opt_ctx| {
-                stack.push(State { .BinaryOrExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .BinaryXorExpressionBegin = opt_ctx });
+                stack.append(State { .BinaryOrExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .BinaryXorExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -2032,15 +2031,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .BinaryOrExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .BinaryXorExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .BinaryOrExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .BinaryXorExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 }
             },
 
             State.BinaryXorExpressionBegin => |opt_ctx| {
-                stack.push(State { .BinaryXorExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .BinaryAndExpressionBegin = opt_ctx });
+                stack.append(State { .BinaryXorExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .BinaryAndExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -2057,15 +2056,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .BinaryXorExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .BinaryAndExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .BinaryXorExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .BinaryAndExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 }
             },
 
             State.BinaryAndExpressionBegin => |opt_ctx| {
-                stack.push(State { .BinaryAndExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .BitShiftExpressionBegin = opt_ctx });
+                stack.append(State { .BinaryAndExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .BitShiftExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -2082,15 +2081,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .BinaryAndExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .BitShiftExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .BinaryAndExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .BitShiftExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 }
             },
 
             State.BitShiftExpressionBegin => |opt_ctx| {
-                stack.push(State { .BitShiftExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .AdditionExpressionBegin = opt_ctx });
+                stack.append(State { .BitShiftExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .AdditionExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -2110,8 +2109,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .BitShiftExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .AdditionExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .BitShiftExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .AdditionExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 } else {
                     putBackToken(&tok_it, &tree);
@@ -2120,8 +2119,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.AdditionExpressionBegin => |opt_ctx| {
-                stack.push(State { .AdditionExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .MultiplyExpressionBegin = opt_ctx });
+                stack.append(State { .AdditionExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .MultiplyExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -2141,8 +2140,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .AdditionExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .MultiplyExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .AdditionExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .MultiplyExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 } else {
                     putBackToken(&tok_it, &tree);
@@ -2151,8 +2150,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.MultiplyExpressionBegin => |opt_ctx| {
-                stack.push(State { .MultiplyExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .CurlySuffixExpressionBegin = opt_ctx });
+                stack.append(State { .MultiplyExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .CurlySuffixExpressionBegin = opt_ctx });
                 continue;
             },
 
@@ -2172,8 +2171,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .MultiplyExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .CurlySuffixExpressionBegin = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .MultiplyExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .CurlySuffixExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 } else {
                     putBackToken(&tok_it, &tree);
@@ -2182,9 +2181,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.CurlySuffixExpressionBegin => |opt_ctx| {
-                stack.push(State { .CurlySuffixExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .IfToken = Token.Id.LBrace });
-                try stack.push(State { .TypeExprBegin = opt_ctx });
+                stack.append(State { .CurlySuffixExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .IfToken = Token.Id.LBrace });
+                try stack.append(State { .TypeExprBegin = opt_ctx });
                 continue;
             },
 
@@ -2202,9 +2201,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     });
                     opt_ctx.store(&node.base);
 
-                    stack.push(State { .CurlySuffixExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .IfToken = Token.Id.LBrace });
-                    try stack.push(State {
+                    stack.append(State { .CurlySuffixExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .IfToken = Token.Id.LBrace });
+                    try stack.append(State {
                         .FieldInitListItemOrEnd = ListSave(@typeOf(node.op.StructInitializer)) {
                             .list = &node.op.StructInitializer,
                             .ptr = &node.rtoken,
@@ -2223,9 +2222,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         .rtoken = undefined,
                     }
                 );
-                stack.push(State { .CurlySuffixExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                try stack.push(State { .IfToken = Token.Id.LBrace });
-                try stack.push(State {
+                stack.append(State { .CurlySuffixExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                try stack.append(State { .IfToken = Token.Id.LBrace });
+                try stack.append(State {
                     .ExprListItemOrEnd = ExprListCtx {
                         .list = &node.op.ArrayInitializer,
                         .end = Token.Id.RBrace,
@@ -2236,8 +2235,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.TypeExprBegin => |opt_ctx| {
-                stack.push(State { .TypeExprEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .PrefixOpExpression = opt_ctx });
+                stack.append(State { .TypeExprEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .PrefixOpExpression = opt_ctx });
                 continue;
             },
 
@@ -2254,8 +2253,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rhs = undefined,
                         }
                     );
-                    stack.push(State { .TypeExprEnd = opt_ctx.toRequired() }) catch unreachable;
-                    try stack.push(State { .PrefixOpExpression = OptionalCtx { .Required = &node.rhs } });
+                    stack.append(State { .TypeExprEnd = opt_ctx.toRequired() }) catch unreachable;
+                    try stack.append(State { .PrefixOpExpression = OptionalCtx { .Required = &node.rhs } });
                     continue;
                 }
             },
@@ -2288,14 +2287,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         node = child;
                     }
 
-                    stack.push(State { .TypeExprBegin = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
+                    stack.append(State { .TypeExprBegin = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
                     if (node.op == ast.Node.PrefixOp.Op.AddrOf) {
-                        try stack.push(State { .AddrOfModifiers = &node.op.AddrOf });
+                        try stack.append(State { .AddrOfModifiers = &node.op.AddrOf });
                     }
                     continue;
                 } else {
                     putBackToken(&tok_it, &tree);
-                    stack.push(State { .SuffixOpExpressionBegin = opt_ctx }) catch unreachable;
+                    stack.append(State { .SuffixOpExpressionBegin = opt_ctx }) catch unreachable;
                     continue;
                 }
             },
@@ -2310,20 +2309,20 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .rangle_bracket = null,
                         }
                     );
-                    stack.push(State {
+                    stack.append(State {
                         .AsyncEnd = AsyncEndCtx {
                             .ctx = opt_ctx,
                             .attribute = async_node,
                         }
                     }) catch unreachable;
-                    try stack.push(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() });
-                    try stack.push(State { .PrimaryExpression = opt_ctx.toRequired() });
-                    try stack.push(State { .AsyncAllocator = async_node });
+                    try stack.append(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() });
+                    try stack.append(State { .PrimaryExpression = opt_ctx.toRequired() });
+                    try stack.append(State { .AsyncAllocator = async_node });
                     continue;
                 }
 
-                stack.push(State { .SuffixOpExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.push(State { .PrimaryExpression = opt_ctx });
+                stack.append(State { .SuffixOpExpressionEnd = opt_ctx }) catch unreachable;
+                try stack.append(State { .PrimaryExpression = opt_ctx });
                 continue;
             },
 
@@ -2348,8 +2347,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 .rtoken = undefined,
                             }
                         );
-                        stack.push(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                        try stack.push(State {
+                        stack.append(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                        try stack.append(State {
                             .ExprListItemOrEnd = ExprListCtx {
                                 .list = &node.op.Call.params,
                                 .end = Token.Id.RParen,
@@ -2369,9 +2368,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 .rtoken = undefined
                             }
                         );
-                        stack.push(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                        try stack.push(State { .SliceOrArrayAccess = node });
-                        try stack.push(State { .Expression = OptionalCtx { .Required = &node.op.ArrayAccess }});
+                        stack.append(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                        try stack.append(State { .SliceOrArrayAccess = node });
+                        try stack.append(State { .Expression = OptionalCtx { .Required = &node.op.ArrayAccess }});
                         continue;
                     },
                     Token.Id.Period => {
@@ -2384,8 +2383,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 .rhs = undefined,
                             }
                         );
-                        stack.push(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                        try stack.push(State { .Identifier = OptionalCtx { .Required = &node.rhs } });
+                        stack.append(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                        try stack.append(State { .Identifier = OptionalCtx { .Required = &node.rhs } });
                         continue;
                     },
                     else => {
@@ -2455,7 +2454,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .return_type = undefined,
                         };
                         const return_type_ptr = &((??node.result).return_type);
-                        try stack.push(State { .Expression = OptionalCtx { .Required = return_type_ptr, } });
+                        try stack.append(State { .Expression = OptionalCtx { .Required = return_type_ptr, } });
                         continue;
                     },
                     Token.Id.StringLiteral, Token.Id.MultilineStringLiteralLine => {
@@ -2471,13 +2470,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 .rparen = undefined,
                             }
                         );
-                        stack.push(State {
+                        stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.RParen,
                                 .ptr = &node.rparen,
                             }
                         }) catch unreachable;
-                        try stack.push(State { .Expression = OptionalCtx { .Required = &node.expr } });
+                        try stack.append(State { .Expression = OptionalCtx { .Required = &node.expr } });
                         continue;
                     },
                     Token.Id.Builtin => {
@@ -2489,14 +2488,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 .rparen_token = undefined,
                             }
                         );
-                        stack.push(State {
+                        stack.append(State {
                             .ExprListItemOrEnd = ExprListCtx {
                                 .list = &node.params,
                                 .end = Token.Id.RParen,
                                 .ptr = &node.rparen_token,
                             }
                         }) catch unreachable;
-                        try stack.push(State { .ExpectToken = Token.Id.LParen, });
+                        try stack.append(State { .ExpectToken = Token.Id.LParen, });
                         continue;
                     },
                     Token.Id.LBracket => {
@@ -2508,11 +2507,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 .rhs = undefined,
                             }
                         );
-                        stack.push(State { .SliceOrArrayType = node }) catch unreachable;
+                        stack.append(State { .SliceOrArrayType = node }) catch unreachable;
                         continue;
                     },
                     Token.Id.Keyword_error => {
-                        stack.push(State {
+                        stack.append(State {
                             .ErrorTypeOrSetDecl = ErrorTypeOrSetDeclCtx {
                                 .error_token = token.index,
                                 .opt_ctx = opt_ctx
@@ -2521,7 +2520,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_packed => {
-                        stack.push(State {
+                        stack.append(State {
                             .ContainerKind = ContainerKindCtx {
                                 .opt_ctx = opt_ctx,
                                 .ltoken = token.index,
@@ -2531,7 +2530,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_extern => {
-                        stack.push(State {
+                        stack.append(State {
                             .ExternType = ExternTypeCtx {
                                 .opt_ctx = opt_ctx,
                                 .extern_token = token.index,
@@ -2542,7 +2541,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     Token.Id.Keyword_struct, Token.Id.Keyword_union, Token.Id.Keyword_enum => {
                         putBackToken(&tok_it, &tree);
-                        stack.push(State {
+                        stack.append(State {
                             .ContainerKind = ContainerKindCtx {
                                 .opt_ctx = opt_ctx,
                                 .ltoken = token.index,
@@ -2552,7 +2551,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Identifier => {
-                        stack.push(State {
+                        stack.append(State {
                             .MaybeLabeledExpression = MaybeLabeledExpressionCtx {
                                 .label = token.index,
                                 .opt_ctx = opt_ctx
@@ -2580,7 +2579,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .align_expr = null,
                         });
                         opt_ctx.store(&fn_proto.base);
-                        stack.push(State { .FnProto = fn_proto }) catch unreachable;
+                        stack.append(State { .FnProto = fn_proto }) catch unreachable;
                         continue;
                     },
                     Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
@@ -2603,8 +2602,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             .align_expr = null,
                         });
                         opt_ctx.store(&fn_proto.base);
-                        stack.push(State { .FnProto = fn_proto }) catch unreachable;
-                        try stack.push(State {
+                        stack.append(State { .FnProto = fn_proto }) catch unreachable;
+                        try stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.Keyword_fn,
                                 .ptr = &fn_proto.fn_token
@@ -2625,21 +2624,21 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 .rparen = undefined,
                             }
                         );
-                        stack.push(State {
+                        stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.RParen,
                                 .ptr = &node.rparen,
                             }
                         }) catch unreachable;
-                        try stack.push(State { .AsmClobberItems = &node.clobbers });
-                        try stack.push(State { .IfToken = Token.Id.Colon });
-                        try stack.push(State { .AsmInputItems = &node.inputs });
-                        try stack.push(State { .IfToken = Token.Id.Colon });
-                        try stack.push(State { .AsmOutputItems = &node.outputs });
-                        try stack.push(State { .IfToken = Token.Id.Colon });
-                        try stack.push(State { .StringLiteral = OptionalCtx { .Required = &node.template } });
-                        try stack.push(State { .ExpectToken = Token.Id.LParen });
-                        try stack.push(State {
+                        try stack.append(State { .AsmClobberItems = &node.clobbers });
+                        try stack.append(State { .IfToken = Token.Id.Colon });
+                        try stack.append(State { .AsmInputItems = &node.inputs });
+                        try stack.append(State { .IfToken = Token.Id.Colon });
+                        try stack.append(State { .AsmOutputItems = &node.outputs });
+                        try stack.append(State { .IfToken = Token.Id.Colon });
+                        try stack.append(State { .StringLiteral = OptionalCtx { .Required = &node.template } });
+                        try stack.append(State { .ExpectToken = Token.Id.LParen });
+                        try stack.append(State {
                             .OptionalTokenSave = OptionalTokenSave {
                                 .id = Token.Id.Keyword_volatile,
                                 .ptr = &node.volatile_token,
@@ -2647,7 +2646,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         });
                     },
                     Token.Id.Keyword_inline => {
-                        stack.push(State {
+                        stack.append(State {
                             .Inline = InlineCtx {
                                 .label = null,
                                 .inline_token = token.index,
@@ -2688,7 +2687,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 });
                 ctx.opt_ctx.store(&node.base);
 
-                stack.push(State {
+                stack.append(State {
                     .ErrorTagListItemOrEnd = ListSave(@typeOf(node.decls)) {
                         .list = &node.decls,
                         .ptr = &node.rbrace_token,
@@ -3153,7 +3152,7 @@ fn parseStringLiteral(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterato
     }
 }
 
-fn parseBlockExpr(stack: &SegmentedList(State, 32), arena: &mem.Allocator, ctx: &const OptionalCtx,
+fn parseBlockExpr(stack: &std.ArrayList(State), arena: &mem.Allocator, ctx: &const OptionalCtx,
     token_ptr: &const Token, token_index: TokenIndex) !bool {
     switch (token_ptr.id) {
         Token.Id.Keyword_suspend => {
@@ -3167,8 +3166,8 @@ fn parseBlockExpr(stack: &SegmentedList(State, 32), arena: &mem.Allocator, ctx: 
                 }
             );
 
-            stack.push(State { .SuspendBody = node }) catch unreachable;
-            try stack.push(State { .Payload = OptionalCtx { .Optional = &node.payload } });
+            stack.append(State { .SuspendBody = node }) catch unreachable;
+            try stack.append(State { .Payload = OptionalCtx { .Optional = &node.payload } });
             return true;
         },
         Token.Id.Keyword_if => {
@@ -3183,16 +3182,16 @@ fn parseBlockExpr(stack: &SegmentedList(State, 32), arena: &mem.Allocator, ctx: 
                 }
             );
 
-            stack.push(State { .Else = &node.@"else" }) catch unreachable;
-            try stack.push(State { .Expression = OptionalCtx { .Required = &node.body } });
-            try stack.push(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
-            try stack.push(State { .ExpectToken = Token.Id.RParen });
-            try stack.push(State { .Expression = OptionalCtx { .Required = &node.condition } });
-            try stack.push(State { .ExpectToken = Token.Id.LParen });
+            stack.append(State { .Else = &node.@"else" }) catch unreachable;
+            try stack.append(State { .Expression = OptionalCtx { .Required = &node.body } });
+            try stack.append(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
+            try stack.append(State { .ExpectToken = Token.Id.RParen });
+            try stack.append(State { .Expression = OptionalCtx { .Required = &node.condition } });
+            try stack.append(State { .ExpectToken = Token.Id.LParen });
             return true;
         },
         Token.Id.Keyword_while => {
-            stack.push(State {
+            stack.append(State {
                 .While = LoopCtx {
                     .label = null,
                     .inline_token = null,
@@ -3203,7 +3202,7 @@ fn parseBlockExpr(stack: &SegmentedList(State, 32), arena: &mem.Allocator, ctx: 
             return true;
         },
         Token.Id.Keyword_for => {
-            stack.push(State {
+            stack.append(State {
                 .For = LoopCtx {
                     .label = null,
                     .inline_token = null,
@@ -3225,16 +3224,16 @@ fn parseBlockExpr(stack: &SegmentedList(State, 32), arena: &mem.Allocator, ctx: 
             });
             ctx.store(&node.base);
 
-            stack.push(State {
+            stack.append(State {
                 .SwitchCaseOrEnd = ListSave(@typeOf(node.cases)) {
                     .list = &node.cases,
                     .ptr = &node.rbrace,
                 },
             }) catch unreachable;
-            try stack.push(State { .ExpectToken = Token.Id.LBrace });
-            try stack.push(State { .ExpectToken = Token.Id.RParen });
-            try stack.push(State { .Expression = OptionalCtx { .Required = &node.expr } });
-            try stack.push(State { .ExpectToken = Token.Id.LParen });
+            try stack.append(State { .ExpectToken = Token.Id.LBrace });
+            try stack.append(State { .ExpectToken = Token.Id.RParen });
+            try stack.append(State { .Expression = OptionalCtx { .Required = &node.expr } });
+            try stack.append(State { .ExpectToken = Token.Id.LParen });
             return true;
         },
         Token.Id.Keyword_comptime => {
@@ -3246,7 +3245,7 @@ fn parseBlockExpr(stack: &SegmentedList(State, 32), arena: &mem.Allocator, ctx: 
                     .doc_comments = null,
                 }
             );
-            try stack.push(State { .Expression = OptionalCtx { .Required = &node.expr } });
+            try stack.append(State { .Expression = OptionalCtx { .Required = &node.expr } });
             return true;
         },
         Token.Id.LBrace => {
@@ -3258,7 +3257,7 @@ fn parseBlockExpr(stack: &SegmentedList(State, 32), arena: &mem.Allocator, ctx: 
                 .rbrace = undefined,
             });
             ctx.store(&block.base);
-            stack.push(State { .Block = block }) catch unreachable;
+            stack.append(State { .Block = block }) catch unreachable;
             return true;
         },
         else => {
@@ -3473,10 +3472,10 @@ const RenderAstFrame = struct {
 };
 
 pub fn renderAst(allocator: &mem.Allocator, tree: &const ast.Tree, stream: var) !void {
-    var stack = SegmentedList(State, 32).init(allocator);
+    var stack = std.ArrayList(State).init(allocator);
     defer stack.deinit();
 
-    try stack.push(RenderAstFrame {
+    try stack.append(RenderAstFrame {
         .node = &root_node.base,
         .indent = 0,
     });
@@ -3491,7 +3490,7 @@ pub fn renderAst(allocator: &mem.Allocator, tree: &const ast.Tree, stream: var) 
         try stream.print("{}\n", @tagName(frame.node.id));
         var child_i: usize = 0;
         while (frame.node.iterate(child_i)) |child| : (child_i += 1) {
-            try stack.push(RenderAstFrame {
+            try stack.append(RenderAstFrame {
                 .node = child,
                 .indent = frame.indent + 2,
             });
