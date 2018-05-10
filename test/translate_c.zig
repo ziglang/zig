@@ -1,6 +1,27 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.TranslateCContext) void {
+    cases.add("double define struct",
+        \\typedef struct Bar Bar;
+        \\typedef struct Foo Foo;
+        \\
+        \\struct Foo {
+        \\    Foo *a;
+        \\};
+        \\
+        \\struct Bar {
+        \\    Foo *a;
+        \\};
+    ,
+        \\pub const struct_Foo = extern struct {
+        \\    a: ?&Foo,
+        \\};
+        \\pub const Foo = struct_Foo;
+        \\pub const struct_Bar = extern struct {
+        \\    a: ?&Foo,
+        \\};
+    );
+
     cases.addAllowWarnings("simple data types",
         \\#include <stdint.h>
         \\int foo(char a, unsigned char b, signed char c);
