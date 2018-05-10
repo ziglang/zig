@@ -3669,6 +3669,7 @@ static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_
     if (existing_entry) {
         return existing_entry->value;
     }
+
     QualType child_qt = typedef_decl->getUnderlyingType();
     Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
 
@@ -3702,16 +3703,19 @@ static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_
     // use the name of this typedef
     // TODO
 
+    // trans_qual_type here might cause us to look at this typedef again so we put the item in the map first
+    AstNode *symbol_node = trans_create_node_symbol(c, type_name);
+    c->decl_table.put(typedef_decl->getCanonicalDecl(), symbol_node);
+
     AstNode *type_node = trans_qual_type(c, child_qt, typedef_decl->getLocation());
     if (type_node == nullptr) {
         emit_warning(c, typedef_decl->getLocation(), "typedef %s - unresolved child type", buf_ptr(type_name));
         c->decl_table.put(typedef_decl, nullptr);
+        // TODO add global var with type_name equal to @compileError("unable to resolve C type") 
         return nullptr;
     }
     add_global_var(c, type_name, type_node);
 
-    AstNode *symbol_node = trans_create_node_symbol(c, type_name);
-    c->decl_table.put(typedef_decl->getCanonicalDecl(), symbol_node);
     return symbol_node;
 }
 

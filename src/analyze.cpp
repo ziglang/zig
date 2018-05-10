@@ -5931,8 +5931,8 @@ size_t type_id_len() {
     return array_length(all_type_ids);
 }
 
-size_t type_id_index(TypeTableEntryId id) {
-    switch (id) {
+size_t type_id_index(TypeTableEntry *entry) {
+    switch (entry->id) {
         case TypeTableEntryIdInvalid:
             zig_unreachable();
         case TypeTableEntryIdMetaType:
@@ -5952,6 +5952,8 @@ size_t type_id_index(TypeTableEntryId id) {
         case TypeTableEntryIdArray:
             return 7;
         case TypeTableEntryIdStruct:
+            if (entry->data.structure.is_slice)
+                return 25;
             return 8;
         case TypeTableEntryIdNumLitFloat:
             return 9;

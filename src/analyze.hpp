@@ -174,7 +174,7 @@ void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value);
 const char *type_id_name(TypeTableEntryId id);
 TypeTableEntryId type_id_at_index(size_t index);
 size_t type_id_len();
-size_t type_id_index(TypeTableEntryId id);
+size_t type_id_index(TypeTableEntry *entry);
 TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry);
 LinkLib *create_link_lib(Buf *name);

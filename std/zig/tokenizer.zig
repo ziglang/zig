@@ -6,60 +6,60 @@ pub const Token = struct {
     start: usize,
     end: usize,
 
-    const KeywordId = struct {
+    const Keyword = struct {
         bytes: []const u8,
         id: Id,
     };
 
-    const keywords = []KeywordId {
-        KeywordId{.bytes="align", .id = Id.Keyword_align},
-        KeywordId{.bytes="and", .id = Id.Keyword_and},
-        KeywordId{.bytes="asm", .id = Id.Keyword_asm},
-        KeywordId{.bytes="async", .id = Id.Keyword_async},
-        KeywordId{.bytes="await", .id = Id.Keyword_await},
-        KeywordId{.bytes="break", .id = Id.Keyword_break},
-        KeywordId{.bytes="catch", .id = Id.Keyword_catch},
-        KeywordId{.bytes="cancel", .id = Id.Keyword_cancel},
-        KeywordId{.bytes="comptime", .id = Id.Keyword_comptime},
-        KeywordId{.bytes="const", .id = Id.Keyword_const},
-        KeywordId{.bytes="continue", .id = Id.Keyword_continue},
-        KeywordId{.bytes="defer", .id = Id.Keyword_defer},
-        KeywordId{.bytes="else", .id = Id.Keyword_else},
-        KeywordId{.bytes="enum", .id = Id.Keyword_enum},
-        KeywordId{.bytes="errdefer", .id = Id.Keyword_errdefer},
-        KeywordId{.bytes="error", .id = Id.Keyword_error},
-        KeywordId{.bytes="export", .id = Id.Keyword_export},
-        KeywordId{.bytes="extern", .id = Id.Keyword_extern},
-        KeywordId{.bytes="false", .id = Id.Keyword_false},
-        KeywordId{.bytes="fn", .id = Id.Keyword_fn},
-        KeywordId{.bytes="for", .id = Id.Keyword_for},
-        KeywordId{.bytes="if", .id = Id.Keyword_if},
-        KeywordId{.bytes="inline", .id = Id.Keyword_inline},
-        KeywordId{.bytes="nakedcc", .id = Id.Keyword_nakedcc},
-        KeywordId{.bytes="noalias", .id = Id.Keyword_noalias},
-        KeywordId{.bytes="null", .id = Id.Keyword_null},
-        KeywordId{.bytes="or", .id = Id.Keyword_or},
-        KeywordId{.bytes="packed", .id = Id.Keyword_packed},
-        KeywordId{.bytes="promise", .id = Id.Keyword_promise},
-        KeywordId{.bytes="pub", .id = Id.Keyword_pub},
-        KeywordId{.bytes="resume", .id = Id.Keyword_resume},
-        KeywordId{.bytes="return", .id = Id.Keyword_return},
-        KeywordId{.bytes="section", .id = Id.Keyword_section},
-        KeywordId{.bytes="stdcallcc", .id = Id.Keyword_stdcallcc},
-        KeywordId{.bytes="struct", .id = Id.Keyword_struct},
-        KeywordId{.bytes="suspend", .id = Id.Keyword_suspend},
-        KeywordId{.bytes="switch", .id = Id.Keyword_switch},
-        KeywordId{.bytes="test", .id = Id.Keyword_test},
-        KeywordId{.bytes="this", .id = Id.Keyword_this},
-        KeywordId{.bytes="true", .id = Id.Keyword_true},
-        KeywordId{.bytes="try", .id = Id.Keyword_try},
-        KeywordId{.bytes="undefined", .id = Id.Keyword_undefined},
-        KeywordId{.bytes="union", .id = Id.Keyword_union},
-        KeywordId{.bytes="unreachable", .id = Id.Keyword_unreachable},
-        KeywordId{.bytes="use", .id = Id.Keyword_use},
-        KeywordId{.bytes="var", .id = Id.Keyword_var},
-        KeywordId{.bytes="volatile", .id = Id.Keyword_volatile},
-        KeywordId{.bytes="while", .id = Id.Keyword_while},
+    const keywords = []Keyword {
+        Keyword{.bytes="align", .id = Id.Keyword_align},
+        Keyword{.bytes="and", .id = Id.Keyword_and},
+        Keyword{.bytes="asm", .id = Id.Keyword_asm},
+        Keyword{.bytes="async", .id = Id.Keyword_async},
+        Keyword{.bytes="await", .id = Id.Keyword_await},
+        Keyword{.bytes="break", .id = Id.Keyword_break},
+        Keyword{.bytes="catch", .id = Id.Keyword_catch},
+        Keyword{.bytes="cancel", .id = Id.Keyword_cancel},
+        Keyword{.bytes="comptime", .id = Id.Keyword_comptime},
+        Keyword{.bytes="const", .id = Id.Keyword_const},
+        Keyword{.bytes="continue", .id = Id.Keyword_continue},
+        Keyword{.bytes="defer", .id = Id.Keyword_defer},
+        Keyword{.bytes="else", .id = Id.Keyword_else},
+        Keyword{.bytes="enum", .id = Id.Keyword_enum},
+        Keyword{.bytes="errdefer", .id = Id.Keyword_errdefer},
+        Keyword{.bytes="error", .id = Id.Keyword_error},
+        Keyword{.bytes="export", .id = Id.Keyword_export},
+        Keyword{.bytes="extern", .id = Id.Keyword_extern},
+        Keyword{.bytes="false", .id = Id.Keyword_false},
+        Keyword{.bytes="fn", .id = Id.Keyword_fn},
+        Keyword{.bytes="for", .id = Id.Keyword_for},
+        Keyword{.bytes="if", .id = Id.Keyword_if},
+        Keyword{.bytes="inline", .id = Id.Keyword_inline},
+        Keyword{.bytes="nakedcc", .id = Id.Keyword_nakedcc},
+        Keyword{.bytes="noalias", .id = Id.Keyword_noalias},
+        Keyword{.bytes="null", .id = Id.Keyword_null},
+        Keyword{.bytes="or", .id = Id.Keyword_or},
+        Keyword{.bytes="packed", .id = Id.Keyword_packed},
+        Keyword{.bytes="promise", .id = Id.Keyword_promise},
+        Keyword{.bytes="pub", .id = Id.Keyword_pub},
+        Keyword{.bytes="resume", .id = Id.Keyword_resume},
+        Keyword{.bytes="return", .id = Id.Keyword_return},
+        Keyword{.bytes="section", .id = Id.Keyword_section},
+        Keyword{.bytes="stdcallcc", .id = Id.Keyword_stdcallcc},
+        Keyword{.bytes="struct", .id = Id.Keyword_struct},
+        Keyword{.bytes="suspend", .id = Id.Keyword_suspend},
+        Keyword{.bytes="switch", .id = Id.Keyword_switch},
+        Keyword{.bytes="test", .id = Id.Keyword_test},
+        Keyword{.bytes="this", .id = Id.Keyword_this},
+        Keyword{.bytes="true", .id = Id.Keyword_true},
+        Keyword{.bytes="try", .id = Id.Keyword_try},
+        Keyword{.bytes="undefined", .id = Id.Keyword_undefined},
+        Keyword{.bytes="union", .id = Id.Keyword_union},
+        Keyword{.bytes="unreachable", .id = Id.Keyword_unreachable},
+        Keyword{.bytes="use", .id = Id.Keyword_use},
+        Keyword{.bytes="var", .id = Id.Keyword_var},
+        Keyword{.bytes="volatile", .id = Id.Keyword_volatile},
+        Keyword{.bytes="while", .id = Id.Keyword_while},
     };
 
     fn getKeyword(bytes: []const u8) ?Id {
@@ -194,37 +194,6 @@ pub const Tokenizer = struct {
     buffer: []const u8,
     index: usize,
     pending_invalid_token: ?Token,
-
-    pub const Location = struct {
-        line: usize,
-        column: usize,
-        line_start: usize,
-        line_end: usize,
-    };
-
-    pub fn getTokenLocation(self: &Tokenizer, start_index: usize, token: &const Token) Location {
-        var loc = Location {
-            .line = 0,
-            .column = 0,
-            .line_start = start_index,
-            .line_end = self.buffer.len,
-        };
-        for (self.buffer[start_index..]) |c, i| {
-            if (i + start_index == token.start) {
-                loc.line_end = i + start_index;
-                while (loc.line_end < self.buffer.len and self.buffer[loc.line_end] != '\n') : (loc.line_end += 1) {}
-                return loc;
-            }
-            if (c == '\n') {
-                loc.line += 1;
-                loc.column = 0;
-                loc.line_start = i + 1;
-            } else {
-                loc.column += 1;
-            }
-        }
-        return loc;
-    }
 
     /// For debugging purposes
     pub fn dump(self: &Tokenizer, token: &const Token) void {
@@ -912,10 +881,10 @@ pub const Tokenizer = struct {
                     },
                 },
                 State.FloatFraction => switch (c) {
-                    'p', 'P' => {
+                    'p', 'P', 'e', 'E' => {
                         state = State.FloatExponentUnsigned;
                     },
-                    '0'...'9', 'a'...'f', 'A'...'F' => {},
+                    '0'...'9' => {},
                     else => break,
                 },
                 State.FloatExponentUnsigned => switch (c) {
@@ -1047,10 +1016,6 @@ pub const Tokenizer = struct {
         return result;
     }
 
-    pub fn getTokenSlice(self: &const Tokenizer, token: &const Token) []const u8 {
-        return self.buffer[token.start..token.end];
-    }
-
     fn checkLiteralCharacter(self: &Tokenizer) void {
         if (self.pending_invalid_token != null) return;
         const invalid_length = self.getInvalidCharacterLength();
@@ -1105,6 +1070,15 @@ pub const Tokenizer = struct {
 test "tokenizer" {
     testTokenize("test", []Token.Id {
         Token.Id.Keyword_test,
+    });
+}
+
+test "tokenizer - float literal" {
+    testTokenize("a = 4.94065645841246544177e-324;\n", []Token.Id {
+        Token.Id.Identifier,
+        Token.Id.Equal,
+        Token.Id.FloatLiteral,
+        Token.Id.Semicolon,
     });
 }
 

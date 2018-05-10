@@ -1,29 +1,82 @@
-// TODO
-//if (sr > n_uword_bits - 1)  // d > r
-//    return 0;
+test "zig fmt: same-line comment after a statement" {
+    try testCanonical(
+        \\test "" {
+        \\    a = b;
+        \\    debug.assert(H.digest_size <= H.block_size); // HMAC makes this assumption
+        \\    a = b;
+        \\}
+        \\
+    );
+}
 
-// TODO switch with no body
-// format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
+test "zig fmt: same-line comment after var decl in struct" {
+    try testCanonical(
+        \\pub const vfs_cap_data = extern struct {
+        \\    const Data = struct {}; // when on disk.
+        \\};
+        \\
+    );
+}
 
+test "zig fmt: same-line comment after field decl" {
+    try testCanonical(
+        \\pub const dirent = extern struct {
+        \\    d_name: u8,
+        \\    d_name: u8, // comment 1
+        \\    d_name: u8,
+        \\    d_name: u8, // comment 2
+        \\    d_name: u8,
+        \\};
+        \\
+    );
+}
 
-//TODO
-//test "zig fmt: same-line comptime" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: same-line comment after switch prong" {
+    try testCanonical(
+        \\test "" {
+        \\    switch (err) {
+        \\        error.PathAlreadyExists => {}, // comment 2
+        \\        else => return err, // comment 1
+        \\    }
+        \\}
+        \\
+    );
+}
 
+test "zig fmt: same-line comment after non-block if expression" {
+    try testCanonical(
+        \\comptime {
+        \\    if (sr > n_uword_bits - 1) // d > r
+        \\        return 0;
+        \\}
+        \\
+    );
+}
 
-//TODO
-//test "zig fmt: number literals" {
-//    try testCanonical(
-//        \\pub const f64_true_min = 4.94065645841246544177e-324;
-//        \\
-//    );
-//}
+test "zig fmt: same-line comment on comptime expression" {
+    try testCanonical(
+        \\test "" {
+        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: switch with empty body" {
+    try testCanonical(
+        \\test "" {
+        \\    foo() catch |err| switch (err) {};
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\pub const f64_true_min = 4.94065645841246544177e-324;
+        \\
+    );
+}
 
 test "zig fmt: line comments in struct initializer" {
     try testCanonical(
@@ -144,18 +197,6 @@ test "zig fmt: comments before switch prong" {
     );
 }
 
-test "zig fmt: same-line comment after switch prong" {
-    try testCanonical(
-        \\test "" {
-        \\    switch (err) {
-        \\        error.PathAlreadyExists => {}, // comment 2
-        \\        else => return err, // comment 1
-        \\    }
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: comments before var decl in struct" {
     try testCanonical(
         \\pub const vfs_cap_data = extern struct {
@@ -181,42 +222,9 @@ test "zig fmt: comments before var decl in struct" {
     );
 }
 
-test "zig fmt: same-line comment after var decl in struct" {
-    try testCanonical(
-        \\pub const vfs_cap_data = extern struct {
-        \\    const Data = struct {}; // when on disk.
-        \\};
-        \\
-    );
-}
-
-test "zig fmt: same-line comment after field decl" {
-    try testCanonical(
-        \\pub const dirent = extern struct {
-        \\    d_name: u8,
-        \\    d_name: u8, // comment 1
-        \\    d_name: u8,
-        \\    d_name: u8, // comment 2
-        \\    d_name: u8,
-        \\};
-        \\
-    );
-}
-
 test "zig fmt: array literal with 1 item on 1 line" {
     try testCanonical(
         \\var s = []const u64{0} ** 25;
-        \\
-    );
-}
-
-test "zig fmt: same-line comment after a statement" {
-    try testCanonical(
-        \\test "" {
-        \\    a = b;
-        \\    debug.assert(H.digest_size <= H.block_size); // HMAC makes this assumption
-        \\    a = b;
-        \\}
         \\
     );
 }
@@ -1084,37 +1092,60 @@ test "zig fmt: error return" {
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
-const Tokenizer = std.zig.Tokenizer;
-const Parser = std.zig.Parser;
 const io = std.io;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
-    var tokenizer = Tokenizer.init(source);
-    var parser = Parser.init(&tokenizer, allocator, "(memory buffer)");
-    defer parser.deinit();
+    var stderr_file = try io.getStdErr();
+    var stderr = &io.FileOutStream.init(&stderr_file).stream;
 
-    var tree = try parser.parse();
+    var tree = try std.zig.parse(allocator, source);
     defer tree.deinit();
+
+    var error_it = tree.errors.iterator(0);
+    while (error_it.next()) |parse_error| {
+        const token = tree.tokens.at(parse_error.loc());
+        const loc = tree.tokenLocation(0, parse_error.loc());
+        try stderr.print("(memory buffer):{}:{}: error: ", loc.line + 1, loc.column + 1);
+        try tree.renderError(parse_error, stderr);
+        try stderr.print("\n{}\n", source[loc.line_start..loc.line_end]);
+        {
+            var i: usize = 0;
+            while (i < loc.column) : (i += 1) {
+                try stderr.write(" ");
+            }
+        }
+        {
+            const caret_count = token.end - token.start;
+            var i: usize = 0;
+            while (i < caret_count) : (i += 1) {
+                try stderr.write("~");
+            }
+        }
+        try stderr.write("\n");
+    }
+    if (tree.errors.len != 0) {
+        return error.ParseError;
+    }
 
     var buffer = try std.Buffer.initSize(allocator, 0);
     errdefer buffer.deinit();
 
     var buffer_out_stream = io.BufferOutStream.init(&buffer);
-    try parser.renderSource(&buffer_out_stream.stream, tree.root_node);
+    try std.zig.render(allocator, &buffer_out_stream.stream, &tree);
     return buffer.toOwnedSlice();
 }
 
-fn testCanonical(source: []const u8) !void {
+fn testTransform(source: []const u8, expected_source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
         const result_source = try testParse(source, &failing_allocator.allocator);
-        if (!mem.eql(u8, result_source, source)) {
+        if (!mem.eql(u8, result_source, expected_source)) {
             warn("\n====== expected this output: =========\n");
-            warn("{}", source);
+            warn("{}", expected_source);
             warn("\n======== instead found this: =========\n");
             warn("{}", result_source);
             warn("\n======================================\n");
@@ -1141,7 +1172,12 @@ fn testCanonical(source: []const u8) !void {
                 }
             },
             error.ParseError => @panic("test failed"),
+            else => @panic("test failed"),
         }
     }
+}
+
+fn testCanonical(source: []const u8) !void {
+    return testTransform(source, source);
 }
 
