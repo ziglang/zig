@@ -70,7 +70,7 @@ test "std.atomic.queue" {
 
     var queue: Queue(i32) = undefined;
     queue.init();
-    var context = Context {
+    var context = Context{
         .allocator = a,
         .queue = &queue,
         .put_sum = 0,
@@ -81,16 +81,18 @@ test "std.atomic.queue" {
 
     var putters: [put_thread_count]&std.os.Thread = undefined;
     for (putters) |*t| {
-        *t = try std.os.spawnThread(&context, startPuts);
+        t.* = try std.os.spawnThread(&context, startPuts);
     }
     var getters: [put_thread_count]&std.os.Thread = undefined;
     for (getters) |*t| {
-        *t = try std.os.spawnThread(&context, startGets);
+        t.* = try std.os.spawnThread(&context, startGets);
     }
 
-    for (putters) |t| t.wait();
+    for (putters) |t|
+        t.wait();
     _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-    for (getters) |t| t.wait();
+    for (getters) |t|
+        t.wait();
 
     std.debug.assert(context.put_sum == context.get_sum);
     std.debug.assert(context.get_count == puts_per_thread * put_thread_count);

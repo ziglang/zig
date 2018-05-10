@@ -35,7 +35,7 @@ pub const Token = struct {
     };
 
     pub fn init(id: Id, count: usize, offset: u1) Token {
-        return Token {
+        return Token{
             .id = id,
             .offset = offset,
             .string_has_escape = false,
@@ -45,7 +45,7 @@ pub const Token = struct {
     }
 
     pub fn initString(count: usize, has_unicode_escape: bool) Token {
-        return Token {
+        return Token{
             .id = Id.String,
             .offset = 0,
             .string_has_escape = has_unicode_escape,
@@ -55,7 +55,7 @@ pub const Token = struct {
     }
 
     pub fn initNumber(count: usize, number_is_integer: bool) Token {
-        return Token {
+        return Token{
             .id = Id.Number,
             .offset = 0,
             .string_has_escape = false,
@@ -66,7 +66,7 @@ pub const Token = struct {
 
     // A marker token is a zero-length
     pub fn initMarker(id: Id) Token {
-        return Token {
+        return Token{
             .id = id,
             .offset = 0,
             .string_has_escape = false,
@@ -77,7 +77,7 @@ pub const Token = struct {
 
     // Slice into the underlying input string.
     pub fn slice(self: &const Token, input: []const u8, i: usize) []const u8 {
-        return input[i + self.offset - self.count .. i + self.offset];
+        return input[i + self.offset - self.count..i + self.offset];
     }
 };
 
@@ -105,8 +105,8 @@ const StreamingJsonParser = struct {
     stack: u256,
     stack_used: u8,
 
-    const object_bit     = 0;
-    const array_bit      = 1;
+    const object_bit = 0;
+    const array_bit = 1;
     const max_stack_size = @maxValue(u8);
 
     pub fn init() StreamingJsonParser {
@@ -120,7 +120,7 @@ const StreamingJsonParser = struct {
         p.count = 0;
         // Set before ever read in main transition function
         p.after_string_state = undefined;
-        p.after_value_state = State.ValueEnd;   // handle end of values normally
+        p.after_value_state = State.ValueEnd; // handle end of values normally
         p.stack = 0;
         p.stack_used = 0;
         p.complete = false;
@@ -181,7 +181,7 @@ const StreamingJsonParser = struct {
         }
     };
 
-    pub const Error = error {
+    pub const Error = error{
         InvalidTopLevel,
         TooManyNestedItems,
         TooManyClosingItems,
@@ -206,8 +206,8 @@ const StreamingJsonParser = struct {
     //
     // There is currently no error recovery on a bad stream.
     pub fn feed(p: &StreamingJsonParser, c: u8, token1: &?Token, token2: &?Token) Error!void {
-        *token1 = null;
-        *token2 = null;
+        token1.* = null;
+        token2.* = null;
         p.count += 1;
 
         // unlikely
@@ -228,7 +228,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    *token = Token.initMarker(Token.Id.ObjectBegin);
+                    token.* = Token.initMarker(Token.Id.ObjectBegin);
                 },
                 '[' => {
                     p.stack <<= 1;
@@ -238,7 +238,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    *token = Token.initMarker(Token.Id.ArrayBegin);
+                    token.* = Token.initMarker(Token.Id.ArrayBegin);
                 },
                 '-' => {
                     p.number_is_integer = true;
@@ -281,7 +281,10 @@ const StreamingJsonParser = struct {
                     p.after_value_state = State.TopLevelEnd;
                     p.count = 0;
                 },
-                0x09, 0x0A, 0x0D, 0x20 => {
+                0x09,
+                0x0A,
+                0x0D,
+                0x20 => {
                     // whitespace
                 },
                 else => {
@@ -290,7 +293,10 @@ const StreamingJsonParser = struct {
             },
 
             State.TopLevelEnd => switch (c) {
-                0x09, 0x0A, 0x0D, 0x20 => {
+                0x09,
+                0x0A,
+                0x0D,
+                0x20 => {
                     // whitespace
                 },
                 else => {
@@ -324,7 +330,7 @@ const StreamingJsonParser = struct {
                         else => {},
                     }
 
-                    *token = Token.initMarker(Token.Id.ObjectEnd);
+                    token.* = Token.initMarker(Token.Id.ObjectEnd);
                 },
                 ']' => {
                     if (p.stack & 1 != array_bit) {
@@ -348,7 +354,7 @@ const StreamingJsonParser = struct {
                         else => {},
                     }
 
-                    *token = Token.initMarker(Token.Id.ArrayEnd);
+                    token.* = Token.initMarker(Token.Id.ArrayEnd);
                 },
                 '{' => {
                     if (p.stack_used == max_stack_size) {
@@ -362,7 +368,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    *token = Token.initMarker(Token.Id.ObjectBegin);
+                    token.* = Token.initMarker(Token.Id.ObjectBegin);
                 },
                 '[' => {
                     if (p.stack_used == max_stack_size) {
@@ -376,7 +382,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    *token = Token.initMarker(Token.Id.ArrayBegin);
+                    token.* = Token.initMarker(Token.Id.ArrayBegin);
                 },
                 '-' => {
                     p.state = State.Number;
@@ -406,7 +412,10 @@ const StreamingJsonParser = struct {
                     p.state = State.NullLiteral1;
                     p.count = 0;
                 },
-                0x09, 0x0A, 0x0D, 0x20 => {
+                0x09,
+                0x0A,
+                0x0D,
+                0x20 => {
                     // whitespace
                 },
                 else => {
@@ -428,7 +437,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    *token = Token.initMarker(Token.Id.ObjectBegin);
+                    token.* = Token.initMarker(Token.Id.ObjectBegin);
                 },
                 '[' => {
                     if (p.stack_used == max_stack_size) {
@@ -442,7 +451,7 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    *token = Token.initMarker(Token.Id.ArrayBegin);
+                    token.* = Token.initMarker(Token.Id.ArrayBegin);
                 },
                 '-' => {
                     p.state = State.Number;
@@ -472,7 +481,10 @@ const StreamingJsonParser = struct {
                     p.state = State.NullLiteral1;
                     p.count = 0;
                 },
-                0x09, 0x0A, 0x0D, 0x20 => {
+                0x09,
+                0x0A,
+                0x0D,
+                0x20 => {
                     // whitespace
                 },
                 else => {
@@ -501,7 +513,7 @@ const StreamingJsonParser = struct {
                         p.state = State.TopLevelEnd;
                     }
 
-                    *token = Token.initMarker(Token.Id.ArrayEnd);
+                    token.* = Token.initMarker(Token.Id.ArrayEnd);
                 },
                 '}' => {
                     if (p.stack_used == 0) {
@@ -519,9 +531,12 @@ const StreamingJsonParser = struct {
                         p.state = State.TopLevelEnd;
                     }
 
-                    *token = Token.initMarker(Token.Id.ObjectEnd);
+                    token.* = Token.initMarker(Token.Id.ObjectEnd);
                 },
-                0x09, 0x0A, 0x0D, 0x20 => {
+                0x09,
+                0x0A,
+                0x0D,
+                0x20 => {
                     // whitespace
                 },
                 else => {
@@ -534,7 +549,10 @@ const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
                 },
-                0x09, 0x0A, 0x0D, 0x20 => {
+                0x09,
+                0x0A,
+                0x0D,
+                0x20 => {
                     // whitespace
                 },
                 else => {
@@ -553,12 +571,15 @@ const StreamingJsonParser = struct {
                         p.complete = true;
                     }
 
-                    *token = Token.initString(p.count - 1, p.string_has_escape);
+                    token.* = Token.initString(p.count - 1, p.string_has_escape);
                 },
                 '\\' => {
                     p.state = State.StringEscapeCharacter;
                 },
-                0x20, 0x21, 0x23 ... 0x5B, 0x5D ... 0x7F => {
+                0x20,
+                0x21,
+                0x23 ... 0x5B,
+                0x5D ... 0x7F => {
                     // non-control ascii
                 },
                 0xC0 ... 0xDF => {
@@ -599,7 +620,14 @@ const StreamingJsonParser = struct {
                 // The current JSONTestSuite tests rely on both of this behaviour being present
                 // however, so we default to the status quo where both are accepted until this
                 // is further clarified.
-                '"', '\\', '/', 'b', 'f', 'n', 'r', 't' => {
+                '"',
+                '\\',
+                '/',
+                'b',
+                'f',
+                'n',
+                'r',
+                't' => {
                     p.string_has_escape = true;
                     p.state = State.String;
                 },
@@ -613,28 +641,36 @@ const StreamingJsonParser = struct {
             },
 
             State.StringEscapeHexUnicode4 => switch (c) {
-                '0' ... '9', 'A' ... 'F', 'a' ... 'f' => {
+                '0' ... '9',
+                'A' ... 'F',
+                'a' ... 'f' => {
                     p.state = State.StringEscapeHexUnicode3;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
             State.StringEscapeHexUnicode3 => switch (c) {
-                '0' ... '9', 'A' ... 'F', 'a' ... 'f' => {
+                '0' ... '9',
+                'A' ... 'F',
+                'a' ... 'f' => {
                     p.state = State.StringEscapeHexUnicode2;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
             State.StringEscapeHexUnicode2 => switch (c) {
-                '0' ... '9', 'A' ... 'F', 'a' ... 'f' => {
+                '0' ... '9',
+                'A' ... 'F',
+                'a' ... 'f' => {
                     p.state = State.StringEscapeHexUnicode1;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
             State.StringEscapeHexUnicode1 => switch (c) {
-                '0' ... '9', 'A' ... 'F', 'a' ... 'f' => {
+                '0' ... '9',
+                'A' ... 'F',
+                'a' ... 'f' => {
                     p.state = State.String;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
@@ -662,13 +698,14 @@ const StreamingJsonParser = struct {
                         p.number_is_integer = false;
                         p.state = State.NumberFractionalRequired;
                     },
-                    'e', 'E' => {
+                    'e',
+                    'E' => {
                         p.number_is_integer = false;
                         p.state = State.NumberExponent;
                     },
                     else => {
                         p.state = p.after_value_state;
-                        *token = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = Token.initNumber(p.count, p.number_is_integer);
                         return true;
                     },
                 }
@@ -681,7 +718,8 @@ const StreamingJsonParser = struct {
                         p.number_is_integer = false;
                         p.state = State.NumberFractionalRequired;
                     },
-                    'e', 'E' => {
+                    'e',
+                    'E' => {
                         p.number_is_integer = false;
                         p.state = State.NumberExponent;
                     },
@@ -690,7 +728,7 @@ const StreamingJsonParser = struct {
                     },
                     else => {
                         p.state = p.after_value_state;
-                        *token = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = Token.initNumber(p.count, p.number_is_integer);
                         return true;
                     },
                 }
@@ -714,13 +752,14 @@ const StreamingJsonParser = struct {
                     '0' ... '9' => {
                         // another digit
                     },
-                    'e', 'E' => {
+                    'e',
+                    'E' => {
                         p.number_is_integer = false;
                         p.state = State.NumberExponent;
                     },
                     else => {
                         p.state = p.after_value_state;
-                        *token = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = Token.initNumber(p.count, p.number_is_integer);
                         return true;
                     },
                 }
@@ -729,20 +768,22 @@ const StreamingJsonParser = struct {
             State.NumberMaybeExponent => {
                 p.complete = p.after_value_state == State.TopLevelEnd;
                 switch (c) {
-                    'e', 'E' => {
+                    'e',
+                    'E' => {
                         p.number_is_integer = false;
                         p.state = State.NumberExponent;
                     },
                     else => {
                         p.state = p.after_value_state;
-                        *token = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = Token.initNumber(p.count, p.number_is_integer);
                         return true;
                     },
                 }
             },
 
             State.NumberExponent => switch (c) {
-                '-', '+', => {
+                '-',
+                '+' => {
                     p.complete = false;
                     p.state = State.NumberExponentDigitsRequired;
                 },
@@ -773,7 +814,7 @@ const StreamingJsonParser = struct {
                     },
                     else => {
                         p.state = p.after_value_state;
-                        *token = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = Token.initNumber(p.count, p.number_is_integer);
                         return true;
                     },
                 }
@@ -793,7 +834,7 @@ const StreamingJsonParser = struct {
                 'e' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    *token = Token.init(Token.Id.True, p.count + 1, 1);
+                    token.* = Token.init(Token.Id.True, p.count + 1, 1);
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -819,7 +860,7 @@ const StreamingJsonParser = struct {
                 'e' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    *token = Token.init(Token.Id.False, p.count + 1, 1);
+                    token.* = Token.init(Token.Id.False, p.count + 1, 1);
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -840,7 +881,7 @@ const StreamingJsonParser = struct {
                 'l' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    *token = Token.init(Token.Id.Null, p.count + 1, 1);
+                    token.* = Token.init(Token.Id.Null, p.count + 1, 1);
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -895,7 +936,7 @@ pub const Value = union(enum) {
     Object: ObjectMap,
 
     pub fn dump(self: &const Value) void {
-        switch (*self) {
+        switch (self.*) {
             Value.Null => {
                 std.debug.warn("null");
             },
@@ -950,7 +991,7 @@ pub const Value = union(enum) {
     }
 
     fn dumpIndentLevel(self: &const Value, indent: usize, level: usize) void {
-        switch (*self) {
+        switch (self.*) {
             Value.Null => {
                 std.debug.warn("null");
             },
@@ -1027,7 +1068,7 @@ const JsonParser = struct {
     };
 
     pub fn init(allocator: &Allocator, copy_strings: bool) JsonParser {
-        return JsonParser {
+        return JsonParser{
             .allocator = allocator,
             .state = State.Simple,
             .copy_strings = copy_strings,
@@ -1082,7 +1123,7 @@ const JsonParser = struct {
 
         std.debug.assert(p.stack.len == 1);
 
-        return ValueTree {
+        return ValueTree{
             .arena = arena,
             .root = p.stack.at(0),
         };
@@ -1115,11 +1156,11 @@ const JsonParser = struct {
 
                 switch (token.id) {
                     Token.Id.ObjectBegin => {
-                        try p.stack.append(Value { .Object = ObjectMap.init(allocator) });
+                        try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
                     Token.Id.ArrayBegin => {
-                        try p.stack.append(Value { .Array = ArrayList(Value).init(allocator) });
+                        try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
                         p.state = State.ArrayValue;
                     },
                     Token.Id.String => {
@@ -1133,12 +1174,12 @@ const JsonParser = struct {
                         p.state = State.ObjectKey;
                     },
                     Token.Id.True => {
-                        _ = try object.put(key, Value { .Bool = true });
+                        _ = try object.put(key, Value{ .Bool = true });
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
                     Token.Id.False => {
-                        _ = try object.put(key, Value { .Bool = false });
+                        _ = try object.put(key, Value{ .Bool = false });
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
@@ -1165,11 +1206,11 @@ const JsonParser = struct {
                         try p.pushToParent(value);
                     },
                     Token.Id.ObjectBegin => {
-                        try p.stack.append(Value { .Object = ObjectMap.init(allocator) });
+                        try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
                     Token.Id.ArrayBegin => {
-                        try p.stack.append(Value { .Array = ArrayList(Value).init(allocator) });
+                        try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
                         p.state = State.ArrayValue;
                     },
                     Token.Id.String => {
@@ -1179,10 +1220,10 @@ const JsonParser = struct {
                         try array.append(try p.parseNumber(token, input, i));
                     },
                     Token.Id.True => {
-                        try array.append(Value { .Bool = true });
+                        try array.append(Value{ .Bool = true });
                     },
                     Token.Id.False => {
-                        try array.append(Value { .Bool = false });
+                        try array.append(Value{ .Bool = false });
                     },
                     Token.Id.Null => {
                         try array.append(Value.Null);
@@ -1194,11 +1235,11 @@ const JsonParser = struct {
             },
             State.Simple => switch (token.id) {
                 Token.Id.ObjectBegin => {
-                    try p.stack.append(Value { .Object = ObjectMap.init(allocator) });
+                    try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                     p.state = State.ObjectKey;
                 },
                 Token.Id.ArrayBegin => {
-                    try p.stack.append(Value { .Array = ArrayList(Value).init(allocator) });
+                    try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
                     p.state = State.ArrayValue;
                 },
                 Token.Id.String => {
@@ -1208,15 +1249,16 @@ const JsonParser = struct {
                     try p.stack.append(try p.parseNumber(token, input, i));
                 },
                 Token.Id.True => {
-                    try p.stack.append(Value { .Bool = true });
+                    try p.stack.append(Value{ .Bool = true });
                 },
                 Token.Id.False => {
-                    try p.stack.append(Value { .Bool = false });
+                    try p.stack.append(Value{ .Bool = false });
                 },
                 Token.Id.Null => {
                     try p.stack.append(Value.Null);
                 },
-                Token.Id.ObjectEnd, Token.Id.ArrayEnd => {
+                Token.Id.ObjectEnd,
+                Token.Id.ArrayEnd => {
                     unreachable;
                 },
             },
@@ -1248,15 +1290,14 @@ const JsonParser = struct {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);
-        return Value { .String = try mem.dupe(p.allocator, u8, slice) };
+        return Value{ .String = try mem.dupe(p.allocator, u8, slice) };
     }
 
     fn parseNumber(p: &JsonParser, token: &const Token, input: []const u8, i: usize) !Value {
         return if (token.number_is_integer)
-            Value { .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
+            Value{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
         else
-            @panic("TODO: fmt.parseFloat not yet implemented")
-        ;
+            @panic("TODO: fmt.parseFloat not yet implemented");
     }
 };
 
@@ -1267,21 +1308,21 @@ test "json parser dynamic" {
     defer p.deinit();
 
     const s =
-      \\{
-      \\  "Image": {
-      \\      "Width":  800,
-      \\      "Height": 600,
-      \\      "Title":  "View from 15th Floor",
-      \\      "Thumbnail": {
-      \\          "Url":    "http://www.example.com/image/481989943",
-      \\          "Height": 125,
-      \\          "Width":  100
-      \\      },
-      \\      "Animated" : false,
-      \\      "IDs": [116, 943, 234, 38793]
-      \\    }
-      \\}
-      ;
+        \\{
+        \\  "Image": {
+        \\      "Width":  800,
+        \\      "Height": 600,
+        \\      "Title":  "View from 15th Floor",
+        \\      "Thumbnail": {
+        \\          "Url":    "http://www.example.com/image/481989943",
+        \\          "Height": 125,
+        \\          "Width":  100
+        \\      },
+        \\      "Animated" : false,
+        \\      "IDs": [116, 943, 234, 38793]
+        \\    }
+        \\}
+    ;
 
     var tree = try p.parse(s);
     defer tree.deinit();

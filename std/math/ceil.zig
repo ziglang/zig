@@ -56,7 +56,7 @@ fn ceil64(x: f64) f64 {
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;
 
-    if (e >= 0x3FF+52 or x == 0) {
+    if (e >= 0x3FF + 52 or x == 0) {
         return x;
     }
 
@@ -68,7 +68,7 @@ fn ceil64(x: f64) f64 {
         y = x + math.f64_toint - math.f64_toint - x;
     }
 
-    if (e <= 0x3FF-1) {
+    if (e <= 0x3FF - 1) {
         math.forceEval(y);
         if (u >> 63 != 0) {
             return -0.0;
