@@ -1425,7 +1425,7 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         uint64_t digit = op1_digits[op_digit_index];
         size_t dest_digit_index = op_digit_index - digit_shift_count;
         dest->data.digits[dest_digit_index] = carry | (digit >> leftover_shift_count);
-        carry = digit << leftover_shift_count;
+        carry = digit << (64 - leftover_shift_count);
 
         if (dest_digit_index == 0) { break; }
         op_digit_index -= 1;
