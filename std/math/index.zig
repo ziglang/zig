@@ -541,6 +541,32 @@ test "math.floorPowerOfTwo" {
     comptime testFloorPowerOfTwo();
 }
 
+pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
+    assert(x != 0);
+    return Log2Int(T)(T.bit_count - 1 - @clz(x));
+}
+
+pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {
+    assert(x != 0);
+    const log2_val = log2_int(T, x);
+    if (T(1) << log2_val == x)
+        return log2_val;
+    return log2_val + 1;
+}
+
+test "std.math.log2_int_ceil" {
+    assert(log2_int_ceil(u32, 1) == 0);
+    assert(log2_int_ceil(u32, 2) == 1);
+    assert(log2_int_ceil(u32, 3) == 2);
+    assert(log2_int_ceil(u32, 4) == 2);
+    assert(log2_int_ceil(u32, 5) == 3);
+    assert(log2_int_ceil(u32, 6) == 3);
+    assert(log2_int_ceil(u32, 7) == 3);
+    assert(log2_int_ceil(u32, 8) == 3);
+    assert(log2_int_ceil(u32, 9) == 4);
+    assert(log2_int_ceil(u32, 10) == 4);
+}
+
 fn testFloorPowerOfTwo() void {
     assert(floorPowerOfTwo(u32, 63) == 32);
     assert(floorPowerOfTwo(u32, 64) == 64);

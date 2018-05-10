@@ -2473,6 +2473,7 @@ pub const Thread = struct {
             },
             builtin.Os.windows => {
                 assert(windows.WaitForSingleObject(self.data.handle, windows.INFINITE) == windows.WAIT_OBJECT_0);
+                assert(windows.CloseHandle(self.data.handle) != 0);
                 assert(windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start) != 0);
             },
             else => @compileError("Unsupported OS"),

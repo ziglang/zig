@@ -1,6 +1,8 @@
+const std = @import("index.zig");
 const HashMap = @import("hash_map.zig").HashMap;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
+const assert = std.debug.assert;
 
 pub const BufSet = struct {
     hash_map: BufSetHashMap,
@@ -14,10 +16,10 @@ pub const BufSet = struct {
         return self;
     }
 
-    pub fn deinit(self: &BufSet) void {
+    pub fn deinit(self: &const BufSet) void {
         var it = self.hash_map.iterator();
         while (true) {
-            const entry = it.next() ?? break; 
+            const entry = it.next() ?? break;
             self.free(entry.key);
         }
 
@@ -38,7 +40,7 @@ pub const BufSet = struct {
     }
 
     pub fn count(self: &const BufSet) usize {
-        return self.hash_map.size;
+        return self.hash_map.count();
     }
 
     pub fn iterator(self: &const BufSet) BufSetHashMap.Iterator {
@@ -49,14 +51,30 @@ pub const BufSet = struct {
         return self.hash_map.allocator;
     }
 
-    fn free(self: &BufSet, value: []const u8) void {
+    fn free(self: &const BufSet, value: []const u8) void {
         self.hash_map.allocator.free(value);
     }
 
-    fn copy(self: &BufSet, value: []const u8) ![]const u8 {
+    fn copy(self: &const BufSet, value: []const u8) ![]const u8 {
         const result = try self.hash_map.allocator.alloc(u8, value.len);
         mem.copy(u8, result, value);
         return result;
     }
 };
 
+test "BufSet" {
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var bufset = BufSet.init(&direct_allocator.allocator);
+    defer bufset.deinit();
+
+    try bufset.put("x");
+    assert(bufset.count() == 1);
+    bufset.delete("x");
+    assert(bufset.count() == 0);
+
+    try bufset.put("x");
+    try bufset.put("y");
+    try bufset.put("z");
+}

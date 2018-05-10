@@ -7,6 +7,7 @@ pub const BufferOutStream = @import("buffer.zig").BufferOutStream;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const IntrusiveLinkedList = @import("linked_list.zig").IntrusiveLinkedList;
+pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 
 pub const atomic = @import("atomic/index.zig");
 pub const base64 = @import("base64.zig");
@@ -23,6 +24,7 @@ pub const fmt = @import("fmt/index.zig");
 pub const hash = @import("hash/index.zig");
 pub const heap = @import("heap.zig");
 pub const io = @import("io.zig");
+pub const json = @import("json.zig");
 pub const macho = @import("macho.zig");
 pub const math = @import("math/index.zig");
 pub const mem = @import("mem.zig");
@@ -42,6 +44,7 @@ test "std" {
     _ = @import("buffer.zig");
     _ = @import("hash_map.zig");
     _ = @import("linked_list.zig");
+    _ = @import("segmented_list.zig");
 
     _ = @import("base64.zig");
     _ = @import("build.zig");
@@ -56,6 +59,7 @@ test "std" {
     _ = @import("fmt/index.zig");
     _ = @import("hash/index.zig");
     _ = @import("io.zig");
+    _ = @import("json.zig");
     _ = @import("macho.zig");
     _ = @import("math/index.zig");
     _ = @import("mem.zig");

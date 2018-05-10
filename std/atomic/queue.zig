@@ -31,10 +31,10 @@ pub fn Queue(comptime T: type) type {
         }
 
         pub fn get(self: &Self) ?&Node {
-            var head = @atomicLoad(&Node, &self.head, AtomicOrder.Acquire);
+            var head = @atomicLoad(&Node, &self.head, AtomicOrder.SeqCst);
             while (true) {
                 const node = head.next ?? return null;
-                head = @cmpxchgWeak(&Node, &self.head, head, node, AtomicOrder.Release, AtomicOrder.Acquire) ?? return node;
+                head = @cmpxchgWeak(&Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return node;
             }
         }
     };
@@ -49,14 +49,20 @@ const Context = struct {
     get_count: usize,
     puts_done: u8, // TODO make this a bool
 };
-const puts_per_thread = 10000;
+
+// TODO add lazy evaluated build options and then put puts_per_thread behind
+// some option such as: "AggressiveMultithreadedFuzzTest". In the AppVeyor
+// CI we would use a less aggressive setting since at 1 core, while we still
+// want this test to pass, we need a smaller value since there is so much thrashing
+// we would also use a less aggressive setting when running in valgrind
+const puts_per_thread = 500;
 const put_thread_count = 3;
 
 test "std.atomic.queue" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 64 * 1024 * 1024);
+    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 300 * 1024);
     defer direct_allocator.allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);

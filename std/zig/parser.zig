@@ -228,7 +228,6 @@ pub const Parser = struct {
         Statement: &ast.Node.Block,
         ComptimeStatement: ComptimeStatementCtx,
         Semicolon: &&ast.Node,
-        AddComments: AddCommentsCtx,
         LookForSameLineComment: &&ast.Node,
         LookForSameLineCommentDirect: &ast.Node,
 
@@ -239,11 +238,12 @@ pub const Parser = struct {
 
         ExprListItemOrEnd: ExprListCtx,
         ExprListCommaOrEnd: ExprListCtx,
-        FieldInitListItemOrEnd: ListSave(&ast.Node.FieldInitializer),
-        FieldInitListCommaOrEnd: ListSave(&ast.Node.FieldInitializer),
+        FieldInitListItemOrEnd: ListSave(&ast.Node),
+        FieldInitListCommaOrEnd: ListSave(&ast.Node),
         FieldListCommaOrEnd: &ast.Node.ContainerDecl,
-        IdentifierListItemOrEnd: ListSave(&ast.Node),
-        IdentifierListCommaOrEnd: ListSave(&ast.Node),
+        FieldInitValue: OptionalCtx,
+        ErrorTagListItemOrEnd: ListSave(&ast.Node),
+        ErrorTagListCommaOrEnd: ListSave(&ast.Node),
         SwitchCaseOrEnd: ListSave(&ast.Node),
         SwitchCaseCommaOrEnd: ListSave(&ast.Node),
         SwitchCaseFirstItem: &ArrayList(&ast.Node),
@@ -300,6 +300,7 @@ pub const Parser = struct {
         ErrorTypeOrSetDecl: ErrorTypeOrSetDeclCtx,
         StringLiteral: OptionalCtx,
         Identifier: OptionalCtx,
+        ErrorTag: &&ast.Node,
 
 
         IfToken: @TagType(Token.Id),
@@ -324,6 +325,7 @@ pub const Parser = struct {
             ast.Node.Root {
                 .base = undefined,
                 .decls = ArrayList(&ast.Node).init(arena),
+                .doc_comments = null,
                 // initialized when we get the eof token
                 .eof_token = undefined,
             }
@@ -353,7 +355,7 @@ pub const Parser = struct {
                         try root_node.decls.append(&line_comment.base);
                     }
 
-                    const comments = try self.eatComments(arena);
+                    const comments = try self.eatDocComments(arena);
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_test => {
@@ -362,7 +364,6 @@ pub const Parser = struct {
                             const block = try arena.construct(ast.Node.Block {
                                 .base = ast.Node {
                                     .id = ast.Node.Id.Block,
-                                    .doc_comments = null,
                                     .same_line_comment = null,
                                 },
                                 .label = null,
@@ -373,9 +374,9 @@ pub const Parser = struct {
                             const test_node = try arena.construct(ast.Node.TestDecl {
                                 .base = ast.Node {
                                     .id = ast.Node.Id.TestDecl,
-                                    .doc_comments = comments,
                                     .same_line_comment = null,
                                 },
+                                .doc_comments = comments,
                                 .test_token = token,
                                 .name = undefined,
                                 .body_node = &block.base,
@@ -393,7 +394,11 @@ pub const Parser = struct {
                         },
                         Token.Id.Eof => {
                             root_node.eof_token = token;
-                            return Tree {.root_node = root_node, .arena_allocator = arena_allocator};
+                            root_node.doc_comments = comments;
+                            return Tree {
+                                .root_node = root_node,
+                                .arena_allocator = arena_allocator,
+                            };
                         },
                         Token.Id.Keyword_pub => {
                             stack.append(State.TopLevel) catch unreachable;
@@ -423,6 +428,7 @@ pub const Parser = struct {
                                     .base = undefined,
                                     .comptime_token = token,
                                     .expr = &block.base,
+                                    .doc_comments = comments,
                                 }
                             );
                             stack.append(State.TopLevel) catch unreachable;
@@ -519,6 +525,7 @@ pub const Parser = struct {
                                     .visib_token = ctx.visib_token,
                                     .expr = undefined,
                                     .semicolon_token = undefined,
+                                    .doc_comments = ctx.comments,
                                 }
                             );
                             stack.append(State {
@@ -555,9 +562,9 @@ pub const Parser = struct {
                             const fn_proto = try arena.construct(ast.Node.FnProto {
                                 .base = ast.Node {
                                     .id = ast.Node.Id.FnProto,
-                                    .doc_comments = ctx.comments,
                                     .same_line_comment = null,
                                 },
+                                .doc_comments = ctx.comments,
                                 .visib_token = ctx.visib_token,
                                 .name_token = null,
                                 .fn_token = undefined,
@@ -624,9 +631,9 @@ pub const Parser = struct {
                         const node = try arena.construct(ast.Node.StructField {
                             .base = ast.Node {
                                 .id = ast.Node.Id.StructField,
-                                .doc_comments = null,
                                 .same_line_comment = null,
                             },
+                            .doc_comments = ctx.comments,
                             .visib_token = ctx.visib_token,
                             .name_token = identifier,
                             .type_expr = undefined,
@@ -653,6 +660,15 @@ pub const Parser = struct {
                     continue;
                 },
 
+                State.FieldInitValue => |ctx| {
+                    const eq_tok = self.getNextToken();
+                    if (eq_tok.id != Token.Id.Equal) {
+                        self.putBackToken(eq_tok);
+                        continue;
+                    }
+                    stack.append(State { .Expression = ctx }) catch unreachable;
+                    continue;
+                },
 
                 State.ContainerKind => |ctx| {
                     const token = self.getNextToken();
@@ -699,7 +715,16 @@ pub const Parser = struct {
                     const init_arg_token = self.getNextToken();
                     switch (init_arg_token.id) {
                         Token.Id.Keyword_enum => {
-                            container_decl.init_arg_expr = ast.Node.ContainerDecl.InitArg.Enum;
+                            container_decl.init_arg_expr = ast.Node.ContainerDecl.InitArg {.Enum = null};
+                            const lparen_tok = self.getNextToken();
+                            if (lparen_tok.id == Token.Id.LParen) {
+                                try stack.append(State { .ExpectToken = Token.Id.RParen } );
+                                try stack.append(State { .Expression = OptionalCtx {
+                                    .RequiredNull = &container_decl.init_arg_expr.Enum,
+                                } });
+                            } else {
+                                self.putBackToken(lparen_tok);
+                            }
                         },
                         else => {
                             self.putBackToken(init_arg_token);
@@ -709,12 +734,13 @@ pub const Parser = struct {
                     }
                     continue;
                 },
+
                 State.ContainerDecl => |container_decl| {
                     while (try self.eatLineComment(arena)) |line_comment| {
                         try container_decl.fields_and_decls.append(&line_comment.base);
                     }
 
-                    const comments = try self.eatComments(arena);
+                    const comments = try self.eatDocComments(arena);
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Identifier => {
@@ -723,9 +749,9 @@ pub const Parser = struct {
                                     const node = try arena.construct(ast.Node.StructField {
                                         .base = ast.Node {
                                             .id = ast.Node.Id.StructField,
-                                            .doc_comments = comments,
                                             .same_line_comment = null,
                                         },
+                                        .doc_comments = comments,
                                         .visib_token = null,
                                         .name_token = token,
                                         .type_expr = undefined,
@@ -744,10 +770,13 @@ pub const Parser = struct {
                                             .base = undefined,
                                             .name_token = token,
                                             .type_expr = null,
+                                            .value_expr = null,
+                                            .doc_comments = comments,
                                         }
                                     );
 
                                     stack.append(State { .FieldListCommaOrEnd = container_decl }) catch unreachable;
+                                    try stack.append(State { .FieldInitValue = OptionalCtx { .RequiredNull = &node.value_expr } });
                                     try stack.append(State { .TypeExprBegin = OptionalCtx { .RequiredNull = &node.type_expr } });
                                     try stack.append(State { .IfToken = Token.Id.Colon });
                                     continue;
@@ -758,6 +787,7 @@ pub const Parser = struct {
                                             .base = undefined,
                                             .name_token = token,
                                             .value = null,
+                                            .doc_comments = comments,
                                         }
                                     );
 
@@ -809,6 +839,9 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.RBrace => {
+                            if (comments != null) {
+                                return self.parseError(token, "doc comments must be attached to a node");
+                            }
                             container_decl.rbrace_token = token;
                             continue;
                         },
@@ -834,9 +867,9 @@ pub const Parser = struct {
                     const var_decl = try arena.construct(ast.Node.VarDecl {
                         .base = ast.Node {
                             .id = ast.Node.Id.VarDecl,
-                            .doc_comments = ctx.comments,
                             .same_line_comment = null,
                         },
+                        .doc_comments = ctx.comments,
                         .visib_token = ctx.visib_token,
                         .mut_token = ctx.mut_token,
                         .comptime_token = ctx.comptime_token,
@@ -1093,6 +1126,22 @@ pub const Parser = struct {
                             }) catch unreachable;
                             continue;
                         },
+                        Token.Id.Keyword_suspend => {
+                            const node = try arena.construct(ast.Node.Suspend {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.Suspend,
+                                    .same_line_comment = null,
+                                },
+                                .label = ctx.label,
+                                .suspend_token = token,
+                                .payload = null,
+                                .body = null,
+                            });
+                            ctx.opt_ctx.store(&node.base);
+                            stack.append(State { .SuspendBody = node }) catch unreachable;
+                            try stack.append(State { .Payload = OptionalCtx { .Optional = &node.payload } });
+                            continue;
+                        },
                         Token.Id.Keyword_inline => {
                             stack.append(State {
                                 .Inline = InlineCtx {
@@ -1244,7 +1293,6 @@ pub const Parser = struct {
                     }
                 },
                 State.Statement => |block| {
-                    const comments = try self.eatComments(arena);
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_comptime => {
@@ -1259,7 +1307,7 @@ pub const Parser = struct {
                         Token.Id.Keyword_var, Token.Id.Keyword_const => {
                             stack.append(State {
                                 .VarDecl = VarDeclCtx {
-                                    .comments = comments,
+                                    .comments = null,
                                     .visib_token = null,
                                     .comptime_token = null,
                                     .extern_export_token = null,
@@ -1274,7 +1322,6 @@ pub const Parser = struct {
                             const node = try arena.construct(ast.Node.Defer {
                                 .base = ast.Node {
                                     .id = ast.Node.Id.Defer,
-                                    .doc_comments = comments,
                                     .same_line_comment = null,
                                 },
                                 .defer_token = token,
@@ -1310,23 +1357,18 @@ pub const Parser = struct {
                             const statement = try block.statements.addOne();
                             stack.append(State { .LookForSameLineComment = statement }) catch unreachable;
                             try stack.append(State { .Semicolon = statement });
-                            try stack.append(State { .AddComments = AddCommentsCtx {
-                                .node_ptr = statement,
-                                .comments = comments,
-                            }});
                             try stack.append(State { .AssignmentExpressionBegin = OptionalCtx{ .Required = statement } });
                             continue;
                         }
                     }
                 },
                 State.ComptimeStatement => |ctx| {
-                    const comments = try self.eatComments(arena);
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_var, Token.Id.Keyword_const => {
                             stack.append(State {
                                 .VarDecl = VarDeclCtx {
-                                    .comments = comments,
+                                    .comments = null,
                                     .visib_token = null,
                                     .comptime_token = ctx.comptime_token,
                                     .extern_export_token = null,
@@ -1340,9 +1382,10 @@ pub const Parser = struct {
                         else => {
                             self.putBackToken(token);
                             self.putBackToken(ctx.comptime_token);
-                            const statememt = try ctx.block.statements.addOne();
-                            stack.append(State { .Semicolon = statememt }) catch unreachable;
-                            try stack.append(State { .Expression = OptionalCtx { .Required = statememt } });
+                            const statement = try ctx.block.statements.addOne();
+                            stack.append(State { .LookForSameLineComment = statement }) catch unreachable;
+                            try stack.append(State { .Semicolon = statement });
+                            try stack.append(State { .Expression = OptionalCtx { .Required = statement } });
                             continue;
                         }
                     }
@@ -1353,12 +1396,6 @@ pub const Parser = struct {
                         stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
                         continue;
                     }
-                    continue;
-                },
-
-                State.AddComments => |add_comments_ctx| {
-                    const node = *add_comments_ctx.node_ptr;
-                    node.doc_comments = add_comments_ctx.comments;
                     continue;
                 },
 
@@ -1474,6 +1511,10 @@ pub const Parser = struct {
                     }
                 },
                 State.FieldInitListItemOrEnd => |list_state| {
+                    while (try self.eatLineComment(arena)) |line_comment| {
+                        try list_state.list.append(&line_comment.base);
+                    }
+
                     if (self.eatToken(Token.Id.RBrace)) |rbrace| {
                         *list_state.ptr = rbrace;
                         continue;
@@ -1482,14 +1523,13 @@ pub const Parser = struct {
                     const node = try arena.construct(ast.Node.FieldInitializer {
                         .base = ast.Node {
                             .id = ast.Node.Id.FieldInitializer,
-                            .doc_comments = null,
                             .same_line_comment = null,
                         },
                         .period_token = undefined,
                         .name_token = undefined,
                         .expr = undefined,
                     });
-                    try list_state.list.append(node);
+                    try list_state.list.append(&node.base);
 
                     stack.append(State { .FieldInitListCommaOrEnd = list_state }) catch unreachable;
                     try stack.append(State { .Expression = OptionalCtx{ .Required = &node.expr } });
@@ -1527,7 +1567,7 @@ pub const Parser = struct {
                     try stack.append(State { .ContainerDecl = container_decl });
                     continue;
                 },
-                State.IdentifierListItemOrEnd => |list_state| {
+                State.ErrorTagListItemOrEnd => |list_state| {
                     while (try self.eatLineComment(arena)) |line_comment| {
                         try list_state.list.append(&line_comment.base);
                     }
@@ -1537,23 +1577,18 @@ pub const Parser = struct {
                         continue;
                     }
 
-                    const comments = try self.eatComments(arena);
                     const node_ptr = try list_state.list.addOne();
 
-                    try stack.append(State { .AddComments = AddCommentsCtx {
-                        .node_ptr = node_ptr,
-                        .comments = comments,
-                    }});
-                    try stack.append(State { .IdentifierListCommaOrEnd = list_state });
-                    try stack.append(State { .Identifier = OptionalCtx { .Required = node_ptr } });
+                    try stack.append(State { .ErrorTagListCommaOrEnd = list_state });
+                    try stack.append(State { .ErrorTag = node_ptr });
                     continue;
                 },
-                State.IdentifierListCommaOrEnd => |list_state| {
+                State.ErrorTagListCommaOrEnd => |list_state| {
                     if (try self.expectCommaOrEnd(Token.Id.RBrace)) |end| {
                         *list_state.ptr = end;
                         continue;
                     } else {
-                        stack.append(State { .IdentifierListItemOrEnd = list_state }) catch unreachable;
+                        stack.append(State { .ErrorTagListItemOrEnd = list_state }) catch unreachable;
                         continue;
                     }
                 },
@@ -1567,11 +1602,10 @@ pub const Parser = struct {
                         continue;
                     }
 
-                    const comments = try self.eatComments(arena);
+                    const comments = try self.eatDocComments(arena);
                     const node = try arena.construct(ast.Node.SwitchCase {
                         .base = ast.Node {
                             .id = ast.Node.Id.SwitchCase,
-                            .doc_comments = comments,
                             .same_line_comment = null,
                         },
                         .items = ArrayList(&ast.Node).init(arena),
@@ -1684,9 +1718,9 @@ pub const Parser = struct {
                         const fn_proto = try arena.construct(ast.Node.FnProto {
                             .base = ast.Node {
                                 .id = ast.Node.Id.FnProto,
-                                .doc_comments = ctx.comments,
                                 .same_line_comment = null,
                             },
+                            .doc_comments = ctx.comments,
                             .visib_token = null,
                             .name_token = null,
                             .fn_token = fn_token,
@@ -1857,12 +1891,13 @@ pub const Parser = struct {
                         }
                     );
 
-                    stack.append(State {
+                    stack.append(State {.LookForSameLineCommentDirect = &node.base }) catch unreachable;
+                    try stack.append(State {
                         .ExpectTokenSave = ExpectTokenSave {
                             .id = Token.Id.Pipe,
                             .ptr = &node.rpipe,
                         }
-                    }) catch unreachable;
+                    });
                     try stack.append(State { .Identifier = OptionalCtx { .Required = &node.value_symbol } });
                     try stack.append(State {
                         .OptionalTokenSave = OptionalTokenSave {
@@ -2317,7 +2352,7 @@ pub const Parser = struct {
                                 .base = undefined,
                                 .lhs = lhs,
                                 .op = ast.Node.SuffixOp.Op {
-                                    .StructInitializer = ArrayList(&ast.Node.FieldInitializer).init(arena),
+                                    .StructInitializer = ArrayList(&ast.Node).init(arena),
                                 },
                                 .rtoken = undefined,
                             }
@@ -2325,7 +2360,7 @@ pub const Parser = struct {
                         stack.append(State { .CurlySuffixExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                         try stack.append(State { .IfToken = Token.Id.LBrace });
                         try stack.append(State {
-                            .FieldInitListItemOrEnd = ListSave(&ast.Node.FieldInitializer) {
+                            .FieldInitListItemOrEnd = ListSave(&ast.Node) {
                                 .list = &node.op.StructInitializer,
                                 .ptr = &node.rtoken,
                             }
@@ -2550,6 +2585,29 @@ pub const Parser = struct {
                             _ = try self.createToCtxLiteral(arena, opt_ctx, ast.Node.Unreachable, token);
                             continue;
                         },
+                        Token.Id.Keyword_promise => {
+                            const node = try arena.construct(ast.Node.PromiseType {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.PromiseType,
+                                    .same_line_comment = null,
+                                },
+                                .promise_token = token,
+                                .result = null,
+                            });
+                            opt_ctx.store(&node.base);
+                            const next_token = self.getNextToken();
+                            if (next_token.id != Token.Id.Arrow) {
+                                self.putBackToken(next_token);
+                                continue;
+                            }
+                            node.result = ast.Node.PromiseType.Result {
+                                .arrow_token = next_token,
+                                .return_type = undefined,
+                            };
+                            const return_type_ptr = &((??node.result).return_type);
+                            try stack.append(State { .Expression = OptionalCtx { .Required = return_type_ptr, } });
+                            continue;
+                        },
                         Token.Id.StringLiteral, Token.Id.MultilineStringLiteralLine => {
                             opt_ctx.store((try self.parseStringLiteral(arena, token)) ?? unreachable);
                             continue;
@@ -2656,9 +2714,9 @@ pub const Parser = struct {
                             const fn_proto = try arena.construct(ast.Node.FnProto {
                                 .base = ast.Node {
                                     .id = ast.Node.Id.FnProto,
-                                    .doc_comments = null,
                                     .same_line_comment = null,
                                 },
+                                .doc_comments = null,
                                 .visib_token = null,
                                 .name_token = null,
                                 .fn_token = token,
@@ -2680,9 +2738,9 @@ pub const Parser = struct {
                             const fn_proto = try arena.construct(ast.Node.FnProto {
                                 .base = ast.Node {
                                     .id = ast.Node.Id.FnProto,
-                                    .doc_comments = null,
                                     .same_line_comment = null,
                                 },
+                                .doc_comments = null,
                                 .visib_token = null,
                                 .name_token = null,
                                 .fn_token = undefined,
@@ -2773,7 +2831,6 @@ pub const Parser = struct {
                     const node = try arena.construct(ast.Node.ErrorSetDecl {
                         .base = ast.Node {
                             .id = ast.Node.Id.ErrorSetDecl,
-                            .doc_comments = null,
                             .same_line_comment = null,
                         },
                         .error_token = ctx.error_token,
@@ -2783,7 +2840,7 @@ pub const Parser = struct {
                     ctx.opt_ctx.store(&node.base);
 
                     stack.append(State {
-                        .IdentifierListItemOrEnd = ListSave(&ast.Node) {
+                        .ErrorTagListItemOrEnd = ListSave(&ast.Node) {
                             .list = &node.decls,
                             .ptr = &node.rbrace_token,
                         }
@@ -2803,6 +2860,7 @@ pub const Parser = struct {
                         }
                     );
                 },
+
                 State.Identifier => |opt_ctx| {
                     if (self.eatToken(Token.Id.Identifier)) |ident_token| {
                         _ = try self.createToCtxLiteral(arena, opt_ctx, ast.Node.Identifier, ident_token);
@@ -2815,6 +2873,25 @@ pub const Parser = struct {
                     }
                 },
 
+                State.ErrorTag => |node_ptr| {
+                    const comments = try self.eatDocComments(arena);
+                    const ident_token = self.getNextToken();
+                    if (ident_token.id != Token.Id.Identifier) {
+                        return self.parseError(ident_token, "expected {}, found {}",
+                            @tagName(Token.Id.Identifier), @tagName(ident_token.id));
+                    }
+
+                    const node = try arena.construct(ast.Node.ErrorTag {
+                        .base = ast.Node {
+                            .id = ast.Node.Id.ErrorTag,
+                            .same_line_comment = null,
+                        },
+                        .doc_comments = comments,
+                        .name_token = ident_token,
+                    });
+                    *node_ptr = &node.base;
+                    continue;
+                },
 
                 State.ExpectToken => |token_id| {
                     _ = try self.expectToken(token_id);
@@ -2853,7 +2930,7 @@ pub const Parser = struct {
         }
     }
 
-    fn eatComments(self: &Parser, arena: &mem.Allocator) !?&ast.Node.DocComment {
+    fn eatDocComments(self: &Parser, arena: &mem.Allocator) !?&ast.Node.DocComment {
         var result: ?&ast.Node.DocComment = null;
         while (true) {
             if (self.eatToken(Token.Id.DocComment)) |line_comment| {
@@ -2864,7 +2941,6 @@ pub const Parser = struct {
                         const comment_node = try arena.construct(ast.Node.DocComment {
                             .base = ast.Node {
                                 .id = ast.Node.Id.DocComment,
-                                .doc_comments = null,
                                 .same_line_comment = null,
                             },
                             .lines = ArrayList(Token).init(arena),
@@ -2886,7 +2962,6 @@ pub const Parser = struct {
         return try arena.construct(ast.Node.LineComment {
             .base = ast.Node {
                 .id = ast.Node.Id.LineComment,
-                .doc_comments = null,
                 .same_line_comment = null,
             },
             .token = token,
@@ -3022,6 +3097,7 @@ pub const Parser = struct {
                 const node = try self.createToCtxNode(arena, ctx, ast.Node.Suspend,
                     ast.Node.Suspend {
                         .base = undefined,
+                        .label = null,
                         .suspend_token = *token,
                         .payload = null,
                         .body = null,
@@ -3047,6 +3123,7 @@ pub const Parser = struct {
                 stack.append(State { .Else = &node.@"else" }) catch unreachable;
                 try stack.append(State { .Expression = OptionalCtx { .Required = &node.body } });
                 try stack.append(State { .PointerPayload = OptionalCtx { .Optional = &node.payload } });
+                try stack.append(State { .LookForSameLineComment = &node.condition });
                 try stack.append(State { .ExpectToken = Token.Id.RParen });
                 try stack.append(State { .Expression = OptionalCtx { .Required = &node.condition } });
                 try stack.append(State { .ExpectToken = Token.Id.LParen });
@@ -3078,7 +3155,6 @@ pub const Parser = struct {
                 const node = try arena.construct(ast.Node.Switch {
                     .base = ast.Node {
                         .id = ast.Node.Id.Switch,
-                        .doc_comments = null,
                         .same_line_comment = null,
                     },
                     .switch_token = *token,
@@ -3106,6 +3182,7 @@ pub const Parser = struct {
                         .base = undefined,
                         .comptime_token = *token,
                         .expr = undefined,
+                        .doc_comments = null,
                     }
                 );
                 try stack.append(State { .Expression = OptionalCtx { .Required = &node.expr } });
@@ -3248,7 +3325,6 @@ pub const Parser = struct {
             const id = ast.Node.typeToId(T);
             break :blk ast.Node {
                 .id = id,
-                .doc_comments = null,
                 .same_line_comment = null,
             };
         };
@@ -3383,11 +3459,10 @@ pub const Parser = struct {
         Expression: &ast.Node,
         VarDecl: &ast.Node.VarDecl,
         Statement: &ast.Node,
-        FieldInitializer: &ast.Node.FieldInitializer,
         PrintIndent,
         Indent: usize,
         PrintSameLineComment: ?&Token,
-        PrintComments: &ast.Node,
+        PrintLineComment: &Token,
     };
 
     pub fn renderSource(self: &Parser, stream: var, root_node: &ast.Node.Root) !void {
@@ -3426,7 +3501,7 @@ pub const Parser = struct {
                     switch (decl.id) {
                         ast.Node.Id.FnProto => {
                             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
-                            try self.renderComments(stream, &fn_proto.base, indent);
+                            try self.renderComments(stream, fn_proto, indent);
 
                             if (fn_proto.body_node) |body_node| {
                                 stack.append(RenderState { .Expression = body_node}) catch unreachable;
@@ -3448,12 +3523,12 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", decl);
-                            try self.renderComments(stream, &var_decl.base, indent);
+                            try self.renderComments(stream, var_decl, indent);
                             try stack.append(RenderState { .VarDecl = var_decl});
                         },
                         ast.Node.Id.TestDecl => {
                             const test_decl = @fieldParentPtr(ast.Node.TestDecl, "base", decl);
-                            try self.renderComments(stream, &test_decl.base, indent);
+                            try self.renderComments(stream, test_decl, indent);
                             try stream.print("test ");
                             try stack.append(RenderState { .Expression = test_decl.body_node });
                             try stack.append(RenderState { .Text = " " });
@@ -3461,6 +3536,7 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.StructField => {
                             const field = @fieldParentPtr(ast.Node.StructField, "base", decl);
+                            try self.renderComments(stream, field, indent);
                             if (field.visib_token) |visib_token| {
                                 try stream.print("{} ", self.tokenizer.getTokenSlice(visib_token));
                             }
@@ -3470,9 +3546,16 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.UnionTag => {
                             const tag = @fieldParentPtr(ast.Node.UnionTag, "base", decl);
+                            try self.renderComments(stream, tag, indent);
                             try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
 
                             try stack.append(RenderState { .Text = "," });
+
+                            if (tag.value_expr) |value_expr| {
+                                try stack.append(RenderState { .Expression = value_expr });
+                                try stack.append(RenderState { .Text = " = " });
+                            }
+
                             if (tag.type_expr) |type_expr| {
                                 try stream.print(": ");
                                 try stack.append(RenderState { .Expression = type_expr});
@@ -3480,6 +3563,7 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.EnumTag => {
                             const tag = @fieldParentPtr(ast.Node.EnumTag, "base", decl);
+                            try self.renderComments(stream, tag, indent);
                             try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
 
                             try stack.append(RenderState { .Text = "," });
@@ -3487,6 +3571,11 @@ pub const Parser = struct {
                                 try stream.print(" = ");
                                 try stack.append(RenderState { .Expression = value});
                             }
+                        },
+                        ast.Node.Id.ErrorTag => {
+                            const tag = @fieldParentPtr(ast.Node.ErrorTag, "base", decl);
+                            try self.renderComments(stream, tag, indent);
+                            try stream.print("{}", self.tokenizer.getTokenSlice(tag.name_token));
                         },
                         ast.Node.Id.Comptime => {
                             if (requireSemiColon(decl)) {
@@ -3502,17 +3591,12 @@ pub const Parser = struct {
                     }
                 },
 
-                RenderState.FieldInitializer => |field_init| {
-                    try stream.print(".{}", self.tokenizer.getTokenSlice(field_init.name_token));
-                    try stream.print(" = ");
-                    try stack.append(RenderState { .Expression = field_init.expr });
-                },
-
                 RenderState.VarDecl => |var_decl| {
                     try stack.append(RenderState { .Text = ";" });
                     if (var_decl.init_node) |init_node| {
                         try stack.append(RenderState { .Expression = init_node });
-                        try stack.append(RenderState { .Text = " = " });
+                        const text = if (init_node.id == ast.Node.Id.MultilineStringLiteral) " =" else " = ";
+                        try stack.append(RenderState { .Text = text });
                     }
                     if (var_decl.align_node) |align_node| {
                         try stack.append(RenderState { .Text = ")" });
@@ -3630,6 +3714,9 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.Suspend => {
                         const suspend_node = @fieldParentPtr(ast.Node.Suspend, "base", base);
+                        if (suspend_node.label) |label| {
+                            try stream.print("{}: ", self.tokenizer.getTokenSlice(label));
+                        }
                         try stream.print("{}", self.tokenizer.getTokenSlice(suspend_node.suspend_token));
 
                         if (suspend_node.body) |body| {
@@ -3803,19 +3890,41 @@ pub const Parser = struct {
                                     try stack.append(RenderState { .Expression = suffix_op.lhs });
                                     continue;
                                 }
+                                if (field_inits.len == 1) {
+                                    const field_init = field_inits.at(0);
+
+                                    try stack.append(RenderState { .Text = " }" });
+                                    try stack.append(RenderState { .Expression = field_init });
+                                    try stack.append(RenderState { .Text = "{ " });
+                                    try stack.append(RenderState { .Expression = suffix_op.lhs });
+                                    continue;
+                                }
                                 try stack.append(RenderState { .Text = "}"});
                                 try stack.append(RenderState.PrintIndent);
                                 try stack.append(RenderState { .Indent = indent });
+                                try stack.append(RenderState { .Text = "\n" });
                                 var i = field_inits.len;
                                 while (i != 0) {
                                     i -= 1;
                                     const field_init = field_inits.at(i);
-                                    try stack.append(RenderState { .Text = ",\n" });
-                                    try stack.append(RenderState { .FieldInitializer = field_init });
+                                    if (field_init.id != ast.Node.Id.LineComment) {
+                                        try stack.append(RenderState { .Text = "," });
+                                    }
+                                    try stack.append(RenderState { .Expression = field_init });
                                     try stack.append(RenderState.PrintIndent);
+                                    if (i != 0) {
+                                        try stack.append(RenderState { .Text = blk: {
+                                            const prev_node = field_inits.at(i - 1);
+                                            const loc = self.tokenizer.getTokenLocation(prev_node.lastToken().end, field_init.firstToken());
+                                            if (loc.line >= 2) {
+                                                break :blk "\n\n";
+                                            }
+                                            break :blk "\n";
+                                        }});
+                                    }
                                 }
                                 try stack.append(RenderState { .Indent = indent + indent_delta });
-                                try stack.append(RenderState { .Text = " {\n"});
+                                try stack.append(RenderState { .Text = "{\n"});
                                 try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                             ast.Node.SuffixOp.Op.ArrayInitializer => |exprs| {
@@ -3829,7 +3938,7 @@ pub const Parser = struct {
 
                                     try stack.append(RenderState { .Text = "}" });
                                     try stack.append(RenderState { .Expression = expr });
-                                    try stack.append(RenderState { .Text = " {" });
+                                    try stack.append(RenderState { .Text = "{" });
                                     try stack.append(RenderState { .Expression = suffix_op.lhs });
                                     continue;
                                 }
@@ -3846,7 +3955,7 @@ pub const Parser = struct {
                                     try stack.append(RenderState.PrintIndent);
                                 }
                                 try stack.append(RenderState { .Indent = indent + indent_delta });
-                                try stack.append(RenderState { .Text = " {\n"});
+                                try stack.append(RenderState { .Text = "{\n"});
                                 try stack.append(RenderState { .Expression = suffix_op.lhs });
                             },
                         }
@@ -4014,7 +4123,15 @@ pub const Parser = struct {
 
                         switch (container_decl.init_arg_expr) {
                             ast.Node.ContainerDecl.InitArg.None => try stack.append(RenderState { .Text = " "}),
-                            ast.Node.ContainerDecl.InitArg.Enum => try stack.append(RenderState { .Text = "(enum) "}),
+                            ast.Node.ContainerDecl.InitArg.Enum => |enum_tag_type| {
+                                if (enum_tag_type) |expr| {
+                                    try stack.append(RenderState { .Text = ")) "});
+                                    try stack.append(RenderState { .Expression = expr});
+                                    try stack.append(RenderState { .Text = "(enum("});
+                                } else {
+                                    try stack.append(RenderState { .Text = "(enum) "});
+                                }
+                            },
                             ast.Node.ContainerDecl.InitArg.Type => |type_expr| {
                                 try stack.append(RenderState { .Text = ") "});
                                 try stack.append(RenderState { .Expression = type_expr});
@@ -4024,14 +4141,39 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.ErrorSetDecl => {
                         const err_set_decl = @fieldParentPtr(ast.Node.ErrorSetDecl, "base", base);
-                        try stream.print("error ");
+
+                        const decls = err_set_decl.decls.toSliceConst();
+                        if (decls.len == 0) {
+                            try stream.write("error{}");
+                            continue;
+                        }
+
+                        if (decls.len == 1) blk: {
+                            const node = decls[0];
+
+                            // if there are any doc comments or same line comments
+                            // don't try to put it all on one line
+                            if (node.same_line_comment != null) break :blk;
+                            if (node.cast(ast.Node.ErrorTag)) |tag| {
+                                if (tag.doc_comments != null) break :blk;
+                            } else {
+                                break :blk;
+                            }
+
+
+                            try stream.write("error{");
+                            try stack.append(RenderState { .Text = "}" });
+                            try stack.append(RenderState { .TopLevelDecl = node });
+                            continue;
+                        }
+
+                        try stream.write("error{");
 
                         try stack.append(RenderState { .Text = "}"});
                         try stack.append(RenderState.PrintIndent);
                         try stack.append(RenderState { .Indent = indent });
                         try stack.append(RenderState { .Text = "\n"});
 
-                        const decls = err_set_decl.decls.toSliceConst();
                         var i = decls.len;
                         while (i != 0) {
                             i -= 1;
@@ -4039,8 +4181,7 @@ pub const Parser = struct {
                             if (node.id != ast.Node.Id.LineComment) {
                                 try stack.append(RenderState { .Text = "," });
                             }
-                            try stack.append(RenderState { .Expression = node });
-                            try stack.append(RenderState { .PrintComments = node });
+                            try stack.append(RenderState { .TopLevelDecl = node });
                             try stack.append(RenderState.PrintIndent);
                             try stack.append(RenderState {
                                 .Text = blk: {
@@ -4056,7 +4197,6 @@ pub const Parser = struct {
                             });
                         }
                         try stack.append(RenderState { .Indent = indent + indent_delta});
-                        try stack.append(RenderState { .Text = "{"});
                     },
                     ast.Node.Id.MultilineStringLiteral => {
                         const multiline_str_literal = @fieldParentPtr(ast.Node.MultilineStringLiteral, "base", base);
@@ -4068,7 +4208,7 @@ pub const Parser = struct {
                             try stream.writeByteNTimes(' ', indent + indent_delta);
                             try stream.print("{}", self.tokenizer.getTokenSlice(t));
                         }
-                        try stream.writeByteNTimes(' ', indent + indent_delta);
+                        try stream.writeByteNTimes(' ', indent);
                     },
                     ast.Node.Id.UndefinedLiteral => {
                         const undefined_literal = @fieldParentPtr(ast.Node.UndefinedLiteral, "base", base);
@@ -4151,6 +4291,14 @@ pub const Parser = struct {
                             try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(visib_token) });
                         }
                     },
+                    ast.Node.Id.PromiseType => {
+                        const promise_type = @fieldParentPtr(ast.Node.PromiseType, "base", base);
+                        try stream.write(self.tokenizer.getTokenSlice(promise_type.promise_token));
+                        if (promise_type.result) |result| {
+                            try stream.write(self.tokenizer.getTokenSlice(result.arrow_token));
+                            try stack.append(RenderState { .Expression = result.return_type});
+                        }
+                    },
                     ast.Node.Id.LineComment => {
                         const line_comment_node = @fieldParentPtr(ast.Node.LineComment, "base", base);
                         try stream.write(self.tokenizer.getTokenSlice(line_comment_node.token));
@@ -4158,14 +4306,21 @@ pub const Parser = struct {
                     ast.Node.Id.DocComment => unreachable, // doc comments are attached to nodes
                     ast.Node.Id.Switch => {
                         const switch_node = @fieldParentPtr(ast.Node.Switch, "base", base);
+                        const cases = switch_node.cases.toSliceConst();
+
                         try stream.print("{} (", self.tokenizer.getTokenSlice(switch_node.switch_token));
+
+                        if (cases.len == 0) {
+                            try stack.append(RenderState { .Text = ") {}"});
+                            try stack.append(RenderState { .Expression = switch_node.expr });
+                            continue;
+                        }
 
                         try stack.append(RenderState { .Text = "}"});
                         try stack.append(RenderState.PrintIndent);
                         try stack.append(RenderState { .Indent = indent });
                         try stack.append(RenderState { .Text = "\n"});
 
-                        const cases = switch_node.cases.toSliceConst();
                         var i = cases.len;
                         while (i != 0) {
                             i -= 1;
@@ -4191,8 +4346,6 @@ pub const Parser = struct {
                     },
                     ast.Node.Id.SwitchCase => {
                         const switch_case = @fieldParentPtr(ast.Node.SwitchCase, "base", base);
-
-                        try self.renderComments(stream, base, indent);
 
                         try stack.append(RenderState { .PrintSameLineComment = base.same_line_comment });
                         try stack.append(RenderState { .Text = "," });
@@ -4372,7 +4525,18 @@ pub const Parser = struct {
                             }
                         }
 
-                        try stack.append(RenderState { .Expression = if_node.body });
+                        if (if_node.condition.same_line_comment) |comment| {
+                            try stack.append(RenderState { .Indent = indent });
+                            try stack.append(RenderState { .Expression = if_node.body });
+                            try stack.append(RenderState.PrintIndent);
+                            try stack.append(RenderState { .Indent = indent + indent_delta });
+                            try stack.append(RenderState { .Text = "\n" });
+                            try stack.append(RenderState { .PrintLineComment = comment });
+                        } else {
+                            try stack.append(RenderState { .Expression = if_node.body });
+                        }
+
+
                         try stack.append(RenderState { .Text = " " });
 
                         if (if_node.payload) |payload| {
@@ -4505,6 +4669,7 @@ pub const Parser = struct {
                     ast.Node.Id.StructField,
                     ast.Node.Id.UnionTag,
                     ast.Node.Id.EnumTag,
+                    ast.Node.Id.ErrorTag,
                     ast.Node.Id.Root,
                     ast.Node.Id.VarDecl,
                     ast.Node.Id.Use,
@@ -4512,7 +4677,6 @@ pub const Parser = struct {
                     ast.Node.Id.ParamDecl => unreachable,
                 },
                 RenderState.Statement => |base| {
-                    try self.renderComments(stream, base, indent);
                     try stack.append(RenderState { .PrintSameLineComment = base.same_line_comment } );
                     switch (base.id) {
                         ast.Node.Id.VarDecl => {
@@ -4533,15 +4697,14 @@ pub const Parser = struct {
                     const comment_token = maybe_comment ?? break :blk;
                     try stream.print(" {}", self.tokenizer.getTokenSlice(comment_token));
                 },
-
-                RenderState.PrintComments => |node| blk: {
-                    try self.renderComments(stream, node, indent);
+                RenderState.PrintLineComment => |comment_token| {
+                    try stream.write(self.tokenizer.getTokenSlice(comment_token));
                 },
             }
         }
     }
 
-    fn renderComments(self: &Parser, stream: var, node: &ast.Node, indent: usize) !void {
+    fn renderComments(self: &Parser, stream: var, node: var, indent: usize) !void {
         const comment = node.doc_comments ?? return;
         for (comment.lines.toSliceConst()) |line_token| {
             try stream.print("{}\n", self.tokenizer.getTokenSlice(line_token));

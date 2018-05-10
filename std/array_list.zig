@@ -28,11 +28,11 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             };
         }
 
-        pub fn deinit(l: &Self) void {
+        pub fn deinit(l: &const Self) void {
             l.allocator.free(l.items);
         }
 
-        pub fn toSlice(l: &Self) []align(A) T {
+        pub fn toSlice(l: &const Self) []align(A) T {
             return l.items[0..l.len];
         }
 
@@ -42,6 +42,10 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
 
         pub fn at(l: &const Self, n: usize) T {
             return l.toSliceConst()[n];
+        }
+
+        pub fn count(self: &const Self) usize {
+            return self.len;
         }
 
         /// ArrayList takes ownership of the passed in slice. The slice must have been
@@ -127,6 +131,27 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             if (self.len == 0) return null;
             return self.pop();
         }
+
+        pub const Iterator = struct {
+            list: &const Self,
+            // how many items have we returned
+            count: usize,
+
+            pub fn next(it: &Iterator) ?T {
+                if (it.count >= it.list.len) return null;
+                const val = it.list.at(it.count);
+                it.count += 1;
+                return val;
+            }
+
+            pub fn reset(it: &Iterator) void {
+                it.count = 0;
+            }
+        };
+
+        pub fn iterator(self: &const Self) Iterator {
+            return Iterator { .list = self, .count = 0 };
+        }
     };
 }
 
@@ -148,6 +173,14 @@ test "basic ArrayList test" {
         }
     }
 
+    for (list.toSlice()) |v, i| {
+        assert(v == i32(i + 1));
+    }
+
+    for (list.toSliceConst()) |v, i| {
+        assert(v == i32(i + 1));
+    }
+
     assert(list.pop() == 10);
     assert(list.len == 9);
 
@@ -164,6 +197,35 @@ test "basic ArrayList test" {
 
     list.appendSlice([]const i32{}) catch unreachable;
     assert(list.len == 9);
+}
+
+test "iterator ArrayList test" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+
+    var count : i32 = 0;
+    var it = list.iterator();
+    while (it.next()) |next| {
+        assert(next == count + 1);
+        count += 1;
+    }
+
+    assert(count == 3);
+    assert(it.next() == null);
+    it.reset();
+    count = 0;
+    while (it.next()) |next| {
+        assert(next == count + 1);
+        count += 1;
+        if (count == 2) break;
+    }
+
+    it.reset();
+    assert(?? it.next() == 1);
 }
 
 test "insert ArrayList test" {

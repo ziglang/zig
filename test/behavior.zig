@@ -37,6 +37,7 @@ comptime {
     _ = @import("cases/pub_enum/index.zig");
     _ = @import("cases/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("cases/reflection.zig");
+    _ = @import("cases/type_info.zig");
     _ = @import("cases/sizeof_and_typeof.zig");
     _ = @import("cases/slice.zig");
     _ = @import("cases/struct.zig");
@@ -53,4 +54,5 @@ comptime {
     _ = @import("cases/var_args.zig");
     _ = @import("cases/void.zig");
     _ = @import("cases/while.zig");
+    _ = @import("cases/fn_in_struct_in_comptime.zig");
 }

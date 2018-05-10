@@ -54,6 +54,14 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 }
                 unreachable; // no next item
             }
+
+            // Reset the iterator to the initial index
+            pub fn reset(it: &Iterator) void {
+                it.count = 0;
+                it.index = 0;
+                // Resetting the modification count too
+                it.initial_modification_count = it.hm.modification_count;
+            }
         };
 
         pub fn init(allocator: &Allocator) Self {
@@ -66,7 +74,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             };
         }
 
-        pub fn deinit(hm: &Self) void {
+        pub fn deinit(hm: &const Self) void {
             hm.allocator.free(hm.entries);
         }
 
@@ -77,6 +85,10 @@ pub fn HashMap(comptime K: type, comptime V: type,
             hm.size = 0;
             hm.max_distance_from_start_index = 0;
             hm.incrementModificationCount();
+        }
+
+        pub fn count(hm: &const Self) usize {
+            return hm.size;
         }
 
         /// Returns the value that was already there.
@@ -102,14 +114,14 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return hm.internalPut(key, value);
         }
 
-        pub fn get(hm: &Self, key: K) ?&Entry {
+        pub fn get(hm: &const Self, key: K) ?&Entry {
             if (hm.entries.len == 0) {
                 return null;
             }
             return hm.internalGet(key);
         }
 
-        pub fn contains(hm: &Self, key: K) bool {
+        pub fn contains(hm: &const Self, key: K) bool {
             return hm.get(key) != null;
         }
 
@@ -218,7 +230,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             unreachable; // put into a full map
         }
 
-        fn internalGet(hm: &Self, key: K) ?&Entry {
+        fn internalGet(hm: &const Self, key: K) ?&Entry {
             const start_index = hm.keyToIndex(key);
             {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
                 const index = (start_index + roll_over) % hm.entries.len;
@@ -230,7 +242,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return null;
         }
 
-        fn keyToIndex(hm: &Self, key: K) usize {
+        fn keyToIndex(hm: &const Self, key: K) usize {
             return usize(hash(key)) % hm.entries.len;
         }
     };
@@ -252,10 +264,50 @@ test "basic hash map usage" {
     assert(??(map.put(5, 66) catch unreachable) == 55);
     assert(??(map.put(5, 55) catch unreachable) == 66);
 
+    assert(map.contains(2));
     assert((??map.get(2)).value == 22);
     _ = map.remove(2);
     assert(map.remove(2) == null);
     assert(map.get(2) == null);
+}
+
+test "iterator hash map" {
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var reset_map = HashMap(i32, i32, hash_i32, eql_i32).init(&direct_allocator.allocator);
+    defer reset_map.deinit();
+
+    assert((reset_map.put(1, 11) catch unreachable) == null);
+    assert((reset_map.put(2, 22) catch unreachable) == null);
+    assert((reset_map.put(3, 33) catch unreachable) == null);
+
+    var keys = []i32 { 1, 2, 3 };
+    var values = []i32 { 11, 22, 33 };
+
+    var it = reset_map.iterator();
+    var count : usize = 0;
+    while (it.next()) |next| {
+        assert(next.key == keys[count]);
+        assert(next.value == values[count]);
+        count += 1;
+    }
+
+    assert(count == 3);
+    assert(it.next() == null);
+    it.reset();
+    count = 0;
+    while (it.next()) |next| {
+        assert(next.key == keys[count]);
+        assert(next.value == values[count]);
+        count += 1;
+        if (count == 2) break;
+    }
+
+    it.reset();
+    var entry = ?? it.next();
+    assert(entry.key == keys[0]);
+    assert(entry.value == values[0]);
 }
 
 fn hash_i32(x: i32) u32 {

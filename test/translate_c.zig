@@ -1,6 +1,27 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.TranslateCContext) void {
+    cases.add("double define struct",
+        \\typedef struct Bar Bar;
+        \\typedef struct Foo Foo;
+        \\
+        \\struct Foo {
+        \\    Foo *a;
+        \\};
+        \\
+        \\struct Bar {
+        \\    Foo *a;
+        \\};
+    ,
+        \\pub const struct_Foo = extern struct {
+        \\    a: ?&Foo,
+        \\};
+        \\pub const Foo = struct_Foo;
+        \\pub const struct_Bar = extern struct {
+        \\    a: ?&Foo,
+        \\};
+    );
+
     cases.addAllowWarnings("simple data types",
         \\#include <stdint.h>
         \\int foo(char a, unsigned char b, signed char c);
@@ -42,6 +63,28 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    A,
         \\    B,
         \\    @"1",
+        \\};
+    ,
+        \\pub const FooA = enum_Foo.A;
+    ,
+        \\pub const FooB = enum_Foo.B;
+    ,
+        \\pub const Foo1 = enum_Foo.@"1";
+    ,
+        \\pub const Foo = enum_Foo;
+    );
+
+    cases.add("enums",
+        \\enum Foo {
+        \\    FooA = 2,
+        \\    FooB = 5,
+        \\    Foo1,
+        \\};
+    ,
+        \\pub const enum_Foo = extern enum {
+        \\    A = 2,
+        \\    B = 5,
+        \\    @"1" = 6,
         \\};
     ,
         \\pub const FooA = enum_Foo.A;

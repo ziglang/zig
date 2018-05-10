@@ -1,6 +1,129 @@
+test "zig fmt: same-line comment after non-block if expression" {
+    try testCanonical(
+        \\comptime {
+        \\    if (sr > n_uword_bits - 1) {
+        \\        // d > r
+        \\        return 0;
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: switch with empty body" {
+    try testCanonical(
+        \\test "" {
+        \\    foo() catch |err| switch (err) {};
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line comment on comptime expression" {
+    try testCanonical(
+        \\test "" {
+        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\pub const f64_true_min = 4.94065645841246544177e-324;
+        \\
+    );
+}
+
+test "zig fmt: line comments in struct initializer" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    return Self{
+        \\        .a = b,
+        \\
+        \\        // Initialize these two fields to buffer_size so that
+        \\        // in `readFn` we treat the state as being able to read
+        \\        .start_index = buffer_size,
+        \\        .end_index = buffer_size,
+        \\
+        \\        // middle
+        \\
+        \\        .a = b,
+        \\
+        \\        // end
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: doc comments before struct field" {
+    try testCanonical(
+        \\pub const Allocator = struct {
+        \\    /// Allocate byte_count bytes and return them in a slice, with the
+        \\    /// slice's pointer aligned at least to alignment bytes.
+        \\    allocFn: fn() void,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: error set declaration" {
+    try testCanonical(
+        \\const E = error{
+        \\    A,
+        \\    B,
+        \\
+        \\    C,
+        \\};
+        \\
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\};
+        \\
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\
+        \\    /// another
+        \\    Another,
+        \\
+        \\    // end
+        \\};
+        \\
+        \\const Error = error{OutOfMemory};
+        \\const Error = error{};
+        \\
+    );
+}
+
+test "zig fmt: union(enum(u32)) with assigned enum values" {
+    try testCanonical(
+        \\const MultipleChoice = union(enum(u32)) {
+        \\    A = 20,
+        \\    B = 40,
+        \\    C = 60,
+        \\    D = 1000,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: labeled suspend" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    s: suspend |p| {
+        \\        break :s;
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: comments before error set decl" {
     try testCanonical(
-        \\const UnexpectedError = error {
+        \\const UnexpectedError = error{
         \\    /// The Operating System returned an undocumented error code.
         \\    Unexpected,
         \\    // another
@@ -92,7 +215,7 @@ test "zig fmt: same-line comment after field decl" {
 
 test "zig fmt: array literal with 1 item on 1 line" {
     try testCanonical(
-        \\var s = []const u64 {0} ** 25;
+        \\var s = []const u64{0} ** 25;
         \\
     );
 }
@@ -117,7 +240,7 @@ test "zig fmt: comments before global variables" {
     );
 }
 
-test "zig fmt: comments before statements" {
+test "zig fmt: comments in statements" {
     try testCanonical(
         \\test "std" {
         \\    // statement comment
@@ -143,22 +266,6 @@ test "zig fmt: comments before test decl" {
         \\// middle
         \\
         \\// end
-        \\
-    );
-}
-
-test "zig fmt: comments before variable declarations" {
-    try testCanonical(
-        \\const std = @import("std");
-        \\
-        \\pub fn main() !void {
-        \\    /// If this program is run without stdout attached, exit with an error.
-        \\    /// another comment
-        \\    var stdout_file = try std.io.getStdOut;
-        \\    // If this program is run without stdout attached, exit with an error.
-        \\    // another comment
-        \\    var stdout_file = try std.io.getStdOut;
-        \\}
         \\
     );
 }
@@ -423,10 +530,18 @@ test "zig fmt: functions" {
 
 test "zig fmt: multiline string" {
     try testCanonical(
-        \\const s = 
-        \\    \\ something
-        \\    \\ something else
+        \\test "" {
+        \\    const s1 =
+        \\        \\one
+        \\        \\two)
+        \\        \\three
         \\    ;
+        \\    const s2 =
+        \\        c\\one
+        \\        c\\two)
+        \\        c\\three
+        \\    ;
+        \\}
         \\
     );
 }
@@ -570,26 +685,14 @@ test "zig fmt: union declaration" {
     );
 }
 
-test "zig fmt: error set declaration" {
-      try testCanonical(
-        \\const E = error {
-        \\    A,
-        \\    B,
-        \\
-        \\    C,
-        \\};
-        \\
-    );
-}
-
 test "zig fmt: arrays" {
     try testCanonical(
         \\test "test array" {
-        \\    const a: [2]u8 = [2]u8 {
+        \\    const a: [2]u8 = [2]u8{
         \\        1,
         \\        2,
         \\    };
-        \\    const a: [2]u8 = []u8 {
+        \\    const a: [2]u8 = []u8{
         \\        1,
         \\        2,
         \\    };
@@ -601,15 +704,17 @@ test "zig fmt: arrays" {
 
 test "zig fmt: container initializers" {
     try testCanonical(
-        \\const a1 = []u8{};
-        \\const a2 = []u8 {
+        \\const a0 = []u8{};
+        \\const a1 = []u8{1};
+        \\const a2 = []u8{
         \\    1,
         \\    2,
         \\    3,
         \\    4,
         \\};
-        \\const s1 = S{};
-        \\const s2 = S {
+        \\const s0 = S{};
+        \\const s1 = S{ .a = 1 };
+        \\const s2 = S{
         \\    .a = 1,
         \\    .b = 2,
         \\};
@@ -678,9 +783,6 @@ test "zig fmt: switch" {
         \\        Float: f64,
         \\    };
         \\
-        \\    const u = Union {
-        \\        .Int = 0,
-        \\    };
         \\    switch (u) {
         \\        Union.Int => |int| {},
         \\        Union.Float => |*float| unreachable,
@@ -759,11 +861,6 @@ test "zig fmt: while" {
 test "zig fmt: for" {
     try testCanonical(
         \\test "for" {
-        \\    const a = []u8 {
-        \\        1,
-        \\        2,
-        \\        3,
-        \\    };
         \\    for (a) |v| {
         \\        continue;
         \\    }
@@ -940,12 +1037,12 @@ test "zig fmt: coroutines" {
         \\    suspend;
         \\    x += 1;
         \\    suspend |p| {}
-        \\    const p = async simpleAsyncFn() catch unreachable;
+        \\    const p: promise->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
         \\
         \\test "coroutine suspend, resume, cancel" {
-        \\    const p = try async<std.debug.global_allocator> testAsyncSeq();
+        \\    const p: promise = try async<std.debug.global_allocator> testAsyncSeq();
         \\    resume p;
         \\    cancel p;
         \\}
@@ -994,15 +1091,6 @@ test "zig fmt: error return" {
     );
 }
 
-test "zig fmt: struct literals with fields on each line" {
-    try testCanonical(
-        \\var self = BufSet {
-        \\    .hash_map = BufSetHashMap.init(a),
-        \\};
-        \\
-    );
-}
-
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
@@ -1028,15 +1116,15 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
     return buffer.toOwnedSlice();
 }
 
-fn testCanonical(source: []const u8) !void {
+fn testTransform(source: []const u8, expected_source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
         const result_source = try testParse(source, &failing_allocator.allocator);
-        if (!mem.eql(u8, result_source, source)) {
+        if (!mem.eql(u8, result_source, expected_source)) {
             warn("\n====== expected this output: =========\n");
-            warn("{}", source);
+            warn("{}", expected_source);
             warn("\n======== instead found this: =========\n");
             warn("{}", result_source);
             warn("\n======================================\n");
@@ -1065,5 +1153,9 @@ fn testCanonical(source: []const u8) !void {
             error.ParseError => @panic("test failed"),
         }
     }
+}
+
+fn testCanonical(source: []const u8) !void {
+    return testTransform(source, source);
 }
 

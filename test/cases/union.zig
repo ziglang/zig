@@ -48,6 +48,16 @@ test "basic unions" {
     assert(foo.float == 12.34);
 }
 
+test "comptime union field access" {
+    comptime {
+        var foo = Foo { .int = 0 };
+        assert(foo.int == 0);
+
+        foo = Foo { .float = 42.42 };
+        assert(foo.float == 42.42);
+    }
+}
+
 test "init union with runtime value" {
     var foo: Foo = undefined;
 
@@ -275,3 +285,16 @@ const PartialInst = union(enum) {
 const PartialInstWithPayload = union(enum) {
     Compiled: i32,
 };
+
+
+test "access a member of tagged union with conflicting enum tag name" {
+    const Bar = union(enum) {
+        A: A,
+        B: B,
+
+        const A = u8;
+        const B = void;
+    };
+
+    comptime assert(Bar.A == u8);
+}

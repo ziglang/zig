@@ -2325,8 +2325,14 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
     HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
     occupied_tag_values.init(field_count);
 
-    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
+    TypeTableEntry *tag_int_type;
+    if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
+        tag_int_type = get_c_int_type(g, CIntTypeInt);
+    } else {
+        tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
+    }
 
+    // TODO: Are extern enums allowed to have an init_arg_expr?
     if (decl_node->data.container_decl.init_arg_expr != nullptr) {
         TypeTableEntry *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
@@ -5926,8 +5932,8 @@ size_t type_id_len() {
     return array_length(all_type_ids);
 }
 
-size_t type_id_index(TypeTableEntryId id) {
-    switch (id) {
+size_t type_id_index(TypeTableEntry *entry) {
+    switch (entry->id) {
         case TypeTableEntryIdInvalid:
             zig_unreachable();
         case TypeTableEntryIdMetaType:
@@ -5947,6 +5953,8 @@ size_t type_id_index(TypeTableEntryId id) {
         case TypeTableEntryIdArray:
             return 7;
         case TypeTableEntryIdStruct:
+            if (entry->data.structure.is_slice)
+                return 25;
             return 8;
         case TypeTableEntryIdNumLitFloat:
             return 9;

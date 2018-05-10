@@ -335,6 +335,23 @@ test "big number shifting" {
     }
 }
 
+test "big number multi-limb shift and mask" {
+    comptime {
+        var a = 0xefffffffa0000001eeeeeeefaaaaaaab;
+
+        assert(u32(a & 0xffffffff) == 0xaaaaaaab);
+        a >>= 32;
+        assert(u32(a & 0xffffffff) == 0xeeeeeeef);
+        a >>= 32;
+        assert(u32(a & 0xffffffff) == 0xa0000001);
+        a >>= 32;
+        assert(u32(a & 0xffffffff) == 0xefffffff);
+        a >>= 32;
+
+        assert(a == 0);
+    }
+}
+
 test "xor" {
     test_xor();
     comptime test_xor();

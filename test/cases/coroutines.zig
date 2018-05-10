@@ -219,8 +219,9 @@ async fn printTrace(p: promise->error!void) void {
         std.debug.assert(e == error.Fail);
         if (@errorReturnTrace()) |trace| {
             assert(trace.index == 1);
-        } else if (builtin.mode != builtin.Mode.ReleaseFast) {
-            @panic("expected return trace");
+        } else switch (builtin.mode) {
+            builtin.Mode.Debug, builtin.Mode.ReleaseSafe => @panic("expected return trace"),
+            builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => {},
         }
     };
 }

@@ -6,7 +6,6 @@ const mem = std.mem;
 
 pub const Node = struct {
     id: Id,
-    doc_comments: ?&DocComment,
     same_line_comment: ?&Token,
 
     pub const Id = enum {
@@ -36,6 +35,7 @@ pub const Node = struct {
         VarType,
         ErrorType,
         FnProto,
+        PromiseType,
 
         // Primary expressions
         IntegerLiteral,
@@ -69,12 +69,20 @@ pub const Node = struct {
         StructField,
         UnionTag,
         EnumTag,
+        ErrorTag,
         AsmInput,
         AsmOutput,
         AsyncAttribute,
         ParamDecl,
         FieldInitializer,
     };
+
+    pub fn cast(base: &Node, comptime T: type) ?&T {
+        if (base.id == comptime typeToId(T)) {
+            return @fieldParentPtr(T, "base", base);
+        }
+        return null;
+    }
 
     pub fn iterate(base: &Node, index: usize) ?&Node {
         comptime var i = 0;
@@ -121,6 +129,7 @@ pub const Node = struct {
 
     pub const Root = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         decls: ArrayList(&Node),
         eof_token: Token,
 
@@ -142,6 +151,7 @@ pub const Node = struct {
 
     pub const VarDecl = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         visib_token: ?Token,
         name_token: Token,
         eq_token: Token,
@@ -190,6 +200,7 @@ pub const Node = struct {
 
     pub const Use = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         visib_token: ?Token,
         expr: &Node,
         semicolon_token: Token,
@@ -260,7 +271,7 @@ pub const Node = struct {
 
         const InitArg = union(enum) {
             None,
-            Enum,
+            Enum: ?&Node,
             Type: &Node,
         };
 
@@ -293,6 +304,7 @@ pub const Node = struct {
 
     pub const StructField = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         visib_token: ?Token,
         name_token: Token,
         type_expr: &Node,
@@ -318,14 +330,21 @@ pub const Node = struct {
 
     pub const UnionTag = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         name_token: Token,
         type_expr: ?&Node,
+        value_expr: ?&Node,
 
         pub fn iterate(self: &UnionTag, index: usize) ?&Node {
             var i = index;
 
             if (self.type_expr) |type_expr| {
                 if (i < 1) return type_expr;
+                i -= 1;
+            }
+
+            if (self.value_expr) |value_expr| {
+                if (i < 1) return value_expr;
                 i -= 1;
             }
 
@@ -337,6 +356,9 @@ pub const Node = struct {
         }
 
         pub fn lastToken(self: &UnionTag) Token {
+            if (self.value_expr) |value_expr| {
+                return value_expr.lastToken();
+            }
             if (self.type_expr) |type_expr| {
                 return type_expr.lastToken();
             }
@@ -347,6 +369,7 @@ pub const Node = struct {
 
     pub const EnumTag = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         name_token: Token,
         value: ?&Node,
 
@@ -370,6 +393,31 @@ pub const Node = struct {
                 return value.lastToken();
             }
 
+            return self.name_token;
+        }
+    };
+
+    pub const ErrorTag = struct {
+        base: Node,
+        doc_comments: ?&DocComment,
+        name_token: Token,
+
+        pub fn iterate(self: &ErrorTag, index: usize) ?&Node {
+            var i = index;
+
+            if (self.doc_comments) |comments| {
+                if (i < 1) return &comments.base;
+                i -= 1;
+            }
+
+            return null;
+        }
+
+        pub fn firstToken(self: &ErrorTag) Token {
+            return self.name_token;
+        }
+
+        pub fn lastToken(self: &ErrorTag) Token {
             return self.name_token;
         }
     };
@@ -423,6 +471,7 @@ pub const Node = struct {
 
     pub const FnProto = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         visib_token: ?Token,
         fn_token: Token,
         name_token: ?Token,
@@ -492,6 +541,37 @@ pub const Node = struct {
                 ReturnType.Explicit => |node| return node.lastToken(),
                 ReturnType.InferErrorSet => |node| return node.lastToken(),
             }
+        }
+    };
+
+    pub const PromiseType = struct {
+        base: Node,
+        promise_token: Token,
+        result: ?Result,
+
+        pub const Result = struct {
+            arrow_token: Token,
+            return_type: &Node,
+        };
+
+        pub fn iterate(self: &PromiseType, index: usize) ?&Node {
+            var i = index;
+
+            if (self.result) |result| {
+                if (i < 1) return result.return_type;
+                i -= 1;
+            }
+
+            return null;
+        }
+
+        pub fn firstToken(self: &PromiseType) Token {
+            return self.promise_token;
+        }
+
+        pub fn lastToken(self: &PromiseType) Token {
+            if (self.result) |result| return result.return_type.lastToken();
+            return self.promise_token;
         }
     };
 
@@ -585,6 +665,7 @@ pub const Node = struct {
 
     pub const Comptime = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         comptime_token: Token,
         expr: &Node,
 
@@ -1188,7 +1269,7 @@ pub const Node = struct {
             ArrayAccess: &Node,
             Slice: SliceRange,
             ArrayInitializer: ArrayList(&Node),
-            StructInitializer: ArrayList(&FieldInitializer),
+            StructInitializer: ArrayList(&Node),
         };
 
         const CallInfo = struct {
@@ -1230,7 +1311,7 @@ pub const Node = struct {
                     i -= exprs.len;
                 },
                 Op.StructInitializer => |fields| {
-                    if (i < fields.len) return &fields.at(i).base;
+                    if (i < fields.len) return fields.at(i);
                     i -= fields.len;
                 },
             }
@@ -1339,6 +1420,7 @@ pub const Node = struct {
 
     pub const Suspend = struct {
         base: Node,
+        label: ?Token,
         suspend_token: Token,
         payload: ?&Node,
         body: ?&Node,
@@ -1360,6 +1442,7 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &Suspend) Token {
+            if (self.label) |label| return label;
             return self.suspend_token;
         }
 
@@ -1751,6 +1834,7 @@ pub const Node = struct {
 
     pub const TestDecl = struct {
         base: Node,
+        doc_comments: ?&DocComment,
         test_token: Token,
         name: &Node,
         body_node: &Node,
