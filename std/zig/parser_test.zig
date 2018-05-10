@@ -1,66 +1,66 @@
-//test "zig fmt: same-line comment after a statement" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    a = b;
-//        \\    debug.assert(H.digest_size <= H.block_size); // HMAC makes this assumption
-//        \\    a = b;
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment after var decl in struct" {
-//    try testCanonical(
-//        \\pub const vfs_cap_data = extern struct {
-//        \\    const Data = struct {}; // when on disk.
-//        \\};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment after field decl" {
-//    try testCanonical(
-//        \\pub const dirent = extern struct {
-//        \\    d_name: u8,
-//        \\    d_name: u8, // comment 1
-//        \\    d_name: u8,
-//        \\    d_name: u8, // comment 2
-//        \\    d_name: u8,
-//        \\};
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment after switch prong" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    switch (err) {
-//        \\        error.PathAlreadyExists => {}, // comment 2
-//        \\        else => return err, // comment 1
-//        \\    }
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment after non-block if expression" {
-//    try testCanonical(
-//        \\comptime {
-//        \\    if (sr > n_uword_bits - 1) // d > r
-//        \\        return 0;
-//        \\}
-//        \\
-//    );
-//}
-//
-//test "zig fmt: same-line comment on comptime expression" {
-//    try testCanonical(
-//        \\test "" {
-//        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
-//        \\}
-//        \\
-//    );
-//}
+test "zig fmt: same-line comment after a statement" {
+    try testCanonical(
+        \\test "" {
+        \\    a = b;
+        \\    debug.assert(H.digest_size <= H.block_size); // HMAC makes this assumption
+        \\    a = b;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after var decl in struct" {
+    try testCanonical(
+        \\pub const vfs_cap_data = extern struct {
+        \\    const Data = struct {}; // when on disk.
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after field decl" {
+    try testCanonical(
+        \\pub const dirent = extern struct {
+        \\    d_name: u8,
+        \\    d_name: u8, // comment 1
+        \\    d_name: u8,
+        \\    d_name: u8, // comment 2
+        \\    d_name: u8,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after switch prong" {
+    try testCanonical(
+        \\test "" {
+        \\    switch (err) {
+        \\        error.PathAlreadyExists => {}, // comment 2
+        \\        else => return err, // comment 1
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line comment after non-block if expression" {
+    try testCanonical(
+        \\comptime {
+        \\    if (sr > n_uword_bits - 1) // d > r
+        \\        return 0;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line comment on comptime expression" {
+    try testCanonical(
+        \\test "" {
+        \\    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
+        \\}
+        \\
+    );
+}
 
 test "zig fmt: switch with empty body" {
     try testCanonical(

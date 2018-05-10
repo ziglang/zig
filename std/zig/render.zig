@@ -14,7 +14,12 @@ const RenderState = union(enum) {
     Statement: &ast.Node,
     PrintIndent,
     Indent: usize,
+    MaybeSemiColon: &ast.Node,
+    Token: ast.TokenIndex,
+    NonBreakToken: ast.TokenIndex,
 };
+
+const indent_delta = 4;
 
 pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
     var stack = SegmentedList(RenderState, 32).init(allocator);
@@ -44,7 +49,6 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
         }
     }
 
-    const indent_delta = 4;
     var indent: usize = 0;
     while (stack.pop()) |state| {
         switch (state) {
@@ -92,7 +96,7 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
                             try stream.print("{} ", tree.tokenSlice(visib_token));
                         }
                         try stream.print("{}: ", tree.tokenSlice(field.name_token));
-                        try stack.push(RenderState { .Text = "," });
+                        try stack.push(RenderState { .Token = field.lastToken() + 1 });
                         try stack.push(RenderState { .Expression = field.type_expr});
                     },
                     ast.Node.Id.UnionTag => {
@@ -129,9 +133,7 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
                         try stream.print("{}", tree.tokenSlice(tag.name_token));
                     },
                     ast.Node.Id.Comptime => {
-                        if (decl.requireSemiColon()) {
-                            try stack.push(RenderState { .Text = ";" });
-                        }
+                        try stack.push(RenderState { .MaybeSemiColon = decl });
                         try stack.push(RenderState { .Expression = decl });
                     },
                     ast.Node.Id.LineComment => {
@@ -143,7 +145,7 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
             },
 
             RenderState.VarDecl => |var_decl| {
-                try stack.push(RenderState { .Text = ";" });
+                try stack.push(RenderState { .Token = var_decl.semicolon_token });
                 if (var_decl.init_node) |init_node| {
                     try stack.push(RenderState { .Expression = init_node });
                     const text = if (init_node.id == ast.Node.Id.MultilineStringLiteral) " =" else " = ";
@@ -895,7 +897,7 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
                 ast.Node.Id.SwitchCase => {
                     const switch_case = @fieldParentPtr(ast.Node.SwitchCase, "base", base);
 
-                    try stack.push(RenderState { .Text = "," });
+                    try stack.push(RenderState { .Token = switch_case.lastToken() + 1 });
                     try stack.push(RenderState { .Expression = switch_case.expr });
                     if (switch_case.payload) |payload| {
                         try stack.push(RenderState { .Text = " " });
@@ -1072,14 +1074,13 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
                     }
 
                     try stack.push(RenderState { .Expression = if_node.body });
-                    try stack.push(RenderState { .Text = " " });
 
                     if (if_node.payload) |payload| {
-                        try stack.push(RenderState { .Expression = payload });
                         try stack.push(RenderState { .Text = " " });
+                        try stack.push(RenderState { .Expression = payload });
                     }
 
-                    try stack.push(RenderState { .Text = ")" });
+                    try stack.push(RenderState { .NonBreakToken = if_node.condition.lastToken() + 1 });
                     try stack.push(RenderState { .Expression = if_node.condition });
                     try stack.push(RenderState { .Text = "(" });
                 },
@@ -1217,16 +1218,45 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
                         try stack.push(RenderState { .VarDecl = var_decl});
                     },
                     else => {
-                        if (base.requireSemiColon()) {
-                            try stack.push(RenderState { .Text = ";" });
-                        }
+                        try stack.push(RenderState { .MaybeSemiColon = base });
                         try stack.push(RenderState { .Expression = base });
                     },
                 }
             },
             RenderState.Indent => |new_indent| indent = new_indent,
             RenderState.PrintIndent => try stream.writeByteNTimes(' ', indent),
+            RenderState.Token => |token_index| try renderToken(tree, stream, token_index, indent, true),
+            RenderState.NonBreakToken => |token_index| try renderToken(tree, stream, token_index, indent, false),
+            RenderState.MaybeSemiColon => |base| {
+                if (base.requireSemiColon()) {
+                    const semicolon_index = base.lastToken() + 1;
+                    assert(tree.tokens.at(semicolon_index).id == Token.Id.Semicolon);
+                    try renderToken(tree, stream, semicolon_index, indent, true);
+                }
+            },
         }
+    }
+}
+
+fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, line_break: bool) !void {
+    const token = tree.tokens.at(token_index);
+    try stream.write(tree.tokenSlicePtr(token));
+
+    const next_token = tree.tokens.at(token_index + 1);
+    if (next_token.id == Token.Id.LineComment) {
+        const loc = tree.tokenLocationPtr(token.end, next_token);
+        if (loc.line == 0) {
+            try stream.print(" {}", tree.tokenSlicePtr(next_token));
+            if (!line_break) {
+                try stream.write("\n");
+                try stream.writeByteNTimes(' ', indent + indent_delta);
+                return;
+            }
+        }
+    }
+
+    if (!line_break) {
+        try stream.writeByte(' ');
     }
 }
 
