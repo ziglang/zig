@@ -99,26 +99,10 @@ pub const Buffer = struct {
         mem.copy(u8, self.list.toSlice()[old_len..], m);
     }
 
-    // TODO: remove, use OutStream for this
-    pub fn appendFormat(self: &Buffer, comptime format: []const u8, args: ...) !void {
-        return fmt.format(self, append, format, args);
-    }
-
-    // TODO: remove, use OutStream for this
     pub fn appendByte(self: &Buffer, byte: u8) !void {
-        return self.appendByteNTimes(byte, 1);
-    }
-
-    // TODO: remove, use OutStream for this
-    pub fn appendByteNTimes(self: &Buffer, byte: u8, count: usize) !void {
-        var prev_size: usize = self.len();
-        const new_size = prev_size + count;
-        try self.resize(new_size);
-
-        var i: usize = prev_size;
-        while (i < new_size) : (i += 1) {
-            self.list.items[i] = byte;
-        }
+        const old_len = self.len();
+        try self.resize(old_len + 1);
+        self.list.toSlice()[old_len] = byte;
     }
 
     pub fn eql(self: &const Buffer, m: []const u8) bool {
@@ -154,7 +138,7 @@ test "simple Buffer" {
     var buf = try Buffer.init(debug.global_allocator, "");
     assert(buf.len() == 0);
     try buf.append("hello");
-    try buf.appendByte(' ');
+    try buf.append(" ");
     try buf.append("world");
     assert(buf.eql("hello world"));
     assert(mem.eql(u8, cstr.toSliceConst(buf.toSliceConst().ptr), buf.toSliceConst()));
