@@ -12,13 +12,79 @@ pub const FloatDecimal = struct {
     exp: i32,
 };
 
+pub const RoundMode = enum {
+    // Round only the fractional portion (e.g. 1234.23 has precision 2)
+    Decimal,
+    // Round the entire whole/fractional portion (e.g. 1.23423e3 has precision 5)
+    Scientific,
+};
+
+/// Round a FloatDecimal as returned by errol3 to the specified fractional precision.
+/// All digits after the specified precision should be considered invalid.
+pub fn roundToPrecision(float_decimal: &FloatDecimal, precision: usize, mode: RoundMode) void {
+    // The round digit refers to the index which we should look at to determine
+    // whether we need to round to match the specified precision.
+    var round_digit: usize = 0;
+
+    switch (mode) {
+        RoundMode.Decimal => {
+            if (float_decimal.exp >= 0) {
+                round_digit = precision + usize(float_decimal.exp);
+            } else {
+                // if a small negative exp, then adjust we need to offset by the number
+                // of leading zeros that will occur.
+                const min_exp_required = usize(-float_decimal.exp);
+                if (precision > min_exp_required) {
+                    round_digit = precision - min_exp_required;
+                }
+            }
+        },
+        RoundMode.Scientific => {
+            round_digit = 1 + precision;
+        },
+    }
+
+    // It suffices to look at just this digit. We don't round and propagate say 0.04999 to 0.05
+    // first, and then to 0.1 in the case of a {.1} single precision.
+
+    // Find the digit which will signify the round point and start rounding backwards.
+    if (round_digit < float_decimal.digits.len and float_decimal.digits[round_digit] - '0' >= 5) {
+        assert(round_digit >= 0);
+
+        var i = round_digit;
+        while (true) {
+            if (i == 0) {
+                // Rounded all the way past the start. This was of the form 9.999...
+                // Slot the new digit in place and increase the exponent.
+                float_decimal.exp += 1;
+
+                // Re-size the buffer to use the reserved leading byte.
+                const one_before = @intToPtr(&u8, @ptrToInt(&float_decimal.digits[0]) - 1);
+                float_decimal.digits = one_before[0..float_decimal.digits.len + 1];
+                float_decimal.digits[0] = '1';
+                return;
+            }
+
+            i -= 1;
+
+            const new_value = (float_decimal.digits[i] - '0' + 1) % 10;
+            float_decimal.digits[i] = new_value + '0';
+
+            // must continue rounding until non-9
+            if (new_value != 0) {
+                return;
+            }
+        }
+    }
+}
+
 /// Corrected Errol3 double to ASCII conversion.
 pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
     const bits = @bitCast(u64, value);
     const i = tableLowerBound(bits);
     if (i < enum3.len and enum3[i] == bits) {
         const data = enum3_data[i];
-        const digits = buffer[0..data.str.len];
+        const digits = buffer[1..data.str.len + 1];
         mem.copy(u8, digits, data.str);
         return FloatDecimal {
             .digits = digits,
@@ -98,7 +164,11 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     }
 
     // digit generation
-    var buf_index: usize = 0;
+
+    // We generate digits starting at index 1. If rounding a buffer later then it may be
+    // required to generate a preceeding digit in some cases (9.999) in which case we use
+    // the 0-index for this extra digit.
+    var buf_index: usize = 1;
     while (true) {
         var hdig = u8(math.floor(high.val));
         if ((high.val == f64(hdig)) and (high.off < 0))
@@ -128,7 +198,7 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     buf_index += 1;
 
     return FloatDecimal {
-        .digits = buffer[0..buf_index],
+        .digits = buffer[1..buf_index],
         .exp = exp,
     };
 }
@@ -189,6 +259,9 @@ fn gethi(in: f64) f64 {
 /// Normalize the number by factoring in the error.
 ///   @hp: The float pair.
 fn hpNormalize(hp: &HP) void {
+    // Required to avoid segfaults causing buffer overrun during errol3 digit output termination.
+    @setFloatMode(this, @import("builtin").FloatMode.Strict);
+
     const val = hp.val;
 
     hp.val += hp.off;

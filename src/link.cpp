@@ -217,6 +217,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(g->linker_script);
     }
 
+    if (g->no_rosegment_workaround) {
+        lj->args.append("--no-rosegment");
+    }
     lj->args.append("--gc-sections");
 
     lj->args.append("-m");

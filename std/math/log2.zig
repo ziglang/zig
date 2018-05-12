@@ -31,15 +31,10 @@ pub fn log2(x: var) @typeOf(x) {
             return result;
         },
         TypeId.Int => {
-            return log2_int(T, x);
+            return math.log2_int(T, x);
         },
         else => @compileError("log2 not implemented for " ++ @typeName(T)),
     }
-}
-
-pub fn log2_int(comptime T: type, x: T) T {
-    assert(x != 0);
-    return T.bit_count - 1 - T(@clz(x));
 }
 
 pub fn log2_32(x_: f32) f32 {

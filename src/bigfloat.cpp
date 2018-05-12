@@ -181,3 +181,7 @@ bool bigfloat_has_fraction(const BigFloat *bigfloat) {
     f128M_roundToInt(&bigfloat->value, softfloat_round_minMag, false, &floored);
     return !f128M_eq(&floored, &bigfloat->value);
 }
+
+void bigfloat_sqrt(BigFloat *dest, const BigFloat *op) {
+    f128M_sqrt(&op->value, &dest->value);
+}

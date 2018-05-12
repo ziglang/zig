@@ -28,6 +28,9 @@ pub extern "kernel32" stdcallcc fn CreateProcessA(lpApplicationName: ?LPCSTR, lp
 pub extern "kernel32" stdcallcc fn CreateSymbolicLinkA(lpSymlinkFileName: LPCSTR, lpTargetFileName: LPCSTR,
     dwFlags: DWORD) BOOLEAN;
 
+
+pub extern "kernel32" stdcallcc fn CreateThread(lpThreadAttributes: ?LPSECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?LPDWORD) ?HANDLE;
+
 pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) BOOL;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) noreturn;
@@ -61,6 +64,8 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(hFile: HANDLE, lpsz
 
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 
+pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(?&FILETIME) void;
+
 pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
 pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
 pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: &c_void, dwBytes: SIZE_T) ?&c_void;
@@ -77,6 +82,12 @@ pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem
 
 pub extern "kernel32" stdcallcc fn MoveFileExA(lpExistingFileName: LPCSTR, lpNewFileName: LPCSTR,
     dwFlags: DWORD) BOOL;
+    
+pub extern "kernel32" stdcallcc fn QueryPerformanceCounter(lpPerformanceCount: &LARGE_INTEGER) BOOL;
+
+pub extern "kernel32" stdcallcc fn QueryPerformanceFrequency(lpFrequency: &LARGE_INTEGER) BOOL;
+
+pub extern "kernel32" stdcallcc fn PathFileExists(pszPath: ?LPCTSTR) BOOL;
 
 pub extern "kernel32" stdcallcc fn ReadFile(in_hFile: HANDLE, out_lpBuffer: &c_void,
     in_nNumberOfBytesToRead: DWORD, out_lpNumberOfBytesRead: &DWORD,
@@ -137,6 +148,7 @@ pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const LARGE_INTEGER = i64;
+pub const FILETIME = i64;
 
 pub const TRUE = 1;
 pub const FALSE = 0;
@@ -308,3 +320,10 @@ pub const FILE_END = 2;
 pub const HEAP_CREATE_ENABLE_EXECUTE = 0x00040000;
 pub const HEAP_GENERATE_EXCEPTIONS = 0x00000004;
 pub const HEAP_NO_SERIALIZE = 0x00000001;
+
+pub const PTHREAD_START_ROUTINE = extern fn(LPVOID) DWORD;
+pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
+
+test "import" {
+    _ = @import("util.zig");
+}

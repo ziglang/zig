@@ -349,6 +349,31 @@ test "big number shifting" {
     }
 }
 
+test "big number multi-limb shift and mask" {
+    comptime {
+        var a = 0xefffffffa0000001eeeeeeefaaaaaaab;
+
+        assert(u32(a & 0xffffffff) == 0xaaaaaaab);
+        a >>= 32;
+        assert(u32(a & 0xffffffff) == 0xeeeeeeef);
+        a >>= 32;
+        assert(u32(a & 0xffffffff) == 0xa0000001);
+        a >>= 32;
+        assert(u32(a & 0xffffffff) == 0xefffffff);
+        a >>= 32;
+
+        assert(a == 0);
+    }
+}
+
+test "big number multi-limb partial shift right" {
+    comptime {
+        var a = 0x1ffffffffeeeeeeee;
+        a >>= 16;
+        assert(a == 0x1ffffffffeeee);
+    }
+}
+
 test "xor" {
     test_xor();
     comptime test_xor();
@@ -401,4 +426,20 @@ test "comptime float rem int" {
         var x = f32(1) % 2;
         assert(x == 1.0);
     }
+}
+
+test "@sqrt" {
+    testSqrt(f64, 12.0);
+    comptime testSqrt(f64, 12.0);
+    testSqrt(f32, 13.0);
+    comptime testSqrt(f32, 13.0);
+
+    const x = 14.0;
+    const y = x * x;
+    const z = @sqrt(@typeOf(y), y);
+    comptime assert(z == x);
+}
+
+fn testSqrt(comptime T: type, x: T) void {
+    assert(@sqrt(T, x * x) == x);
 }

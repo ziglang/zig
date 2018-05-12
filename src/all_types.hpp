@@ -359,7 +359,6 @@ enum NodeType {
     NodeTypeRoot,
     NodeTypeFnProto,
     NodeTypeFnDef,
-    NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeBlock,
     NodeTypeGroupedExpr,
@@ -451,10 +450,6 @@ struct AstNodeFnProto {
 struct AstNodeFnDef {
     AstNode *fn_proto;
     AstNode *body;
-};
-
-struct AstNodeFnDecl {
-    AstNode *fn_proto;
 };
 
 struct AstNodeParamDecl {
@@ -713,10 +708,6 @@ struct AstNodeSwitchRange {
     AstNode *end;
 };
 
-struct AstNodeLabel {
-    Buf *name;
-};
-
 struct AstNodeCompTime {
     AstNode *expr;
 };
@@ -876,6 +867,7 @@ struct AstNodeAwaitExpr {
 };
 
 struct AstNodeSuspend {
+    Buf *name;
     AstNode *block;
     AstNode *promise_symbol;
 };
@@ -892,7 +884,6 @@ struct AstNode {
     union {
         AstNodeRoot root;
         AstNodeFnDef fn_def;
-        AstNodeFnDecl fn_decl;
         AstNodeFnProto fn_proto;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
@@ -917,7 +908,6 @@ struct AstNode {
         AstNodeSwitchExpr switch_expr;
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
-        AstNodeLabel label;
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
@@ -1302,6 +1292,8 @@ enum BuiltinFnId {
     BuiltinFnIdMemberCount,
     BuiltinFnIdMemberType,
     BuiltinFnIdMemberName,
+    BuiltinFnIdField,
+    BuiltinFnIdTypeInfo,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
@@ -1321,13 +1313,15 @@ enum BuiltinFnId {
     BuiltinFnIdReturnAddress,
     BuiltinFnIdFrameAddress,
     BuiltinFnIdEmbedFile,
-    BuiltinFnIdCmpExchange,
+    BuiltinFnIdCmpxchgWeak,
+    BuiltinFnIdCmpxchgStrong,
     BuiltinFnIdFence,
     BuiltinFnIdDivExact,
     BuiltinFnIdDivTrunc,
     BuiltinFnIdDivFloor,
     BuiltinFnIdRem,
     BuiltinFnIdMod,
+    BuiltinFnIdSqrt,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
@@ -1357,6 +1351,7 @@ enum BuiltinFnId {
     BuiltinFnIdExport,
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
+    BuiltinFnIdAtomicLoad,
 };
 
 struct BuiltinFnEntry {
@@ -1424,6 +1419,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
+    ZigLLVMFnIdSqrt,
 };
 
 enum AddSubMul {
@@ -1444,7 +1440,7 @@ struct ZigLLVMFnKey {
         } clz;
         struct {
             uint32_t bit_count;
-        } floor_ceil;
+        } floating;
         struct {
             AddSubMul add_sub_mul;
             uint32_t bit_count;
@@ -1465,6 +1461,7 @@ enum BuildMode {
     BuildModeDebug,
     BuildModeFastRelease,
     BuildModeSafeRelease,
+    BuildModeSmallRelease,
 };
 
 enum EmitFileType {
@@ -1510,6 +1507,7 @@ struct CodeGen {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
+    HashMap<const TypeTableEntry *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
 
 
     ZigList<ImportTableEntry *> import_queue;
@@ -1656,6 +1654,8 @@ struct CodeGen {
     LLVMValueRef coro_save_fn_val;
     LLVMValueRef coro_promise_fn_val;
     LLVMValueRef coro_alloc_helper_fn_val;
+    LLVMValueRef merge_err_ret_traces_fn_val;
+    LLVMValueRef add_error_return_trace_addr_fn_val;
     bool error_during_imports;
 
     const char **clang_argv;
@@ -1709,6 +1709,8 @@ struct CodeGen {
     ZigList<ZigLLVMDIType **> error_di_types;
 
     ZigList<Buf *> forbidden_libs;
+
+    bool no_rosegment_workaround;
 };
 
 enum VarLinkage {
@@ -1759,6 +1761,7 @@ enum ScopeId {
     ScopeIdVarDecl,
     ScopeIdCImport,
     ScopeIdLoop,
+    ScopeIdSuspend,
     ScopeIdFnDef,
     ScopeIdCompTime,
     ScopeIdCoroPrelude,
@@ -1852,6 +1855,17 @@ struct ScopeLoop {
     IrInstruction *is_comptime;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
+};
+
+// This scope is created for a suspend block in order to have labeled
+// suspend for breaking out of a suspend and for detecting if a suspend
+// block is inside a suspend block.
+struct ScopeSuspend {
+    Scope base;
+
+    Buf *name;
+    IrBasicBlock *resume_block;
+    bool reported_err;
 };
 
 // This scope is created for a comptime expression.
@@ -2025,6 +2039,7 @@ enum IrInstructionId {
     IrInstructionIdTagType,
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
+    IrInstructionIdTypeInfo,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
     IrInstructionIdPtrTypeOf,
@@ -2050,10 +2065,14 @@ enum IrInstructionId {
     IrInstructionIdCoroPromise,
     IrInstructionIdCoroAllocHelper,
     IrInstructionIdAtomicRmw,
+    IrInstructionIdAtomicLoad,
     IrInstructionIdPromiseResultType,
     IrInstructionIdAwaitBookkeeping,
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
+    IrInstructionIdMergeErrRetTraces,
+    IrInstructionIdMarkErrRetTracePtr,
+    IrInstructionIdSqrt,
 };
 
 struct IrInstruction {
@@ -2210,7 +2229,8 @@ struct IrInstructionFieldPtr {
     IrInstruction base;
 
     IrInstruction *container_ptr;
-    Buf *field_name;
+    Buf *field_name_buffer;
+    IrInstruction *field_name_expr;
     bool is_const;
 };
 
@@ -2529,6 +2549,7 @@ struct IrInstructionEmbedFile {
 struct IrInstructionCmpxchg {
     IrInstruction base;
 
+    IrInstruction *type_value;
     IrInstruction *ptr;
     IrInstruction *cmp_value;
     IrInstruction *new_value;
@@ -2536,8 +2557,13 @@ struct IrInstructionCmpxchg {
     IrInstruction *failure_order_value;
 
     // if this instruction gets to runtime then we know these values:
+    TypeTableEntry *type;
     AtomicOrder success_order;
     AtomicOrder failure_order;
+
+    bool is_weak;
+
+    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionFence {
@@ -2835,6 +2861,12 @@ struct IrInstructionOffsetOf {
     IrInstruction *field_name;
 };
 
+struct IrInstructionTypeInfo {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+};
+
 struct IrInstructionTypeId {
     IrInstruction base;
 
@@ -2892,6 +2924,11 @@ struct IrInstructionExport {
 
 struct IrInstructionErrorReturnTrace {
     IrInstruction base;
+
+    enum Nullable {
+        Null,
+        NonNull,
+    } nullable;
 };
 
 struct IrInstructionErrorUnion {
@@ -3002,6 +3039,15 @@ struct IrInstructionAtomicRmw {
     AtomicOrder resolved_ordering;
 };
 
+struct IrInstructionAtomicLoad {
+    IrInstruction base;
+
+    IrInstruction *operand_type;
+    IrInstruction *ptr;
+    IrInstruction *ordering;
+    AtomicOrder resolved_ordering;
+};
+
 struct IrInstructionPromiseResultType {
     IrInstruction base;
 
@@ -3024,6 +3070,27 @@ struct IrInstructionAddImplicitReturnType {
     IrInstruction *value;
 };
 
+struct IrInstructionMergeErrRetTraces {
+    IrInstruction base;
+
+    IrInstruction *coro_promise_ptr;
+    IrInstruction *src_err_ret_trace_ptr;
+    IrInstruction *dest_err_ret_trace_ptr;
+};
+
+struct IrInstructionMarkErrRetTracePtr {
+    IrInstruction base;
+
+    IrInstruction *err_ret_trace_ptr;
+};
+
+struct IrInstructionSqrt {
+    IrInstruction base;
+
+    IrInstruction *type;
+    IrInstruction *op;
+};
+
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
 
@@ -3033,10 +3100,18 @@ static const size_t maybe_null_index = 1;
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
+// TODO call graph analysis to find out what this number needs to be for every function
+static const size_t stack_trace_ptr_count = 30;
+
+// these belong to the async function
+#define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
+#define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
+#define RESULT_FIELD_NAME "result"
 #define ASYNC_ALLOC_FIELD_NAME "allocFn"
 #define ASYNC_FREE_FIELD_NAME "freeFn"
 #define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
-#define RESULT_FIELD_NAME "result"
+// these point to data belonging to the awaiter
+#define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 #define RESULT_PTR_FIELD_NAME "result_ptr"
 
 

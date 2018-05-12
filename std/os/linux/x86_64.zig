@@ -371,6 +371,13 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
+
+pub const VDSO_USEFUL = true;
+pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
+pub const VDSO_CGT_VER = "LINUX_2.6";
+pub const VDSO_GETCPU_SYM = "__vdso_getcpu";
+pub const VDSO_GETCPU_VER = "LINUX_2.6";
+
 pub fn syscall0(number: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
@@ -443,6 +450,9 @@ pub fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
         : "rcx", "r11");
 }
 
+/// This matches the libc clone function.
+pub extern fn clone(func: extern fn(arg: usize) u8, stack: usize, flags: usize, arg: usize, ptid: &i32, tls: usize, ctid: &i32) usize;
+
 pub nakedcc fn restore_rt() void {
     return asm volatile ("syscall"
         :
@@ -489,6 +499,16 @@ pub const timespec = extern struct {
     tv_nsec: isize,
 };
 
+pub const timeval = extern struct {
+    tv_sec: isize,
+    tv_usec: isize,
+};
+
+pub const timezone = extern struct {
+    tz_minuteswest: i32,
+    tz_dsttime: i32,
+};
+
 pub const dirent = extern struct {
     d_ino: usize,
     d_off: usize,
@@ -496,3 +516,4 @@ pub const dirent = extern struct {
     d_name: u8, // field address is the address of first byte of name
 };
 
+pub const Elf_Symndx = u32;

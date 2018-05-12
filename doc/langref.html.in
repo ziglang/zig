@@ -1947,8 +1947,24 @@ const Foo = extern enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       {#header_close#}
-      <p>TODO packed enum</p>
-      {#see_also|@memberName|@memberCount|@tagName#}
+      {#header_open|packed enum#}
+      <p>By default, the size of enums is not guaranteed.</p>
+      <p><code>packed enum</code> causes the size of the enum to be the same as the size of the integer tag type
+      of the enum:</p>
+      {#code_begin|test#}
+const std = @import("std");
+
+test "packed enum" {
+    const Number = packed enum(u8) {
+        One,
+        Two,
+        Three,
+    };
+    std.debug.assert(@sizeOf(Number) == @sizeOf(u8));
+}
+      {#code_end#}
+      {#header_close#}
+      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
       {#header_close#}
       {#header_open|union#}
       {#code_begin|test|union#}
@@ -2017,7 +2033,27 @@ test "union variant switch" {
     assert(mem.eql(u8, what_is_it, "this is a number"));
 }
 
-// TODO union methods
+// Unions can have methods just like structs and enums:
+
+const Variant = union(enum) {
+    Int: i32,
+    Bool: bool,
+
+    fn truthy(self: &const Variant) bool {
+        return switch (*self) {
+            Variant.Int => |x_int| x_int != 0,
+            Variant.Bool => |x_bool| x_bool,
+        };
+    }
+};
+
+test "union method" {
+    var v1 = Variant { .Int = 1 };
+    var v2 = Variant { .Bool = false };
+
+    assert(v1.truthy());
+    assert(!v2.truthy());
+}
 
 
 const Small = union {
@@ -3844,6 +3880,25 @@ pub fn main() void {
       {#header_open|@ArgType#}
       <p>TODO</p>
       {#header_close#}
+      {#header_open|@atomicLoad#}
+      <pre><code class="zig">@atomicLoad(comptime T: type, ptr: &amp;const T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
+      <p>
+      This builtin function atomically dereferences a pointer and returns the value.
+      </p>
+      <p>
+      <code>T</code> must be a pointer type, a <code>bool</code>,
+      or an integer whose bit count meets these requirements:
+      </p>
+      <ul>
+          <li>At least 8</li>
+          <li>At most the same as usize</li>
+          <li>Power of 2</li>
+      </ul>
+      <p>
+      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
+      we can remove this restriction
+      </p>
+      {#header_close#}
       {#header_open|@atomicRmw#}
       <pre><code class="zig">@atomicRmw(comptime T: type, ptr: &amp;T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
       <p>
@@ -4010,16 +4065,60 @@ comptime {
       </p>
 
       {#header_close#}
-      {#header_open|@cmpxchg#}
-      <pre><code class="zig">@cmpxchg(ptr: &T, cmp: T, new: T, success_order: AtomicOrder, fail_order: AtomicOrder) -&gt; bool</code></pre>
+      {#header_open|@cmpxchgStrong#}
+      <pre><code class="zig">@cmpxchgStrong(comptime T: type, ptr: &T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) -&gt; ?T</code></pre>
       <p>
-      This function performs an atomic compare exchange operation.
+      This function performs a strong atomic compare exchange operation. It's the equivalent of this code,
+      except atomic:
+      </p>
+      {#code_begin|syntax#}
+fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
+    const old_value = *ptr;
+    if (old_value == expected_value) {
+        *ptr = new_value;
+        return null;
+    } else {
+        return old_value;
+    }
+}
+      {#code_end#}
+      <p>
+      If you are using cmpxchg in a loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
+      more efficiently in machine instructions.
       </p>
       <p>
       <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
       </p>
       <p><code>@typeOf(ptr).alignment</code> must be <code>&gt;= @sizeOf(T).</code></p>
-      {#see_also|Compile Variables#}
+      {#see_also|Compile Variables|cmpxchgWeak#}
+      {#header_close#}
+      {#header_open|@cmpxchgWeak#}
+      <pre><code class="zig">@cmpxchgWeak(comptime T: type, ptr: &T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) -&gt; ?T</code></pre>
+      <p>
+      This function performs a weak atomic compare exchange operation. It's the equivalent of this code,
+      except atomic:
+      </p>
+      {#code_begin|syntax#}
+fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
+    const old_value = *ptr;
+    if (old_value == expected_value and usuallyTrueButSometimesFalse()) {
+        *ptr = new_value;
+        return null;
+    } else {
+        return old_value;
+    }
+}
+      {#code_end#}
+      <p>
+      If you are using cmpxchg in a loop, the sporadic failure will be no problem, and <code>cmpxchgWeak</code>
+      is the better choice, because it can be implemented more efficiently in machine instructions.
+      However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
+      </p>
+      <p>
+      <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
+      </p>
+      <p><code>@typeOf(ptr).alignment</code> must be <code>&gt;= @sizeOf(T).</code></p>
+      {#see_also|Compile Variables|cmpxchgStrong#}
       {#header_close#}
       {#header_open|@compileError#}
       <pre><code class="zig">@compileError(comptime msg: []u8)</code></pre>
@@ -4312,6 +4411,10 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       <p>
       It does not include functions, variables, or constants.
       </p>
+      {#header_close#}
+      {#header_open|@field#}
+      <pre><code class="zig">@field(lhs: var, comptime field_name: []const u8) -&gt; (field)</code></pre>
+      <p>Preforms field access equivalent to <code>lhs.-&gtfield_name-&lt</code>.</p>
       {#header_close#}
       {#header_open|@memberType#}
       <pre><code class="zig">@memberType(comptime T: type, comptime index: usize) -&gt; type</code></pre>
@@ -4633,6 +4736,16 @@ pub const FloatMode = enum {
       The result is a target-specific compile time constant.
       </p>
       {#header_close#}
+      {#header_open|@sqrt#}
+      <pre><code class="zig">@sqrt(comptime T: type, value: T) -&gt; T</code></pre>
+      <p>
+      Performs the square root of a floating point number. Uses a dedicated hardware instruction
+      when available. Currently only supports f32 and f64 at runtime. f128 at runtime is TODO.
+      </p>
+      <p>
+      This is a low-level intrinsic. Most code can use <code>std.math.sqrt</code> instead.
+      </p>
+      {#header_close#}
       {#header_open|@subWithOverflow#}
       <pre><code class="zig">@subWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
       <p>
@@ -4696,6 +4809,182 @@ pub const TypeId = enum {
     BoundFn,
     ArgTuple,
     Opaque,
+};
+      {#code_end#}
+      {#header_close#}
+      {#header_open|@typeInfo#}
+      <pre><code class="zig">@typeInfo(comptime T: type) -&gt; @import("builtin").TypeInfo</code></pre>
+      <p>
+      Returns information on the type. Returns a value of the following union:
+      </p>
+      {#code_begin|syntax#}
+pub const TypeInfo = union(TypeId) {
+    Type: void,
+    Void: void,
+    Bool: void,
+    NoReturn: void,
+    Int: Int,
+    Float: Float,
+    Pointer: Pointer,
+    Array: Array,
+    Struct: Struct,
+    FloatLiteral: void,
+    IntLiteral: void,
+    UndefinedLiteral: void,
+    NullLiteral: void,
+    Nullable: Nullable,
+    ErrorUnion: ErrorUnion,
+    ErrorSet: ErrorSet,
+    Enum: Enum,
+    Union: Union,
+    Fn: Fn,
+    Namespace: void,
+    Block: void,
+    BoundFn: Fn,
+    ArgTuple: void,
+    Opaque: void,
+    Promise: Promise,
+
+
+    pub const Int = struct {
+        is_signed: bool,
+        bits: u8,
+    };
+
+    pub const Float = struct {
+        bits: u8,
+    };
+
+    pub const Pointer = struct {
+        is_const: bool,
+        is_volatile: bool,
+        alignment: u32,
+        child: type,
+    };
+
+    pub const Array = struct {
+        len: usize,
+        child: type,
+    };
+
+    pub const ContainerLayout = enum {
+        Auto,
+        Extern,
+        Packed,
+    };
+
+    pub const StructField = struct {
+        name: []const u8,
+        offset: ?usize,
+        field_type: type,
+    };
+
+    pub const Struct = struct {
+        layout: ContainerLayout,
+        fields: []StructField,
+        defs: []Definition,
+    };
+
+    pub const Nullable = struct {
+        child: type,
+    };
+
+    pub const ErrorUnion = struct {
+        error_set: type,
+        payload: type,
+    };
+
+    pub const Error = struct {
+        name: []const u8,
+        value: usize,
+    };
+
+    pub const ErrorSet = struct {
+        errors: []Error,
+    };
+
+    pub const EnumField = struct {
+        name: []const u8,
+        value: usize,
+    };
+
+    pub const Enum = struct {
+        layout: ContainerLayout,
+        tag_type: type,
+        fields: []EnumField,
+        defs: []Definition,
+    };
+
+    pub const UnionField = struct {
+        name: []const u8,
+        enum_field: ?EnumField,
+        field_type: type,
+    };
+
+    pub const Union = struct {
+        layout: ContainerLayout,
+        tag_type: type,
+        fields: []UnionField,
+        defs: []Definition,
+    };
+
+    pub const CallingConvention = enum {
+        Unspecified,
+        C,
+        Cold,
+        Naked,
+        Stdcall,
+        Async,
+    };
+
+    pub const FnArg = struct {
+        is_generic: bool,
+        is_noalias: bool,
+        arg_type: type,
+    };
+
+    pub const Fn = struct {
+        calling_convention: CallingConvention,
+        is_generic: bool,
+        is_var_args: bool,
+        return_type: type,
+        async_allocator_type: type,
+        args: []FnArg,
+    };
+
+    pub const Promise = struct {
+        child: type,
+    };
+
+    pub const Definition = struct {
+        name: []const u8,
+        is_pub: bool,
+        data: Data,
+
+        pub const Data = union(enum) {
+            Type: type,
+            Var: type,
+            Fn: FnDef,
+
+            pub const FnDef = struct {
+                fn_type: type,
+                inline_type: Inline,
+                calling_convention: CallingConvention,
+                is_var_args: bool,
+                is_extern: bool,
+                is_export: bool,
+                lib_name: ?[]const u8,
+                return_type: type,
+                arg_names: [][] const u8,
+
+                pub const Inline = enum {
+                    Auto,
+                    Always,
+                    Never,
+                };
+            };
+        };
+    };
 };
       {#code_end#}
       {#header_close#}
@@ -5113,7 +5402,6 @@ pub const Os = enum {
     rtems,
     nacl,
     cnk,
-    bitrig,
     aix,
     cuda,
     nvcl,
@@ -5124,10 +5412,12 @@ pub const Os = enum {
     watchos,
     mesa3d,
     contiki,
+    amdpal,
     zen,
 };
 
 pub const Arch = enum {
+    armv8_3a,
     armv8_2a,
     armv8_1a,
     armv8,
@@ -5147,9 +5437,29 @@ pub const Arch = enum {
     armv5,
     armv5te,
     armv4t,
-    armeb,
+    armebv8_3a,
+    armebv8_2a,
+    armebv8_1a,
+    armebv8,
+    armebv8r,
+    armebv8m_baseline,
+    armebv8m_mainline,
+    armebv7,
+    armebv7em,
+    armebv7m,
+    armebv7s,
+    armebv7k,
+    armebv7ve,
+    armebv6,
+    armebv6m,
+    armebv6k,
+    armebv6t2,
+    armebv5,
+    armebv5te,
+    armebv4t,
     aarch64,
     aarch64_be,
+    arc,
     avr,
     bpfel,
     bpfeb,
@@ -5202,6 +5512,7 @@ pub const Arch = enum {
 pub const Environ = enum {
     unknown,
     gnu,
+    gnuabin32,
     gnuabi64,
     gnueabi,
     gnueabihf,
@@ -5219,6 +5530,7 @@ pub const Environ = enum {
     amdopencl,
     coreclr,
     opencl,
+    simulator,
 };
 
 pub const ObjectFormat = enum {
@@ -5245,10 +5557,23 @@ pub const AtomicOrder = enum {
     SeqCst,
 };
 
+pub const AtomicRmwOp = enum {
+    Xchg,
+    Add,
+    Sub,
+    And,
+    Nand,
+    Or,
+    Xor,
+    Max,
+    Min,
+};
+
 pub const Mode = enum {
     Debug,
     ReleaseSafe,
     ReleaseFast,
+    ReleaseSmall,
 };
 
 pub const TypeId = enum {
@@ -5267,7 +5592,7 @@ pub const TypeId = enum {
     NullLiteral,
     Nullable,
     ErrorUnion,
-    Error,
+    ErrorSet,
     Enum,
     Union,
     Fn,
@@ -5276,6 +5601,176 @@ pub const TypeId = enum {
     BoundFn,
     ArgTuple,
     Opaque,
+    Promise,
+};
+
+pub const TypeInfo = union(TypeId) {
+    Type: void,
+    Void: void,
+    Bool: void,
+    NoReturn: void,
+    Int: Int,
+    Float: Float,
+    Pointer: Pointer,
+    Array: Array,
+    Struct: Struct,
+    FloatLiteral: void,
+    IntLiteral: void,
+    UndefinedLiteral: void,
+    NullLiteral: void,
+    Nullable: Nullable,
+    ErrorUnion: ErrorUnion,
+    ErrorSet: ErrorSet,
+    Enum: Enum,
+    Union: Union,
+    Fn: Fn,
+    Namespace: void,
+    Block: void,
+    BoundFn: Fn,
+    ArgTuple: void,
+    Opaque: void,
+    Promise: Promise,
+
+
+    pub const Int = struct {
+        is_signed: bool,
+        bits: u8,
+    };
+
+    pub const Float = struct {
+        bits: u8,
+    };
+
+    pub const Pointer = struct {
+        is_const: bool,
+        is_volatile: bool,
+        alignment: u32,
+        child: type,
+    };
+
+    pub const Array = struct {
+        len: usize,
+        child: type,
+    };
+
+    pub const ContainerLayout = enum {
+        Auto,
+        Extern,
+        Packed,
+    };
+
+    pub const StructField = struct {
+        name: []const u8,
+        offset: ?usize,
+        field_type: type,
+    };
+
+    pub const Struct = struct {
+        layout: ContainerLayout,
+        fields: []StructField,
+        defs: []Definition,
+    };
+
+    pub const Nullable = struct {
+        child: type,
+    };
+
+    pub const ErrorUnion = struct {
+        error_set: type,
+        payload: type,
+    };
+
+    pub const Error = struct {
+        name: []const u8,
+        value: usize,
+    };
+
+    pub const ErrorSet = struct {
+        errors: []Error,
+    };
+
+    pub const EnumField = struct {
+        name: []const u8,
+        value: usize,
+    };
+
+    pub const Enum = struct {
+        layout: ContainerLayout,
+        tag_type: type,
+        fields: []EnumField,
+        defs: []Definition,
+    };
+
+    pub const UnionField = struct {
+        name: []const u8,
+        enum_field: ?EnumField,
+        field_type: type,
+    };
+
+    pub const Union = struct {
+        layout: ContainerLayout,
+        tag_type: type,
+        fields: []UnionField,
+        defs: []Definition,
+    };
+
+    pub const CallingConvention = enum {
+        Unspecified,
+        C,
+        Cold,
+        Naked,
+        Stdcall,
+        Async,
+    };
+
+    pub const FnArg = struct {
+        is_generic: bool,
+        is_noalias: bool,
+        arg_type: type,
+    };
+
+    pub const Fn = struct {
+        calling_convention: CallingConvention,
+        is_generic: bool,
+        is_var_args: bool,
+        return_type: type,
+        async_allocator_type: type,
+        args: []FnArg,
+    };
+
+    pub const Promise = struct {
+        child: type,
+    };
+
+    pub const Definition = struct {
+        name: []const u8,
+        is_pub: bool,
+        data: Data,
+
+        pub const Data = union(enum) {
+            Type: type,
+            Var: type,
+            Fn: FnDef,
+
+            pub const FnDef = struct {
+                fn_type: type,
+                inline_type: Inline,
+                calling_convention: CallingConvention,
+                is_var_args: bool,
+                is_extern: bool,
+                is_export: bool,
+                lib_name: ?[]const u8,
+                return_type: type,
+                arg_names: [][] const u8,
+
+                pub const Inline = enum {
+                    Auto,
+                    Always,
+                    Never,
+                };
+            };
+        };
+    };
 };
 
 pub const FloatMode = enum {
@@ -5289,7 +5784,7 @@ pub const Endian = enum {
 };
 
 pub const endian = Endian.Little;
-pub const is_test = false;
+pub const is_test = true;
 pub const os = Os.linux;
 pub const arch = Arch.x86_64;
 pub const environ = Environ.gnu;
@@ -5297,6 +5792,7 @@ pub const object_format = ObjectFormat.elf;
 pub const mode = Mode.Debug;
 pub const link_libc = false;
 pub const have_error_return_tracing = true;
+pub const __zig_test_fn_slice = {}; // overwritten later
       {#code_end#}
       {#see_also|Build Mode#}
       {#header_close#}
@@ -5809,7 +6305,7 @@ Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = option(Symbol ":") "suspend" option(("|" Symbol "|" body))
 
 IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
@@ -5955,7 +6451,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
-            built_in: "breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchg fence divExact truncate atomicRmw",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

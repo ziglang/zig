@@ -392,3 +392,12 @@ test "enum with 1 field but explicit tag type should still have the tag type" {
     const Enum = enum(u8) { B = 2 };
     comptime @import("std").debug.assert(@sizeOf(Enum) == @sizeOf(u8));
 }
+
+test "empty extern enum with members" {
+    const E = extern enum {
+        A,
+        B,
+        C,
+    };
+    assert(@sizeOf(E) == @sizeOf(c_int));
+}

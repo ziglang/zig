@@ -32,10 +32,6 @@ comptime {
     @export("__fixunstfti", @import("fixunstfti.zig").__fixunstfti, linkage);
 
     @export("__udivmoddi4", @import("udivmoddi4.zig").__udivmoddi4, linkage);
-    @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4, linkage);
-
-    @export("__udivti3", @import("udivti3.zig").__udivti3, linkage);
-    @export("__umodti3", @import("umodti3.zig").__umodti3, linkage);
 
     @export("__udivsi3", __udivsi3, linkage);
     @export("__udivdi3", __udivdi3, linkage);
@@ -62,13 +58,21 @@ comptime {
                     @export("__chkstk", __chkstk, strong_linkage);
                     @export("___chkstk_ms", ___chkstk_ms, linkage);
                 }
+                @export("__udivti3", @import("udivti3.zig").__udivti3_windows_x86_64, linkage);
+                @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4_windows_x86_64, linkage);
+                @export("__umodti3", @import("umodti3.zig").__umodti3_windows_x86_64, linkage);
             },
             else => {},
         }
+    } else {
+        @export("__udivti3", @import("udivti3.zig").__udivti3, linkage);
+        @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4, linkage);
+        @export("__umodti3", @import("umodti3.zig").__umodti3, linkage);
     }
 }
 
-const assert = @import("../../index.zig").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
@@ -77,10 +81,20 @@ const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
     @setCold(true);
     if (is_test) {
-        @import("std").debug.panic("{}", msg);
+        std.debug.panic("{}", msg);
     } else {
         unreachable;
     }
+}
+
+pub fn setXmm0(comptime T: type, value: T) void {
+    comptime assert(builtin.arch == builtin.Arch.x86_64);
+    const aligned_value: T align(16) = value;
+    asm volatile (
+        \\movaps (%[ptr]), %%xmm0
+    :
+    : [ptr] "r" (&aligned_value)
+    : "xmm0");
 }
 
 extern fn __udivdi3(a: u64, b: u64) u64 {

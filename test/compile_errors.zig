@@ -1,6 +1,55 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("invalid deref on switch target",
+        \\comptime {
+        \\    var tile = Tile.Empty;
+        \\    switch (*tile) {
+        \\        Tile.Empty => {},
+        \\        Tile.Filled => {},
+        \\    }
+        \\}
+        \\const Tile = enum {
+        \\    Empty,
+        \\    Filled,
+        \\};
+    ,
+        ".tmp_source.zig:3:13: error: invalid deref on switch target");
+
+    cases.add("invalid field access in comptime",
+        \\comptime { var x = doesnt_exist.whatever; }
+    ,
+        ".tmp_source.zig:1:20: error: use of undeclared identifier 'doesnt_exist'");
+
+    cases.add("suspend inside suspend block",
+        \\const std = @import("std");
+        \\
+        \\export fn entry() void {
+        \\    var buf: [500]u8 = undefined;
+        \\    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+        \\    const p = (async<a> foo()) catch unreachable;
+        \\    cancel p;
+        \\}
+        \\
+        \\async fn foo() void {
+        \\    suspend |p| {
+        \\        suspend |p1| {
+        \\        }
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:12:9: error: cannot suspend inside suspend block",
+        ".tmp_source.zig:11:5: note: other suspend block here");
+
+    cases.add("assign inline fn to non-comptime var",
+        \\export fn entry() void {
+        \\    var a = b;
+        \\}
+        \\inline fn b() void { }
+    ,
+        ".tmp_source.zig:2:5: error: functions marked inline must be stored in const or comptime var",
+        ".tmp_source.zig:4:8: note: declared here");
+
     cases.add("wrong type passed to @panic",
         \\export fn entry() void {
         \\    var e = error.Foo;
@@ -1385,17 +1434,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn f() void {
         \\    var x: i32 = 1234;
-        \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
         \\}
-    , ".tmp_source.zig:4:72: error: failure atomic ordering must be no stricter than success");
+    , ".tmp_source.zig:4:81: error: failure atomic ordering must be no stricter than success");
 
     cases.add("atomic orderings of cmpxchg - success Monotonic or stricter",
         \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn f() void {
         \\    var x: i32 = 1234;
-        \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
         \\}
-    , ".tmp_source.zig:4:49: error: success atomic ordering must be Monotonic or stricter");
+    , ".tmp_source.zig:4:58: error: success atomic ordering must be Monotonic or stricter");
 
     cases.add("negation overflow in function evaluation",
         \\const y = neg(-128);
@@ -1723,7 +1772,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(bar)); }
-    , ".tmp_source.zig:10:16: error: parameter of type '(integer literal)' requires comptime");
+    , ".tmp_source.zig:10:16: error: compiler bug: integer and float literals in var args function must be casted");
 
     cases.add("assign too big number to u16",
         \\export fn foo() void {
@@ -2451,11 +2500,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn entry() bool {
         \\    var x: i32 align(1) = 1234;
-        \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
         \\    return x == 5678;
         \\}
     ,
-        ".tmp_source.zig:4:23: error: expected pointer alignment of at least 4, found 1");
+        ".tmp_source.zig:4:32: error: expected type '&i32', found '&align(1) i32'");
 
     cases.add("wrong size to an array literal",
         \\comptime {
@@ -2525,10 +2574,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add("wrong types given to atomic order args in cmpxchg",
         \\export fn entry() void {
         \\    var x: i32 = 1234;
-        \\    while (!@cmpxchg(&x, 1234, 5678, u32(1234), u32(1234))) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, u32(1234), u32(1234))) {}
         \\}
     ,
-        ".tmp_source.zig:3:41: error: expected type 'AtomicOrder', found 'u32'");
+        ".tmp_source.zig:3:50: error: expected type 'AtomicOrder', found 'u32'");
 
     cases.add("wrong types given to @export",
         \\extern fn entry() void { }
@@ -3160,4 +3209,32 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset");
+
+    cases.add("invalid union field access in comptime",
+        \\const Foo = union {
+        \\    Bar: u8,
+        \\    Baz: void,
+        \\};
+        \\comptime {
+        \\    var foo = Foo {.Baz = {}};    
+        \\    const bar_val = foo.Bar;
+        \\}
+    ,
+        ".tmp_source.zig:7:24: error: accessing union field 'Bar' while field 'Baz' is set");
+
+    cases.add("getting return type of generic function",
+        \\fn generic(a: var) void {}
+        \\comptime {
+        \\    _ = @typeOf(generic).ReturnType;
+        \\}
+    ,
+        ".tmp_source.zig:3:25: error: ReturnType has not been resolved because 'fn(var)var' is generic");
+
+    cases.add("getting @ArgType of generic function",
+        \\fn generic(a: var) void {}
+        \\comptime {
+        \\    _ = @ArgType(@typeOf(generic), 0);
+        \\}
+    ,
+        ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic");
 }

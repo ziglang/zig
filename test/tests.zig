@@ -152,7 +152,7 @@ pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []cons
     const step = b.step(b.fmt("test-{}", name), desc);
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
-        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast, Mode.ReleaseSmall}) |mode| {
             for ([]bool{false, true}) |link_libc| {
                 if (link_libc and !is_native) {
                     // don't assume we have a cross-compiling libc set up
@@ -451,7 +451,7 @@ pub const CompareOutputContext = struct {
                 self.step.dependOn(&run_and_cmp_output.step);
             },
             Special.None => {
-                for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
+                for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast, Mode.ReleaseSmall}) |mode| {
                     const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})",
                         "compare-output", case.name, @tagName(mode)) catch unreachable;
                     if (self.test_filter) |filter| {
@@ -583,6 +583,7 @@ pub const CompileErrorContext = struct {
                 Mode.Debug => {},
                 Mode.ReleaseSafe => zig_args.append("--release-safe") catch unreachable,
                 Mode.ReleaseFast => zig_args.append("--release-fast") catch unreachable,
+                Mode.ReleaseSmall => zig_args.append("--release-small") catch unreachable,
             }
 
             warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
@@ -704,7 +705,7 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: &CompileErrorContext, case: &const TestCase) void {
         const b = self.b;
 
-        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {} ({})",
                 case.name, @tagName(mode)) catch unreachable;
             if (self.test_filter) |filter| {
@@ -772,7 +773,7 @@ pub const BuildExamplesContext = struct {
     pub fn addAllArgs(self: &BuildExamplesContext, root_src: []const u8, link_libc: bool) void {
         const b = self.b;
 
-        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast, Mode.ReleaseSmall}) |mode| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "build {} ({})",
                 root_src, @tagName(mode)) catch unreachable;
             if (self.test_filter) |filter| {

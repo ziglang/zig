@@ -156,6 +156,14 @@ ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
+ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeSuspend);
+    ScopeSuspend *scope = allocate<ScopeSuspend>(1);
+    init_scope(&scope->base, ScopeIdSuspend, node, parent);
+    scope->name = node->data.suspend.name;
+    return scope;
+}
+
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
     ScopeFnDef *scope = allocate<ScopeFnDef>(1);
     init_scope(&scope->base, ScopeIdFnDef, node, parent);
@@ -468,10 +476,30 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
 
     TypeTableEntry *awaiter_handle_type = get_maybe_type(g, g->builtin_types.entry_promise);
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
-    const char *field_names[] = {AWAITER_HANDLE_FIELD_NAME, RESULT_FIELD_NAME, RESULT_PTR_FIELD_NAME};
-    TypeTableEntry *field_types[] = {awaiter_handle_type, return_type, result_ptr_type};
+
+    ZigList<const char *> field_names = {};
+    field_names.append(AWAITER_HANDLE_FIELD_NAME);
+    field_names.append(RESULT_FIELD_NAME);
+    field_names.append(RESULT_PTR_FIELD_NAME);
+    if (g->have_err_ret_tracing) {
+        field_names.append(ERR_RET_TRACE_PTR_FIELD_NAME);
+        field_names.append(ERR_RET_TRACE_FIELD_NAME);
+        field_names.append(RETURN_ADDRESSES_FIELD_NAME);
+    }
+
+    ZigList<TypeTableEntry *> field_types = {};
+    field_types.append(awaiter_handle_type);
+    field_types.append(return_type);
+    field_types.append(result_ptr_type);
+    if (g->have_err_ret_tracing) {
+        field_types.append(get_ptr_to_stack_trace_type(g));
+        field_types.append(g->stack_trace_type);
+        field_types.append(get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count));
+    }
+
+    assert(field_names.length == field_types.length);
     Buf *name = buf_sprintf("AsyncFramePromise(%s)", buf_ptr(&return_type->name));
-    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, 3);
+    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names.items, field_types.items, field_names.length);
 
     return_type->promise_frame_parent = entry;
     return entry;
@@ -1230,7 +1258,7 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
     }
 
     fn_type_id->param_count = fn_proto->params.length;
-    fn_type_id->param_info = allocate_nonzero<FnTypeParamInfo>(param_count_alloc);
+    fn_type_id->param_info = allocate<FnTypeParamInfo>(param_count_alloc);
     fn_type_id->next_param_index = 0;
     fn_type_id->is_var_args = fn_proto->is_var_args;
 }
@@ -2297,8 +2325,14 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
     HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
     occupied_tag_values.init(field_count);
 
-    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
+    TypeTableEntry *tag_int_type;
+    if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
+        tag_int_type = get_c_int_type(g, CIntTypeInt);
+    } else {
+        tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
+    }
 
+    // TODO: Are extern enums allowed to have an init_arg_expr?
     if (decl_node->data.container_decl.init_arg_expr != nullptr) {
         TypeTableEntry *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
@@ -3216,7 +3250,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
             break;
         case NodeTypeContainerDecl:
         case NodeTypeParamDecl:
-        case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
         case NodeTypeBlock:
@@ -3597,6 +3630,7 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope) {
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdLoop:
+            case ScopeIdSuspend:
             case ScopeIdCompTime:
             case ScopeIdCoroPrelude:
                 scope = scope->parent;
@@ -4278,7 +4312,8 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
     if (g->win_sdk == nullptr) {
         if (os_find_windows_sdk(&g->win_sdk)) {
-            zig_panic("Unable to determine Windows SDK path.");
+            fprintf(stderr, "unable to determine windows sdk path\n");
+            exit(1);
         }
     }
     assert(g->win_sdk != nullptr);
@@ -4380,7 +4415,8 @@ void find_libc_include_path(CodeGen *g) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
             g->libc_include_dir = buf_alloc();
             if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
-                zig_panic("Unable to determine libc include path.");
+                fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
+                exit(1);
             }
         } else if (g->zig_target.os == OsLinux) {
             g->libc_include_dir = get_linux_libc_include_path();
@@ -4402,24 +4438,33 @@ void find_libc_lib_path(CodeGen *g) {
         if (g->zig_target.os == OsWindows) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
 
-            Buf* vc_lib_dir = buf_alloc();
-            if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine vcruntime path.");
+            if (g->msvc_lib_dir == nullptr) {
+                Buf* vc_lib_dir = buf_alloc();
+                if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
+                    fprintf(stderr, "Unable to determine vcruntime path. --msvc-lib-dir");
+                    exit(1);
+                }
+                g->msvc_lib_dir = vc_lib_dir;
             }
 
-            Buf* ucrt_lib_path = buf_alloc();
-            if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine ucrt path.");
+            if (g->libc_lib_dir == nullptr) {
+                Buf* ucrt_lib_path = buf_alloc();
+                if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
+                    fprintf(stderr, "Unable to determine ucrt path. --libc-lib-dir");
+                    exit(1);
+                }
+                g->libc_lib_dir = ucrt_lib_path;
             }
 
-            Buf* kern_lib_path = buf_alloc();
-            if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
-                zig_panic("Unable to determine kernel32 path.");
+            if (g->kernel32_lib_dir == nullptr) {
+                Buf* kern_lib_path = buf_alloc();
+                if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
+                    fprintf(stderr, "Unable to determine kernel32 path. --kernel32-lib-dir");
+                    exit(1);
+                }
+                g->kernel32_lib_dir = kern_lib_path;
             }
 
-            g->msvc_lib_dir = vc_lib_dir;
-            g->libc_lib_dir = ucrt_lib_path;
-            g->kernel32_lib_dir = kern_lib_path;
         } else if (g->zig_target.os == OsLinux) {
             g->libc_lib_dir = get_linux_libc_lib_path("crt1.o");
         } else {
@@ -5782,9 +5827,11 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
         case ZigLLVMFnIdClz:
             return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
         case ZigLLVMFnIdFloor:
-            return (uint32_t)(x.data.floor_ceil.bit_count) * (uint32_t)1899859168;
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1899859168;
         case ZigLLVMFnIdCeil:
-            return (uint32_t)(x.data.floor_ceil.bit_count) * (uint32_t)1953839089;
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1953839089;
+        case ZigLLVMFnIdSqrt:
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)2225366385;
         case ZigLLVMFnIdOverflowArithmetic:
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
@@ -5803,7 +5850,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.clz.bit_count == b.data.clz.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
-            return a.data.floor_ceil.bit_count == b.data.floor_ceil.bit_count;
+        case ZigLLVMFnIdSqrt:
+            return a.data.floating.bit_count == b.data.floating.bit_count;
         case ZigLLVMFnIdOverflowArithmetic:
             return (a.data.overflow_arithmetic.bit_count == b.data.overflow_arithmetic.bit_count) &&
                 (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&
@@ -5883,8 +5931,8 @@ size_t type_id_len() {
     return array_length(all_type_ids);
 }
 
-size_t type_id_index(TypeTableEntryId id) {
-    switch (id) {
+size_t type_id_index(TypeTableEntry *entry) {
+    switch (entry->id) {
         case TypeTableEntryIdInvalid:
             zig_unreachable();
         case TypeTableEntryIdMetaType:
@@ -5904,6 +5952,8 @@ size_t type_id_index(TypeTableEntryId id) {
         case TypeTableEntryIdArray:
             return 7;
         case TypeTableEntryIdStruct:
+            if (entry->data.structure.is_slice)
+                return 25;
             return 8;
         case TypeTableEntryIdNumLitFloat:
             return 9;
@@ -6089,4 +6139,3 @@ bool type_can_fail(TypeTableEntry *type_entry) {
 bool fn_type_can_fail(FnTypeId *fn_type_id) {
     return type_can_fail(fn_type_id->return_type) || fn_type_id->cc == CallingConventionAsync;
 }
-

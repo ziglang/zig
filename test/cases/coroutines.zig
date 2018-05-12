@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 var x: i32 = 1;
@@ -188,4 +189,57 @@ test "async fn with inferred error set" {
 async fn failing() !void {
     suspend;
     return error.Fail;
+}
+
+test "error return trace across suspend points - early return" {
+    const p = nonFailing();
+    resume p;
+    const p2 = try async<std.debug.global_allocator> printTrace(p);
+    cancel p2;
+}
+
+test "error return trace across suspend points - async return" {
+    const p = nonFailing();
+    const p2 = try async<std.debug.global_allocator> printTrace(p);
+    resume p;
+    cancel p2;
+}
+
+fn nonFailing() promise->error!void {
+    return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
+}
+
+async fn suspendThenFail() error!void {
+    suspend;
+    return error.Fail;
+}
+
+async fn printTrace(p: promise->error!void) void {
+    (await p) catch |e| {
+        std.debug.assert(e == error.Fail);
+        if (@errorReturnTrace()) |trace| {
+            assert(trace.index == 1);
+        } else switch (builtin.mode) {
+            builtin.Mode.Debug, builtin.Mode.ReleaseSafe => @panic("expected return trace"),
+            builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => {},
+        }
+    };
+}
+
+test "break from suspend" {
+    var buf: [500]u8 = undefined;
+    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    var my_result: i32 = 1;
+    const p = try async<a> testBreakFromSuspend(&my_result);
+    cancel p;
+    std.debug.assert(my_result == 2);
+}
+
+async fn testBreakFromSuspend(my_result: &i32) void {
+    s: suspend |p| {
+        break :s;
+    }
+    *my_result += 1;
+    suspend;
+    *my_result += 1;
 }

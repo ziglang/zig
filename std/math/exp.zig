@@ -6,6 +6,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 
 pub fn exp(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -17,6 +18,8 @@ pub fn exp(x: var) @typeOf(x) {
 }
 
 fn exp32(x_: f32) f32 {
+    @setFloatMode(this, builtin.FloatMode.Strict);
+
     const half = []f32 { 0.5, -0.5 };
     const ln2hi = 6.9314575195e-1;
     const ln2lo = 1.4286067653e-6;
@@ -94,6 +97,8 @@ fn exp32(x_: f32) f32 {
 }
 
 fn exp64(x_: f64) f64 {
+    @setFloatMode(this, builtin.FloatMode.Strict);
+
     const half = []const f64 { 0.5, -0.5 };
     const ln2hi: f64 = 6.93147180369123816490e-01;
     const ln2lo: f64 = 1.90821492927058770002e-10;

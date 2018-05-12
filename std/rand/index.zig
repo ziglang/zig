@@ -19,6 +19,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
+const ziggurat = @import("ziggurat.zig");
 
 // When you need fast unbiased random numbers
 pub const DefaultPrng = Xoroshiro128;
@@ -109,15 +110,28 @@ pub const Random = struct {
         }
     }
 
-    /// Return a floating point value normally distributed in the range [0, 1].
+    /// Return a floating point value normally distributed with mean = 0, stddev = 1.
+    ///
+    /// To use different parameters, use: floatNorm(...) * desiredStddev + desiredMean.
     pub fn floatNorm(r: &Random, comptime T: type) T {
-        // TODO(tiehuis): See https://www.doornik.com/research/ziggurat.pdf
-        @compileError("floatNorm is unimplemented");
+        const value = ziggurat.next_f64(r, ziggurat.NormDist);
+        switch (T) {
+            f32 => return f32(value),
+            f64 => return value,
+            else => @compileError("unknown floating point type"),
+        }
     }
 
-    /// Return a exponentially distributed float between (0, @maxValue(f64))
+    /// Return an exponentially distributed float with a rate parameter of 1.
+    ///
+    /// To use a different rate parameter, use: floatExp(...) / desiredRate.
     pub fn floatExp(r: &Random, comptime T: type) T {
-        @compileError("floatExp is unimplemented");
+        const value = ziggurat.next_f64(r, ziggurat.ExpDist);
+        switch (T) {
+            f32 => return f32(value),
+            f64 => return value,
+            else => @compileError("unknown floating point type"),
+        }
     }
 
     /// Shuffle a slice into a random order.

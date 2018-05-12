@@ -48,22 +48,33 @@ extern fn WinMainCRTStartup() noreturn {
 fn posixCallMainAndExit() noreturn {
     const argc = *argc_ptr;
     const argv = @ptrCast(&&u8, &argc_ptr[1]);
-    const envp = @ptrCast(&?&u8, &argv[argc + 1]);
+    const envp_nullable = @ptrCast(&?&u8, &argv[argc + 1]);
+    var envp_count: usize = 0;
+    while (envp_nullable[envp_count]) |_| : (envp_count += 1) {}
+    const envp = @ptrCast(&&u8, envp_nullable)[0..envp_count];
+    if (builtin.os == builtin.Os.linux) {
+        const auxv = &@ptrCast(&usize, envp.ptr)[envp_count + 1];
+        var i: usize = 0;
+        while (auxv[i] != 0) : (i += 2) {
+            if (auxv[i] < std.os.linux_aux_raw.len) std.os.linux_aux_raw[auxv[i]] = auxv[i+1];
+        }
+        std.debug.assert(std.os.linux_aux_raw[std.elf.AT_PAGESZ] == std.os.page_size);
+    }
+
     std.os.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
-fn callMainWithArgs(argc: usize, argv: &&u8, envp: &?&u8) u8 {
+fn callMainWithArgs(argc: usize, argv: &&u8, envp: []&u8) u8 {
     std.os.ArgIteratorPosix.raw = argv[0..argc];
-
-    var env_count: usize = 0;
-    while (envp[env_count] != null) : (env_count += 1) {}
-    std.os.posix_environ_raw = @ptrCast(&&u8, envp)[0..env_count];
-
+    std.os.posix_environ_raw = envp;
     return callMain();
 }
 
 extern fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) i32 {
-    return callMainWithArgs(usize(c_argc), c_argv, c_envp);
+    var env_count: usize = 0;
+    while (c_envp[env_count] != null) : (env_count += 1) {}
+    const envp = @ptrCast(&&u8, c_envp)[0..env_count];
+    return callMainWithArgs(usize(c_argc), c_argv, envp);
 }
 
 fn callMain() u8 {

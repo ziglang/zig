@@ -1007,6 +1007,7 @@ int os_self_exe_path(Buf *out_path) {
             buf_resize(out_path, buf_len(out_path) * 2);
             continue;
         }
+        buf_resize(out_path, amt);
         return 0;
     }
 #endif

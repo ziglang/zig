@@ -94,3 +94,20 @@ test "inline function call" {
 }
 
 fn add(a: i32, b: i32) i32 { return a + b; }
+
+
+test "number literal as an argument" {
+    numberLiteralArg(3);
+    comptime numberLiteralArg(3);
+}
+
+fn numberLiteralArg(a: var) void {
+    assert(a == 3);
+}
+
+test "assign inline fn to const variable" {
+    const a = inlineFn;
+    a();
+}
+
+inline fn inlineFn() void { }
