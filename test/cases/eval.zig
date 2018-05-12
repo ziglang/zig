@@ -536,3 +536,20 @@ test "runtime 128 bit integer division" {
     var c = a / b;
     assert(c == 15231399999);
 }
+
+pub const Info = struct {
+    version: u8,
+};
+
+pub const diamond_info = Info {
+    .version = 0,
+};
+
+test "comptime modification of const struct field" {
+    comptime {
+        var res = diamond_info;
+        res.version = 1;
+        assert(diamond_info.version == 0);
+        assert(res.version == 1);
+    }
+}

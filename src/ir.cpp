@@ -8686,6 +8686,10 @@ static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_
     *dest = *src;
     if (!same_global_refs) {
         dest->global_refs = global_refs;
+        if (dest->type->id == TypeTableEntryIdStruct) {
+            dest->data.x_struct.fields = allocate_nonzero<ConstExprValue>(dest->type->data.structure.src_field_count);
+            memcpy(dest->data.x_struct.fields, src->data.x_struct.fields, sizeof(ConstExprValue) * dest->type->data.structure.src_field_count);
+        }
     }
 }
 
@@ -11670,7 +11674,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         if (var->mem_slot_index != SIZE_MAX) {
             assert(var->mem_slot_index < ira->exec_context.mem_slot_count);
             ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-            *mem_slot = casted_init_value->value;
+            copy_const_val(mem_slot, &casted_init_value->value,
+                    !is_comptime_var || var->gen_is_const);
 
             if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
                 ir_build_const_from(ira, &decl_var_instruction->base);
