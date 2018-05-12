@@ -21,32 +21,28 @@ const RenderState = union(enum) {
 const indent_delta = 4;
 
 pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) !void {
+    var it = tree.root_node.decls.iterator(0);
+    while (it.next()) |decl| {
+        try renderTopLevelDecl(allocator, stream, tree, *decl);
+        if (it.peek()) |next_decl| {
+            const n = if (nodeLineOffset(tree, *decl, *next_decl) >= 2) u8(2) else u8(1);
+            try stream.writeByteNTimes('\n', n);
+        }
+    }
+    try stream.write("\n");
+}
+
+fn nodeLineOffset(tree: &ast.Tree, a: &ast.Node, b: &ast.Node) usize {
+    const a_last_token = tree.tokens.at(a.lastToken());
+    const loc = tree.tokenLocation(a_last_token.end, b.firstToken());
+    return loc.line;
+}
+
+fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, decl_ptr: &ast.Node) !void {
     var stack = std.ArrayList(RenderState).init(allocator);
     defer stack.deinit();
 
-    {
-        try stack.append(RenderState { .Text = "\n"});
-
-        var i = tree.root_node.decls.len;
-        while (i != 0) {
-            i -= 1;
-            const decl = *tree.root_node.decls.at(i);
-            try stack.append(RenderState {.TopLevelDecl = decl});
-            if (i != 0) {
-                try stack.append(RenderState {
-                    .Text = blk: {
-                        const prev_node = *tree.root_node.decls.at(i - 1);
-                        const prev_node_last_token = tree.tokens.at(prev_node.lastToken());
-                        const loc = tree.tokenLocation(prev_node_last_token.end, decl.firstToken());
-                        if (loc.line >= 2) {
-                            break :blk "\n\n";
-                        }
-                        break :blk "\n";
-                    },
-                });
-            }
-        }
-    }
+    try stack.append(RenderState {.TopLevelDecl = decl_ptr});
 
     var indent: usize = 0;
     while (stack.popOrNull()) |state| {
