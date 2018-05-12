@@ -77,6 +77,8 @@ size_t target_arch_count(void);
 const ArchType *get_target_arch(size_t index);
 void get_arch_name(char *out_str, const ArchType *arch);
 
+const char *arch_stack_pointer_register_name(const ArchType *arch);
+
 size_t target_vendor_count(void);
 ZigLLVM_VendorType get_target_vendor(size_t index);
 
