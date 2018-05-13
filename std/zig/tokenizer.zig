@@ -195,37 +195,6 @@ pub const Tokenizer = struct {
     index: usize,
     pending_invalid_token: ?Token,
 
-    pub const Location = struct {
-        line: usize,
-        column: usize,
-        line_start: usize,
-        line_end: usize,
-    };
-
-    pub fn getTokenLocation(self: &Tokenizer, start_index: usize, token: &const Token) Location {
-        var loc = Location {
-            .line = 0,
-            .column = 0,
-            .line_start = start_index,
-            .line_end = self.buffer.len,
-        };
-        for (self.buffer[start_index..]) |c, i| {
-            if (i + start_index == token.start) {
-                loc.line_end = i + start_index;
-                while (loc.line_end < self.buffer.len and self.buffer[loc.line_end] != '\n') : (loc.line_end += 1) {}
-                return loc;
-            }
-            if (c == '\n') {
-                loc.line += 1;
-                loc.column = 0;
-                loc.line_start = i + 1;
-            } else {
-                loc.column += 1;
-            }
-        }
-        return loc;
-    }
-
     /// For debugging purposes
     pub fn dump(self: &Tokenizer, token: &const Token) void {
         std.debug.warn("{} \"{}\"\n", @tagName(token.id), self.buffer[token.start..token.end]);
@@ -1045,10 +1014,6 @@ pub const Tokenizer = struct {
 
         result.end = self.index;
         return result;
-    }
-
-    pub fn getTokenSlice(self: &const Tokenizer, token: &const Token) []const u8 {
-        return self.buffer[token.start..token.end];
     }
 
     fn checkLiteralCharacter(self: &Tokenizer) void {

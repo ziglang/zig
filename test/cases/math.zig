@@ -352,6 +352,14 @@ test "big number multi-limb shift and mask" {
     }
 }
 
+test "big number multi-limb partial shift right" {
+    comptime {
+        var a = 0x1ffffffffeeeeeeee;
+        a >>= 16;
+        assert(a == 0x1ffffffffeeee);
+    }
+}
+
 test "xor" {
     test_xor();
     comptime test_xor();

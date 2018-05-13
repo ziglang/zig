@@ -661,6 +661,8 @@ fn windowsCreateCommandLine(allocator: &mem.Allocator, argv: []const []const u8)
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
+    var buf_stream = &io.BufferOutStream.init(&buf).stream;
+
     for (argv) |arg, arg_i| {
         if (arg_i != 0) try buf.appendByte(' ');
         if (mem.indexOfAny(u8, arg, " \t\n\"") == null) {
@@ -673,18 +675,18 @@ fn windowsCreateCommandLine(allocator: &mem.Allocator, argv: []const []const u8)
             switch (byte) {
                 '\\' => backslash_count += 1,
                 '"' => {
-                    try buf.appendByteNTimes('\\', backslash_count * 2 + 1);
+                    try buf_stream.writeByteNTimes('\\', backslash_count * 2 + 1);
                     try buf.appendByte('"');
                     backslash_count = 0;
                 },
                 else => {
-                    try buf.appendByteNTimes('\\', backslash_count);
+                    try buf_stream.writeByteNTimes('\\', backslash_count);
                     try buf.appendByte(byte);
                     backslash_count = 0;
                 },
             }
         }
-        try buf.appendByteNTimes('\\', backslash_count * 2);
+        try buf_stream.writeByteNTimes('\\', backslash_count * 2);
         try buf.appendByte('"');
     }
 

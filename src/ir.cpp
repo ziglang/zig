@@ -1102,7 +1102,8 @@ static IrInstruction *ir_build_union_field_ptr_from(IrBuilder *irb, IrInstructio
 
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator,
+        IrInstruction *new_stack)
 {
     IrInstructionCall *call_instruction = ir_build_instruction<IrInstructionCall>(irb, scope, source_node);
     call_instruction->fn_entry = fn_entry;
@@ -1113,6 +1114,7 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
     call_instruction->arg_count = arg_count;
     call_instruction->is_async = is_async;
     call_instruction->async_allocator = async_allocator;
+    call_instruction->new_stack = new_stack;
 
     if (fn_ref)
         ir_ref_instruction(fn_ref, irb->current_basic_block);
@@ -1120,16 +1122,19 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
         ir_ref_instruction(args[i], irb->current_basic_block);
     if (async_allocator)
         ir_ref_instruction(async_allocator, irb->current_basic_block);
+    if (new_stack != nullptr)
+        ir_ref_instruction(new_stack, irb->current_basic_block);
 
     return &call_instruction->base;
 }
 
 static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator,
+        IrInstruction *new_stack)
 {
     IrInstruction *new_instruction = ir_build_call(irb, old_instruction->scope,
-            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline, is_async, async_allocator);
+            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline, is_async, async_allocator, new_stack);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -4303,7 +4308,37 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
                 FnInline fn_inline = (builtin_fn->id == BuiltinFnIdInlineCall) ? FnInlineAlways : FnInlineNever;
 
-                IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline, false, nullptr);
+                IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline, false, nullptr, nullptr);
+                return ir_lval_wrap(irb, scope, call, lval);
+            }
+        case BuiltinFnIdNewStackCall:
+            {
+                if (node->data.fn_call_expr.params.length == 0) {
+                    add_node_error(irb->codegen, node, buf_sprintf("expected at least 1 argument, found 0"));
+                    return irb->codegen->invalid_instruction;
+                }
+
+                AstNode *new_stack_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *new_stack = ir_gen_node(irb, new_stack_node, scope);
+                if (new_stack == irb->codegen->invalid_instruction)
+                    return new_stack;
+
+                AstNode *fn_ref_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *fn_ref = ir_gen_node(irb, fn_ref_node, scope);
+                if (fn_ref == irb->codegen->invalid_instruction)
+                    return fn_ref;
+
+                size_t arg_count = node->data.fn_call_expr.params.length - 2;
+
+                IrInstruction **args = allocate<IrInstruction*>(arg_count);
+                for (size_t i = 0; i < arg_count; i += 1) {
+                    AstNode *arg_node = node->data.fn_call_expr.params.at(i + 2);
+                    args[i] = ir_gen_node(irb, arg_node, scope);
+                    if (args[i] == irb->codegen->invalid_instruction)
+                        return args[i];
+                }
+
+                IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, false, nullptr, new_stack);
                 return ir_lval_wrap(irb, scope, call, lval);
             }
         case BuiltinFnIdTypeId:
@@ -4513,7 +4548,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
         }
     }
 
-    IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator);
+    IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator, nullptr);
     return ir_lval_wrap(irb, scope, fn_call, lval);
 }
 
@@ -6831,7 +6866,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
         args[0] = implicit_allocator_ptr; // self
         args[1] = mem_slice; // old_mem
-        ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr);
+        ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr, nullptr);
 
         IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "Resume");
         ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, irb->exec->coro_suspend_block, const_bool_false);
@@ -8692,6 +8727,10 @@ static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_
     *dest = *src;
     if (!same_global_refs) {
         dest->global_refs = global_refs;
+        if (dest->type->id == TypeTableEntryIdStruct) {
+            dest->data.x_struct.fields = allocate_nonzero<ConstExprValue>(dest->type->data.structure.src_field_count);
+            memcpy(dest->data.x_struct.fields, src->data.x_struct.fields, sizeof(ConstExprValue) * dest->type->data.structure.src_field_count);
+        }
     }
 }
 
@@ -11676,7 +11715,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         if (var->mem_slot_index != SIZE_MAX) {
             assert(var->mem_slot_index < ira->exec_context.mem_slot_count);
             ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-            *mem_slot = casted_init_value->value;
+            copy_const_val(mem_slot, &casted_init_value->value,
+                    !is_comptime_var || var->gen_is_const);
 
             if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
                 ir_build_const_from(ira, &decl_var_instruction->base);
@@ -11993,7 +12033,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *c
     TypeTableEntry *async_return_type = get_error_union_type(ira->codegen, alloc_fn_error_set_type, promise_type);
 
     IrInstruction *result = ir_build_call(&ira->new_irb, call_instruction->base.scope, call_instruction->base.source_node,
-        fn_entry, fn_ref, arg_count, casted_args, false, FnInlineAuto, true, async_allocator_inst);
+        fn_entry, fn_ref, arg_count, casted_args, false, FnInlineAuto, true, async_allocator_inst, nullptr);
     result->value.type = async_return_type;
     return result;
 }
@@ -12363,6 +12403,19 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         return ir_finish_anal(ira, return_type);
     }
 
+    IrInstruction *casted_new_stack = nullptr;
+    if (call_instruction->new_stack != nullptr) {
+        TypeTableEntry *u8_ptr = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, false);
+        TypeTableEntry *u8_slice = get_slice_type(ira->codegen, u8_ptr);
+        IrInstruction *new_stack = call_instruction->new_stack->other;
+        if (type_is_invalid(new_stack->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        casted_new_stack = ir_implicit_cast(ira, new_stack, u8_slice);
+        if (type_is_invalid(casted_new_stack->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
     if (fn_type->data.fn.is_generic) {
         if (!fn_entry) {
             ir_add_error(ira, call_instruction->fn_ref,
@@ -12589,7 +12642,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         assert(async_allocator_inst == nullptr);
         IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline,
-                call_instruction->is_async, nullptr);
+                call_instruction->is_async, nullptr, casted_new_stack);
 
         ir_add_alloca(ira, new_call_instruction, return_type);
 
@@ -12680,7 +12733,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
 
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr);
+            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr, casted_new_stack);
 
     ir_add_alloca(ira, new_call_instruction, return_type);
     return ir_finish_anal(ira, return_type);
@@ -14715,7 +14768,7 @@ static IrInstruction *ir_analyze_union_tag(IrAnalyze *ira, IrInstruction *source
     }
 
     if (value->value.type->id != TypeTableEntryIdUnion) {
-        ir_add_error(ira, source_instr,
+        ir_add_error(ira, value,
             buf_sprintf("expected enum or union type, found '%s'", buf_ptr(&value->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
@@ -18036,7 +18089,11 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             if (type_is_invalid(end_value->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
-            assert(start_value->value.type->id == TypeTableEntryIdEnum);
+            if (start_value->value.type->id != TypeTableEntryIdEnum) {
+                ir_add_error(ira, range->start, buf_sprintf("not an enum type"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+
             BigInt start_index;
             bigint_init_bigint(&start_index, &start_value->value.data.x_enum_tag);
 

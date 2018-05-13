@@ -1,9 +1,9 @@
-![ZIG](http://ziglang.org/zig-logo.svg)
+![ZIG](https://ziglang.org/zig-logo.svg)
 
 A programming language designed for robustness, optimality, and
 clarity.
 
-[ziglang.org](http://ziglang.org)
+[ziglang.org](https://ziglang.org)
 
 ## Feature Highlights
 

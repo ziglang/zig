@@ -1345,6 +1345,7 @@ enum BuiltinFnId {
     BuiltinFnIdOffsetOf,
     BuiltinFnIdInlineCall,
     BuiltinFnIdNoInlineCall,
+    BuiltinFnIdNewStackCall,
     BuiltinFnIdTypeId,
     BuiltinFnIdShlExact,
     BuiltinFnIdShrExact,
@@ -1661,7 +1662,12 @@ struct CodeGen {
     LLVMValueRef coro_alloc_helper_fn_val;
     LLVMValueRef merge_err_ret_traces_fn_val;
     LLVMValueRef add_error_return_trace_addr_fn_val;
+    LLVMValueRef stacksave_fn_val;
+    LLVMValueRef stackrestore_fn_val;
+    LLVMValueRef write_register_fn_val;
     bool error_during_imports;
+
+    LLVMValueRef sp_md_node;
 
     const char **clang_argv;
     size_t clang_argv_len;
@@ -2285,6 +2291,7 @@ struct IrInstructionCall {
     bool is_async;
 
     IrInstruction *async_allocator;
+    IrInstruction *new_stack;
 };
 
 struct IrInstructionConst {

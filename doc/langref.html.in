@@ -4485,17 +4485,58 @@ mem.set(u8, dest, c);</code></pre>
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
       {#header_close#}
+      {#header_open|@newStackCall#}
+      <pre><code class="zig">@newStackCall(new_stack: []u8, function: var, args: ...) -&gt; var</code></pre>
+      <p>
+      This calls a function, in the same way that invoking an expression with parentheses does. However,
+      instead of using the same stack as the caller, the function uses the stack provided in the <code>new_stack</code>
+      parameter.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+var new_stack_bytes: [1024]u8 = undefined;
+
+test "calling a function with a new stack" {
+    const arg = 1234;
+
+    const a = @newStackCall(new_stack_bytes[0..512], targetFunction, arg);
+    const b = @newStackCall(new_stack_bytes[512..], targetFunction, arg);
+    _ = targetFunction(arg);
+
+    assert(arg == 1234);
+    assert(a < b);
+}
+
+fn targetFunction(x: i32) usize {
+    assert(x == 1234);
+
+    var local_variable: i32 = 42;
+    const ptr = &local_variable;
+    *ptr += 1;
+
+    assert(local_variable == 43);
+    return @ptrToInt(ptr);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|@noInlineCall#}
       <pre><code class="zig">@noInlineCall(function: var, args: ...) -&gt; var</code></pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does:
       </p>
-      <pre><code class="zig">const assert = @import("std").debug.assert;
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
 test "noinline function call" {
     assert(@noInlineCall(add, 3, 9) == 12);
 }
 
-fn add(a: i32, b: i32) -&gt; i32 { a + b }</code></pre>
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
       <p>
       Unlike a normal function call, however, <code>@noInlineCall</code> guarantees that the call
       will not be inlined. If the call must be inlined, a compile error is emitted.
@@ -6453,7 +6494,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo newStackCall",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

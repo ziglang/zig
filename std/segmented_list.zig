@@ -91,6 +91,8 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         allocator: &Allocator,
         len: usize,
 
+        pub const prealloc_count = prealloc_item_count;
+
         /// Deinitialize with `deinit`
         pub fn init(allocator: &Allocator) Self {
             return Self{
@@ -280,6 +282,15 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 } else {
                     it.box_index -= 1;
                 }
+
+                return &it.list.dynamic_segments[it.shelf_index][it.box_index];
+            }
+
+            pub fn peek(it: &Iterator) ?&T {
+                if (it.index >= it.list.len)
+                    return null;
+                if (it.index < prealloc_item_count)
+                    return &it.list.prealloc_segment[it.index];
 
                 return &it.list.dynamic_segments[it.shelf_index][it.box_index];
             }

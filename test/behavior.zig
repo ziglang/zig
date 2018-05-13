@@ -23,6 +23,7 @@ comptime {
     _ = @import("cases/eval.zig");
     _ = @import("cases/field_parent_ptr.zig");
     _ = @import("cases/fn.zig");
+    _ = @import("cases/fn_in_struct_in_comptime.zig");
     _ = @import("cases/for.zig");
     _ = @import("cases/generics.zig");
     _ = @import("cases/if.zig");
@@ -32,12 +33,12 @@ comptime {
     _ = @import("cases/math.zig");
     _ = @import("cases/misc.zig");
     _ = @import("cases/namespace_depends_on_compile_var/index.zig");
+    _ = @import("cases/new_stack_call.zig");
     _ = @import("cases/null.zig");
     _ = @import("cases/pointers.zig");
     _ = @import("cases/pub_enum/index.zig");
     _ = @import("cases/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("cases/reflection.zig");
-    _ = @import("cases/type_info.zig");
     _ = @import("cases/sizeof_and_typeof.zig");
     _ = @import("cases/slice.zig");
     _ = @import("cases/struct.zig");
@@ -49,10 +50,10 @@ comptime {
     _ = @import("cases/syntax.zig");
     _ = @import("cases/this.zig");
     _ = @import("cases/try.zig");
+    _ = @import("cases/type_info.zig");
     _ = @import("cases/undefined.zig");
     _ = @import("cases/union.zig");
     _ = @import("cases/var_args.zig");
     _ = @import("cases/void.zig");
     _ = @import("cases/while.zig");
-    _ = @import("cases/fn_in_struct_in_comptime.zig");
 }
