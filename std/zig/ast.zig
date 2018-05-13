@@ -67,6 +67,11 @@ pub const Tree = struct {
     pub fn tokenLocation(self: &Tree, start_index: usize, token_index: TokenIndex) Location {
         return self.tokenLocationPtr(start_index, self.tokens.at(token_index));
     }
+
+    pub fn dump(self: &Tree) void {
+        self.root_node.base.dump(0);
+    }
+
 };
 
 pub const Error = union(enum) {
@@ -415,6 +420,20 @@ pub const Node = struct {
         }
     }
 
+    pub fn dump(self: &Node, indent: usize) void {
+        {
+            var i: usize = 0;
+            while (i < indent) : (i += 1) {
+                std.debug.warn(" ");
+            }
+        }
+        std.debug.warn("{}\n", @tagName(self.id));
+
+        var child_i: usize = 0;
+        while (self.iterate(child_i)) |child| : (child_i += 1) {
+            child.dump(indent + 2);
+        }
+    }
 
     pub const Root = struct {
         base: Node,
@@ -426,7 +445,7 @@ pub const Node = struct {
 
         pub fn iterate(self: &Root, index: usize) ?&Node {
             if (index < self.decls.len) {
-                return self.decls.items[self.decls.len - index - 1];
+                return *self.decls.at(index);
             }
             return null;
         }
@@ -790,8 +809,16 @@ pub const Node = struct {
         pub fn iterate(self: &FnProto, index: usize) ?&Node {
             var i = index;
 
-            if (self.body_node) |body_node| {
-                if (i < 1) return body_node;
+            if (self.lib_name) |lib_name| {
+                if (i < 1) return lib_name;
+                i -= 1;
+            }
+
+            if (i < self.params.len) return *self.params.at(self.params.len - i - 1);
+            i -= self.params.len;
+
+            if (self.align_expr) |align_expr| {
+                if (i < 1) return align_expr;
                 i -= 1;
             }
 
@@ -807,18 +834,11 @@ pub const Node = struct {
                 },
             }
 
-            if (self.align_expr) |align_expr| {
-                if (i < 1) return align_expr;
+            if (self.body_node) |body_node| {
+                if (i < 1) return body_node;
                 i -= 1;
             }
 
-            if (i < self.params.len) return self.params.items[self.params.len - i - 1];
-            i -= self.params.len;
-
-            if (self.lib_name) |lib_name| {
-                if (i < 1) return lib_name;
-                i -= 1;
-            }
 
             return null;
         }
@@ -914,7 +934,7 @@ pub const Node = struct {
         pub fn iterate(self: &Block, index: usize) ?&Node {
             var i = index;
 
-            if (i < self.statements.len) return self.statements.items[i];
+            if (i < self.statements.len) return *self.statements.at(i);
             i -= self.statements.len;
 
             return null;
@@ -1596,7 +1616,7 @@ pub const Node = struct {
             i -= 1;
 
             switch (self.op) {
-                Op.Call => |call_info| {
+                @TagType(Op).Call => |*call_info| {
                     if (i < call_info.params.len) return *call_info.params.at(i);
                     i -= call_info.params.len;
                 },
@@ -1604,7 +1624,7 @@ pub const Node = struct {
                     if (i < 1) return index_expr;
                     i -= 1;
                 },
-                Op.Slice => |range| {
+                @TagType(Op).Slice => |range| {
                     if (i < 1) return range.start;
                     i -= 1;
 
@@ -1613,11 +1633,11 @@ pub const Node = struct {
                         i -= 1;
                     }
                 },
-                Op.ArrayInitializer => |exprs| {
+                Op.ArrayInitializer => |*exprs| {
                     if (i < exprs.len) return *exprs.at(i);
                     i -= exprs.len;
                 },
-                Op.StructInitializer => |fields| {
+                Op.StructInitializer => |*fields| {
                     if (i < fields.len) return *fields.at(i);
                     i -= fields.len;
                 },

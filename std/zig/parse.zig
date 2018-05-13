@@ -7,9 +7,8 @@ const Token = std.zig.Token;
 const TokenIndex = ast.TokenIndex;
 const Error = ast.Error;
 
-/// Returns an AST tree, allocated with the parser's allocator.
 /// Result should be freed with tree.deinit() when there are
-/// no more references to any AST nodes of the tree.
+/// no more references to any of the tokens or nodes.
 pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
     var tree_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer tree_arena.deinit();
@@ -3462,38 +3461,6 @@ fn putBackToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) void {
         const loc = tree.tokenLocationPtr(minus2_tok.end, prev_tok);
         if (loc.line != 0) {
             _ = tok_it.next();
-        }
-    }
-}
-
-const RenderAstFrame = struct {
-    node: &ast.Node,
-    indent: usize,
-};
-
-pub fn renderAst(allocator: &mem.Allocator, tree: &const ast.Tree, stream: var) !void {
-    var stack = std.ArrayList(State).init(allocator);
-    defer stack.deinit();
-
-    try stack.append(RenderAstFrame {
-        .node = &root_node.base,
-        .indent = 0,
-    });
-
-    while (stack.popOrNull()) |frame| {
-        {
-            var i: usize = 0;
-            while (i < frame.indent) : (i += 1) {
-                try stream.print(" ");
-            }
-        }
-        try stream.print("{}\n", @tagName(frame.node.id));
-        var child_i: usize = 0;
-        while (frame.node.iterate(child_i)) |child| : (child_i += 1) {
-            try stack.append(RenderAstFrame {
-                .node = child,
-                .indent = frame.indent + 2,
-            });
         }
     }
 }

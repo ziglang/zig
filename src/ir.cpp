@@ -18083,7 +18083,11 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             if (type_is_invalid(end_value->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
-            assert(start_value->value.type->id == TypeTableEntryIdEnum);
+            if (start_value->value.type->id != TypeTableEntryIdEnum) {
+                ir_add_error(ira, range->start, buf_sprintf("not an enum type"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+
             BigInt start_index;
             bigint_init_bigint(&start_index, &start_value->value.data.x_enum_tag);
 
