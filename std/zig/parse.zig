@@ -640,12 +640,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 switch (token_ptr.id) {
                     Token.Id.Equal => {
                         var_decl.eq_token = token_index;
-                        stack.append(State {
-                            .ExpectTokenSave = ExpectTokenSave {
-                                .id = Token.Id.Semicolon,
-                                .ptr = &var_decl.semicolon_token,
-                            },
-                        }) catch unreachable;
+                        stack.append(State { .VarDeclSemiColon = var_decl }) catch unreachable;
                         try stack.append(State { .Expression = OptionalCtx { .RequiredNull = &var_decl.init_node } });
                         continue;
                     },
@@ -662,6 +657,30 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
 
+            State.VarDeclSemiColon => |var_decl| {
+                const semicolon_token = nextToken(&tok_it, &tree);
+
+                if (semicolon_token.ptr.id != Token.Id.Semicolon) {
+                    *(try tree.errors.addOne()) = Error {
+                        .ExpectedToken = Error.ExpectedToken {
+                            .token = semicolon_token.index,
+                            .expected_id = Token.Id.Semicolon,
+                        },
+                    };
+                    return tree;
+                }
+
+                var_decl.semicolon_token = semicolon_token.index;
+
+                if (eatToken(&tok_it, &tree, Token.Id.DocComment)) |doc_comment_token| {
+                    const loc = tree.tokenLocation(semicolon_token.ptr.end, doc_comment_token);
+                    if (loc.line == 0) {
+                        try pushDocComment(arena, doc_comment_token, &var_decl.doc_comments);
+                    } else {
+                        putBackToken(&tok_it, &tree);
+                    }
+                }
+            },
 
             State.FnDef => |fn_proto| {
                 const token = nextToken(&tok_it, &tree);
@@ -2938,6 +2957,7 @@ const State = union(enum) {
     VarDecl: VarDeclCtx,
     VarDeclAlign: &ast.Node.VarDecl,
     VarDeclEq: &ast.Node.VarDecl,
+    VarDeclSemiColon: &ast.Node.VarDecl,
 
     FnDef: &ast.Node.FnProto,
     FnProto: &ast.Node.FnProto,
@@ -3042,25 +3062,29 @@ const State = union(enum) {
     OptionalTokenSave: OptionalTokenSave,
 };
 
+fn pushDocComment(arena: &mem.Allocator, line_comment: TokenIndex, result: &?&ast.Node.DocComment) !void {
+    const node = blk: {
+        if (*result) |comment_node| {
+            break :blk comment_node;
+        } else {
+            const comment_node = try arena.construct(ast.Node.DocComment {
+                .base = ast.Node {
+                    .id = ast.Node.Id.DocComment,
+                },
+                .lines = ast.Node.DocComment.LineList.init(arena),
+            });
+            *result = comment_node;
+            break :blk comment_node;
+        }
+    };
+    try node.lines.push(line_comment);
+}
+
 fn eatDocComments(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) !?&ast.Node.DocComment {
     var result: ?&ast.Node.DocComment = null;
     while (true) {
         if (eatToken(tok_it, tree, Token.Id.DocComment)) |line_comment| {
-            const node = blk: {
-                if (result) |comment_node| {
-                    break :blk comment_node;
-                } else {
-                    const comment_node = try arena.construct(ast.Node.DocComment {
-                        .base = ast.Node {
-                            .id = ast.Node.Id.DocComment,
-                        },
-                        .lines = ast.Node.DocComment.LineList.init(arena),
-                    });
-                    result = comment_node;
-                    break :blk comment_node;
-                }
-            };
-            try node.lines.push(line_comment);
+            try pushDocComment(arena, line_comment, &result);
             continue;
         }
         break;
