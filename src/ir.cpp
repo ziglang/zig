@@ -16549,6 +16549,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     {
                         size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, type_entry->type_ref, struct_field->gen_index);
                         inner_fields[1].data.x_maybe = create_const_vals(1);
+                        inner_fields[1].data.x_maybe->special = ConstValSpecialStatic;
                         inner_fields[1].data.x_maybe->type = ira->codegen->builtin_types.entry_usize;
                         bigint_init_unsigned(&inner_fields[1].data.x_maybe->data.x_bigint, byte_offset);
                     }
