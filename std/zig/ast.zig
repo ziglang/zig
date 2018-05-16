@@ -40,7 +40,7 @@ pub const Tree = struct {
     };
 
     pub fn tokenLocationPtr(self: &Tree, start_index: usize, token: &const Token) Location {
-        var loc = Location {
+        var loc = Location{
             .line = 0,
             .column = 0,
             .line_start = start_index,
@@ -71,7 +71,6 @@ pub const Tree = struct {
     pub fn dump(self: &Tree) void {
         self.root_node.base.dump(0);
     }
-
 };
 
 pub const Error = union(enum) {
@@ -95,7 +94,7 @@ pub const Error = union(enum) {
     ExpectedCommaOrEnd: ExpectedCommaOrEnd,
 
     pub fn render(self: &Error, tokens: &Tree.TokenList, stream: var) !void {
-        switch (*self) {
+        switch (self.*) {
             // TODO https://github.com/zig-lang/zig/issues/683
             @TagType(Error).InvalidToken => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
@@ -119,7 +118,7 @@ pub const Error = union(enum) {
     }
 
     pub fn loc(self: &Error) TokenIndex {
-        switch (*self) {
+        switch (self.*) {
             // TODO https://github.com/zig-lang/zig/issues/683
             @TagType(Error).InvalidToken => |x| return x.token,
             @TagType(Error).ExpectedVarDeclOrFn => |x| return x.token,
@@ -144,15 +143,12 @@ pub const Error = union(enum) {
 
     pub const InvalidToken = SingleTokenError("Invalid token {}");
     pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found {}");
-    pub const ExpectedAggregateKw = SingleTokenError("Expected " ++
-        @tagName(Token.Id.Keyword_struct) ++ ", " ++ @tagName(Token.Id.Keyword_union) ++ ", or " ++
-        @tagName(Token.Id.Keyword_enum) ++ ", found {}");
+    pub const ExpectedAggregateKw = SingleTokenError("Expected " ++ @tagName(Token.Id.Keyword_struct) ++ ", " ++ @tagName(Token.Id.Keyword_union) ++ ", or " ++ @tagName(Token.Id.Keyword_enum) ++ ", found {}");
     pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found {}");
     pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found {}");
     pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found {}");
     pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found {}");
-    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or " ++
-        @tagName(Token.Id.Identifier) ++ ", found {}");
+    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or " ++ @tagName(Token.Id.Identifier) ++ ", found {}");
     pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found {}");
     pub const ExpectedPrimaryExpr = SingleTokenError("Expected primary expression, found {}");
 
@@ -165,8 +161,7 @@ pub const Error = union(enum) {
         node: &Node,
 
         pub fn render(self: &ExpectedCall, tokens: &Tree.TokenList, stream: var) !void {
-            return stream.print("expected " ++ @tagName(@TagType(Node.SuffixOp.Op).Call) ++ ", found {}",
-                @tagName(self.node.id));
+            return stream.print("expected " ++ @tagName(@TagType(Node.SuffixOp.Op).Call) ++ ", found {}", @tagName(self.node.id));
         }
     };
 
@@ -174,8 +169,7 @@ pub const Error = union(enum) {
         node: &Node,
 
         pub fn render(self: &ExpectedCallOrFnProto, tokens: &Tree.TokenList, stream: var) !void {
-            return stream.print("expected " ++ @tagName(@TagType(Node.SuffixOp.Op).Call) ++ " or " ++
-                @tagName(Node.Id.FnProto) ++ ", found {}", @tagName(self.node.id));
+            return stream.print("expected " ++ @tagName(@TagType(Node.SuffixOp.Op).Call) ++ " or " ++ @tagName(Node.Id.FnProto) ++ ", found {}", @tagName(self.node.id));
         }
     };
 
@@ -445,17 +439,17 @@ pub const Node = struct {
 
         pub fn iterate(self: &Root, index: usize) ?&Node {
             if (index < self.decls.len) {
-                return *self.decls.at(index);
+                return self.decls.at(index).*;
             }
             return null;
         }
 
         pub fn firstToken(self: &Root) TokenIndex {
-            return if (self.decls.len == 0) self.eof_token else (*self.decls.at(0)).firstToken();
+            return if (self.decls.len == 0) self.eof_token else (self.decls.at(0).*).firstToken();
         }
 
         pub fn lastToken(self: &Root) TokenIndex {
-            return if (self.decls.len == 0) self.eof_token else (*self.decls.at(self.decls.len - 1)).lastToken();
+            return if (self.decls.len == 0) self.eof_token else (self.decls.at(self.decls.len - 1).*).lastToken();
         }
     };
 
@@ -545,7 +539,7 @@ pub const Node = struct {
         pub fn iterate(self: &ErrorSetDecl, index: usize) ?&Node {
             var i = index;
 
-            if (i < self.decls.len) return *self.decls.at(i);
+            if (i < self.decls.len) return self.decls.at(i).*;
             i -= self.decls.len;
 
             return null;
@@ -598,10 +592,10 @@ pub const Node = struct {
                     i -= 1;
                 },
                 InitArg.None,
-                InitArg.Enum => { }
+                InitArg.Enum => {},
             }
 
-            if (i < self.fields_and_decls.len) return *self.fields_and_decls.at(i);
+            if (i < self.fields_and_decls.len) return self.fields_and_decls.at(i).*;
             i -= self.fields_and_decls.len;
 
             return null;
@@ -814,7 +808,7 @@ pub const Node = struct {
                 i -= 1;
             }
 
-            if (i < self.params.len) return *self.params.at(self.params.len - i - 1);
+            if (i < self.params.len) return self.params.at(self.params.len - i - 1).*;
             i -= self.params.len;
 
             if (self.align_expr) |align_expr| {
@@ -838,7 +832,6 @@ pub const Node = struct {
                 if (i < 1) return body_node;
                 i -= 1;
             }
-
 
             return null;
         }
@@ -934,7 +927,7 @@ pub const Node = struct {
         pub fn iterate(self: &Block, index: usize) ?&Node {
             var i = index;
 
-            if (i < self.statements.len) return *self.statements.at(i);
+            if (i < self.statements.len) return self.statements.at(i).*;
             i -= self.statements.len;
 
             return null;
@@ -1119,6 +1112,7 @@ pub const Node = struct {
         base: Node,
         switch_token: TokenIndex,
         expr: &Node,
+
         /// these can be SwitchCase nodes or LineComment nodes
         cases: CaseList,
         rbrace: TokenIndex,
@@ -1131,7 +1125,7 @@ pub const Node = struct {
             if (i < 1) return self.expr;
             i -= 1;
 
-            if (i < self.cases.len) return *self.cases.at(i);
+            if (i < self.cases.len) return self.cases.at(i).*;
             i -= self.cases.len;
 
             return null;
@@ -1157,7 +1151,7 @@ pub const Node = struct {
         pub fn iterate(self: &SwitchCase, index: usize) ?&Node {
             var i = index;
 
-            if (i < self.items.len) return *self.items.at(i);
+            if (i < self.items.len) return self.items.at(i).*;
             i -= self.items.len;
 
             if (self.payload) |payload| {
@@ -1172,7 +1166,7 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &SwitchCase) TokenIndex {
-            return (*self.items.at(0)).firstToken();
+            return (self.items.at(0).*).firstToken();
         }
 
         pub fn lastToken(self: &SwitchCase) TokenIndex {
@@ -1616,7 +1610,7 @@ pub const Node = struct {
 
             switch (self.op) {
                 @TagType(Op).Call => |*call_info| {
-                    if (i < call_info.params.len) return *call_info.params.at(i);
+                    if (i < call_info.params.len) return call_info.params.at(i).*;
                     i -= call_info.params.len;
                 },
                 Op.ArrayAccess => |index_expr| {
@@ -1633,11 +1627,11 @@ pub const Node = struct {
                     }
                 },
                 Op.ArrayInitializer => |*exprs| {
-                    if (i < exprs.len) return *exprs.at(i);
+                    if (i < exprs.len) return exprs.at(i).*;
                     i -= exprs.len;
                 },
                 Op.StructInitializer => |*fields| {
-                    if (i < fields.len) return *fields.at(i);
+                    if (i < fields.len) return fields.at(i).*;
                     i -= fields.len;
                 },
             }
@@ -1830,7 +1824,7 @@ pub const Node = struct {
         pub fn iterate(self: &BuiltinCall, index: usize) ?&Node {
             var i = index;
 
-            if (i < self.params.len) return *self.params.at(i);
+            if (i < self.params.len) return self.params.at(i).*;
             i -= self.params.len;
 
             return null;
@@ -1873,11 +1867,11 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &MultilineStringLiteral) TokenIndex {
-            return *self.lines.at(0);
+            return self.lines.at(0).*;
         }
 
         pub fn lastToken(self: &MultilineStringLiteral) TokenIndex {
-            return *self.lines.at(self.lines.len - 1);
+            return self.lines.at(self.lines.len - 1).*;
         }
     };
 
@@ -1974,7 +1968,7 @@ pub const Node = struct {
 
         const Kind = union(enum) {
             Variable: &Identifier,
-            Return: &Node
+            Return: &Node,
         };
 
         pub fn iterate(self: &AsmOutput, index: usize) ?&Node {
@@ -1994,7 +1988,7 @@ pub const Node = struct {
                 Kind.Return => |return_type| {
                     if (i < 1) return return_type;
                     i -= 1;
-                }
+                },
             }
 
             return null;
@@ -2059,13 +2053,13 @@ pub const Node = struct {
         pub fn iterate(self: &Asm, index: usize) ?&Node {
             var i = index;
 
-            if (i < self.outputs.len) return &(*self.outputs.at(index)).base;
+            if (i < self.outputs.len) return &(self.outputs.at(index).*).base;
             i -= self.outputs.len;
 
-            if (i < self.inputs.len) return &(*self.inputs.at(index)).base;
+            if (i < self.inputs.len) return &(self.inputs.at(index).*).base;
             i -= self.inputs.len;
 
-            if (i < self.clobbers.len) return *self.clobbers.at(index);
+            if (i < self.clobbers.len) return self.clobbers.at(index).*;
             i -= self.clobbers.len;
 
             return null;
@@ -2159,11 +2153,11 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &DocComment) TokenIndex {
-            return *self.lines.at(0);
+            return self.lines.at(0).*;
         }
 
         pub fn lastToken(self: &DocComment) TokenIndex {
-            return *self.lines.at(self.lines.len - 1);
+            return self.lines.at(self.lines.len - 1).*;
         }
     };
 
@@ -2192,4 +2186,3 @@ pub const Node = struct {
         }
     };
 };
-
