@@ -1,3 +1,17 @@
+test "zig fmt: same-line doc comment on variable declaration" {
+    try testTransform(
+        \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space
+        \\pub const MAP_FILE = 0x0000; /// map from file (default)
+        \\
+    ,
+        \\/// allocated from memory, swap space
+        \\pub const MAP_ANONYMOUS = 0x1000;
+        \\/// map from file (default)
+        \\pub const MAP_FILE = 0x0000;
+        \\
+    );
+}
+
 test "zig fmt: same-line comment after a statement" {
     try testCanonical(
         \\test "" {

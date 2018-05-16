@@ -17,15 +17,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
     defer stack.deinit();
 
     const arena = &tree_arena.allocator;
-    const root_node = try createNode(arena, ast.Node.Root,
-        ast.Node.Root {
-            .base = undefined,
-            .decls = ast.Node.Root.DeclList.init(arena),
-            .doc_comments = null,
-            // initialized when we get the eof token
-            .eof_token = undefined,
-        }
-    );
+    const root_node = try arena.construct(ast.Node.Root {
+        .base = ast.Node { .id = ast.Node.Id.Root },
+        .decls = ast.Node.Root.DeclList.init(arena),
+        .doc_comments = null,
+        // initialized when we get the eof token
+        .eof_token = undefined,
+    });
 
     var tree = ast.Tree {
         .source = source,
@@ -113,15 +111,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_comptime => {
-                        const block = try createNode(arena, ast.Node.Block,
-                            ast.Node.Block {
-                                .base = undefined,
-                                .label = null,
-                                .lbrace = undefined,
-                                .statements = ast.Node.Block.StatementList.init(arena),
-                                .rbrace = undefined,
-                            }
-                        );
+                        const block = try arena.construct(ast.Node.Block {
+                            .base = ast.Node {.id = ast.Node.Id.Block },
+                            .label = null,
+                            .lbrace = undefined,
+                            .statements = ast.Node.Block.StatementList.init(arena),
+                            .rbrace = undefined,
+                        });
                         const node = try arena.construct(ast.Node.Comptime {
                             .base = ast.Node {
                                 .id = ast.Node.Id.Comptime,
@@ -312,14 +308,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 continue;
                             },
                             Token.Id.Keyword_async => {
-                                const async_node = try createNode(arena, ast.Node.AsyncAttribute,
-                                    ast.Node.AsyncAttribute {
-                                        .base = undefined,
-                                        .async_token = token_index,
-                                        .allocator_type = null,
-                                        .rangle_bracket = null,
-                                    }
-                                );
+                                const async_node = try arena.construct(ast.Node.AsyncAttribute {
+                                    .base = ast.Node {.id = ast.Node.Id.AsyncAttribute },
+                                    .async_token = token_index,
+                                    .allocator_type = null,
+                                    .rangle_bracket = null,
+                                });
                                 fn_proto.async_attr = async_node;
 
                                 try stack.append(State {
@@ -396,27 +390,26 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
-                const node = try createToCtxNode(arena, ctx.opt_ctx, ast.Node.ContainerDecl,
-                    ast.Node.ContainerDecl {
-                        .base = undefined,
-                        .ltoken = ctx.ltoken,
-                        .layout = ctx.layout,
-                        .kind = switch (token_ptr.id) {
-                            Token.Id.Keyword_struct => ast.Node.ContainerDecl.Kind.Struct,
-                            Token.Id.Keyword_union => ast.Node.ContainerDecl.Kind.Union,
-                            Token.Id.Keyword_enum => ast.Node.ContainerDecl.Kind.Enum,
-                            else => {
-                                *(try tree.errors.addOne()) = Error {
-                                    .ExpectedAggregateKw = Error.ExpectedAggregateKw { .token = token_index },
-                                };
-                                return tree;
-                            },
+                const node = try arena.construct(ast.Node.ContainerDecl {
+                    .base = ast.Node {.id = ast.Node.Id.ContainerDecl },
+                    .ltoken = ctx.ltoken,
+                    .layout = ctx.layout,
+                    .kind = switch (token_ptr.id) {
+                        Token.Id.Keyword_struct => ast.Node.ContainerDecl.Kind.Struct,
+                        Token.Id.Keyword_union => ast.Node.ContainerDecl.Kind.Union,
+                        Token.Id.Keyword_enum => ast.Node.ContainerDecl.Kind.Enum,
+                        else => {
+                            *(try tree.errors.addOne()) = Error {
+                                .ExpectedAggregateKw = Error.ExpectedAggregateKw { .token = token_index },
+                            };
+                            return tree;
                         },
-                        .init_arg_expr = ast.Node.ContainerDecl.InitArg.None,
-                        .fields_and_decls = ast.Node.ContainerDecl.DeclList.init(arena),
-                        .rbrace_token = undefined,
-                    }
-                );
+                    },
+                    .init_arg_expr = ast.Node.ContainerDecl.InitArg.None,
+                    .fields_and_decls = ast.Node.ContainerDecl.DeclList.init(arena),
+                    .rbrace_token = undefined,
+                });
+                ctx.opt_ctx.store(&node.base);
 
                 stack.append(State { .ContainerDecl = node }) catch unreachable;
                 try stack.append(State { .ExpectToken = Token.Id.LBrace });
@@ -647,12 +640,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 switch (token_ptr.id) {
                     Token.Id.Equal => {
                         var_decl.eq_token = token_index;
-                        stack.append(State {
-                            .ExpectTokenSave = ExpectTokenSave {
-                                .id = Token.Id.Semicolon,
-                                .ptr = &var_decl.semicolon_token,
-                            },
-                        }) catch unreachable;
+                        stack.append(State { .VarDeclSemiColon = var_decl }) catch unreachable;
                         try stack.append(State { .Expression = OptionalCtx { .RequiredNull = &var_decl.init_node } });
                         continue;
                     },
@@ -669,6 +657,30 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
 
+            State.VarDeclSemiColon => |var_decl| {
+                const semicolon_token = nextToken(&tok_it, &tree);
+
+                if (semicolon_token.ptr.id != Token.Id.Semicolon) {
+                    *(try tree.errors.addOne()) = Error {
+                        .ExpectedToken = Error.ExpectedToken {
+                            .token = semicolon_token.index,
+                            .expected_id = Token.Id.Semicolon,
+                        },
+                    };
+                    return tree;
+                }
+
+                var_decl.semicolon_token = semicolon_token.index;
+
+                if (eatToken(&tok_it, &tree, Token.Id.DocComment)) |doc_comment_token| {
+                    const loc = tree.tokenLocation(semicolon_token.ptr.end, doc_comment_token);
+                    if (loc.line == 0) {
+                        try pushDocComment(arena, doc_comment_token, &var_decl.doc_comments);
+                    } else {
+                        putBackToken(&tok_it, &tree);
+                    }
+                }
+            },
 
             State.FnDef => |fn_proto| {
                 const token = nextToken(&tok_it, &tree);
@@ -844,15 +856,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.LBrace => {
-                        const block = try createToCtxNode(arena, ctx.opt_ctx, ast.Node.Block,
-                            ast.Node.Block {
-                                .base = undefined,
-                                .label = ctx.label,
-                                .lbrace = token_index,
-                                .statements = ast.Node.Block.StatementList.init(arena),
-                                .rbrace = undefined,
-                            }
-                        );
+                        const block = try arena.construct(ast.Node.Block {
+                            .base = ast.Node {.id = ast.Node.Id.Block},
+                            .label = ctx.label,
+                            .lbrace = token_index,
+                            .statements = ast.Node.Block.StatementList.init(arena),
+                            .rbrace = undefined,
+                        });
+                        ctx.opt_ctx.store(&block.base);
                         stack.append(State { .Block = block }) catch unreachable;
                         continue;
                     },
@@ -957,19 +968,18 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.While => |ctx| {
-                const node = try createToCtxNode(arena, ctx.opt_ctx, ast.Node.While,
-                    ast.Node.While {
-                        .base = undefined,
-                        .label = ctx.label,
-                        .inline_token = ctx.inline_token,
-                        .while_token = ctx.loop_token,
-                        .condition = undefined,
-                        .payload = null,
-                        .continue_expr = null,
-                        .body = undefined,
-                        .@"else" = null,
-                    }
-                );
+                const node = try arena.construct(ast.Node.While {
+                    .base = ast.Node {.id = ast.Node.Id.While },
+                    .label = ctx.label,
+                    .inline_token = ctx.inline_token,
+                    .while_token = ctx.loop_token,
+                    .condition = undefined,
+                    .payload = null,
+                    .continue_expr = null,
+                    .body = undefined,
+                    .@"else" = null,
+                });
+                ctx.opt_ctx.store(&node.base);
                 stack.append(State { .Else = &node.@"else" }) catch unreachable;
                 try stack.append(State { .Expression = OptionalCtx { .Required = &node.body } });
                 try stack.append(State { .WhileContinueExpr = &node.continue_expr });
@@ -987,18 +997,17 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.For => |ctx| {
-                const node = try createToCtxNode(arena, ctx.opt_ctx, ast.Node.For,
-                    ast.Node.For {
-                        .base = undefined,
-                        .label = ctx.label,
-                        .inline_token = ctx.inline_token,
-                        .for_token = ctx.loop_token,
-                        .array_expr = undefined,
-                        .payload = null,
-                        .body = undefined,
-                        .@"else" = null,
-                    }
-                );
+                const node = try arena.construct(ast.Node.For {
+                    .base = ast.Node {.id = ast.Node.Id.For },
+                    .label = ctx.label,
+                    .inline_token = ctx.inline_token,
+                    .for_token = ctx.loop_token,
+                    .array_expr = undefined,
+                    .payload = null,
+                    .body = undefined,
+                    .@"else" = null,
+                });
+                ctx.opt_ctx.store(&node.base);
                 stack.append(State { .Else = &node.@"else" }) catch unreachable;
                 try stack.append(State { .Expression = OptionalCtx { .Required = &node.body } });
                 try stack.append(State { .PointerIndexPayload = OptionalCtx { .Optional = &node.payload } });
@@ -1009,14 +1018,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
             State.Else => |dest| {
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_else)) |else_token| {
-                    const node = try createNode(arena, ast.Node.Else,
-                        ast.Node.Else {
-                            .base = undefined,
-                            .else_token = else_token,
-                            .payload = null,
-                            .body = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.Else {
+                        .base = ast.Node {.id = ast.Node.Id.Else },
+                        .else_token = else_token,
+                        .payload = null,
+                        .body = undefined,
+                    });
                     *dest = node;
 
                     stack.append(State { .Expression = OptionalCtx { .Required = &node.body } }) catch unreachable;
@@ -1170,14 +1177,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try createNode(arena, ast.Node.AsmOutput,
-                    ast.Node.AsmOutput {
-                        .base = undefined,
-                        .symbolic_name = undefined,
-                        .constraint = undefined,
-                        .kind = undefined,
-                    }
-                );
+                const node = try arena.construct(ast.Node.AsmOutput {
+                    .base = ast.Node {.id = ast.Node.Id.AsmOutput },
+                    .symbolic_name = undefined,
+                    .constraint = undefined,
+                    .kind = undefined,
+                });
                 try items.push(node);
 
                 stack.append(State { .AsmOutputItems = items }) catch unreachable;
@@ -1223,14 +1228,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try createNode(arena, ast.Node.AsmInput,
-                    ast.Node.AsmInput {
-                        .base = undefined,
-                        .symbolic_name = undefined,
-                        .constraint = undefined,
-                        .expr = undefined,
-                    }
-                );
+                const node = try arena.construct(ast.Node.AsmInput {
+                    .base = ast.Node {.id = ast.Node.Id.AsmInput },
+                    .symbolic_name = undefined,
+                    .constraint = undefined,
+                    .expr = undefined,
+                });
                 try items.push(node);
 
                 stack.append(State { .AsmInputItems = items }) catch unreachable;
@@ -1668,14 +1671,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try createToCtxNode(arena, opt_ctx, ast.Node.Payload,
-                    ast.Node.Payload {
-                        .base = undefined,
-                        .lpipe = token_index,
-                        .error_symbol = undefined,
-                        .rpipe = undefined
-                    }
-                );
+                const node = try arena.construct(ast.Node.Payload {
+                    .base = ast.Node {.id = ast.Node.Id.Payload },
+                    .lpipe = token_index,
+                    .error_symbol = undefined,
+                    .rpipe = undefined
+                });
+                opt_ctx.store(&node.base);
 
                 stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
@@ -1705,15 +1707,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try createToCtxNode(arena, opt_ctx, ast.Node.PointerPayload,
-                    ast.Node.PointerPayload {
-                        .base = undefined,
-                        .lpipe = token_index,
-                        .ptr_token = null,
-                        .value_symbol = undefined,
-                        .rpipe = undefined
-                    }
-                );
+                const node = try arena.construct(ast.Node.PointerPayload {
+                    .base = ast.Node {.id = ast.Node.Id.PointerPayload },
+                    .lpipe = token_index,
+                    .ptr_token = null,
+                    .value_symbol = undefined,
+                    .rpipe = undefined
+                });
+                opt_ctx.store(&node.base);
 
                 try stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
@@ -1749,16 +1750,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try createToCtxNode(arena, opt_ctx, ast.Node.PointerIndexPayload,
-                    ast.Node.PointerIndexPayload {
-                        .base = undefined,
-                        .lpipe = token_index,
-                        .ptr_token = null,
-                        .value_symbol = undefined,
-                        .index_symbol = null,
-                        .rpipe = undefined
-                    }
-                );
+                const node = try arena.construct(ast.Node.PointerIndexPayload {
+                    .base = ast.Node {.id = ast.Node.Id.PointerIndexPayload },
+                    .lpipe = token_index,
+                    .ptr_token = null,
+                    .value_symbol = undefined,
+                    .index_symbol = null,
+                    .rpipe = undefined
+                });
+                opt_ctx.store(&node.base);
 
                 stack.append(State {
                     .ExpectTokenSave = ExpectTokenSave {
@@ -1785,14 +1785,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Keyword_return, Token.Id.Keyword_break, Token.Id.Keyword_continue => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.ControlFlowExpression,
-                            ast.Node.ControlFlowExpression {
-                                .base = undefined,
-                                .ltoken = token_index,
-                                .kind = undefined,
-                                .rhs = null,
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.ControlFlowExpression {
+                            .base = ast.Node {.id = ast.Node.Id.ControlFlowExpression },
+                            .ltoken = token_index,
+                            .kind = undefined,
+                            .rhs = null,
+                        });
+                        opt_ctx.store(&node.base);
 
                         stack.append(State { .Expression = OptionalCtx { .Optional = &node.rhs } }) catch unreachable;
 
@@ -1815,19 +1814,18 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_try, Token.Id.Keyword_cancel, Token.Id.Keyword_resume => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.PrefixOp,
-                            ast.Node.PrefixOp {
-                                .base = undefined,
-                                .op_token = token_index,
-                                .op = switch (token_ptr.id) {
-                                    Token.Id.Keyword_try => ast.Node.PrefixOp.Op { .Try = void{} },
-                                    Token.Id.Keyword_cancel => ast.Node.PrefixOp.Op { .Cancel = void{} },
-                                    Token.Id.Keyword_resume => ast.Node.PrefixOp.Op { .Resume = void{} },
-                                    else => unreachable,
-                                },
-                                .rhs = undefined,
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.PrefixOp {
+                            .base = ast.Node {.id = ast.Node.Id.PrefixOp },
+                            .op_token = token_index,
+                            .op = switch (token_ptr.id) {
+                                Token.Id.Keyword_try => ast.Node.PrefixOp.Op { .Try = void{} },
+                                Token.Id.Keyword_cancel => ast.Node.PrefixOp.Op { .Cancel = void{} },
+                                Token.Id.Keyword_resume => ast.Node.PrefixOp.Op { .Resume = void{} },
+                                else => unreachable,
+                            },
+                            .rhs = undefined,
+                        });
+                        opt_ctx.store(&node.base);
 
                         stack.append(State { .Expression = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
                         continue;
@@ -1850,15 +1848,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() ?? continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Ellipsis3)) |ellipsis3| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = ellipsis3,
-                            .op = ast.Node.InfixOp.Op.Range,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = ellipsis3,
+                        .op = ast.Node.InfixOp.Op.Range,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .Expression = OptionalCtx { .Required = &node.rhs } }) catch unreachable;
                     continue;
                 }
@@ -1876,15 +1873,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToAssignment(token_ptr.id)) |ass_id| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = token_index,
-                            .op = ass_id,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = token_index,
+                        .op = ass_id,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .AssignmentExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .Expression = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -1907,15 +1903,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToUnwrapExpr(token_ptr.id)) |unwrap_id| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = token_index,
-                            .op = unwrap_id,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = token_index,
+                        .op = unwrap_id,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
 
                     stack.append(State { .UnwrapExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .Expression = OptionalCtx { .Required = &node.rhs } });
@@ -1940,15 +1935,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() ?? continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_or)) |or_token| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = or_token,
-                            .op = ast.Node.InfixOp.Op.BoolOr,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = or_token,
+                        .op = ast.Node.InfixOp.Op.BoolOr,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .BoolOrExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .BoolAndExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -1965,15 +1959,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() ?? continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_and)) |and_token| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = and_token,
-                            .op = ast.Node.InfixOp.Op.BoolAnd,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = and_token,
+                        .op = ast.Node.InfixOp.Op.BoolAnd,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .BoolAndExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .ComparisonExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -1993,15 +1986,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToComparison(token_ptr.id)) |comp_id| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = token_index,
-                            .op = comp_id,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = token_index,
+                        .op = comp_id,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .ComparisonExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .BinaryOrExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -2021,15 +2013,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() ?? continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Pipe)) |pipe| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = pipe,
-                            .op = ast.Node.InfixOp.Op.BitOr,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = pipe,
+                        .op = ast.Node.InfixOp.Op.BitOr,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .BinaryOrExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .BinaryXorExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -2046,15 +2037,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() ?? continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Caret)) |caret| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = caret,
-                            .op = ast.Node.InfixOp.Op.BitXor,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = caret,
+                        .op = ast.Node.InfixOp.Op.BitXor,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .BinaryXorExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .BinaryAndExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -2071,15 +2061,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() ?? continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Ampersand)) |ampersand| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = ampersand,
-                            .op = ast.Node.InfixOp.Op.BitAnd,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = ampersand,
+                        .op = ast.Node.InfixOp.Op.BitAnd,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .BinaryAndExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .BitShiftExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -2099,15 +2088,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToBitShift(token_ptr.id)) |bitshift_id| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = token_index,
-                            .op = bitshift_id,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = token_index,
+                        .op = bitshift_id,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .BitShiftExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .AdditionExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -2130,15 +2118,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToAddition(token_ptr.id)) |add_id| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = token_index,
-                            .op = add_id,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = token_index,
+                        .op = add_id,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .AdditionExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .MultiplyExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -2161,15 +2148,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToMultiply(token_ptr.id)) |mult_id| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = token_index,
-                            .op = mult_id,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = token_index,
+                        .op = mult_id,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .MultiplyExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .CurlySuffixExpressionBegin = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -2211,16 +2197,15 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try createToCtxNode(arena, opt_ctx, ast.Node.SuffixOp,
-                    ast.Node.SuffixOp {
-                        .base = undefined,
-                        .lhs = lhs,
-                        .op = ast.Node.SuffixOp.Op {
-                            .ArrayInitializer = ast.Node.SuffixOp.Op.InitList.init(arena),
-                        },
-                        .rtoken = undefined,
-                    }
-                );
+                const node = try arena.construct(ast.Node.SuffixOp {
+                    .base = ast.Node {.id = ast.Node.Id.SuffixOp },
+                    .lhs = lhs,
+                    .op = ast.Node.SuffixOp.Op {
+                        .ArrayInitializer = ast.Node.SuffixOp.Op.InitList.init(arena),
+                    },
+                    .rtoken = undefined,
+                });
+                opt_ctx.store(&node.base);
                 stack.append(State { .CurlySuffixExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                 try stack.append(State { .IfToken = Token.Id.LBrace });
                 try stack.append(State {
@@ -2243,15 +2228,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() ?? continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Bang)) |bang| {
-                    const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                        ast.Node.InfixOp {
-                            .base = undefined,
-                            .lhs = lhs,
-                            .op_token = bang,
-                            .op = ast.Node.InfixOp.Op.ErrorUnion,
-                            .rhs = undefined,
-                        }
-                    );
+                    const node = try arena.construct(ast.Node.InfixOp {
+                        .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                        .lhs = lhs,
+                        .op_token = bang,
+                        .op = ast.Node.InfixOp.Op.ErrorUnion,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
                     stack.append(State { .TypeExprEnd = opt_ctx.toRequired() }) catch unreachable;
                     try stack.append(State { .PrefixOpExpression = OptionalCtx { .Required = &node.rhs } });
                     continue;
@@ -2263,25 +2247,22 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToPrefixOp(token_ptr.id)) |prefix_id| {
-                    var node = try createToCtxNode(arena, opt_ctx, ast.Node.PrefixOp,
-                        ast.Node.PrefixOp {
-                            .base = undefined,
-                            .op_token = token_index,
-                            .op = prefix_id,
-                            .rhs = undefined,
-                        }
-                    );
+                    var node = try arena.construct(ast.Node.PrefixOp {
+                        .base = ast.Node {.id = ast.Node.Id.PrefixOp },
+                        .op_token = token_index,
+                        .op = prefix_id,
+                        .rhs = undefined,
+                    });
+                    opt_ctx.store(&node.base);
 
                     // Treat '**' token as two derefs
                     if (token_ptr.id == Token.Id.AsteriskAsterisk) {
-                        const child = try createNode(arena, ast.Node.PrefixOp,
-                            ast.Node.PrefixOp {
-                                .base = undefined,
-                                .op_token = token_index,
-                                .op = prefix_id,
-                                .rhs = undefined,
-                            }
-                        );
+                        const child = try arena.construct(ast.Node.PrefixOp {
+                            .base = ast.Node {.id = ast.Node.Id.PrefixOp},
+                            .op_token = token_index,
+                            .op = prefix_id,
+                            .rhs = undefined,
+                        });
                         node.rhs = &child.base;
                         node = child;
                     }
@@ -2300,14 +2281,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 
             State.SuffixOpExpressionBegin => |opt_ctx| {
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_async)) |async_token| {
-                    const async_node = try createNode(arena, ast.Node.AsyncAttribute,
-                        ast.Node.AsyncAttribute {
-                            .base = undefined,
-                            .async_token = async_token,
-                            .allocator_type = null,
-                            .rangle_bracket = null,
-                        }
-                    );
+                    const async_node = try arena.construct(ast.Node.AsyncAttribute {
+                        .base = ast.Node {.id = ast.Node.Id.AsyncAttribute},
+                        .async_token = async_token,
+                        .allocator_type = null,
+                        .rangle_bracket = null,
+                    });
                     stack.append(State {
                         .AsyncEnd = AsyncEndCtx {
                             .ctx = opt_ctx,
@@ -2333,19 +2312,19 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.LParen => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.SuffixOp,
-                            ast.Node.SuffixOp {
-                                .base = undefined,
-                                .lhs = lhs,
-                                .op = ast.Node.SuffixOp.Op {
-                                    .Call = ast.Node.SuffixOp.Op.Call {
-                                        .params = ast.Node.SuffixOp.Op.Call.ParamList.init(arena),
-                                        .async_attr = null,
-                                    }
-                                },
-                                .rtoken = undefined,
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.SuffixOp {
+                            .base = ast.Node {.id = ast.Node.Id.SuffixOp },
+                            .lhs = lhs,
+                            .op = ast.Node.SuffixOp.Op {
+                                .Call = ast.Node.SuffixOp.Op.Call {
+                                    .params = ast.Node.SuffixOp.Op.Call.ParamList.init(arena),
+                                    .async_attr = null,
+                                }
+                            },
+                            .rtoken = undefined,
+                        });
+                        opt_ctx.store(&node.base);
+
                         stack.append(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                         try stack.append(State {
                             .ExprListItemOrEnd = ExprListCtx {
@@ -2357,31 +2336,31 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.LBracket => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.SuffixOp,
-                            ast.Node.SuffixOp {
-                                .base = undefined,
-                                .lhs = lhs,
-                                .op = ast.Node.SuffixOp.Op {
-                                    .ArrayAccess = undefined,
-                                },
-                                .rtoken = undefined
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.SuffixOp {
+                            .base = ast.Node {.id = ast.Node.Id.SuffixOp },
+                            .lhs = lhs,
+                            .op = ast.Node.SuffixOp.Op {
+                                .ArrayAccess = undefined,
+                            },
+                            .rtoken = undefined
+                        });
+                        opt_ctx.store(&node.base);
+
                         stack.append(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                         try stack.append(State { .SliceOrArrayAccess = node });
                         try stack.append(State { .Expression = OptionalCtx { .Required = &node.op.ArrayAccess }});
                         continue;
                     },
                     Token.Id.Period => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.InfixOp,
-                            ast.Node.InfixOp {
-                                .base = undefined,
-                                .lhs = lhs,
-                                .op_token = token_index,
-                                .op = ast.Node.InfixOp.Op.Period,
-                                .rhs = undefined,
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.InfixOp {
+                            .base = ast.Node {.id = ast.Node.Id.InfixOp },
+                            .lhs = lhs,
+                            .op_token = token_index,
+                            .op = ast.Node.InfixOp.Op.Period,
+                            .rhs = undefined,
+                        });
+                        opt_ctx.store(&node.base);
+
                         stack.append(State { .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                         try stack.append(State { .Identifier = OptionalCtx { .Required = &node.rhs } });
                         continue;
@@ -2461,14 +2440,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.LParen => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.GroupedExpression,
-                            ast.Node.GroupedExpression {
-                                .base = undefined,
-                                .lparen = token.index,
-                                .expr = undefined,
-                                .rparen = undefined,
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.GroupedExpression {
+                            .base = ast.Node {.id = ast.Node.Id.GroupedExpression },
+                            .lparen = token.index,
+                            .expr = undefined,
+                            .rparen = undefined,
+                        });
+                        opt_ctx.store(&node.base);
+
                         stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.RParen,
@@ -2479,14 +2458,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Builtin => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.BuiltinCall,
-                            ast.Node.BuiltinCall {
-                                .base = undefined,
-                                .builtin_token = token.index,
-                                .params = ast.Node.BuiltinCall.ParamList.init(arena),
-                                .rparen_token = undefined,
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.BuiltinCall {
+                            .base = ast.Node {.id = ast.Node.Id.BuiltinCall },
+                            .builtin_token = token.index,
+                            .params = ast.Node.BuiltinCall.ParamList.init(arena),
+                            .rparen_token = undefined,
+                        });
+                        opt_ctx.store(&node.base);
+
                         stack.append(State {
                             .ExprListItemOrEnd = ExprListCtx {
                                 .list = &node.params,
@@ -2498,14 +2477,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.LBracket => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.PrefixOp,
-                            ast.Node.PrefixOp {
-                                .base = undefined,
-                                .op_token = token.index,
-                                .op = undefined,
-                                .rhs = undefined,
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.PrefixOp {
+                            .base = ast.Node {.id = ast.Node.Id.PrefixOp },
+                            .op_token = token.index,
+                            .op = undefined,
+                            .rhs = undefined,
+                        });
+                        opt_ctx.store(&node.base);
+
                         stack.append(State { .SliceOrArrayType = node }) catch unreachable;
                         continue;
                     },
@@ -2611,18 +2590,18 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_asm => {
-                        const node = try createToCtxNode(arena, opt_ctx, ast.Node.Asm,
-                            ast.Node.Asm {
-                                .base = undefined,
-                                .asm_token = token.index,
-                                .volatile_token = null,
-                                .template = undefined,
-                                .outputs = ast.Node.Asm.OutputList.init(arena),
-                                .inputs = ast.Node.Asm.InputList.init(arena),
-                                .clobbers = ast.Node.Asm.ClobberList.init(arena),
-                                .rparen = undefined,
-                            }
-                        );
+                        const node = try arena.construct(ast.Node.Asm {
+                            .base = ast.Node {.id = ast.Node.Id.Asm },
+                            .asm_token = token.index,
+                            .volatile_token = null,
+                            .template = undefined,
+                            .outputs = ast.Node.Asm.OutputList.init(arena),
+                            .inputs = ast.Node.Asm.InputList.init(arena),
+                            .clobbers = ast.Node.Asm.ClobberList.init(arena),
+                            .rparen = undefined,
+                        });
+                        opt_ctx.store(&node.base);
+
                         stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.RParen,
@@ -2978,6 +2957,7 @@ const State = union(enum) {
     VarDecl: VarDeclCtx,
     VarDeclAlign: &ast.Node.VarDecl,
     VarDeclEq: &ast.Node.VarDecl,
+    VarDeclSemiColon: &ast.Node.VarDecl,
 
     FnDef: &ast.Node.FnProto,
     FnProto: &ast.Node.FnProto,
@@ -3082,25 +3062,29 @@ const State = union(enum) {
     OptionalTokenSave: OptionalTokenSave,
 };
 
+fn pushDocComment(arena: &mem.Allocator, line_comment: TokenIndex, result: &?&ast.Node.DocComment) !void {
+    const node = blk: {
+        if (*result) |comment_node| {
+            break :blk comment_node;
+        } else {
+            const comment_node = try arena.construct(ast.Node.DocComment {
+                .base = ast.Node {
+                    .id = ast.Node.Id.DocComment,
+                },
+                .lines = ast.Node.DocComment.LineList.init(arena),
+            });
+            *result = comment_node;
+            break :blk comment_node;
+        }
+    };
+    try node.lines.push(line_comment);
+}
+
 fn eatDocComments(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) !?&ast.Node.DocComment {
     var result: ?&ast.Node.DocComment = null;
     while (true) {
         if (eatToken(tok_it, tree, Token.Id.DocComment)) |line_comment| {
-            const node = blk: {
-                if (result) |comment_node| {
-                    break :blk comment_node;
-                } else {
-                    const comment_node = try arena.construct(ast.Node.DocComment {
-                        .base = ast.Node {
-                            .id = ast.Node.Id.DocComment,
-                        },
-                        .lines = ast.Node.DocComment.LineList.init(arena),
-                    });
-                    result = comment_node;
-                    break :blk comment_node;
-                }
-            };
-            try node.lines.push(line_comment);
+            try pushDocComment(arena, line_comment, &result);
             continue;
         }
         break;
@@ -3155,31 +3139,29 @@ fn parseBlockExpr(stack: &std.ArrayList(State), arena: &mem.Allocator, ctx: &con
     token_ptr: &const Token, token_index: TokenIndex) !bool {
     switch (token_ptr.id) {
         Token.Id.Keyword_suspend => {
-            const node = try createToCtxNode(arena, ctx, ast.Node.Suspend,
-                ast.Node.Suspend {
-                    .base = undefined,
-                    .label = null,
-                    .suspend_token = token_index,
-                    .payload = null,
-                    .body = null,
-                }
-            );
+            const node = try arena.construct(ast.Node.Suspend {
+                .base = ast.Node {.id = ast.Node.Id.Suspend },
+                .label = null,
+                .suspend_token = token_index,
+                .payload = null,
+                .body = null,
+            });
+            ctx.store(&node.base);
 
             stack.append(State { .SuspendBody = node }) catch unreachable;
             try stack.append(State { .Payload = OptionalCtx { .Optional = &node.payload } });
             return true;
         },
         Token.Id.Keyword_if => {
-            const node = try createToCtxNode(arena, ctx, ast.Node.If,
-                ast.Node.If {
-                    .base = undefined,
-                    .if_token = token_index,
-                    .condition = undefined,
-                    .payload = null,
-                    .body = undefined,
-                    .@"else" = null,
-                }
-            );
+            const node = try arena.construct(ast.Node.If {
+                .base = ast.Node {.id = ast.Node.Id.If },
+                .if_token = token_index,
+                .condition = undefined,
+                .payload = null,
+                .body = undefined,
+                .@"else" = null,
+            });
+            ctx.store(&node.base);
 
             stack.append(State { .Else = &node.@"else" }) catch unreachable;
             try stack.append(State { .Expression = OptionalCtx { .Required = &node.body } });
@@ -3236,14 +3218,14 @@ fn parseBlockExpr(stack: &std.ArrayList(State), arena: &mem.Allocator, ctx: &con
             return true;
         },
         Token.Id.Keyword_comptime => {
-            const node = try createToCtxNode(arena, ctx, ast.Node.Comptime,
-                ast.Node.Comptime {
-                    .base = undefined,
-                    .comptime_token = token_index,
-                    .expr = undefined,
-                    .doc_comments = null,
-                }
-            );
+            const node = try arena.construct(ast.Node.Comptime {
+                .base = ast.Node {.id = ast.Node.Id.Comptime },
+                .comptime_token = token_index,
+                .expr = undefined,
+                .doc_comments = null,
+            });
+            ctx.store(&node.base);
+
             try stack.append(State { .Expression = OptionalCtx { .Required = &node.expr } });
             return true;
         },
@@ -3390,33 +3372,11 @@ fn tokenIdToPrefixOp(id: @TagType(Token.Id)) ?ast.Node.PrefixOp.Op {
     };
 }
 
-fn createNode(arena: &mem.Allocator, comptime T: type, init_to: &const T) !&T {
-    const node = try arena.create(T);
-    *node = *init_to;
-    node.base = blk: {
-        const id = ast.Node.typeToId(T);
-        break :blk ast.Node {
-            .id = id,
-        };
-    };
-
-    return node;
-}
-
-fn createToCtxNode(arena: &mem.Allocator, opt_ctx: &const OptionalCtx, comptime T: type, init_to: &const T) !&T {
-    const node = try createNode(arena, T, init_to);
-    opt_ctx.store(&node.base);
-
-    return node;
-}
-
 fn createLiteral(arena: &mem.Allocator, comptime T: type, token_index: TokenIndex) !&T {
-    return createNode(arena, T,
-        T {
-            .base = undefined,
-            .token = token_index,
-        }
-    );
+    return arena.construct(T {
+        .base = ast.Node {.id = ast.Node.typeToId(T)},
+        .token = token_index,
+    });
 }
 
 fn createToCtxLiteral(arena: &mem.Allocator, opt_ctx: &const OptionalCtx, comptime T: type, token_index: TokenIndex) !&T {
