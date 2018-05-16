@@ -27,6 +27,8 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
         Character,
         Buf,
         BufWidth,
+        Bytes,
+        BytesWidth,
     };
 
     comptime var start_index = 0;
@@ -94,6 +96,10 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                 },
                 '.' => {
                     state = State.Float;
+                },
+                'B' => {
+                    width = 0;
+                    state = State.Bytes;
                 },
                 else => @compileError("Unknown format character: " ++ []u8{c}),
             },
@@ -204,6 +210,30 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
+                else => @compileError("Unexpected character in format string: " ++ []u8{c}),
+            },
+            State.Bytes => switch (c) {
+                '}' => {
+                    try formatBytes(args[next_arg], 0, context, Errors, output);
+                    next_arg += 1;
+                    state = State.Start;
+                    start_index = i + 1;
+                },
+                '0' ... '9' => {
+                    width_start = i;
+                    state = State.BytesWidth;
+                },
+                else => @compileError("Unexpected character in format string: " ++ []u8{c}),
+            },
+            State.BytesWidth => switch (c) {
+                '}' => {
+                    width = comptime (parseUnsigned(usize, fmt[width_start..i], 10) catch unreachable);
+                    try formatBytes(args[next_arg], width, context, Errors, output);
+                    next_arg += 1;
+                    state = State.Start;
+                    start_index = i + 1;
+                },
+                '0' ... '9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
         }
@@ -520,6 +550,25 @@ pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, com
     }
 }
 
+pub fn formatBytes(value: var, width: ?usize,
+    context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)Errors!void) Errors!void
+{
+    if (value == 0) {
+        return output(context, "0B");
+    }
+
+    const mags = " KMGTPEZY";
+    const magnitude = math.min(math.log2(value) / 10, mags.len - 1);
+    const new_value = f64(value) / math.pow(f64, 1024, f64(magnitude));
+    const suffix = mags[magnitude];
+
+    try formatFloatDecimal(new_value, width, context, Errors, output);
+
+    if (suffix != ' ') {
+        try output(context, (&suffix)[0..1]);
+    }
+    return output(context, "B");
+}
 
 pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
     context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)Errors!void) Errors!void
@@ -766,6 +815,12 @@ test "fmt.format" {
         const value: u3 = 0b101;
         const result = try bufPrint(buf1[0..], "u3: {}\n", value);
         assert(mem.eql(u8, result, "u3: 5\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: usize = 63 * 1024 * 1024;
+        const result = try bufPrint(buf1[0..], "file size: {B}\n", value);
+        assert(mem.eql(u8, result, "file size: 63MB\n"));
     }
     {
         // Dummy field because of https://github.com/zig-lang/zig/issues/557.
