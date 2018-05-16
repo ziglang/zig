@@ -1406,7 +1406,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.SwitchCaseCommaOrEnd => |list_state| {
-                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RParen)) {
+                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RBrace)) {
                     ExpectCommaOrEndResult.end_token => |maybe_end| if (maybe_end) |end| {
                         *list_state.ptr = end;
                         continue;

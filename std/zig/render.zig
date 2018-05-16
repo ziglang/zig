@@ -831,7 +831,20 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             }
 
             try renderExpression(allocator, stream, tree, indent, switch_case.expr);
-            try renderToken(tree, stream, switch_case.lastToken() + 1, indent, true);
+            {
+                // Handle missing comma after last switch case
+                var index = switch_case.lastToken() + 1;
+                switch (tree.tokens.at(index).id) {
+                    Token.Id.RBrace => {
+                        try stream.write(",");
+                    },
+                    Token.Id.LineComment => {
+                        try stream.write(", ");
+                        try renderToken(tree, stream, index, indent, true);
+                    },
+                    else => try renderToken(tree, stream, index, indent, true),
+                }
+            }
         },
         ast.Node.Id.SwitchElse => {
             const switch_else = @fieldParentPtr(ast.Node.SwitchElse, "base", base);

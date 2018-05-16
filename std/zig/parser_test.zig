@@ -1,3 +1,34 @@
+test "zig fmt: add comma on last switch prong" {
+    try testTransform(
+        \\test "aoeu" {
+        \\switch (self.init_arg_expr) {
+        \\    InitArg.Type => |t| { },
+        \\    InitArg.None,
+        \\    InitArg.Enum => { }
+        \\}
+        \\ switch (self.init_arg_expr) {
+        \\     InitArg.Type => |t| { },
+        \\     InitArg.None,
+        \\     InitArg.Enum => { }//line comment
+        \\ }
+        \\}
+    ,
+        \\test "aoeu" {
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None,
+        \\        InitArg.Enum => {},
+        \\    }
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None,
+        \\        InitArg.Enum => {}, //line comment
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: same-line doc comment on variable declaration" {
     try testTransform(
         \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space
