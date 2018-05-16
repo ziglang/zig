@@ -743,6 +743,22 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsLv2:
         case OsNetBSD:
         case OsOpenBSD:
+            switch (id) {
+                case CIntTypeShort:
+                case CIntTypeUShort:
+                    return 16;
+                case CIntTypeInt:
+                case CIntTypeUInt:
+                    return 32;
+                case CIntTypeLong:
+                case CIntTypeULong:
+                    return get_arch_pointer_bit_width(target->arch.arch);
+                case CIntTypeLongLong:
+                case CIntTypeULongLong:
+                    return 64;
+                case CIntTypeCount:
+                    zig_unreachable();
+            }
         case OsSolaris:
         case OsHaiku:
         case OsMinix:
