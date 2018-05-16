@@ -734,14 +734,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
-        case OsAnanas:
-        case OsCloudABI:
-        case OsDragonFly:
-        case OsFreeBSD:
-        case OsIOS:
-        case OsKFreeBSD:
-        case OsLv2:
-        case OsNetBSD:
         case OsOpenBSD:
             switch (id) {
                 case CIntTypeShort:
@@ -759,6 +751,14 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+        case OsAnanas:
+        case OsCloudABI:
+        case OsDragonFly:
+        case OsFreeBSD:
+        case OsIOS:
+        case OsKFreeBSD:
+        case OsLv2:
+        case OsNetBSD:
         case OsSolaris:
         case OsHaiku:
         case OsMinix:
