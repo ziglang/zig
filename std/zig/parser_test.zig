@@ -1,3 +1,18 @@
+test "zig fmt: comment after if before another if" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    if (x) {
+        \\        foo();
+        \\    }
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: line comment between if block and else keyword" {
     try testTransform(
         \\test "aoeu" {

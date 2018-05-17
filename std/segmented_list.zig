@@ -298,21 +298,27 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
                 return &it.list.dynamic_segments[it.shelf_index][it.box_index];
             }
+
+            pub fn set(it: &Iterator, index: usize) void {
+                if (index < prealloc_item_count) {
+                    it.index = index;
+                    return;
+                }
+                it.shelf_index = shelfIndex(index);
+                it.box_index = boxIndex(index, it.shelf_index);
+                it.shelf_size = shelfSize(it.shelf_index);
+            }
         };
 
         pub fn iterator(self: &Self, start_index: usize) Iterator {
             var it = Iterator {
                 .list = self,
-                .index = start_index,
+                .index = undefined,
                 .shelf_index = undefined,
                 .box_index = undefined,
                 .shelf_size = undefined,
             };
-            if (start_index >= prealloc_item_count) {
-                it.shelf_index = shelfIndex(start_index);
-                it.box_index = boxIndex(start_index, it.shelf_index);
-                it.shelf_size = shelfSize(it.shelf_index);
-            }
+            it.set(start_index);
             return it;
         }
     };
