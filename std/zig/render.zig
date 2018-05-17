@@ -852,6 +852,15 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
         },
         ast.Node.Id.Else => {
             const else_node = @fieldParentPtr(ast.Node.Else, "base", base);
+
+            var prev_tok_index = else_node.else_token - 1;
+            while (tree.tokens.at(prev_tok_index).id == Token.Id.LineComment) : (prev_tok_index -= 1) { }
+            prev_tok_index += 1;
+            while (prev_tok_index < else_node.else_token) : (prev_tok_index += 1) {
+                try stream.print("{}\n", tree.tokenSlice(prev_tok_index));
+                try stream.writeByteNTimes(' ', indent);
+            }
+
             try stream.print("{}", tree.tokenSlice(else_node.else_token));
 
             const block_body = switch (else_node.body.id) {

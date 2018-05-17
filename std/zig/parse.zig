@@ -1017,6 +1017,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.Else => |dest| {
+                while (try eatLineComment(arena, &tok_it, &tree)) |_| { }
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_else)) |else_token| {
                     const node = try arena.construct(ast.Node.Else {
                         .base = ast.Node {.id = ast.Node.Id.Else },
