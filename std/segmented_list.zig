@@ -300,10 +300,8 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
 
             pub fn set(it: &Iterator, index: usize) void {
-                if (index < prealloc_item_count) {
-                    it.index = index;
-                    return;
-                }
+                it.index = index;
+                if (index < prealloc_item_count) return;
                 it.shelf_index = shelfIndex(index);
                 it.box_index = boxIndex(index, it.shelf_index);
                 it.shelf_size = shelfSize(it.shelf_index);
