@@ -26,6 +26,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
         Buf,
         BufWidth,
         Bytes,
+        BytesBase,
         BytesWidth,
     };
 
@@ -97,6 +98,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                 },
                 'B' => {
                     width = 0;
+                    radix = 1000;
                     state = State.Bytes;
                 },
                 else => @compileError("Unknown format character: " ++ []u8{c}),
@@ -212,7 +214,24 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
             },
             State.Bytes => switch (c) {
                 '}' => {
-                    try formatBytes(args[next_arg], 0, context, Errors, output);
+                    try formatBytes(args[next_arg], 0, radix, context, Errors, output);
+                    next_arg += 1;
+                    state = State.Start;
+                    start_index = i + 1;
+                },
+                'i' => {
+                    radix = 1024;
+                    state = State.BytesBase;
+                },
+                '0' ... '9' => {
+                    width_start = i;
+                    state = State.BytesWidth;
+                },
+                else => @compileError("Unexpected character in format string: " ++ []u8{c}),
+            },
+            State.BytesBase => switch (c) {
+                '}' => {
+                    try formatBytes(args[next_arg], 0, radix, context, Errors, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -226,7 +245,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
             State.BytesWidth => switch (c) {
                 '}' => {
                     width = comptime (parseUnsigned(usize, fmt[width_start..i], 10) catch unreachable);
-                    try formatBytes(args[next_arg], width, context, Errors, output);
+                    try formatBytes(args[next_arg], width, radix, context, Errors, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -543,7 +562,7 @@ pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, com
     }
 }
 
-pub fn formatBytes(value: var, width: ?usize,
+pub fn formatBytes(value: var, width: ?usize, comptime radix: usize,
     context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)Errors!void) Errors!void
 {
     if (value == 0) {
@@ -551,16 +570,26 @@ pub fn formatBytes(value: var, width: ?usize,
     }
 
     const mags = " KMGTPEZY";
-    const magnitude = math.min(math.log2(value) / 10, mags.len - 1);
-    const new_value = f64(value) / math.pow(f64, 1024, f64(magnitude));
+    const magnitude = switch (radix) {
+        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags.len - 1),
+        1024 => math.min(math.log2(value) / 10, mags.len - 1),
+        else => unreachable,
+    };
+    const new_value = f64(value) / math.pow(f64, f64(radix), f64(magnitude));
     const suffix = mags[magnitude];
 
     try formatFloatDecimal(new_value, width, context, Errors, output);
 
-    if (suffix != ' ') {
-        try output(context, (&suffix)[0..1]);
+    if (suffix == ' ') {
+        return output(context, "B");
     }
-    return output(context, "B");
+
+    const buf = switch (radix) {
+        1000 => []u8 { suffix, 'B' },
+        1024 => []u8 { suffix, 'i', 'B' },
+        else => unreachable,
+    };
+    return output(context, buf);
 }
 
 pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
@@ -773,41 +802,27 @@ test "parse unsigned comptime" {
 
 test "fmt.format" {
     {
-        var buf1: [32]u8 = undefined;
         const value: ?i32 = 1234;
-        const result = try bufPrint(buf1[0..], "nullable: {}\n", value);
-        assert(mem.eql(u8, result, "nullable: 1234\n"));
+        try testFmt("nullable: 1234\n", "nullable: {}\n", value);
     }
     {
-        var buf1: [32]u8 = undefined;
         const value: ?i32 = null;
-        const result = try bufPrint(buf1[0..], "nullable: {}\n", value);
-        assert(mem.eql(u8, result, "nullable: null\n"));
+        try testFmt("nullable: null\n", "nullable: {}\n", value);
     }
     {
-        var buf1: [32]u8 = undefined;
         const value: error!i32 = 1234;
-        const result = try bufPrint(buf1[0..], "error union: {}\n", value);
-        assert(mem.eql(u8, result, "error union: 1234\n"));
+        try testFmt("error union: 1234\n", "error union: {}\n", value);
     }
     {
-        var buf1: [32]u8 = undefined;
         const value: error!i32 = error.InvalidChar;
-        const result = try bufPrint(buf1[0..], "error union: {}\n", value);
-        assert(mem.eql(u8, result, "error union: error.InvalidChar\n"));
+        try testFmt("error union: error.InvalidChar\n", "error union: {}\n", value);
     }
     {
-        var buf1: [32]u8 = undefined;
         const value: u3 = 0b101;
-        const result = try bufPrint(buf1[0..], "u3: {}\n", value);
-        assert(mem.eql(u8, result, "u3: 5\n"));
+        try testFmt("u3: 5\n", "u3: {}\n", value);
     }
-    {
-        var buf1: [32]u8 = undefined;
-        const value: usize = 63 * 1024 * 1024;
-        const result = try bufPrint(buf1[0..], "file size: {B}\n", value);
-        assert(mem.eql(u8, result, "file size: 63MB\n"));
-    }
+    try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
+    try testFmt("file size: 66.06MB\n", "file size: {B2}\n", usize(63 * 1024 * 1024));
     {
         // Dummy field because of https://github.com/zig-lang/zig/issues/557.
         const Struct = struct {
@@ -1023,6 +1038,20 @@ test "fmt.format" {
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
         assert(mem.eql(u8, result, "f64: 18014400656965630.00000\n"));
     }
+}
+
+fn testFmt(expected: []const u8, comptime template: []const u8, args: ...) !void {
+    var buf: [100]u8 = undefined;
+    const result = try bufPrint(buf[0..], template, args);
+    if (mem.eql(u8, result, expected))
+        return;
+
+    std.debug.warn("\n====== expected this output: =========\n");
+    std.debug.warn("{}", expected);
+    std.debug.warn("\n======== instead found this: =========\n");
+    std.debug.warn("{}", result);
+    std.debug.warn("\n======================================\n");
+    return error.TestFailed;
 }
 
 pub fn trim(buf: []const u8) []const u8 {

@@ -927,6 +927,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.Else => |dest| {
+                const old_index = tok_it.index;
+                var need_index_restore = false;
+                while (try eatLineComment(arena, &tok_it, &tree)) |_| {
+                    need_index_restore = true;
+                }
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_else)) |else_token| {
                     const node = try arena.construct(ast.Node.Else{
                         .base = ast.Node{ .id = ast.Node.Id.Else },
@@ -940,6 +945,9 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .Payload = OptionalCtx{ .Optional = &node.payload } });
                     continue;
                 } else {
+                    if (need_index_restore) {
+                        tok_it.set(old_index);
+                    }
                     continue;
                 }
             },
@@ -1297,7 +1305,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.SwitchCaseCommaOrEnd => |list_state| {
-                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RParen)) {
+                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RBrace)) {
                     ExpectCommaOrEndResult.end_token => |maybe_end| if (maybe_end) |end| {
                         (list_state.ptr).* = end;
                         continue;

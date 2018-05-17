@@ -702,6 +702,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsLinux:
         case OsMacOSX:
         case OsZen:
+        case OsOpenBSD:
             switch (id) {
                 case CIntTypeShort:
                 case CIntTypeUShort:
@@ -742,7 +743,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsKFreeBSD:
         case OsLv2:
         case OsNetBSD:
-        case OsOpenBSD:
         case OsSolaris:
         case OsHaiku:
         case OsMinix:

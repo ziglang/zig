@@ -81,7 +81,7 @@ fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, i
             }
             try stream.print("{}: ", tree.tokenSlice(field.name_token));
             try renderExpression(allocator, stream, tree, indent, field.type_expr);
-            try renderToken(tree, stream, field.lastToken() + 1, indent, true);
+            try renderToken(tree, stream, field.lastToken() + 1, indent, true, true);
         },
         ast.Node.Id.UnionTag => {
             const tag = @fieldParentPtr(ast.Node.UnionTag, "base", decl);
@@ -514,9 +514,9 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
         ast.Node.Id.GroupedExpression => {
             const grouped_expr = @fieldParentPtr(ast.Node.GroupedExpression, "base", base);
 
-            try stream.write("(");
+            try renderToken(tree, stream, grouped_expr.lparen, indent, false, false);
             try renderExpression(allocator, stream, tree, indent, grouped_expr.expr);
-            try stream.write(")");
+            try renderToken(tree, stream, grouped_expr.rparen, indent, false, false);
         },
 
         ast.Node.Id.FieldInitializer => {
@@ -528,7 +528,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
         ast.Node.Id.IntegerLiteral => {
             const integer_literal = @fieldParentPtr(ast.Node.IntegerLiteral, "base", base);
-            try stream.print("{}", tree.tokenSlice(integer_literal.token));
+            try renderToken(tree, stream, integer_literal.token, indent, false, false);
         },
         ast.Node.Id.FloatLiteral => {
             const float_literal = @fieldParentPtr(ast.Node.FloatLiteral, "base", base);
@@ -536,7 +536,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
         },
         ast.Node.Id.StringLiteral => {
             const string_literal = @fieldParentPtr(ast.Node.StringLiteral, "base", base);
-            try stream.print("{}", tree.tokenSlice(string_literal.token));
+            try renderToken(tree, stream, string_literal.token, indent, false, false);
         },
         ast.Node.Id.CharLiteral => {
             const char_literal = @fieldParentPtr(ast.Node.CharLiteral, "base", base);
@@ -830,7 +830,20 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             }
 
             try renderExpression(allocator, stream, tree, indent, switch_case.expr);
-            try renderToken(tree, stream, switch_case.lastToken() + 1, indent, true);
+            {
+                // Handle missing comma after last switch case
+                var index = switch_case.lastToken() + 1;
+                switch (tree.tokens.at(index).id) {
+                    Token.Id.RBrace => {
+                        try stream.write(",");
+                    },
+                    Token.Id.LineComment => {
+                        try stream.write(", ");
+                        try renderToken(tree, stream, index, indent, true, true);
+                    },
+                    else => try renderToken(tree, stream, index, indent, true, true),
+                }
+            }
         },
         ast.Node.Id.SwitchElse => {
             const switch_else = @fieldParentPtr(ast.Node.SwitchElse, "base", base);
@@ -838,6 +851,15 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
         },
         ast.Node.Id.Else => {
             const else_node = @fieldParentPtr(ast.Node.Else, "base", base);
+
+            var prev_tok_index = else_node.else_token - 1;
+            while (tree.tokens.at(prev_tok_index).id == Token.Id.LineComment) : (prev_tok_index -= 1) { }
+            prev_tok_index += 1;
+            while (prev_tok_index < else_node.else_token) : (prev_tok_index += 1) {
+                try stream.print("{}\n", tree.tokenSlice(prev_tok_index));
+                try stream.writeByteNTimes(' ', indent);
+            }
+
             try stream.print("{}", tree.tokenSlice(else_node.else_token));
 
             const block_body = switch (else_node.body.id) {
@@ -959,7 +981,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             try stream.print("{} (", tree.tokenSlice(if_node.if_token));
 
             try renderExpression(allocator, stream, tree, indent, if_node.condition);
-            try renderToken(tree, stream, if_node.condition.lastToken() + 1, indent, false);
+            try renderToken(tree, stream, if_node.condition.lastToken() + 1, indent, false, true);
 
             if (if_node.payload) |payload| {
                 try renderExpression(allocator, stream, tree, indent, payload);
@@ -1118,11 +1140,11 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
 fn renderVarDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, var_decl: &ast.Node.VarDecl) (@typeOf(stream).Child.Error || Error)!void {
     if (var_decl.visib_token) |visib_token| {
-        try stream.print("{} ", tree.tokenSlice(visib_token));
+        try renderToken(tree, stream, visib_token, indent, false, true);
     }
 
     if (var_decl.extern_export_token) |extern_export_token| {
-        try stream.print("{} ", tree.tokenSlice(extern_export_token));
+        try renderToken(tree, stream, extern_export_token, indent, false, true);
 
         if (var_decl.lib_name) |lib_name| {
             try renderExpression(allocator, stream, tree, indent, lib_name);
@@ -1131,10 +1153,11 @@ fn renderVarDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent
     }
 
     if (var_decl.comptime_token) |comptime_token| {
-        try stream.print("{} ", tree.tokenSlice(comptime_token));
+        try renderToken(tree, stream, comptime_token, indent, false, true);
     }
 
-    try stream.print("{} {}", tree.tokenSlice(var_decl.mut_token), tree.tokenSlice(var_decl.name_token));
+    try renderToken(tree, stream, var_decl.mut_token, indent, false, true);
+    try renderToken(tree, stream, var_decl.name_token, indent, false, false);
 
     if (var_decl.type_node) |type_node| {
         try stream.write(": ");
@@ -1153,14 +1176,14 @@ fn renderVarDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent
         try renderExpression(allocator, stream, tree, indent, init_node);
     }
 
-    try renderToken(tree, stream, var_decl.semicolon_token, indent, true);
+    try renderToken(tree, stream, var_decl.semicolon_token, indent, true, false);
 }
 
 fn maybeRenderSemicolon(stream: var, tree: &ast.Tree, indent: usize, base: &ast.Node) (@typeOf(stream).Child.Error || Error)!void {
     if (base.requireSemiColon()) {
         const semicolon_index = base.lastToken() + 1;
         assert(tree.tokens.at(semicolon_index).id == Token.Id.Semicolon);
-        try renderToken(tree, stream, semicolon_index, indent, true);
+        try renderToken(tree, stream, semicolon_index, indent, true, true);
     }
 }
 
@@ -1195,7 +1218,7 @@ fn renderStatement(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, inde
     }
 }
 
-fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, line_break: bool) (@typeOf(stream).Child.Error || Error)!void {
+fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, line_break: bool, space: bool) (@typeOf(stream).Child.Error || Error)!void {
     const token = tree.tokens.at(token_index);
     try stream.write(tree.tokenSlicePtr(token));
 
@@ -1206,13 +1229,19 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
             try stream.print(" {}", tree.tokenSlicePtr(next_token));
             if (!line_break) {
                 try stream.write("\n");
-                try stream.writeByteNTimes(' ', indent + indent_delta);
+
+                const after_comment_token = tree.tokens.at(token_index + 2);
+                const next_line_indent = switch (after_comment_token.id) {
+                    Token.Id.RParen, Token.Id.RBrace, Token.Id.RBracket => indent,
+                    else => indent + indent_delta,
+                };
+                try stream.writeByteNTimes(' ', next_line_indent);
                 return;
             }
         }
     }
 
-    if (!line_break) {
+    if (!line_break and space) {
         try stream.writeByte(' ');
     }
 }

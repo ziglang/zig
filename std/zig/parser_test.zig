@@ -1,3 +1,95 @@
+test "zig fmt: comment after if before another if" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    if (x) {
+        \\        foo();
+        \\    }
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: line comment between if block and else keyword" {
+    try testTransform(
+        \\test "aoeu" {
+        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
+        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
+        \\        return Complex(f32).new(y - y, y - y);
+        \\    }
+        \\    // cexp(-inf +- i inf|nan) = 0 + i0
+        \\    else if (hx & 0x80000000 != 0) {
+        \\        return Complex(f32).new(0, 0);
+        \\    }
+        \\    // cexp(+inf +- i inf|nan) = inf + i nan
+        \\    // another comment
+        \\    else {
+        \\        return Complex(f32).new(x, y - y);
+        \\    }
+        \\}
+    ,
+        \\test "aoeu" {
+        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
+        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
+        \\        return Complex(f32).new(y - y, y - y);
+        \\    } // cexp(-inf +- i inf|nan) = 0 + i0
+        \\    else if (hx & 0x80000000 != 0) {
+        \\        return Complex(f32).new(0, 0);
+        \\    } // cexp(+inf +- i inf|nan) = inf + i nan
+        \\    // another comment
+        \\    else {
+        \\        return Complex(f32).new(x, y - y);
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same line comments in expression" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    const x = ( // a
+        \\        0 // b
+        \\    ); // c
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: add comma on last switch prong" {
+    try testTransform(
+        \\test "aoeu" {
+        \\switch (self.init_arg_expr) {
+        \\    InitArg.Type => |t| { },
+        \\    InitArg.None,
+        \\    InitArg.Enum => { }
+        \\}
+        \\ switch (self.init_arg_expr) {
+        \\     InitArg.Type => |t| { },
+        \\     InitArg.None,
+        \\     InitArg.Enum => { }//line comment
+        \\ }
+        \\}
+    ,
+        \\test "aoeu" {
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None,
+        \\        InitArg.Enum => {},
+        \\    }
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None,
+        \\        InitArg.Enum => {}, //line comment
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: same-line doc comment on variable declaration" {
     try testTransform(
         \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space
