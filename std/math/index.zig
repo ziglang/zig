@@ -47,12 +47,12 @@ pub fn forceEval(value: var) void {
         f32 => {
             var x: f32 = undefined;
             const p = @ptrCast(&volatile f32, &x);
-            *p = x;
+            p.* = x;
         },
         f64 => {
             var x: f64 = undefined;
             const p = @ptrCast(&volatile f64, &x);
-            *p = x;
+            p.* = x;
         },
         else => {
             @compileError("forceEval not implemented for " ++ @typeName(T));
@@ -179,7 +179,6 @@ test "math" {
     _ = @import("complex/index.zig");
 }
 
-
 pub fn min(x: var, y: var) @typeOf(x + y) {
     return if (x < y) x else y;
 }
@@ -280,10 +279,10 @@ pub fn rotr(comptime T: type, x: T, r: var) T {
 }
 
 test "math.rotr" {
-    assert(rotr(u8, 0b00000001, usize(0))  == 0b00000001);
-    assert(rotr(u8, 0b00000001, usize(9))  == 0b10000000);
-    assert(rotr(u8, 0b00000001, usize(8))  == 0b00000001);
-    assert(rotr(u8, 0b00000001, usize(4))  == 0b00010000);
+    assert(rotr(u8, 0b00000001, usize(0)) == 0b00000001);
+    assert(rotr(u8, 0b00000001, usize(9)) == 0b10000000);
+    assert(rotr(u8, 0b00000001, usize(8)) == 0b00000001);
+    assert(rotr(u8, 0b00000001, usize(4)) == 0b00010000);
     assert(rotr(u8, 0b00000001, isize(-1)) == 0b00000010);
 }
 
@@ -299,13 +298,12 @@ pub fn rotl(comptime T: type, x: T, r: var) T {
 }
 
 test "math.rotl" {
-    assert(rotl(u8, 0b00000001, usize(0))  == 0b00000001);
-    assert(rotl(u8, 0b00000001, usize(9))  == 0b00000010);
-    assert(rotl(u8, 0b00000001, usize(8))  == 0b00000001);
-    assert(rotl(u8, 0b00000001, usize(4))  == 0b00010000);
+    assert(rotl(u8, 0b00000001, usize(0)) == 0b00000001);
+    assert(rotl(u8, 0b00000001, usize(9)) == 0b00000010);
+    assert(rotl(u8, 0b00000001, usize(8)) == 0b00000001);
+    assert(rotl(u8, 0b00000001, usize(4)) == 0b00010000);
     assert(rotl(u8, 0b00000001, isize(-1)) == 0b10000000);
 }
-
 
 pub fn Log2Int(comptime T: type) type {
     return @IntType(false, log2(T.bit_count));
@@ -323,14 +321,14 @@ fn testOverflow() void {
     assert((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-
 pub fn absInt(x: var) !@typeOf(x) {
     const T = @typeOf(x);
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
-    if (x == @minValue(@typeOf(x)))
+
+    if (x == @minValue(@typeOf(x))) {
         return error.Overflow;
-    {
+    } else {
         @setRuntimeSafety(false);
         return if (x < 0) -x else x;
     }
@@ -349,10 +347,8 @@ pub const absFloat = @import("fabs.zig").fabs;
 
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
-        return error.Overflow;
+    if (denominator == 0) return error.DivisionByZero;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
     return @divTrunc(numerator, denominator);
 }
 
@@ -372,10 +368,8 @@ fn testDivTrunc() void {
 
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
-        return error.Overflow;
+    if (denominator == 0) return error.DivisionByZero;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
     return @divFloor(numerator, denominator);
 }
 
@@ -395,13 +389,10 @@ fn testDivFloor() void {
 
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
-        return error.Overflow;
+    if (denominator == 0) return error.DivisionByZero;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
     const result = @divTrunc(numerator, denominator);
-    if (result * denominator != numerator)
-        return error.UnexpectedRemainder;
+    if (result * denominator != numerator) return error.UnexpectedRemainder;
     return result;
 }
 
@@ -423,10 +414,8 @@ fn testDivExact() void {
 
 pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (denominator < 0)
-        return error.NegativeDenominator;
+    if (denominator == 0) return error.DivisionByZero;
+    if (denominator < 0) return error.NegativeDenominator;
     return @mod(numerator, denominator);
 }
 
@@ -448,10 +437,8 @@ fn testMod() void {
 
 pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (denominator < 0)
-        return error.NegativeDenominator;
+    if (denominator == 0) return error.DivisionByZero;
+    if (denominator < 0) return error.NegativeDenominator;
     return @rem(numerator, denominator);
 }
 
@@ -475,8 +462,7 @@ fn testRem() void {
 /// Result is an unsigned integer.
 pub fn absCast(x: var) @IntType(false, @typeOf(x).bit_count) {
     const uint = @IntType(false, @typeOf(x).bit_count);
-    if (x >= 0)
-        return uint(x);
+    if (x >= 0) return uint(x);
 
     return uint(-(x + 1)) + 1;
 }
@@ -495,15 +481,12 @@ test "math.absCast" {
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
 pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
-    if (@typeOf(x).is_signed)
-        return negate(x);
+    if (@typeOf(x).is_signed) return negate(x);
 
     const int = @IntType(true, @typeOf(x).bit_count);
-    if (x > -@minValue(int))
-        return error.Overflow;
+    if (x > -@minValue(int)) return error.Overflow;
 
-    if (x == -@minValue(int))
-        return @minValue(int);
+    if (x == -@minValue(int)) return @minValue(int);
 
     return -int(x);
 }
@@ -546,7 +529,7 @@ pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     var x = value;
 
     comptime var i = 1;
-    inline while(T.bit_count > i) : (i *= 2) {
+    inline while (T.bit_count > i) : (i *= 2) {
         x |= (x >> i);
     }
 

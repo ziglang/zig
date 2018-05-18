@@ -8,7 +8,7 @@ pub fn ArrayList(comptime T: type) type {
     return AlignedArrayList(T, @alignOf(T));
 }
 
-pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
+pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
     return struct {
         const Self = this;
 
@@ -21,7 +21,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: &Allocator) Self {
-            return Self {
+            return Self{
                 .items = []align(A) T{},
                 .len = 0,
                 .allocator = allocator,
@@ -52,7 +52,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
         /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn fromOwnedSlice(allocator: &Allocator, slice: []align(A) T) Self {
-            return Self {
+            return Self{
                 .items = slice,
                 .len = slice.len,
                 .allocator = allocator,
@@ -63,7 +63,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
         pub fn toOwnedSlice(self: &Self) []align(A) T {
             const allocator = self.allocator;
             const result = allocator.alignedShrink(T, A, self.items, self.len);
-            *self = init(allocator);
+            self.* = init(allocator);
             return result;
         }
 
@@ -71,21 +71,21 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
             try l.ensureCapacity(l.len + 1);
             l.len += 1;
 
-            mem.copy(T, l.items[n+1..l.len], l.items[n..l.len-1]);
-            l.items[n] = *item;
+            mem.copy(T, l.items[n + 1..l.len], l.items[n..l.len - 1]);
+            l.items[n] = item.*;
         }
 
         pub fn insertSlice(l: &Self, n: usize, items: []align(A) const T) !void {
             try l.ensureCapacity(l.len + items.len);
             l.len += items.len;
 
-            mem.copy(T, l.items[n+items.len..l.len], l.items[n..l.len-items.len]);
-            mem.copy(T, l.items[n..n+items.len], items);
+            mem.copy(T, l.items[n + items.len..l.len], l.items[n..l.len - items.len]);
+            mem.copy(T, l.items[n..n + items.len], items);
         }
 
         pub fn append(l: &Self, item: &const T) !void {
             const new_item_ptr = try l.addOne();
-            *new_item_ptr = *item;
+            new_item_ptr.* = item.*;
         }
 
         pub fn appendSlice(l: &Self, items: []align(A) const T) !void {
@@ -128,8 +128,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
         }
 
         pub fn popOrNull(self: &Self) ?T {
-            if (self.len == 0)
-                return null;
+            if (self.len == 0) return null;
             return self.pop();
         }
 
@@ -160,13 +159,19 @@ test "basic ArrayList test" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
-    {var i: usize = 0; while (i < 10) : (i += 1) {
-        list.append(i32(i + 1)) catch unreachable;
-    }}
+    {
+        var i: usize = 0;
+        while (i < 10) : (i += 1) {
+            list.append(i32(i + 1)) catch unreachable;
+        }
+    }
 
-    {var i: usize = 0; while (i < 10) : (i += 1) {
-        assert(list.items[i] == i32(i + 1));
-    }}
+    {
+        var i: usize = 0;
+        while (i < 10) : (i += 1) {
+            assert(list.items[i] == i32(i + 1));
+        }
+    }
 
     for (list.toSlice()) |v, i| {
         assert(v == i32(i + 1));
@@ -179,14 +184,18 @@ test "basic ArrayList test" {
     assert(list.pop() == 10);
     assert(list.len == 9);
 
-    list.appendSlice([]const i32 { 1, 2, 3 }) catch unreachable;
+    list.appendSlice([]const i32{
+        1,
+        2,
+        3,
+    }) catch unreachable;
     assert(list.len == 12);
     assert(list.pop() == 3);
     assert(list.pop() == 2);
     assert(list.pop() == 1);
     assert(list.len == 9);
 
-    list.appendSlice([]const i32 {}) catch unreachable;
+    list.appendSlice([]const i32{}) catch unreachable;
     assert(list.len == 9);
 }
 
@@ -228,12 +237,15 @@ test "insert ArrayList test" {
     assert(list.items[0] == 5);
     assert(list.items[1] == 1);
 
-    try list.insertSlice(1, []const i32 { 9, 8 });
+    try list.insertSlice(1, []const i32{
+        9,
+        8,
+    });
     assert(list.items[0] == 5);
     assert(list.items[1] == 9);
     assert(list.items[2] == 8);
 
-    const items = []const i32 { 1 };
+    const items = []const i32{1};
     try list.insertSlice(0, items[0..0]);
     assert(list.items[0] == 5);
 }

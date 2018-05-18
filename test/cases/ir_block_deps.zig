@@ -11,7 +11,9 @@ fn foo(id: u64) !i32 {
     };
 }
 
-fn getErrInt() error!i32 { return 0; }
+fn getErrInt() error!i32 {
+    return 0;
+}
 
 test "ir block deps" {
     assert((foo(1) catch unreachable) == 0);

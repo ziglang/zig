@@ -31,9 +31,7 @@ pub const Buffer = struct {
     /// * ::replaceContentsBuffer
     /// * ::resize
     pub fn initNull(allocator: &Allocator) Buffer {
-        return Buffer {
-            .list = ArrayList(u8).init(allocator),
-        };
+        return Buffer{ .list = ArrayList(u8).init(allocator) };
     }
 
     /// Must deinitialize with deinit.
@@ -45,9 +43,7 @@ pub const Buffer = struct {
     /// allocated with `allocator`.
     /// Must deinitialize with deinit.
     pub fn fromOwnedSlice(allocator: &Allocator, slice: []u8) Buffer {
-        var self = Buffer {
-            .list = ArrayList(u8).fromOwnedSlice(allocator, slice),
-        };
+        var self = Buffer{ .list = ArrayList(u8).fromOwnedSlice(allocator, slice) };
         self.list.append(0);
         return self;
     }
@@ -57,10 +53,9 @@ pub const Buffer = struct {
     pub fn toOwnedSlice(self: &Buffer) []u8 {
         const allocator = self.list.allocator;
         const result = allocator.shrink(u8, self.list.items, self.len());
-        *self = initNull(allocator);
+        self.* = initNull(allocator);
         return result;
     }
-
 
     pub fn deinit(self: &Buffer) void {
         self.list.deinit();

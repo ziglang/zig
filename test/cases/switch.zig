@@ -6,7 +6,10 @@ test "switch with numbers" {
 
 fn testSwitchWithNumbers(x: u32) void {
     const result = switch (x) {
-        1, 2, 3, 4 ... 8 => false,
+        1,
+        2,
+        3,
+        4 ... 8 => false,
         13 => true,
         else => false,
     };
@@ -34,8 +37,10 @@ test "implicit comptime switch" {
     const result = switch (x) {
         3 => 10,
         4 => 11,
-        5, 6 => 12,
-        7, 8 => 13,
+        5,
+        6 => 12,
+        7,
+        8 => 13,
         else => 14,
     };
 
@@ -61,7 +66,6 @@ fn nonConstSwitchOnEnum(fruit: Fruit) void {
     }
 }
 
-
 test "switch statement" {
     nonConstSwitch(SwitchStatmentFoo.C);
 }
@@ -81,11 +85,16 @@ const SwitchStatmentFoo = enum {
     D,
 };
 
-
 test "switch prong with variable" {
-    switchProngWithVarFn(SwitchProngWithVarEnum { .One = 13});
-    switchProngWithVarFn(SwitchProngWithVarEnum { .Two = 13.0});
-    switchProngWithVarFn(SwitchProngWithVarEnum { .Meh = {}});
+    switchProngWithVarFn(SwitchProngWithVarEnum {
+        .One = 13,
+    });
+    switchProngWithVarFn(SwitchProngWithVarEnum {
+        .Two = 13.0,
+    });
+    switchProngWithVarFn(SwitchProngWithVarEnum {
+        .Meh = {},
+    });
 }
 const SwitchProngWithVarEnum = union(enum) {
     One: i32,
@@ -93,7 +102,7 @@ const SwitchProngWithVarEnum = union(enum) {
     Meh: void,
 };
 fn switchProngWithVarFn(a: &const SwitchProngWithVarEnum) void {
-    switch(*a) {
+    switch (a.*) {
         SwitchProngWithVarEnum.One => |x| {
             assert(x == 13);
         },
@@ -112,9 +121,11 @@ test "switch on enum using pointer capture" {
 }
 
 fn testSwitchEnumPtrCapture() void {
-    var value = SwitchProngWithVarEnum { .One = 1234 };
+    var value = SwitchProngWithVarEnum {
+        .One = 1234,
+    };
     switch (value) {
-        SwitchProngWithVarEnum.One => |*x| *x += 1,
+        SwitchProngWithVarEnum.One => |*x| x.* += 1,
         else => unreachable,
     }
     switch (value) {
@@ -125,8 +136,12 @@ fn testSwitchEnumPtrCapture() void {
 
 test "switch with multiple expressions" {
     const x = switch (returnsFive()) {
-        1, 2, 3 => 1,
-        4, 5, 6 => 2,
+        1,
+        2,
+        3 => 1,
+        4,
+        5,
+        6 => 2,
         else => i32(3),
     };
     assert(x == 2);
@@ -135,14 +150,15 @@ fn returnsFive() i32 {
     return 5;
 }
 
-
 const Number = union(enum) {
     One: u64,
     Two: u8,
     Three: f32,
 };
 
-const number = Number { .Three = 1.23 };
+const number = Number {
+    .Three = 1.23,
+};
 
 fn returnsFalse() bool {
     switch (number) {
@@ -198,7 +214,8 @@ fn testSwitchHandleAllCasesRange(x: u8) u8 {
     return switch (x) {
         0 ... 100 => u8(0),
         101 ... 200 => 1,
-        201, 203 => 2,
+        201,
+        203 => 2,
         202 => 4,
         204 ... 255 => 3,
     };

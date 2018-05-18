@@ -19,12 +19,12 @@ pub fn tan(x: var) @typeOf(x) {
 }
 
 const Tp0 = -1.30936939181383777646E4;
-const Tp1 =  1.15351664838587416140E6;
+const Tp1 = 1.15351664838587416140E6;
 const Tp2 = -1.79565251976484877988E7;
 
-const Tq1 =  1.36812963470692954678E4;
+const Tq1 = 1.36812963470692954678E4;
 const Tq2 = -1.32089234440210967447E6;
-const Tq3 =  2.50083801823357915839E7;
+const Tq3 = 2.50083801823357915839E7;
 const Tq4 = -5.38695755929454629881E7;
 
 // NOTE: This is taken from the go stdlib. The musl implementation is much more complex.

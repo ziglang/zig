@@ -1,7 +1,7 @@
 const assert = @import("std").debug.assert;
 
 test "nullable type" {
-    const x : ?bool = true;
+    const x: ?bool = true;
 
     if (x) |y| {
         if (y) {
@@ -13,13 +13,13 @@ test "nullable type" {
         unreachable;
     }
 
-    const next_x : ?i32 = null;
+    const next_x: ?i32 = null;
 
     const z = next_x ?? 1234;
 
     assert(z == 1234);
 
-    const final_x : ?i32 = 13;
+    const final_x: ?i32 = 13;
 
     const num = final_x ?? unreachable;
 
@@ -30,18 +30,16 @@ test "test maybe object and get a pointer to the inner value" {
     var maybe_bool: ?bool = true;
 
     if (maybe_bool) |*b| {
-        *b = false;
+        b.* = false;
     }
 
     assert(??maybe_bool == false);
 }
 
-
 test "rhs maybe unwrap return" {
     const x: ?bool = true;
     const y = x ?? return;
 }
-
 
 test "maybe return" {
     maybeReturnImpl();
@@ -50,8 +48,7 @@ test "maybe return" {
 
 fn maybeReturnImpl() void {
     assert(??foo(1235));
-    if (foo(null) != null)
-        unreachable;
+    if (foo(null) != null) unreachable;
     assert(!??foo(1234));
 }
 
@@ -60,12 +57,16 @@ fn foo(x: ?i32) ?bool {
     return value > 1234;
 }
 
-
 test "if var maybe pointer" {
-    assert(shouldBeAPlus1(Particle {.a = 14, .b = 1, .c = 1, .d = 1}) == 15);
+    assert(shouldBeAPlus1(Particle {
+        .a = 14,
+        .b = 1,
+        .c = 1,
+        .d = 1,
+    }) == 15);
 }
 fn shouldBeAPlus1(p: &const Particle) u64 {
-    var maybe_particle: ?Particle = *p;
+    var maybe_particle: ?Particle = p.*;
     if (maybe_particle) |*particle| {
         particle.a += 1;
     }
@@ -81,7 +82,6 @@ const Particle = struct {
     d: u64,
 };
 
-
 test "null literal outside function" {
     const is_null = here_is_a_null_literal.context == null;
     assert(is_null);
@@ -95,7 +95,6 @@ const SillyStruct = struct {
 const here_is_a_null_literal = SillyStruct {
     .context = null,
 };
-
 
 test "test null runtime" {
     testTestNullRuntime(null);
@@ -122,8 +121,6 @@ fn bar(x: ?void) ?void {
         return null;
     }
 }
-
-
 
 const StructWithNullable = struct {
     field: ?i32,

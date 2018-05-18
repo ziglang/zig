@@ -5,9 +5,18 @@ var index: usize = undefined;
 
 fn runSomeErrorDefers(x: bool) !bool {
     index = 0;
-    defer {result[index] = 'a'; index += 1;}
-    errdefer {result[index] = 'b'; index += 1;}
-    defer {result[index] = 'c'; index += 1;}
+    defer {
+        result[index] = 'a';
+        index += 1;
+    }
+    errdefer {
+        result[index] = 'b';
+        index += 1;
+    }
+    defer {
+        result[index] = 'c';
+        index += 1;
+    }
     return if (x) x else error.FalseNotAllowed;
 }
 

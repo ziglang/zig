@@ -7,7 +7,7 @@ const Token = std.zig.Token;
 
 const indent_delta = 4;
 
-pub const Error = error {
+pub const Error = error{
     /// Ran out of memory allocating call stack frames to complete rendering.
     OutOfMemory,
 };
@@ -17,9 +17,9 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(
 
     var it = tree.root_node.decls.iterator(0);
     while (it.next()) |decl| {
-        try renderTopLevelDecl(allocator, stream, tree, 0, *decl);
+        try renderTopLevelDecl(allocator, stream, tree, 0, decl.*);
         if (it.peek()) |next_decl| {
-            const n = if (nodeLineOffset(tree, *decl, *next_decl) >= 2) u8(2) else u8(1);
+            const n = if (nodeLineOffset(tree, decl.*, next_decl.*) >= 2) u8(2) else u8(1);
             try stream.writeByteNTimes('\n', n);
         }
     }
@@ -154,10 +154,10 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 var it = block.statements.iterator(0);
                 while (it.next()) |statement| {
                     try stream.writeByteNTimes(' ', block_indent);
-                    try renderStatement(allocator, stream, tree, block_indent, *statement);
+                    try renderStatement(allocator, stream, tree, block_indent, statement.*);
 
                     if (it.peek()) |next_statement| {
-                        const n = if (nodeLineOffset(tree, *statement, *next_statement) >= 2) u8(2) else u8(1);
+                        const n = if (nodeLineOffset(tree, statement.*, next_statement.*) >= 2) u8(2) else u8(1);
                         try stream.writeByteNTimes('\n', n);
                     }
                 }
@@ -203,7 +203,6 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 try stream.write(" ");
                 try renderExpression(allocator, stream, tree, indent, body);
             }
-
         },
 
         ast.Node.Id.InfixOp => {
@@ -307,12 +306,12 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 },
                 ast.Node.PrefixOp.Op.BitNot => try stream.write("~"),
                 ast.Node.PrefixOp.Op.BoolNot => try stream.write("!"),
-                ast.Node.PrefixOp.Op.Deref => try stream.write("*"),
                 ast.Node.PrefixOp.Op.Negation => try stream.write("-"),
                 ast.Node.PrefixOp.Op.NegationWrap => try stream.write("-%"),
                 ast.Node.PrefixOp.Op.Try => try stream.write("try "),
                 ast.Node.PrefixOp.Op.UnwrapMaybe => try stream.write("??"),
                 ast.Node.PrefixOp.Op.MaybeType => try stream.write("?"),
+                ast.Node.PrefixOp.Op.PointerType => try stream.write("*"),
                 ast.Node.PrefixOp.Op.Await => try stream.write("await "),
                 ast.Node.PrefixOp.Op.Cancel => try stream.write("cancel "),
                 ast.Node.PrefixOp.Op.Resume => try stream.write("resume "),
@@ -336,7 +335,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
                     var it = call_info.params.iterator(0);
                     while (it.next()) |param_node| {
-                        try renderExpression(allocator, stream, tree, indent, *param_node);
+                        try renderExpression(allocator, stream, tree, indent, param_node.*);
                         if (it.peek() != null) {
                             try stream.write(", ");
                         }
@@ -350,6 +349,11 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     try stream.write("[");
                     try renderExpression(allocator, stream, tree, indent, index_expr);
                     try stream.write("]");
+                },
+
+                ast.Node.SuffixOp.Op.Deref => {
+                    try renderExpression(allocator, stream, tree, indent, suffix_op.lhs);
+                    try stream.write(".*");
                 },
 
                 @TagType(ast.Node.SuffixOp.Op).Slice => |range| {
@@ -371,7 +375,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     }
 
                     if (field_inits.len == 1) {
-                        const field_init = *field_inits.at(0);
+                        const field_init = field_inits.at(0).*;
 
                         try renderExpression(allocator, stream, tree, indent, suffix_op.lhs);
                         try stream.write("{ ");
@@ -388,12 +392,12 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     var it = field_inits.iterator(0);
                     while (it.next()) |field_init| {
                         try stream.writeByteNTimes(' ', new_indent);
-                        try renderExpression(allocator, stream, tree, new_indent, *field_init);
-                        if ((*field_init).id != ast.Node.Id.LineComment) {
+                        try renderExpression(allocator, stream, tree, new_indent, field_init.*);
+                        if ((field_init.*).id != ast.Node.Id.LineComment) {
                             try stream.write(",");
                         }
                         if (it.peek()) |next_field_init| {
-                            const n = if (nodeLineOffset(tree, *field_init, *next_field_init) >= 2) u8(2) else u8(1);
+                            const n = if (nodeLineOffset(tree, field_init.*, next_field_init.*) >= 2) u8(2) else u8(1);
                             try stream.writeByteNTimes('\n', n);
                         }
                     }
@@ -404,14 +408,13 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 },
 
                 ast.Node.SuffixOp.Op.ArrayInitializer => |*exprs| {
-
                     if (exprs.len == 0) {
                         try renderExpression(allocator, stream, tree, indent, suffix_op.lhs);
                         try stream.write("{}");
                         return;
                     }
                     if (exprs.len == 1) {
-                        const expr = *exprs.at(0);
+                        const expr = exprs.at(0).*;
 
                         try renderExpression(allocator, stream, tree, indent, suffix_op.lhs);
                         try stream.write("{");
@@ -428,11 +431,11 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     var it = exprs.iterator(0);
                     while (it.next()) |expr| {
                         try stream.writeByteNTimes(' ', new_indent);
-                        try renderExpression(allocator, stream, tree, new_indent, *expr);
+                        try renderExpression(allocator, stream, tree, new_indent, expr.*);
                         try stream.write(",");
 
                         if (it.peek()) |next_expr| {
-                            const n = if (nodeLineOffset(tree, *expr, *next_expr) >= 2) u8(2) else u8(1);
+                            const n = if (nodeLineOffset(tree, expr.*, next_expr.*) >= 2) u8(2) else u8(1);
                             try stream.writeByteNTimes('\n', n);
                         }
                     }
@@ -465,7 +468,6 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 ast.Node.ControlFlowExpression.Kind.Return => {
                     try stream.print("return");
                 },
-
             }
 
             if (flow_expr.rhs) |rhs| {
@@ -571,7 +573,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             switch (container_decl.layout) {
                 ast.Node.ContainerDecl.Layout.Packed => try stream.print("packed "),
                 ast.Node.ContainerDecl.Layout.Extern => try stream.print("extern "),
-                ast.Node.ContainerDecl.Layout.Auto => { },
+                ast.Node.ContainerDecl.Layout.Auto => {},
             }
 
             switch (container_decl.kind) {
@@ -607,10 +609,10 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 var it = container_decl.fields_and_decls.iterator(0);
                 while (it.next()) |decl| {
                     try stream.writeByteNTimes(' ', new_indent);
-                    try renderTopLevelDecl(allocator, stream, tree, new_indent, *decl);
+                    try renderTopLevelDecl(allocator, stream, tree, new_indent, decl.*);
 
                     if (it.peek()) |next_decl| {
-                        const n = if (nodeLineOffset(tree, *decl, *next_decl) >= 2) u8(2) else u8(1);
+                        const n = if (nodeLineOffset(tree, decl.*, next_decl.*) >= 2) u8(2) else u8(1);
                         try stream.writeByteNTimes('\n', n);
                     }
                 }
@@ -630,7 +632,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             }
 
             if (err_set_decl.decls.len == 1) blk: {
-                const node = *err_set_decl.decls.at(0);
+                const node = err_set_decl.decls.at(0).*;
 
                 // if there are any doc comments or same line comments
                 // don't try to put it all on one line
@@ -639,7 +641,6 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 } else {
                     break :blk;
                 }
-
 
                 try stream.write("error{");
                 try renderTopLevelDecl(allocator, stream, tree, indent, node);
@@ -653,12 +654,12 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             var it = err_set_decl.decls.iterator(0);
             while (it.next()) |node| {
                 try stream.writeByteNTimes(' ', new_indent);
-                try renderTopLevelDecl(allocator, stream, tree, new_indent, *node);
-                if ((*node).id != ast.Node.Id.LineComment) {
+                try renderTopLevelDecl(allocator, stream, tree, new_indent, node.*);
+                if ((node.*).id != ast.Node.Id.LineComment) {
                     try stream.write(",");
                 }
                 if (it.peek()) |next_node| {
-                    const n = if (nodeLineOffset(tree, *node, *next_node) >= 2) u8(2) else u8(1);
+                    const n = if (nodeLineOffset(tree, node.*, next_node.*) >= 2) u8(2) else u8(1);
                     try stream.writeByteNTimes('\n', n);
                 }
             }
@@ -672,9 +673,9 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             const multiline_str_literal = @fieldParentPtr(ast.Node.MultilineStringLiteral, "base", base);
             try stream.print("\n");
 
-            var i : usize = 0;
+            var i: usize = 0;
             while (i < multiline_str_literal.lines.len) : (i += 1) {
-                const t = *multiline_str_literal.lines.at(i);
+                const t = multiline_str_literal.lines.at(i).*;
                 try stream.writeByteNTimes(' ', indent + indent_delta);
                 try stream.print("{}", tree.tokenSlice(t));
             }
@@ -691,7 +692,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
             var it = builtin_call.params.iterator(0);
             while (it.next()) |param_node| {
-                try renderExpression(allocator, stream, tree, indent, *param_node);
+                try renderExpression(allocator, stream, tree, indent, param_node.*);
                 if (it.peek() != null) {
                     try stream.write(", ");
                 }
@@ -736,7 +737,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
             var it = fn_proto.params.iterator(0);
             while (it.next()) |param_decl_node| {
-                try renderParamDecl(allocator, stream, tree, indent, *param_decl_node);
+                try renderParamDecl(allocator, stream, tree, indent, param_decl_node.*);
 
                 if (it.peek() != null) {
                     try stream.write(", ");
@@ -760,7 +761,6 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     try renderExpression(allocator, stream, tree, indent, node);
                 },
             }
-
         },
 
         ast.Node.Id.PromiseType => {
@@ -797,10 +797,10 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             var it = switch_node.cases.iterator(0);
             while (it.next()) |node| {
                 try stream.writeByteNTimes(' ', new_indent);
-                try renderExpression(allocator, stream, tree, new_indent, *node);
+                try renderExpression(allocator, stream, tree, new_indent, node.*);
 
                 if (it.peek()) |next_node| {
-                    const n = if (nodeLineOffset(tree, *node, *next_node) >= 2) u8(2) else u8(1);
+                    const n = if (nodeLineOffset(tree, node.*, next_node.*) >= 2) u8(2) else u8(1);
                     try stream.writeByteNTimes('\n', n);
                 }
             }
@@ -815,7 +815,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
             var it = switch_case.items.iterator(0);
             while (it.next()) |node| {
-                try renderExpression(allocator, stream, tree, indent, *node);
+                try renderExpression(allocator, stream, tree, indent, node.*);
 
                 if (it.peek() != null) {
                     try stream.write(",\n");
@@ -864,8 +864,10 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             try stream.print("{}", tree.tokenSlice(else_node.else_token));
 
             const block_body = switch (else_node.body.id) {
-                ast.Node.Id.Block, ast.Node.Id.If,
-                ast.Node.Id.For, ast.Node.Id.While,
+                ast.Node.Id.Block,
+                ast.Node.Id.If,
+                ast.Node.Id.For,
+                ast.Node.Id.While,
                 ast.Node.Id.Switch => true,
                 else => false,
             };
@@ -990,7 +992,11 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             try renderExpression(allocator, stream, tree, indent, if_node.body);
 
             switch (if_node.body.id) {
-                ast.Node.Id.Block, ast.Node.Id.If, ast.Node.Id.For, ast.Node.Id.While, ast.Node.Id.Switch => {
+                ast.Node.Id.Block,
+                ast.Node.Id.If,
+                ast.Node.Id.For,
+                ast.Node.Id.While,
+                ast.Node.Id.Switch => {
                     if (if_node.@"else") |@"else"| {
                         if (if_node.body.id == ast.Node.Id.Block) {
                             try stream.write(" ");
@@ -1013,7 +1019,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
                         try renderExpression(allocator, stream, tree, indent, @"else".body);
                     }
-                }
+                },
             }
         },
 
@@ -1036,11 +1042,11 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             {
                 var it = asm_node.outputs.iterator(0);
                 while (it.next()) |asm_output| {
-                    const node = &(*asm_output).base;
+                    const node = &(asm_output.*).base;
                     try renderExpression(allocator, stream, tree, indent_extra, node);
 
                     if (it.peek()) |next_asm_output| {
-                        const next_node = &(*next_asm_output).base;
+                        const next_node = &(next_asm_output.*).base;
                         const n = if (nodeLineOffset(tree, node, next_node) >= 2) u8(2) else u8(1);
                         try stream.writeByte(',');
                         try stream.writeByteNTimes('\n', n);
@@ -1056,11 +1062,11 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             {
                 var it = asm_node.inputs.iterator(0);
                 while (it.next()) |asm_input| {
-                    const node = &(*asm_input).base;
+                    const node = &(asm_input.*).base;
                     try renderExpression(allocator, stream, tree, indent_extra, node);
 
                     if (it.peek()) |next_asm_input| {
-                        const next_node = &(*next_asm_input).base;
+                        const next_node = &(next_asm_input.*).base;
                         const n = if (nodeLineOffset(tree, node, next_node) >= 2) u8(2) else u8(1);
                         try stream.writeByte(',');
                         try stream.writeByteNTimes('\n', n);
@@ -1076,7 +1082,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             {
                 var it = asm_node.clobbers.iterator(0);
                 while (it.next()) |node| {
-                    try renderExpression(allocator, stream, tree, indent_once, *node);
+                    try renderExpression(allocator, stream, tree, indent_once, node.*);
 
                     if (it.peek() != null) {
                         try stream.write(", ");
@@ -1245,8 +1251,7 @@ fn renderComments(tree: &ast.Tree, stream: var, node: var, indent: usize) (@type
     const comment = node.doc_comments ?? return;
     var it = comment.lines.iterator(0);
     while (it.next()) |line_token_index| {
-        try stream.print("{}\n", tree.tokenSlice(*line_token_index));
+        try stream.print("{}\n", tree.tokenSlice(line_token_index.*));
         try stream.writeByteNTimes(' ', indent);
     }
 }
-

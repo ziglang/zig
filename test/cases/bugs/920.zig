@@ -12,8 +12,7 @@ const ZigTable = struct {
     zero_case: fn(&Random, f64) f64,
 };
 
-fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn(f64) f64,
-       comptime f_inv: fn(f64) f64, comptime zero_case: fn(&Random, f64) f64) ZigTable {
+fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn(f64) f64, comptime f_inv: fn(f64) f64, comptime zero_case: fn(&Random, f64) f64) ZigTable {
     var tables: ZigTable = undefined;
 
     tables.is_symmetric = is_symmetric;
@@ -26,12 +25,12 @@ fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, co
 
     for (tables.x[2..256]) |*entry, i| {
         const last = tables.x[2 + i - 1];
-        *entry = f_inv(v / last + f(last));
+        entry.* = f_inv(v / last + f(last));
     }
     tables.x[256] = 0;
 
     for (tables.f[0..]) |*entry, i| {
-        *entry = f(tables.x[i]);
+        entry.* = f(tables.x[i]);
     }
 
     return tables;
@@ -40,9 +39,15 @@ fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, co
 const norm_r = 3.6541528853610088;
 const norm_v = 0.00492867323399;
 
-fn norm_f(x: f64) f64 { return math.exp(-x * x / 2.0); }
-fn norm_f_inv(y: f64) f64 { return math.sqrt(-2.0 * math.ln(y)); }
-fn norm_zero_case(random: &Random, u: f64) f64 { return 0.0; }
+fn norm_f(x: f64) f64 {
+    return math.exp(-x * x / 2.0);
+}
+fn norm_f_inv(y: f64) f64 {
+    return math.sqrt(-2.0 * math.ln(y));
+}
+fn norm_zero_case(random: &Random, u: f64) f64 {
+    return 0.0;
+}
 
 const NormalDist = blk: {
     @setEvalBranchQuota(30000);

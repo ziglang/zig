@@ -19,37 +19,29 @@ pub const Address = struct {
     os_addr: OsAddress,
 
     pub fn initIp4(ip4: u32, port: u16) Address {
-        return Address {
-            .os_addr = posix.sockaddr {
-                .in = posix.sockaddr_in {
-                    .family = posix.AF_INET,
-                    .port = std.mem.endianSwapIfLe(u16, port),
-                    .addr = ip4,
-                    .zero = []u8{0} ** 8,
-                },
-            },
-        };
+        return Address{ .os_addr = posix.sockaddr{ .in = posix.sockaddr_in{
+            .family = posix.AF_INET,
+            .port = std.mem.endianSwapIfLe(u16, port),
+            .addr = ip4,
+            .zero = []u8{0} ** 8,
+        } } };
     }
 
     pub fn initIp6(ip6: &const Ip6Addr, port: u16) Address {
-        return Address {
+        return Address{
             .family = posix.AF_INET6,
-            .os_addr = posix.sockaddr {
-                .in6 = posix.sockaddr_in6 {
-                    .family = posix.AF_INET6,
-                    .port = std.mem.endianSwapIfLe(u16, port),
-                    .flowinfo = 0,
-                    .addr = ip6.addr,
-                    .scope_id = ip6.scope_id,
-                },
-            },
+            .os_addr = posix.sockaddr{ .in6 = posix.sockaddr_in6{
+                .family = posix.AF_INET6,
+                .port = std.mem.endianSwapIfLe(u16, port),
+                .flowinfo = 0,
+                .addr = ip6.addr,
+                .scope_id = ip6.scope_id,
+            } },
         };
     }
 
     pub fn initPosix(addr: &const posix.sockaddr) Address {
-        return Address {
-            .os_addr = *addr,
-        };
+        return Address{ .os_addr = addr.* };
     }
 
     pub fn format(self: &const Address, out_stream: var) !void {
@@ -98,7 +90,7 @@ pub fn parseIp4(buf: []const u8) !u32 {
             }
         } else {
             return error.InvalidCharacter;
-        } 
+        }
     }
     if (index == 3 and saw_any_digits) {
         out_ptr[index] = x;

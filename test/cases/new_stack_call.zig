@@ -19,7 +19,7 @@ fn targetFunction(x: i32) usize {
 
     var local_variable: i32 = 42;
     const ptr = &local_variable;
-    *ptr += 1;
+    ptr.* += 1;
 
     assert(local_variable == 43);
     return @ptrToInt(ptr);

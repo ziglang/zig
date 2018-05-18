@@ -4609,8 +4609,14 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_gen_prefix_op_id_lval(IrBuilder *irb, Scope *scope, AstNode *node, IrUnOp op_id, LVal lval) {
-    assert(node->type == NodeTypePrefixOpExpr);
-    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
+    AstNode *expr_node;
+    if (node->type == NodeTypePrefixOpExpr) {
+        expr_node = node->data.prefix_op_expr.primary_expr;
+    } else if (node->type == NodeTypePtrDeref) {
+        expr_node = node->data.ptr_deref_expr.target;
+    } else {
+        zig_unreachable();
+    }
 
     IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope, lval);
     if (value == irb->codegen->invalid_instruction)
@@ -4751,8 +4757,6 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegation), lval);
         case PrefixOpNegationWrap:
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegationWrap), lval);
-        case PrefixOpDereference:
-            return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpDereference, lval);
         case PrefixOpMaybe:
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpMaybe), lval);
         case PrefixOpUnwrapMaybe:
@@ -6588,6 +6592,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
 
                 return ir_build_load_ptr(irb, scope, node, ptr_instruction);
             }
+        case NodeTypePtrDeref:
+            return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpDereference, lval);
         case NodeTypeThisLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_this_literal(irb, scope, node), lval);
         case NodeTypeBoolLiteral:

@@ -7,7 +7,6 @@ fn testParamsAdd(a: i32, b: i32) i32 {
     return a + b;
 }
 
-
 test "local variables" {
     testLocVars(2);
 }
@@ -15,7 +14,6 @@ fn testLocVars(b: i32) void {
     const a: i32 = 1;
     if (a + b != 3) unreachable;
 }
-
 
 test "void parameters" {
     voidFun(1, void{}, 2, {});
@@ -27,9 +25,8 @@ fn voidFun(a: i32, b: void, c: i32, d: void) void {
     return vv;
 }
 
-
 test "mutable local variables" {
-    var zero : i32 = 0;
+    var zero: i32 = 0;
     assert(zero == 0);
 
     var i = i32(0);
@@ -41,7 +38,7 @@ test "mutable local variables" {
 
 test "separate block scopes" {
     {
-        const no_conflict : i32 = 5;
+        const no_conflict: i32 = 5;
         assert(no_conflict == 5);
     }
 
@@ -56,8 +53,7 @@ test "call function with empty string" {
     acceptsString("");
 }
 
-fn acceptsString(foo: []u8) void { }
-
+fn acceptsString(foo: []u8) void {}
 
 fn @"weird function name"() i32 {
     return 1234;
@@ -70,31 +66,43 @@ test "implicit cast function unreachable return" {
     wantsFnWithVoid(fnWithUnreachable);
 }
 
-fn wantsFnWithVoid(f: fn() void) void { }
+fn wantsFnWithVoid(f: fn() void) void {}
 
 fn fnWithUnreachable() noreturn {
     unreachable;
 }
 
-
 test "function pointers" {
-    const fns = []@typeOf(fn1) { fn1, fn2, fn3, fn4, };
+    const fns = []@typeOf(fn1) {
+        fn1,
+        fn2,
+        fn3,
+        fn4,
+    };
     for (fns) |f, i| {
         assert(f() == u32(i) + 5);
     }
 }
-fn fn1() u32 {return 5;}
-fn fn2() u32 {return 6;}
-fn fn3() u32 {return 7;}
-fn fn4() u32 {return 8;}
-
+fn fn1() u32 {
+    return 5;
+}
+fn fn2() u32 {
+    return 6;
+}
+fn fn3() u32 {
+    return 7;
+}
+fn fn4() u32 {
+    return 8;
+}
 
 test "inline function call" {
     assert(@inlineCall(add, 3, 9) == 12);
 }
 
-fn add(a: i32, b: i32) i32 { return a + b; }
-
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
 
 test "number literal as an argument" {
     numberLiteralArg(3);
@@ -110,4 +118,4 @@ test "assign inline fn to const variable" {
     a();
 }
 
-inline fn inlineFn() void { }
+inline fn inlineFn() void {}
