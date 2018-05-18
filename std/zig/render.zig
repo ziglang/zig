@@ -311,6 +311,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 ast.Node.PrefixOp.Op.Try => try stream.write("try "),
                 ast.Node.PrefixOp.Op.UnwrapMaybe => try stream.write("??"),
                 ast.Node.PrefixOp.Op.MaybeType => try stream.write("?"),
+                ast.Node.PrefixOp.Op.PointerType => try stream.write("*"),
                 ast.Node.PrefixOp.Op.Await => try stream.write("await "),
                 ast.Node.PrefixOp.Op.Cancel => try stream.write("cancel "),
                 ast.Node.PrefixOp.Op.Resume => try stream.write("resume "),
@@ -350,7 +351,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     try stream.write("]");
                 },
 
-                ast.Node.SuffixOp.Op.SuffixOp => {
+                ast.Node.SuffixOp.Op.Deref => {
                     try renderExpression(allocator, stream, tree, indent, suffix_op.lhs);
                     try stream.write(".*");
                 },

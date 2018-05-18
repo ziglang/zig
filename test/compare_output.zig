@@ -287,9 +287,9 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\export fn compare_fn(a: ?&const c_void, b: ?&const c_void) c_int {
         \\    const a_int = @ptrCast(&align(1) const i32, a ?? unreachable);
         \\    const b_int = @ptrCast(&align(1) const i32, b ?? unreachable);
-        \\    if (*a_int < *b_int) {
+        \\    if (a_int.* < b_int.*) {
         \\        return -1;
-        \\    } else if (*a_int > *b_int) {
+        \\    } else if (a_int.* > b_int.*) {
         \\        return 1;
         \\    } else {
         \\        return 0;

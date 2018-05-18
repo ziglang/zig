@@ -3134,7 +3134,7 @@ fn tokenIdToPrefixOp(id: @TagType(Token.Id)) ?ast.Node.PrefixOp.Op {
         Token.Id.Minus => ast.Node.PrefixOp.Op{ .Negation = void{} },
         Token.Id.MinusPercent => ast.Node.PrefixOp.Op{ .NegationWrap = void{} },
         Token.Id.Asterisk,
-        Token.Id.AsteriskAsterisk => ast.Node.PrefixOp.Op{ .Deref = void{} },
+        Token.Id.AsteriskAsterisk => ast.Node.PrefixOp.Op{ .PointerType = void{} },
         Token.Id.Ampersand => ast.Node.PrefixOp.Op{ .AddrOf = ast.Node.PrefixOp.AddrOfInfo{
             .align_expr = null,
             .bit_offset_start_token = null,

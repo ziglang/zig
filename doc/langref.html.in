@@ -1232,7 +1232,7 @@ mem.eql(u8, pattern, "ababab")</code></pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">*a<code></pre></td>
+          <td><pre><code class="zig">a.*<code></pre></td>
           <td>
             <ul>
               <li>{#link|Pointers#}</li>
@@ -1244,7 +1244,7 @@ mem.eql(u8, pattern, "ababab")</code></pre>
           <td>
             <pre><code class="zig">const x: u32 = 1234;
 const ptr = &amp;x;
-*x == 1234</code></pre>
+x.* == 1234</code></pre>
           </td>
         </tr>
         <tr>
@@ -1258,7 +1258,7 @@ const ptr = &amp;x;
           <td>
             <pre><code class="zig">const x: u32 = 1234;
 const ptr = &amp;x;
-*x == 1234</code></pre>
+x.* == 1234</code></pre>
           </td>
         </tr>
       </table>
@@ -1267,8 +1267,8 @@ const ptr = &amp;x;
       {#header_open|Precedence#}
       <pre><code>x() x[] x.y
 a!b
-!x -x -%x ~x *x &amp;x ?x ??x
-x{}
+!x -x -%x ~x &amp;x ?x ??x
+x{} x.*
 ! * / % ** *%
 + - ++ +% -%
 &lt;&lt; &gt;&gt;
@@ -1316,7 +1316,7 @@ var some_integers: [100]i32 = undefined;
 
 test "modify an array" {
     for (some_integers) |*item, i| {
-        *item = i32(i);
+        item.* = i32(i);
     }
     assert(some_integers[10] == 10);
     assert(some_integers[99] == 99);
@@ -1357,7 +1357,7 @@ comptime {
 var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (initial_value) |*pt, i| {
-        *pt = Point {
+        pt.* = Point {
             .x = i32(i),
             .y = i32(i) * 2,
         };
@@ -1400,7 +1400,7 @@ test "address of syntax" {
     const x_ptr = &x;
 
     // Deference a pointer:
-    assert(*x_ptr == 1234);
+    assert(x_ptr.* == 1234);
 
     // When you get the address of a const variable, you get a const pointer.
     assert(@typeOf(x_ptr) == &const i32);
@@ -1409,8 +1409,8 @@ test "address of syntax" {
     var y: i32 = 5678;
     const y_ptr = &y;
     assert(@typeOf(y_ptr) == &i32);
-    *y_ptr += 1;
-    assert(*y_ptr == 5679);
+    y_ptr.* += 1;
+    assert(y_ptr.* == 5679);
 }
 
 test "pointer array access" {
@@ -1448,9 +1448,9 @@ comptime {
     // @ptrCast.
     var x: i32 = 1;
     const ptr = &x;
-    *ptr += 1;
+    ptr.* += 1;
     x += 1;
-    assert(*ptr == 3);
+    assert(ptr.* == 3);
 }
 
 test "@ptrToInt and @intToPtr" {
@@ -1492,7 +1492,7 @@ test "nullable pointers" {
     var x: i32 = 1;
     ptr = &x;
 
-    assert(*??ptr == 1);
+    assert((??ptr).* == 1);
 
     // Nullable pointers are the same size as normal pointers, because pointer
     // value 0 is used as the null value.
@@ -1505,7 +1505,7 @@ test "pointer casting" {
     // conversions are not possible.
     const bytes align(@alignOf(u32)) = []u8{0x12, 0x12, 0x12, 0x12};
     const u32_ptr = @ptrCast(&const u32, &bytes[0]);
-    assert(*u32_ptr == 0x12121212);
+    assert(u32_ptr.* == 0x12121212);
 
     // Even this example is contrived - there are better ways to do the above than
     // pointer casting. For example, using a slice narrowing cast:
@@ -1610,7 +1610,7 @@ fn foo(bytes: []u8) u32 {
       <code>u8</code> can alias any memory.
       </p>
       <p>As an example, this code produces undefined behavior:</p>
-      <pre><code class="zig">*@ptrCast(&amp;u32, f32(12.34))</code></pre>
+      <pre><code class="zig">@ptrCast(&amp;u32, f32(12.34)).*</code></pre>
       <p>Instead, use {#link|@bitCast#}:
       <pre><code class="zig">@bitCast(u32, f32(12.34))</code></pre>
       <p>As an added benefit, the <code>@bitcast</code> version works at compile-time.</p>
@@ -2040,7 +2040,7 @@ const Variant = union(enum) {
     Bool: bool,
 
     fn truthy(self: &const Variant) bool {
-        return switch (*self) {
+        return switch (self.*) {
             Variant.Int => |x_int| x_int != 0,
             Variant.Bool => |x_bool| x_bool,
         };
@@ -2151,7 +2151,7 @@ test "switch enum" {
 
         // A reference to the matched value can be obtained using `*` syntax.
         Item.C => |*item| blk: {
-            (*item).x += 1;
+            item.*.x += 1;
             break :blk 6;
         },
 
@@ -2374,7 +2374,7 @@ test "for reference" {
     // Iterate over the slice by reference by
     // specifying that the capture value is a pointer.
     for (items) |*value| {
-        *value += 1;
+        value.* += 1;
     }
 
     assert(items[0] == 4);
@@ -2483,7 +2483,7 @@ test "if nullable" {
     // Access the value by reference using a pointer capture.
     var c: ?u32 = 3;
     if (c) |*value| {
-        *value = 2;
+        value.* = 2;
     }
 
     if (c) |value| {
@@ -2524,7 +2524,7 @@ test "if error union" {
     // Access the value by reference using a pointer capture.
     var c: error!u32 = 3;
     if (c) |*value| {
-        *value = 9;
+        value.* = 9;
     } else |err| {
         unreachable;
     }
@@ -3872,7 +3872,7 @@ pub fn main() void {
       {#header_open|@addWithOverflow#}
       <pre><code class="zig">@addWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
       <p>
-      Performs <code>*result = a + b</code>. If overflow or underflow occurs,
+      Performs <code>result.* = a + b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
@@ -4073,9 +4073,9 @@ comptime {
       </p>
       {#code_begin|syntax#}
 fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
-    const old_value = *ptr;
+    const old_value = ptr.*;
     if (old_value == expected_value) {
-        *ptr = new_value;
+        ptr.* = new_value;
         return null;
     } else {
         return old_value;
@@ -4100,9 +4100,9 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_v
       </p>
       {#code_begin|syntax#}
 fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
-    const old_value = *ptr;
+    const old_value = ptr.*;
     if (old_value == expected_value and usuallyTrueButSometimesFalse()) {
-        *ptr = new_value;
+        ptr.* = new_value;
         return null;
     } else {
         return old_value;
@@ -4447,7 +4447,7 @@ mem.copy(u8, dest[0...byte_count], source[0...byte_count]);</code></pre>
       This function is a low level intrinsic with no safety mechanisms. Most
       code should not use this function, instead using something like this:
       </p>
-      <pre><code class="zig">for (dest[0...byte_count]) |*b| *b = c;</code></pre>
+      <pre><code class="zig">for (dest[0...byte_count]) |*b| b.* = c;</code></pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memset.
       </p>
@@ -4480,7 +4480,7 @@ mem.set(u8, dest, c);</code></pre>
       {#header_open|@mulWithOverflow#}
       <pre><code class="zig">@mulWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
       <p>
-      Performs <code>*result = a * b</code>. If overflow or underflow occurs,
+      Performs <code>result.* = a * b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
@@ -4514,7 +4514,7 @@ fn targetFunction(x: i32) usize {
 
     var local_variable: i32 = 42;
     const ptr = &local_variable;
-    *ptr += 1;
+    ptr.* += 1;
 
     assert(local_variable == 43);
     return @ptrToInt(ptr);
@@ -4746,7 +4746,7 @@ pub const FloatMode = enum {
       {#header_open|@shlWithOverflow#}
       <pre><code class="zig">@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: &T) -&gt; bool</code></pre>
       <p>
-      Performs <code>*result = a &lt;&lt; b</code>. If overflow or underflow occurs,
+      Performs <code>result.* = a &lt;&lt; b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
@@ -4790,7 +4790,7 @@ pub const FloatMode = enum {
       {#header_open|@subWithOverflow#}
       <pre><code class="zig">@subWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
       <p>
-      Performs <code>*result = a - b</code>. If overflow or underflow occurs,
+      Performs <code>result.* = a - b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>

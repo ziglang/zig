@@ -1485,6 +1485,7 @@ pub const Node = struct {
             BitNot,
             BoolNot,
             Cancel,
+            PointerType,
             MaybeType,
             Negation,
             NegationWrap,
