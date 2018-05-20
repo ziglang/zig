@@ -1,3 +1,10 @@
+test "zig fmt: ptr deref operator" {
+    try testCanonical(
+        \\const a = b.*;
+        \\
+    );
+}
+
 test "zig fmt: comment after if before another if" {
     try testCanonical(
         \\test "aoeu" {

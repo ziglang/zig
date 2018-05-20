@@ -2195,6 +2195,17 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Period => {
+                        if (eatToken(&tok_it, &tree, Token.Id.Asterisk)) |asterisk_token| {
+                            const node = try arena.construct(ast.Node.SuffixOp{
+                                .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
+                                .lhs = lhs,
+                                .op = ast.Node.SuffixOp.Op.Deref,
+                                .rtoken = asterisk_token,
+                            });
+                            opt_ctx.store(&node.base);
+                            stack.append(State{ .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                            continue;
+                        }
                         const node = try arena.construct(ast.Node.InfixOp{
                             .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                             .lhs = lhs,
