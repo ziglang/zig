@@ -49,10 +49,6 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 
         switch (state) {
             State.TopLevel => {
-                while (try eatLineComment(arena, &tok_it, &tree)) |line_comment| {
-                    try root_node.decls.push(&line_comment.base);
-                }
-
                 const comments = try eatDocComments(arena, &tok_it, &tree);
 
                 const token = nextToken(&tok_it, &tree);
@@ -80,7 +76,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         try stack.append(State{ .Block = block });
                         try stack.append(State{ .ExpectTokenSave = ExpectTokenSave{
                             .id = Token.Id.LBrace,
-                            .ptr = &block.rbrace,
+                            .ptr = &block.lbrace,
                         } });
                         try stack.append(State{ .StringLiteral = OptionalCtx{ .Required = &test_node.name } });
                         continue;
@@ -121,12 +117,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         try stack.append(State{ .Block = block });
                         try stack.append(State{ .ExpectTokenSave = ExpectTokenSave{
                             .id = Token.Id.LBrace,
-                            .ptr = &block.rbrace,
+                            .ptr = &block.lbrace,
                         } });
                         continue;
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         stack.append(State.TopLevel) catch unreachable;
                         try stack.append(State{ .TopLevelExtern = TopLevelDeclCtx{
                             .decls = &root_node.decls,
@@ -172,7 +168,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         stack.append(State{ .TopLevelDecl = ctx }) catch unreachable;
                         continue;
                     },
@@ -184,7 +180,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     const lib_name_token_index = lib_name_token.index;
                     const lib_name_token_ptr = lib_name_token.ptr;
                     break :blk (try parseStringLiteral(arena, &tok_it, lib_name_token_ptr, lib_name_token_index, &tree)) ?? {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         break :blk null;
                     };
                 };
@@ -211,6 +207,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 
                         const node = try arena.construct(ast.Node.Use{
                             .base = ast.Node{ .id = ast.Node.Id.Use },
+                            .use_token = token_index,
                             .visib_token = ctx.visib_token,
                             .expr = undefined,
                             .semicolon_token = undefined,
@@ -310,7 +307,6 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
             State.TopLevelExternOrField => |ctx| {
                 if (eatToken(&tok_it, &tree, Token.Id.Identifier)) |identifier| {
-                    std.debug.assert(ctx.container_decl.kind == ast.Node.ContainerDecl.Kind.Struct);
                     const node = try arena.construct(ast.Node.StructField{
                         .base = ast.Node{ .id = ast.Node.Id.StructField },
                         .doc_comments = ctx.comments,
@@ -343,7 +339,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const eq_tok_index = eq_tok.index;
                 const eq_tok_ptr = eq_tok.ptr;
                 if (eq_tok_ptr.id != Token.Id.Equal) {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
                 stack.append(State{ .Expression = ctx }) catch unreachable;
@@ -356,12 +352,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 const node = try arena.construct(ast.Node.ContainerDecl{
                     .base = ast.Node{ .id = ast.Node.Id.ContainerDecl },
-                    .ltoken = ctx.ltoken,
-                    .layout = ctx.layout,
-                    .kind = switch (token_ptr.id) {
-                        Token.Id.Keyword_struct => ast.Node.ContainerDecl.Kind.Struct,
-                        Token.Id.Keyword_union => ast.Node.ContainerDecl.Kind.Union,
-                        Token.Id.Keyword_enum => ast.Node.ContainerDecl.Kind.Enum,
+                    .layout_token = ctx.layout_token,
+                    .kind_token = switch (token_ptr.id) {
+                        Token.Id.Keyword_struct,
+                        Token.Id.Keyword_union,
+                        Token.Id.Keyword_enum => token_index,
                         else => {
                             ((try tree.errors.addOne())).* = Error{ .ExpectedAggregateKw = Error.ExpectedAggregateKw{ .token = token_index } };
                             return tree;
@@ -369,12 +364,16 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     .init_arg_expr = ast.Node.ContainerDecl.InitArg.None,
                     .fields_and_decls = ast.Node.ContainerDecl.DeclList.init(arena),
+                    .lbrace_token = undefined,
                     .rbrace_token = undefined,
                 });
                 ctx.opt_ctx.store(&node.base);
 
                 stack.append(State{ .ContainerDecl = node }) catch unreachable;
-                try stack.append(State{ .ExpectToken = Token.Id.LBrace });
+                try stack.append(State{ .ExpectTokenSave = ExpectTokenSave{
+                    .id = Token.Id.LBrace,
+                    .ptr = &node.lbrace_token,
+                } });
                 try stack.append(State{ .ContainerInitArgStart = node });
                 continue;
             },
@@ -403,11 +402,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             try stack.append(State{ .ExpectToken = Token.Id.RParen });
                             try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &container_decl.init_arg_expr.Enum } });
                         } else {
-                            putBackToken(&tok_it, &tree);
+                            prevToken(&tok_it, &tree);
                         }
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         container_decl.init_arg_expr = ast.Node.ContainerDecl.InitArg{ .Type = undefined };
                         stack.append(State{ .Expression = OptionalCtx{ .Required = &container_decl.init_arg_expr.Type } }) catch unreachable;
                     },
@@ -416,18 +415,14 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ContainerDecl => |container_decl| {
-                while (try eatLineComment(arena, &tok_it, &tree)) |line_comment| {
-                    try container_decl.fields_and_decls.push(&line_comment.base);
-                }
-
                 const comments = try eatDocComments(arena, &tok_it, &tree);
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Identifier => {
-                        switch (container_decl.kind) {
-                            ast.Node.ContainerDecl.Kind.Struct => {
+                        switch (tree.tokens.at(container_decl.kind_token).id) {
+                            Token.Id.Keyword_struct => {
                                 const node = try arena.construct(ast.Node.StructField{
                                     .base = ast.Node{ .id = ast.Node.Id.StructField },
                                     .doc_comments = comments,
@@ -443,7 +438,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 try stack.append(State{ .ExpectToken = Token.Id.Colon });
                                 continue;
                             },
-                            ast.Node.ContainerDecl.Kind.Union => {
+                            Token.Id.Keyword_union => {
                                 const node = try arena.construct(ast.Node.UnionTag{
                                     .base = ast.Node{ .id = ast.Node.Id.UnionTag },
                                     .name_token = token_index,
@@ -459,7 +454,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 try stack.append(State{ .IfToken = Token.Id.Colon });
                                 continue;
                             },
-                            ast.Node.ContainerDecl.Kind.Enum => {
+                            Token.Id.Keyword_enum => {
                                 const node = try arena.construct(ast.Node.EnumTag{
                                     .base = ast.Node{ .id = ast.Node.Id.EnumTag },
                                     .name_token = token_index,
@@ -473,11 +468,12 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                                 try stack.append(State{ .IfToken = Token.Id.Equal });
                                 continue;
                             },
+                            else => unreachable,
                         }
                     },
                     Token.Id.Keyword_pub => {
-                        switch (container_decl.kind) {
-                            ast.Node.ContainerDecl.Kind.Struct => {
+                        switch (tree.tokens.at(container_decl.kind_token).id) {
+                            Token.Id.Keyword_struct => {
                                 try stack.append(State{ .TopLevelExternOrField = TopLevelExternOrFieldCtx{
                                     .visib_token = token_index,
                                     .container_decl = container_decl,
@@ -518,7 +514,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
                         try stack.append(State{ .TopLevelExtern = TopLevelDeclCtx{
                             .decls = &container_decl.fields_and_decls,
@@ -573,7 +569,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                putBackToken(&tok_it, &tree);
+                prevToken(&tok_it, &tree);
                 continue;
             },
             State.VarDeclEq => |var_decl| {
@@ -616,7 +612,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     if (loc.line == 0) {
                         try pushDocComment(arena, doc_comment_token, &var_decl.doc_comments);
                     } else {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                     }
                 }
             },
@@ -688,7 +684,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             }
                         }
 
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         fn_proto.return_type = ast.Node.FnProto.ReturnType{ .Explicit = undefined };
                         stack.append(State{ .TypeExprBegin = OptionalCtx{ .Required = &fn_proto.return_type.Explicit } }) catch unreachable;
                         continue;
@@ -733,7 +729,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     if (eatToken(&tok_it, &tree, Token.Id.Colon)) |_| {
                         param_decl.name_token = ident_token;
                     } else {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                     }
                 }
                 continue;
@@ -838,7 +834,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             return tree;
                         }
 
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         continue;
                     },
                 }
@@ -872,7 +868,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                             return tree;
                         }
 
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         continue;
                     },
                 }
@@ -927,11 +923,6 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.Else => |dest| {
-                const old_index = tok_it.index;
-                var need_index_restore = false;
-                while (try eatLineComment(arena, &tok_it, &tree)) |_| {
-                    need_index_restore = true;
-                }
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_else)) |else_token| {
                     const node = try arena.construct(ast.Node.Else{
                         .base = ast.Node{ .id = ast.Node.Id.Else },
@@ -945,9 +936,6 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .Payload = OptionalCtx{ .Optional = &node.payload } });
                     continue;
                 } else {
-                    if (need_index_restore) {
-                        tok_it.set(old_index);
-                    }
                     continue;
                 }
             },
@@ -962,15 +950,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         stack.append(State{ .Block = block }) catch unreachable;
-
-                        var any_comments = false;
-                        while (try eatLineComment(arena, &tok_it, &tree)) |line_comment| {
-                            try block.statements.push(&line_comment.base);
-                            any_comments = true;
-                        }
-                        if (any_comments) continue;
 
                         try stack.append(State{ .Statement = block });
                         continue;
@@ -1035,7 +1016,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         const statement = try block.statements.addOne();
                         try stack.append(State{ .Semicolon = statement });
                         try stack.append(State{ .AssignmentExpressionBegin = OptionalCtx{ .Required = statement } });
@@ -1062,8 +1043,8 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         const statement = try ctx.block.statements.addOne();
                         try stack.append(State{ .Semicolon = statement });
                         try stack.append(State{ .Expression = OptionalCtx{ .Required = statement } });
@@ -1085,21 +1066,26 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lbracket_index = lbracket.index;
                 const lbracket_ptr = lbracket.ptr;
                 if (lbracket_ptr.id != Token.Id.LBracket) {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
 
                 const node = try arena.construct(ast.Node.AsmOutput{
                     .base = ast.Node{ .id = ast.Node.Id.AsmOutput },
+                    .lbracket = lbracket_index,
                     .symbolic_name = undefined,
                     .constraint = undefined,
                     .kind = undefined,
+                    .rparen = undefined,
                 });
                 try items.push(node);
 
                 stack.append(State{ .AsmOutputItems = items }) catch unreachable;
                 try stack.append(State{ .IfToken = Token.Id.Comma });
-                try stack.append(State{ .ExpectToken = Token.Id.RParen });
+                try stack.append(State{ .ExpectTokenSave = ExpectTokenSave{
+                    .id = Token.Id.RParen,
+                    .ptr = &node.rparen,
+                } });
                 try stack.append(State{ .AsmOutputReturnOrType = node });
                 try stack.append(State{ .ExpectToken = Token.Id.LParen });
                 try stack.append(State{ .StringLiteral = OptionalCtx{ .Required = &node.constraint } });
@@ -1132,21 +1118,26 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const lbracket_index = lbracket.index;
                 const lbracket_ptr = lbracket.ptr;
                 if (lbracket_ptr.id != Token.Id.LBracket) {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
 
                 const node = try arena.construct(ast.Node.AsmInput{
                     .base = ast.Node{ .id = ast.Node.Id.AsmInput },
+                    .lbracket = lbracket_index,
                     .symbolic_name = undefined,
                     .constraint = undefined,
                     .expr = undefined,
+                    .rparen = undefined,
                 });
                 try items.push(node);
 
                 stack.append(State{ .AsmInputItems = items }) catch unreachable;
                 try stack.append(State{ .IfToken = Token.Id.Comma });
-                try stack.append(State{ .ExpectToken = Token.Id.RParen });
+                try stack.append(State{ .ExpectTokenSave = ExpectTokenSave{
+                    .id = Token.Id.RParen,
+                    .ptr = &node.rparen,
+                } });
                 try stack.append(State{ .Expression = OptionalCtx{ .Required = &node.expr } });
                 try stack.append(State{ .ExpectToken = Token.Id.LParen });
                 try stack.append(State{ .StringLiteral = OptionalCtx{ .Required = &node.constraint } });
@@ -1187,10 +1178,6 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.FieldInitListItemOrEnd => |list_state| {
-                while (try eatLineComment(arena, &tok_it, &tree)) |line_comment| {
-                    try list_state.list.push(&line_comment.base);
-                }
-
                 if (eatToken(&tok_it, &tree, Token.Id.RBrace)) |rbrace| {
                     (list_state.ptr).* = rbrace;
                     continue;
@@ -1248,10 +1235,6 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.ErrorTagListItemOrEnd => |list_state| {
-                while (try eatLineComment(arena, &tok_it, &tree)) |line_comment| {
-                    try list_state.list.push(&line_comment.base);
-                }
-
                 if (eatToken(&tok_it, &tree, Token.Id.RBrace)) |rbrace| {
                     (list_state.ptr).* = rbrace;
                     continue;
@@ -1279,10 +1262,6 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.SwitchCaseOrEnd => |list_state| {
-                while (try eatLineComment(arena, &tok_it, &tree)) |line_comment| {
-                    try list_state.list.push(&line_comment.base);
-                }
-
                 if (eatToken(&tok_it, &tree, Token.Id.RBrace)) |rbrace| {
                     (list_state.ptr).* = rbrace;
                     continue;
@@ -1294,12 +1273,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     .items = ast.Node.SwitchCase.ItemList.init(arena),
                     .payload = null,
                     .expr = undefined,
+                    .arrow_token = undefined,
                 });
                 try list_state.list.push(&node.base);
                 try stack.append(State{ .SwitchCaseCommaOrEnd = list_state });
                 try stack.append(State{ .AssignmentExpressionBegin = OptionalCtx{ .Required = &node.expr } });
                 try stack.append(State{ .PointerPayload = OptionalCtx{ .Optional = &node.payload } });
-                try stack.append(State{ .SwitchCaseFirstItem = &node.items });
+                try stack.append(State{ .SwitchCaseFirstItem = node });
 
                 continue;
             },
@@ -1320,7 +1300,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
 
-            State.SwitchCaseFirstItem => |case_items| {
+            State.SwitchCaseFirstItem => |switch_case| {
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
@@ -1329,25 +1309,30 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         .base = ast.Node{ .id = ast.Node.Id.SwitchElse },
                         .token = token_index,
                     });
-                    try case_items.push(&else_node.base);
+                    try switch_case.items.push(&else_node.base);
 
-                    try stack.append(State{ .ExpectToken = Token.Id.EqualAngleBracketRight });
+                    try stack.append(State{ .ExpectTokenSave = ExpectTokenSave{
+                        .id = Token.Id.EqualAngleBracketRight,
+                        .ptr = &switch_case.arrow_token,
+                    } });
                     continue;
                 } else {
-                    putBackToken(&tok_it, &tree);
-                    try stack.append(State{ .SwitchCaseItem = case_items });
+                    prevToken(&tok_it, &tree);
+                    try stack.append(State{ .SwitchCaseItem = switch_case });
                     continue;
                 }
             },
-            State.SwitchCaseItem => |case_items| {
-                stack.append(State{ .SwitchCaseItemCommaOrEnd = case_items }) catch unreachable;
-                try stack.append(State{ .RangeExpressionBegin = OptionalCtx{ .Required = try case_items.addOne() } });
+            State.SwitchCaseItem => |node| {
+                stack.append(State{ .SwitchCaseItemCommaOrEnd = node }) catch unreachable;
+                try stack.append(State{ .RangeExpressionBegin = OptionalCtx{ .Required = try node.items.addOne() } });
             },
-            State.SwitchCaseItemCommaOrEnd => |case_items| {
+            State.SwitchCaseItemCommaOrEnd => |node| {
                 switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.EqualAngleBracketRight)) {
-                    ExpectCommaOrEndResult.end_token => |t| {
-                        if (t == null) {
-                            stack.append(State{ .SwitchCaseItem = case_items }) catch unreachable;
+                    ExpectCommaOrEndResult.end_token => |end_token| {
+                        if (end_token) |t| {
+                            node.arrow_token = t;
+                        } else {
+                            stack.append(State{ .SwitchCaseItem = node }) catch unreachable;
                         }
                         continue;
                     },
@@ -1429,8 +1414,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 
                 stack.append(State{ .ContainerKind = ContainerKindCtx{
                     .opt_ctx = ctx.opt_ctx,
-                    .ltoken = ctx.extern_token,
-                    .layout = ast.Node.ContainerDecl.Layout.Extern,
+                    .layout_token = ctx.extern_token,
                 } }) catch unreachable;
                 continue;
             },
@@ -1518,7 +1502,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         continue;
                     },
                 }
@@ -1537,7 +1521,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         return tree;
                     }
 
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
 
@@ -1569,7 +1553,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         return tree;
                     }
 
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
 
@@ -1606,7 +1590,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         return tree;
                     }
 
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
 
@@ -1691,7 +1675,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         if (!try parseBlockExpr(&stack, arena, opt_ctx, token_ptr, token_index)) {
-                            putBackToken(&tok_it, &tree);
+                            prevToken(&tok_it, &tree);
                             stack.append(State{ .UnwrapExpressionBegin = opt_ctx }) catch unreachable;
                         }
                         continue;
@@ -1744,7 +1728,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .Expression = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
             },
@@ -1779,7 +1763,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     }
                     continue;
                 } else {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
             },
@@ -1857,7 +1841,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .BinaryOrExpressionBegin = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
             },
@@ -1959,7 +1943,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .AdditionExpressionBegin = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
             },
@@ -1989,7 +1973,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .MultiplyExpressionBegin = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
             },
@@ -2019,7 +2003,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .CurlySuffixExpressionBegin = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     continue;
                 }
             },
@@ -2124,7 +2108,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     }
                     continue;
                 } else {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     stack.append(State{ .SuffixOpExpressionBegin = opt_ctx }) catch unreachable;
                     continue;
                 }
@@ -2220,7 +2204,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         continue;
                     },
                 }
@@ -2277,7 +2261,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                         const next_token_index = next_token.index;
                         const next_token_ptr = next_token.ptr;
                         if (next_token_ptr.id != Token.Id.Arrow) {
-                            putBackToken(&tok_it, &tree);
+                            prevToken(&tok_it, &tree);
                             continue;
                         }
                         node.result = ast.Node.PromiseType.Result{
@@ -2348,8 +2332,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Keyword_packed => {
                         stack.append(State{ .ContainerKind = ContainerKindCtx{
                             .opt_ctx = opt_ctx,
-                            .ltoken = token.index,
-                            .layout = ast.Node.ContainerDecl.Layout.Packed,
+                            .layout_token = token.index,
                         } }) catch unreachable;
                         continue;
                     },
@@ -2364,11 +2347,10 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Keyword_struct,
                     Token.Id.Keyword_union,
                     Token.Id.Keyword_enum => {
-                        putBackToken(&tok_it, &tree);
+                        prevToken(&tok_it, &tree);
                         stack.append(State{ .ContainerKind = ContainerKindCtx{
                             .opt_ctx = opt_ctx,
-                            .ltoken = token.index,
-                            .layout = ast.Node.ContainerDecl.Layout.Auto,
+                            .layout_token = null,
                         } }) catch unreachable;
                         continue;
                     },
@@ -2466,7 +2448,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         if (!try parseBlockExpr(&stack, arena, opt_ctx, token.ptr, token.index)) {
-                            putBackToken(&tok_it, &tree);
+                            prevToken(&tok_it, &tree);
                             if (opt_ctx != OptionalCtx.Optional) {
                                 ((try tree.errors.addOne())).* = Error{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr{ .token = token.index } };
                                 return tree;
@@ -2502,7 +2484,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 opt_ctx.store((try parseStringLiteral(arena, &tok_it, token_ptr, token_index, &tree)) ?? {
-                    putBackToken(&tok_it, &tree);
+                    prevToken(&tok_it, &tree);
                     if (opt_ctx != OptionalCtx.Optional) {
                         ((try tree.errors.addOne())).* = Error{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr{ .token = token_index } };
                         return tree;
@@ -2576,7 +2558,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     } };
                     return tree;
                 }
-                (expect_token_save.ptr).* = token_index;
+                expect_token_save.ptr.* = token_index;
                 continue;
             },
             State.IfToken => |token_id| {
@@ -2645,8 +2627,7 @@ const ExternTypeCtx = struct {
 
 const ContainerKindCtx = struct {
     opt_ctx: OptionalCtx,
-    ltoken: TokenIndex,
-    layout: ast.Node.ContainerDecl.Layout,
+    layout_token: ?TokenIndex,
 };
 
 const ExpectTokenSave = struct {
@@ -2808,9 +2789,9 @@ const State = union(enum) {
     ErrorTagListCommaOrEnd: ListSave(ast.Node.ErrorSetDecl.DeclList),
     SwitchCaseOrEnd: ListSave(ast.Node.Switch.CaseList),
     SwitchCaseCommaOrEnd: ListSave(ast.Node.Switch.CaseList),
-    SwitchCaseFirstItem: &ast.Node.SwitchCase.ItemList,
-    SwitchCaseItem: &ast.Node.SwitchCase.ItemList,
-    SwitchCaseItemCommaOrEnd: &ast.Node.SwitchCase.ItemList,
+    SwitchCaseFirstItem: &ast.Node.SwitchCase,
+    SwitchCaseItem: &ast.Node.SwitchCase,
+    SwitchCaseItemCommaOrEnd: &ast.Node.SwitchCase,
 
     SuspendBody: &ast.Node.Suspend,
     AsyncAllocator: &ast.Node.AsyncAttribute,
@@ -2899,14 +2880,6 @@ fn eatDocComments(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterator, t
     return result;
 }
 
-fn eatLineComment(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) !?&ast.Node.LineComment {
-    const token = eatToken(tok_it, tree, Token.Id.LineComment) ?? return null;
-    return try arena.construct(ast.Node.LineComment{
-        .base = ast.Node{ .id = ast.Node.Id.LineComment },
-        .token = token,
-    });
-}
-
 fn parseStringLiteral(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterator, token_ptr: &const Token, token_index: TokenIndex, tree: &ast.Tree) !?&ast.Node {
     switch (token_ptr.id) {
         Token.Id.StringLiteral => {
@@ -2923,7 +2896,7 @@ fn parseStringLiteral(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterato
                 const multiline_str_index = multiline_str.index;
                 const multiline_str_ptr = multiline_str.ptr;
                 if (multiline_str_ptr.id != Token.Id.MultilineStringLiteralLine) {
-                    putBackToken(tok_it, tree);
+                    prevToken(tok_it, tree);
                     break;
                 }
 
@@ -3176,11 +3149,12 @@ fn createToCtxLiteral(arena: &mem.Allocator, opt_ctx: &const OptionalCtx, compti
 }
 
 fn eatToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree, id: @TagType(Token.Id)) ?TokenIndex {
-    const token = nextToken(tok_it, tree);
+    const token = ??tok_it.peek();
 
-    if (token.ptr.id == id) return token.index;
+    if (token.id == id) {
+        return nextToken(tok_it, tree).index;
+    }
 
-    putBackToken(tok_it, tree);
     return null;
 }
 
@@ -3189,27 +3163,20 @@ fn nextToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) AnnotatedTok
         .index = tok_it.index,
         .ptr = ??tok_it.next(),
     };
-    // possibly skip a following same line token
-    const token = tok_it.next() ?? return result;
-    if (token.id != Token.Id.LineComment) {
-        putBackToken(tok_it, tree);
-        return result;
+    assert(result.ptr.id != Token.Id.LineComment);
+
+    while (true) {
+        const next_tok = tok_it.peek() ?? return result;
+        if (next_tok.id != Token.Id.LineComment) return result;
+        _ = tok_it.next();
     }
-    const loc = tree.tokenLocationPtr(result.ptr.end, token);
-    if (loc.line != 0) {
-        putBackToken(tok_it, tree);
-    }
-    return result;
 }
 
-fn putBackToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) void {
-    const prev_tok = ??tok_it.prev();
-    if (prev_tok.id == Token.Id.LineComment) {
-        const minus2_tok = tok_it.prev() ?? return;
-        const loc = tree.tokenLocationPtr(minus2_tok.end, prev_tok);
-        if (loc.line != 0) {
-            _ = tok_it.next();
-        }
+fn prevToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) void {
+    while (true) {
+        const prev_tok = tok_it.prev() ?? return;
+        if (prev_tok.id == Token.Id.LineComment) continue;
+        return;
     }
 }
 

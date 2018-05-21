@@ -1,3 +1,64 @@
+test "zig fmt: if-else end of comptime" {
+    try testCanonical(
+        \\comptime {
+        \\    if (a) {
+        \\        b();
+        \\    } else {
+        \\        b();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: nested blocks" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        {
+        \\            {
+        \\                a();
+        \\            }
+        \\        }
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: block with same line comment after end brace" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        b();
+        \\    } // comment
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: statements with comment between" {
+    try testCanonical(
+        \\comptime {
+        \\    a = b;
+        \\    // comment
+        \\    a = b;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: statements with empty line between" {
+    try testCanonical(
+        \\comptime {
+        \\    a = b;
+        \\
+        \\    a = b;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: ptr deref operator" {
     try testCanonical(
         \\const a = b.*;
@@ -7,6 +68,13 @@ test "zig fmt: ptr deref operator" {
 
 test "zig fmt: comment after if before another if" {
     try testCanonical(
+        \\test "aoeu" {
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
         \\test "aoeu" {
         \\    if (x) {
         \\        foo();
@@ -21,7 +89,7 @@ test "zig fmt: comment after if before another if" {
 }
 
 test "zig fmt: line comment between if block and else keyword" {
-    try testTransform(
+    try testCanonical(
         \\test "aoeu" {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
         \\    if ((hx & 0x7fffffff) != 0x7f800000) {
@@ -32,20 +100,6 @@ test "zig fmt: line comment between if block and else keyword" {
         \\        return Complex(f32).new(0, 0);
         \\    }
         \\    // cexp(+inf +- i inf|nan) = inf + i nan
-        \\    // another comment
-        \\    else {
-        \\        return Complex(f32).new(x, y - y);
-        \\    }
-        \\}
-    ,
-        \\test "aoeu" {
-        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
-        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-        \\        return Complex(f32).new(y - y, y - y);
-        \\    } // cexp(-inf +- i inf|nan) = 0 + i0
-        \\    else if (hx & 0x80000000 != 0) {
-        \\        return Complex(f32).new(0, 0);
-        \\    } // cexp(+inf +- i inf|nan) = inf + i nan
         \\    // another comment
         \\    else {
         \\        return Complex(f32).new(x, y - y);
@@ -651,6 +705,11 @@ test "zig fmt: multiline string" {
         \\        c\\one
         \\        c\\two)
         \\        c\\three
+        \\    ;
+        \\    const s3 = // hi
+        \\        \\one
+        \\        \\two)
+        \\        \\three
         \\    ;
         \\}
         \\

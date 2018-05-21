@@ -182,6 +182,9 @@ binary.
 
 This is the actual compiler binary that we will install to the system.
 
+*Note: Stage 2 compiler is not yet able to build Stage 3. Building Stage 3 is
+not yet supported.*
+
 #### Debug / Development Build
 
 ```

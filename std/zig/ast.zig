@@ -71,6 +71,24 @@ pub const Tree = struct {
     pub fn dump(self: &Tree) void {
         self.root_node.base.dump(0);
     }
+
+    /// Skips over comments
+    pub fn prevToken(self: &Tree, token_index: TokenIndex) TokenIndex {
+        var index = token_index - 1;
+        while (self.tokens.at(index).id == Token.Id.LineComment) {
+            index -= 1;
+        }
+        return index;
+    }
+
+    /// Skips over comments
+    pub fn nextToken(self: &Tree, token_index: TokenIndex) TokenIndex {
+        var index = token_index + 1;
+        while (self.tokens.at(index).id == Token.Id.LineComment) {
+            index += 1;
+        }
+        return index;
+    }
 };
 
 pub const Error = union(enum) {
@@ -272,7 +290,6 @@ pub const Node = struct {
         Block,
 
         // Misc
-        LineComment,
         DocComment,
         SwitchCase,
         SwitchElse,
@@ -359,7 +376,6 @@ pub const Node = struct {
                 Id.SwitchElse,
                 Id.FieldInitializer,
                 Id.DocComment,
-                Id.LineComment,
                 Id.TestDecl => return false,
                 Id.While => {
                     const while_node = @fieldParentPtr(While, "base", n);
@@ -506,6 +522,7 @@ pub const Node = struct {
         base: Node,
         doc_comments: ?&DocComment,
         visib_token: ?TokenIndex,
+        use_token: TokenIndex,
         expr: &Node,
         semicolon_token: TokenIndex,
 
@@ -520,7 +537,7 @@ pub const Node = struct {
 
         pub fn firstToken(self: &Use) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
-            return self.expr.firstToken();
+            return self.use_token;
         }
 
         pub fn lastToken(self: &Use) TokenIndex {
@@ -556,26 +573,14 @@ pub const Node = struct {
 
     pub const ContainerDecl = struct {
         base: Node,
-        ltoken: TokenIndex,
-        layout: Layout,
-        kind: Kind,
+        layout_token: ?TokenIndex,
+        kind_token: TokenIndex,
         init_arg_expr: InitArg,
         fields_and_decls: DeclList,
+        lbrace_token: TokenIndex,
         rbrace_token: TokenIndex,
 
         pub const DeclList = Root.DeclList;
-
-        const Layout = enum {
-            Auto,
-            Extern,
-            Packed,
-        };
-
-        const Kind = enum {
-            Struct,
-            Enum,
-            Union,
-        };
 
         const InitArg = union(enum) {
             None,
@@ -602,7 +607,10 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &ContainerDecl) TokenIndex {
-            return self.ltoken;
+            if (self.layout_token) |layout_token| {
+                return layout_token;
+            }
+            return self.kind_token;
         }
 
         pub fn lastToken(self: &ContainerDecl) TokenIndex {
@@ -1113,7 +1121,7 @@ pub const Node = struct {
         switch_token: TokenIndex,
         expr: &Node,
 
-        /// these can be SwitchCase nodes or LineComment nodes
+        /// these must be SwitchCase nodes
         cases: CaseList,
         rbrace: TokenIndex,
 
@@ -1143,6 +1151,7 @@ pub const Node = struct {
     pub const SwitchCase = struct {
         base: Node,
         items: ItemList,
+        arrow_token: TokenIndex,
         payload: ?&Node,
         expr: &Node,
 
@@ -1963,9 +1972,11 @@ pub const Node = struct {
 
     pub const AsmOutput = struct {
         base: Node,
+        lbracket: TokenIndex,
         symbolic_name: &Node,
         constraint: &Node,
         kind: Kind,
+        rparen: TokenIndex,
 
         const Kind = union(enum) {
             Variable: &Identifier,
@@ -1996,22 +2007,21 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &AsmOutput) TokenIndex {
-            return self.symbolic_name.firstToken();
+            return self.lbracket;
         }
 
         pub fn lastToken(self: &AsmOutput) TokenIndex {
-            return switch (self.kind) {
-                Kind.Variable => |variable_name| variable_name.lastToken(),
-                Kind.Return => |return_type| return_type.lastToken(),
-            };
+            return self.rparen;
         }
     };
 
     pub const AsmInput = struct {
         base: Node,
+        lbracket: TokenIndex,
         symbolic_name: &Node,
         constraint: &Node,
         expr: &Node,
+        rparen: TokenIndex,
 
         pub fn iterate(self: &AsmInput, index: usize) ?&Node {
             var i = index;
@@ -2029,11 +2039,11 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &AsmInput) TokenIndex {
-            return self.symbolic_name.firstToken();
+            return self.lbracket;
         }
 
         pub fn lastToken(self: &AsmInput) TokenIndex {
-            return self.expr.lastToken();
+            return self.rparen;
         }
     };
 
@@ -2122,23 +2132,6 @@ pub const Node = struct {
         }
 
         pub fn lastToken(self: &VarType) TokenIndex {
-            return self.token;
-        }
-    };
-
-    pub const LineComment = struct {
-        base: Node,
-        token: TokenIndex,
-
-        pub fn iterate(self: &LineComment, index: usize) ?&Node {
-            return null;
-        }
-
-        pub fn firstToken(self: &LineComment) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: &LineComment) TokenIndex {
             return self.token;
         }
     };
