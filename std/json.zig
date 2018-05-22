@@ -86,7 +86,7 @@ pub const Token = struct {
 // parsing state requires ~40-50 bytes of stack space.
 //
 // Conforms strictly to RFC8529.
-const StreamingJsonParser = struct {
+pub const StreamingJsonParser = struct {
     // Current state
     state: State,
     // How many bytes we have counted for the current token
