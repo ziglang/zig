@@ -3111,7 +3111,40 @@ test "error union" {
       {#code_end#}
       <p>TODO the <code>||</code> operator for error sets</p>
       {#header_open|Inferred Error Sets#}
-      <p>TODO</p>
+{#code_begin|syntax#}
+// Defining error set
+const NumberError = error {
+    Zero,
+    Negative,
+};
+
+// While you could define it like this explicitly saying the error domain.
+// Which means you can return an error like `error.InvalidX` as it is not
+// within the NumberError error enum.
+fn positiveAdd(a: i32, b: i32) NumberError!i32 {
+    if (a == 0 or b == 0) return NumberError.Zero;
+    if (a < 0 or b < 0) return NumberError.Negative;
+    return a + b;
+}
+
+// You could also just infer the error set from the given thrown errors
+fn inferAdd(a: i32, b: i32) !i32 {
+    // Note: you could either do NumberError.Zero here or just error.Zero
+    if (a == 0 or b == 0) return error.Zero;
+    if (a < 0 or b < 0) return error.Negative;
+    return a + b;
+}
+
+// Quick note: inferAdd creates a definition that has a return type that is;
+const InferAddErrorSet = error {
+    Zero,
+    Negative,
+};
+// Which since it contains only errors from NumberError it can be passed to functions like;
+fn printNumberError(err: NumberError) void { }
+// However if it also returned an error outside NumberError it would produce a compile error
+// if passed into the above function.
+{#code_end#}
       {#header_close#}
       {#header_close#}
       {#header_open|Error Return Traces#}
@@ -3878,7 +3911,12 @@ pub fn main() void {
       </p>
       {#header_close#}
       {#header_open|@ArgType#}
-      <p>TODO</p>
+      <pre><code class="zig">@ArgType(comptime T: type, comptime n: usize) -&gt; type</code></pre>
+      <p>
+      This builtin function takes a function type and returns the type of the 'n'th parameter.
+      </p>
+      <p>
+      <code>T</code> must be a function type, and <code>n</code> must be an <code>usize</code> integer.
       {#header_close#}
       {#header_open|@atomicLoad#}
       <pre><code class="zig">@atomicLoad(comptime T: type, ptr: &amp;const T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
