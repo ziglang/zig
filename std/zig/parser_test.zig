@@ -1,3 +1,11 @@
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\pub const f64_true_min = 4.94065645841246544177e-324;
+        \\const threshold = 0x1.a827999fcef32p+1022;
+        \\
+    );
+}
+
 test "zig fmt: if-else end of comptime" {
     try testCanonical(
         \\comptime {
@@ -234,13 +242,6 @@ test "zig fmt: switch with empty body" {
         \\test "" {
         \\    foo() catch |err| switch (err) {};
         \\}
-        \\
-    );
-}
-
-test "zig fmt: float literal with exponent" {
-    try testCanonical(
-        \\pub const f64_true_min = 4.94065645841246544177e-324;
         \\
     );
 }
