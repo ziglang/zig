@@ -1,3 +1,12 @@
+test "zig fmt: slice align" {
+    try testCanonical(
+        \\const A = struct {
+        \\    items: []align(A) T,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: first thing in file is line comment" {
     try testTransform(
         \\comptime {
