@@ -2,7 +2,6 @@
 
 const struct_trailing_comma = struct { x: i32, y: i32, };
 const struct_no_comma = struct { x: i32, y: i32 };
-const struct_no_comma_void_type = struct { x: i32, y };
 const struct_fn_no_comma = struct { fn m() void {} y: i32 };
 
 const enum_no_comma = enum { A, B };
