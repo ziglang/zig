@@ -582,7 +582,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "nonnull");
         }
         // Note: byval is disabled on windows due to an LLVM bug:
-        // https://github.com/zig-lang/zig/issues/536
+        // https://github.com/ziglang/zig/issues/536
         if (is_byval && g->zig_target.os != OsWindows) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "byval");
         }
@@ -3067,7 +3067,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
         FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
         // Note: byval is disabled on windows due to an LLVM bug:
-        // https://github.com/zig-lang/zig/issues/536
+        // https://github.com/ziglang/zig/issues/536
         if (gen_info->is_byval && g->zig_target.os != OsWindows) {
             addLLVMCallsiteAttr(result, (unsigned)gen_info->gen_index, "byval");
         }
@@ -6730,7 +6730,7 @@ static void init(CodeGen *g) {
     const char *target_specific_features;
     if (g->is_native_target) {
         // LLVM creates invalid binaries on Windows sometimes.
-        // See https://github.com/zig-lang/zig/issues/508
+        // See https://github.com/ziglang/zig/issues/508
         // As a workaround we do not use target native features on Windows.
         if (g->zig_target.os == OsWindows) {
             target_specific_cpu_args = "";

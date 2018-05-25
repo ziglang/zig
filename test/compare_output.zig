@@ -131,7 +131,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\const is_windows = builtin.os == builtin.Os.windows;
         \\const c = @cImport({
         \\    if (is_windows) {
-        \\        // See https://github.com/zig-lang/zig/issues/515
+        \\        // See https://github.com/ziglang/zig/issues/515
         \\        @cDefine("_NO_CRT_STDIO_INLINE", "1");
         \\        @cInclude("io.h");
         \\        @cInclude("fcntl.h");
@@ -316,7 +316,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\const is_windows = builtin.os == builtin.Os.windows;
         \\const c = @cImport({
         \\    if (is_windows) {
-        \\        // See https://github.com/zig-lang/zig/issues/515
+        \\        // See https://github.com/ziglang/zig/issues/515
         \\        @cDefine("_NO_CRT_STDIO_INLINE", "1");
         \\        @cInclude("io.h");
         \\        @cInclude("fcntl.h");

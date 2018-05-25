@@ -1,4 +1,4 @@
-// TODO https://github.com/zig-lang/zig/issues/305
+// TODO https://github.com/ziglang/zig/issues/305
 // and then make the return types of some of these functions the enum instead of c_int
 const LE_LESS = c_int(-1);
 const LE_EQUAL = c_int(0);
@@ -59,7 +59,7 @@ pub extern fn __letf2(a: f128, b: f128) c_int {
     ;
 }
 
-// TODO https://github.com/zig-lang/zig/issues/305
+// TODO https://github.com/ziglang/zig/issues/305
 // and then make the return types of some of these functions the enum instead of c_int
 const GE_LESS = c_int(-1);
 const GE_EQUAL = c_int(0);

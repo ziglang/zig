@@ -16,7 +16,7 @@ pub fn Queue(comptime T: type) type {
             data: T,
         };
 
-        // TODO: well defined copy elision: https://github.com/zig-lang/zig/issues/287
+        // TODO: well defined copy elision: https://github.com/ziglang/zig/issues/287
         pub fn init(self: &Self) void {
             self.root.next = null;
             self.head = &self.root;

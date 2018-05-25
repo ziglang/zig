@@ -204,7 +204,7 @@ test "error return trace across suspend points - async return" {
     cancel p2;
 }
 
-// TODO https://github.com/zig-lang/zig/issues/760
+// TODO https://github.com/ziglang/zig/issues/760
 fn nonFailing() (promise->error!void) {
     return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
 }

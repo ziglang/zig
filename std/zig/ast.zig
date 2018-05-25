@@ -113,7 +113,7 @@ pub const Error = union(enum) {
 
     pub fn render(self: &Error, tokens: &Tree.TokenList, stream: var) !void {
         switch (self.*) {
-            // TODO https://github.com/zig-lang/zig/issues/683
+            // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedAggregateKw => |*x| return x.render(tokens, stream),
@@ -137,7 +137,7 @@ pub const Error = union(enum) {
 
     pub fn loc(self: &Error) TokenIndex {
         switch (self.*) {
-            // TODO https://github.com/zig-lang/zig/issues/683
+            // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |x| return x.token,
             @TagType(Error).ExpectedVarDeclOrFn => |x| return x.token,
             @TagType(Error).ExpectedAggregateKw => |x| return x.token,

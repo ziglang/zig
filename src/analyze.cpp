@@ -1007,7 +1007,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (fn_type_id->return_type != nullptr) {
         ensure_complete_type(g, fn_type_id->return_type);
     } else {
-        zig_panic("TODO implement inferred return types https://github.com/zig-lang/zig/issues/447");
+        zig_panic("TODO implement inferred return types https://github.com/ziglang/zig/issues/447");
     }
 
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
@@ -1556,7 +1556,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             return g->builtin_types.entry_invalid;
         }
         add_node_error(g, proto_node,
-            buf_sprintf("TODO implement inferred return types https://github.com/zig-lang/zig/issues/447"));
+            buf_sprintf("TODO implement inferred return types https://github.com/ziglang/zig/issues/447"));
         return g->builtin_types.entry_invalid;
         //return get_generic_fn_type(g, &fn_type_id);
     }

@@ -148,7 +148,7 @@ pub const Loop = struct {
 };
 
 pub async fn connect(loop: &Loop, _address: &const std.net.Address) !std.os.File {
-    var address = _address.*; // TODO https://github.com/zig-lang/zig/issues/733
+    var address = _address.*; // TODO https://github.com/ziglang/zig/issues/733
 
     const sockfd = try std.os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC | posix.SOCK_NONBLOCK, posix.PROTO_tcp);
     errdefer std.os.close(sockfd);
@@ -172,7 +172,7 @@ test "listen on a port, send bytes, receive bytes" {
 
         async<&mem.Allocator> fn handler(tcp_server: &TcpServer, _addr: &const std.net.Address, _socket: &const std.os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
-            var socket = _socket.*; // TODO https://github.com/zig-lang/zig/issues/733
+            var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
             defer socket.close();
             const next_handler = async errorableHandler(self, _addr, socket) catch |err| switch (err) {
                 error.OutOfMemory => @panic("unable to handle connection: out of memory"),
@@ -186,8 +186,8 @@ test "listen on a port, send bytes, receive bytes" {
         }
 
         async fn errorableHandler(self: &Self, _addr: &const std.net.Address, _socket: &const std.os.File) !void {
-            const addr = _addr.*; // TODO https://github.com/zig-lang/zig/issues/733
-            var socket = _socket.*; // TODO https://github.com/zig-lang/zig/issues/733
+            const addr = _addr.*; // TODO https://github.com/ziglang/zig/issues/733
+            var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
 
             var adapter = std.io.FileOutStream.init(&socket);
             var stream = &adapter.stream;

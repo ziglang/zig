@@ -824,7 +824,7 @@ test "fmt.format" {
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
     try testFmt("file size: 66.06MB\n", "file size: {B2}\n", usize(63 * 1024 * 1024));
     {
-        // Dummy field because of https://github.com/zig-lang/zig/issues/557.
+        // Dummy field because of https://github.com/ziglang/zig/issues/557.
         const Struct = struct {
             unused: u8,
         };

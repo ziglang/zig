@@ -12130,7 +12130,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
             casted_arg->value.type->id == TypeTableEntryIdNumLitFloat)
     {
         ir_add_error(ira, casted_arg,
-            buf_sprintf("compiler bug: integer and float literals in var args function must be casted. https://github.com/zig-lang/zig/issues/557"));
+            buf_sprintf("compiler bug: integer and float literals in var args function must be casted. https://github.com/ziglang/zig/issues/557"));
         return false;
     }
 
@@ -12331,7 +12331,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         if (fn_proto_node->data.fn_proto.is_var_args) {
             ir_add_error(ira, &call_instruction->base,
-                    buf_sprintf("compiler bug: unable to call var args function at compile time. https://github.com/zig-lang/zig/issues/313"));
+                    buf_sprintf("compiler bug: unable to call var args function at compile time. https://github.com/ziglang/zig/issues/313"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -12424,7 +12424,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
         if (call_instruction->is_async && fn_type_id->is_var_args) {
             ir_add_error(ira, call_instruction->fn_ref,
-                buf_sprintf("compiler bug: TODO: implement var args async functions. https://github.com/zig-lang/zig/issues/557"));
+                buf_sprintf("compiler bug: TODO: implement var args async functions. https://github.com/ziglang/zig/issues/557"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -12507,7 +12507,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                     VariableTableEntry *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
                     if (arg_var == nullptr) {
                         ir_add_error(ira, arg,
-                            buf_sprintf("compiler bug: var args can't handle void. https://github.com/zig-lang/zig/issues/557"));
+                            buf_sprintf("compiler bug: var args can't handle void. https://github.com/ziglang/zig/issues/557"));
                         return ira->codegen->builtin_types.entry_invalid;
                     }
                     IrInstruction *arg_var_ptr_inst = ir_get_var_ptr(ira, arg, arg_var, true, false);

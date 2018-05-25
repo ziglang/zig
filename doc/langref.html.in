@@ -96,7 +96,7 @@
       </p>
       <p>
       If you search for something specific in this documentation and do not find it,
-      please <a href="https://github.com/zig-lang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
+      please <a href="https://github.com/ziglang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
       </p>
       <p>
       The code samples in this document are compiled and tested as part of the main test suite of Zig.
@@ -2827,7 +2827,7 @@ test "fn reflection" {
       </p>
       <p>
       The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/zig-lang/zig/issues/786">#768</a>.
+      However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
       You can implicitly cast an error from a subset to its superset:
@@ -5958,7 +5958,7 @@ pub fn main() void {
       {#code_begin|exe#}
       {#link_libc#}
 const c = @cImport({
-    // See https://github.com/zig-lang/zig/issues/515
+    // See https://github.com/ziglang/zig/issues/515
     @cDefine("_NO_CRT_STDIO_INLINE", "1");
     @cInclude("stdio.h");
 });
@@ -6301,7 +6301,7 @@ fn readU32Be() u32 {}
         <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
       </ul>
       <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code (except possbly the last line of the file).</p>
-      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
+      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/ziglang/zig/issues/663">issue #663</a></p>
       {#header_close#}
       {#header_open|Grammar#}
       <pre><code class="nohighlight">Root = many(TopLevelItem) EOF

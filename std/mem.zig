@@ -702,7 +702,7 @@ test "std.mem.rotate" {
     }));
 }
 
-// TODO: When https://github.com/zig-lang/zig/issues/649 is solved these can be done by
+// TODO: When https://github.com/ziglang/zig/issues/649 is solved these can be done by
 // endian-casting the pointer and then dereferencing
 
 pub fn endianSwapIfLe(comptime T: type, x: T) T {

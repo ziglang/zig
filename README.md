@@ -114,7 +114,7 @@ libc. Create demo games using Zig.
 
 ## Building
 
-[![Build Status](https://travis-ci.org/zig-lang/zig.svg?branch=master)](https://travis-ci.org/zig-lang/zig)
+[![Build Status](https://travis-ci.org/ziglang/zig.svg?branch=master)](https://travis-ci.org/ziglang/zig)
 [![Build status](https://ci.appveyor.com/api/projects/status/4t80mk2dmucrc38i/branch/master?svg=true)](https://ci.appveyor.com/project/andrewrk/zig-d3l86/branch/master)
 
 ### Stage 1: Build Zig from C++ Source Code
@@ -161,7 +161,7 @@ bin/zig build --build-file ../build.zig test
 
 ##### Windows
 
-See https://github.com/zig-lang/zig/wiki/Building-Zig-on-Windows
+See https://github.com/ziglang/zig/wiki/Building-Zig-on-Windows
 
 ### Stage 2: Build Self-Hosted Zig from Zig Source Code
 

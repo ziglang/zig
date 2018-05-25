@@ -239,7 +239,7 @@ pub fn close(handle: FileHandle) void {
 /// Calls POSIX read, and keeps trying if it gets interrupted.
 pub fn posixRead(fd: i32, buf: []u8) !void {
     // Linux can return EINVAL when read amount is > 0x7ffff000
-    // See https://github.com/zig-lang/zig/pull/743#issuecomment-363158274
+    // See https://github.com/ziglang/zig/pull/743#issuecomment-363158274
     const max_buf_len = 0x7ffff000;
 
     var index: usize = 0;
@@ -281,7 +281,7 @@ pub const PosixWriteError = error{
 /// Calls POSIX write, and keeps trying if it gets interrupted.
 pub fn posixWrite(fd: i32, bytes: []const u8) !void {
     // Linux can return EINVAL when write amount is > 0x7ffff000
-    // See https://github.com/zig-lang/zig/pull/743#issuecomment-363165856
+    // See https://github.com/ziglang/zig/pull/743#issuecomment-363165856
     const max_bytes_len = 0x7ffff000;
 
     var index: usize = 0;
@@ -2513,7 +2513,7 @@ pub const SpawnThreadError = error{
 /// caller must call wait on the returned thread
 pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread {
     // TODO compile-time call graph analysis to determine stack upper bound
-    // https://github.com/zig-lang/zig/issues/157
+    // https://github.com/ziglang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;
 
     const Context = @typeOf(context);
