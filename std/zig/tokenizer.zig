@@ -220,6 +220,8 @@ pub const Tokenizer = struct {
         MultilineStringLiteralLineBackslash,
         CharLiteral,
         CharLiteralBackslash,
+        CharLiteralEscape1,
+        CharLiteralEscape2,
         CharLiteralEnd,
         Backslash,
         Equal,
@@ -612,8 +614,31 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Invalid;
                         break;
                     },
+                    'x' => {
+                        state = State.CharLiteralEscape1;
+                    },
                     else => {
                         state = State.CharLiteralEnd;
+                    },
+                },
+
+                State.CharLiteralEscape1 => switch (c) {
+                    '0'...'9', 'a'...'z', 'A'...'F' => {
+                        state = State.CharLiteralEscape2;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
+                },
+
+                State.CharLiteralEscape2 => switch (c) {
+                    '0'...'9', 'a'...'z', 'A'...'F' => {
+                        state = State.CharLiteralEnd;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
 
@@ -988,6 +1013,8 @@ pub const Tokenizer = struct {
                 State.MultilineStringLiteralLineBackslash,
                 State.CharLiteral,
                 State.CharLiteralBackslash,
+                State.CharLiteralEscape1,
+                State.CharLiteralEscape2,
                 State.CharLiteralEnd,
                 State.StringLiteralBackslash => {
                     result.id = Token.Id.Invalid;
@@ -1124,6 +1151,13 @@ pub const Tokenizer = struct {
 test "tokenizer" {
     testTokenize("test", []Token.Id {
         Token.Id.Keyword_test,
+    });
+}
+
+test "tokenizer - char literal with hex escape" {
+    testTokenize( \\'\x1b'
+    , []Token.Id {
+        Token.Id.CharLiteral,
     });
 }
 

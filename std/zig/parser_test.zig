@@ -1,5 +1,18 @@
 test "zig fmt: float literal with exponent" {
     try testCanonical(
+        \\test "aoeu" {
+        \\    switch (state) {
+        \\        TermState.Start => switch (c) {
+        \\            '\x1b' => state = TermState.Escape,
+        \\            else => try out.writeByte(c),
+        \\        },
+        \\    }
+        \\}
+        \\
+    );
+}
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
         \\pub const f64_true_min = 4.94065645841246544177e-324;
         \\const threshold = 0x1.a827999fcef32p+1022;
         \\
