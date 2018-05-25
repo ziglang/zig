@@ -449,13 +449,16 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     var it = field_inits.iterator(0);
                     while (it.next()) |field_init| {
                         try stream.writeByteNTimes(' ', new_indent);
-                        try renderExpression(allocator, stream, tree, new_indent, field_init.*, Space.None);
-
-                        const comma = tree.nextToken(field_init.*.lastToken());
-                        try renderToken(tree, stream, comma, new_indent, Space.Newline);
 
                         if (it.peek()) |next_field_init| {
+                            try renderExpression(allocator, stream, tree, new_indent, field_init.*, Space.None);
+
+                            const comma = tree.nextToken(field_init.*.lastToken());
+                            try renderToken(tree, stream, comma, new_indent, Space.Newline);
+
                             try renderExtraNewline(tree, stream, next_field_init.*);
+                        } else {
+                            try renderTrailingComma(allocator, stream, tree, new_indent, field_init.*, Space.Newline);
                         }
                     }
 
@@ -499,7 +502,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
                             try renderExtraNewline(tree, stream, next_expr.*);
                         } else {
-                            try renderTrailingComma(allocator, stream, tree, indent, expr.*, Space.Newline);
+                            try renderTrailingComma(allocator, stream, tree, new_indent, expr.*, Space.Newline);
                         }
                     }
 
@@ -743,11 +746,14 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             var it = err_set_decl.decls.iterator(0);
             while (it.next()) |node| {
                 try stream.writeByteNTimes(' ', new_indent);
-                try renderExpression(allocator, stream, tree, new_indent, node.*, Space.None);
-                try renderToken(tree, stream, tree.nextToken(node.*.lastToken()), new_indent, Space.Newline); // ,
 
                 if (it.peek()) |next_node| {
+                    try renderExpression(allocator, stream, tree, new_indent, node.*, Space.None);
+                    try renderToken(tree, stream, tree.nextToken(node.*.lastToken()), new_indent, Space.Newline); // ,
+
                     try renderExtraNewline(tree, stream, next_node.*);
+                } else {
+                    try renderTrailingComma(allocator, stream, tree, new_indent, node.*, Space.Newline);
                 }
             }
 
