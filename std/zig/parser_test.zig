@@ -1,4 +1,24 @@
 test "zig fmt: first thing in file is line comment" {
+    try testTransform(
+        \\comptime {
+        \\    return []u16{'m', 's', 'y', 's', '-' // hi
+        \\   };
+        \\}
+    ,
+        \\comptime {
+        \\    return []u16{
+        \\        'm',
+        \\        's',
+        \\        'y',
+        \\        's',
+        \\        '-', // hi
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: first thing in file is line comment" {
     try testCanonical(
         \\// Introspection and determination of system libraries needed by zig.
         \\

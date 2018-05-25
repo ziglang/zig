@@ -490,13 +490,16 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     var it = exprs.iterator(0);
                     while (it.next()) |expr| {
                         try stream.writeByteNTimes(' ', new_indent);
-                        try renderExpression(allocator, stream, tree, new_indent, expr.*, Space.None);
-
-                        const comma = tree.nextToken(expr.*.lastToken());
-                        try renderToken(tree, stream, comma, new_indent, Space.Newline); // ,
 
                         if (it.peek()) |next_expr| {
+                            try renderExpression(allocator, stream, tree, new_indent, expr.*, Space.None);
+
+                            const comma = tree.nextToken(expr.*.lastToken());
+                            try renderToken(tree, stream, comma, new_indent, Space.Newline); // ,
+
                             try renderExtraNewline(tree, stream, next_expr.*);
+                        } else {
+                            try renderTrailingComma(allocator, stream, tree, indent, expr.*, Space.Newline);
                         }
                     }
 
@@ -950,24 +953,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 try renderExpression(allocator, stream, tree, indent, payload, Space.Space);
             }
 
-            // add a trailing comma if necessary
-            const end_token = switch_case.lastToken() + 1;
-            switch (tree.tokens.at(end_token).id) {
-                Token.Id.Comma => {
-                    try renderExpression(allocator, stream, tree, indent, switch_case.expr, Space.None);
-                    try renderToken(tree, stream, end_token, indent, space); // ,
-                },
-                Token.Id.LineComment => {
-                    try renderExpression(allocator, stream, tree, indent, switch_case.expr, Space.NoComment);
-                    try stream.write(", ");
-                    try renderToken(tree, stream, end_token, indent, space);
-                },
-                else => {
-                    try renderExpression(allocator, stream, tree, indent, switch_case.expr, Space.None);
-                    try stream.write(",\n");
-                    assert(space == Space.Newline);
-                },
-            }
+            try renderTrailingComma(allocator, stream, tree, indent, switch_case.expr, space);
         },
         ast.Node.Id.SwitchElse => {
             const switch_else = @fieldParentPtr(ast.Node.SwitchElse, "base", base);
@@ -1471,5 +1457,27 @@ fn renderDocComments(tree: &ast.Tree, stream: var, node: var, indent: usize) (@t
     while (it.next()) |line_token_index| {
         try renderToken(tree, stream, line_token_index.*, indent, Space.Newline);
         try stream.writeByteNTimes(' ', indent);
+    }
+}
+
+fn renderTrailingComma(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, base: &ast.Node,
+    space: Space) (@typeOf(stream).Child.Error || Error)!void
+{
+    const end_token = base.lastToken() + 1;
+    switch (tree.tokens.at(end_token).id) {
+        Token.Id.Comma => {
+            try renderExpression(allocator, stream, tree, indent, base, Space.None);
+            try renderToken(tree, stream, end_token, indent, space); // ,
+        },
+        Token.Id.LineComment => {
+            try renderExpression(allocator, stream, tree, indent, base, Space.NoComment);
+            try stream.write(", ");
+            try renderToken(tree, stream, end_token, indent, space);
+        },
+        else => {
+            try renderExpression(allocator, stream, tree, indent, base, Space.None);
+            try stream.write(",\n");
+            assert(space == Space.Newline);
+        },
     }
 }
