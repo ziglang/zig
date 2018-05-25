@@ -15,6 +15,20 @@ pub const Error = error{
 pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(stream).Child.Error || Error)!void {
     comptime assert(@typeId(@typeOf(stream)) == builtin.TypeId.Pointer);
 
+    // render all the line comments at the beginning of the file
+    var tok_it = tree.tokens.iterator(0);
+    while (tok_it.next()) |token| {
+        if (token.id != Token.Id.LineComment) break;
+        try stream.print("{}\n", tree.tokenSlicePtr(token));
+        if (tok_it.peek()) |next_token| {
+            const loc = tree.tokenLocationPtr(token.end, next_token);
+            if (loc.line >= 2) {
+                try stream.writeByte('\n');
+            }
+        }
+    }
+
+
     var it = tree.root_node.decls.iterator(0);
     while (it.next()) |decl| {
         try renderTopLevelDecl(allocator, stream, tree, 0, decl.*);
@@ -1455,7 +1469,7 @@ fn renderDocComments(tree: &ast.Tree, stream: var, node: var, indent: usize) (@t
     const comment = node.doc_comments ?? return;
     var it = comment.lines.iterator(0);
     while (it.next()) |line_token_index| {
-        try stream.print("{}\n", tree.tokenSlice(line_token_index.*));
+        try renderToken(tree, stream, line_token_index.*, indent, Space.Newline);
         try stream.writeByteNTimes(' ', indent);
     }
 }

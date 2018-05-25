@@ -1,3 +1,23 @@
+test "zig fmt: first thing in file is line comment" {
+    try testCanonical(
+        \\// Introspection and determination of system libraries needed by zig.
+        \\
+        \\// Introspection and determination of system libraries needed by zig.
+        \\
+        \\const std = @import("std");
+        \\
+    );
+}
+
+test "zig fmt: line comment after doc comment" {
+    try testCanonical(
+        \\/// doc comment
+        \\// line comment
+        \\fn foo() void {}
+        \\
+    );
+}
+
 test "zig fmt: float literal with exponent" {
     try testCanonical(
         \\test "bit field alignment" {

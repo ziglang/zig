@@ -41,6 +41,13 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
     }
     var tok_it = tree.tokens.iterator(0);
 
+    // skip over line comments at the top of the file
+    while (true) {
+        const next_tok = tok_it.peek() ?? break;
+        if (next_tok.id != Token.Id.LineComment) break;
+        _ = tok_it.next();
+    }
+
     try stack.append(State.TopLevel);
 
     while (true) {
