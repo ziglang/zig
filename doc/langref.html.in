@@ -3111,40 +3111,48 @@ test "error union" {
       {#code_end#}
       <p>TODO the <code>||</code> operator for error sets</p>
       {#header_open|Inferred Error Sets#}
-{#code_begin|syntax#}
-// Defining error set
-const NumberError = error {
-    Zero,
-    Negative,
-};
-
-// While you could define it like this explicitly saying the error domain.
-// Which means you can return an error like `error.InvalidX` as it is not
-// within the NumberError error enum.
-fn positiveAdd(a: i32, b: i32) NumberError!i32 {
-    if (a == 0 or b == 0) return NumberError.Zero;
-    if (a < 0 or b < 0) return NumberError.Negative;
-    return a + b;
+      <p>
+      Because many functions in Zig return a possible error, Zig supports inferring the error set.
+      To infer the error set for a function, use this syntax:
+      </p>
+{#code_begin|test#}
+// With an inferred error set
+pub fn add_inferred(comptime T: type, a: T, b: T) !T {
+    var answer: T = undefined;
+    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-// You could also just infer the error set from the given thrown errors
-fn inferAdd(a: i32, b: i32) !i32 {
-    // Note: you could either do NumberError.Zero here or just error.Zero
-    if (a == 0 or b == 0) return error.Zero;
-    if (a < 0 or b < 0) return error.Negative;
-    return a + b;
+// With an explicit error set
+pub fn add_explicit(comptime T: type, a: T, b: T) Error!T {
+    var answer: T = undefined;
+    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-// Quick note: inferAdd creates a definition that has a return type that is;
-const InferAddErrorSet = error {
-    Zero,
-    Negative,
+const Error = error {
+    Overflow,
 };
-// Which since it contains only errors from NumberError it can be passed to functions like;
-fn printNumberError(err: NumberError) void { }
-// However if it also returned an error outside NumberError it would produce a compile error
-// if passed into the above function.
+
+const std = @import("std");
+
+test "inferred error set" {
+    if (add_inferred(u8, 255, 1)) |_| unreachable else |err| switch (err) {
+        error.Overflow => {}, // ok
+    }
+}
 {#code_end#}
+      <p>
+      When a function has an inferred error set, that function becomes generic and thus it becomes
+      trickier to do certain things with it, such as obtain a function pointer, or have an error
+      set that is consistent across different build targets. Additionally, inferred error sets
+      are incompatible with recursion.
+      </p>
+      <p>
+      In these situations, it is recommended to use an explicit error set. You can generally start
+      with an empty error set and let compile errors guide you toward completing the set.
+      </p>
+      <p>
+      These limitations may be overcome in a future version of Zig.
+      </p>
       {#header_close#}
       {#header_close#}
       {#header_open|Error Return Traces#}
@@ -3913,10 +3921,14 @@ pub fn main() void {
       {#header_open|@ArgType#}
       <pre><code class="zig">@ArgType(comptime T: type, comptime n: usize) -&gt; type</code></pre>
       <p>
-      This builtin function takes a function type and returns the type of the 'n'th parameter.
+      This builtin function takes a function type and returns the type of the parameter at index <code>n</code>.
       </p>
       <p>
-      <code>T</code> must be a function type, and <code>n</code> must be an <code>usize</code> integer.
+      <code>T</code> must be a function type.
+      </p>
+      <p>
+      Note: This function is deprecated. Use {#link|@typeInfo#} instead.
+      </p>
       {#header_close#}
       {#header_open|@atomicLoad#}
       <pre><code class="zig">@atomicLoad(comptime T: type, ptr: &amp;const T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
