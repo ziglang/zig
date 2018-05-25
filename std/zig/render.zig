@@ -253,17 +253,30 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             switch (prefix_op_node.op) {
                 ast.Node.PrefixOp.Op.AddrOf => |addr_of_info| {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, Space.None); // &
-                    if (addr_of_info.align_expr) |align_expr| {
+                    if (addr_of_info.align_info) |align_info| {
                         const align_token = tree.nextToken(prefix_op_node.op_token);
                         try renderToken(tree, stream, align_token, indent, Space.None); // align
 
-                        const lparen_token = tree.prevToken(align_expr.firstToken());
+                        const lparen_token = tree.prevToken(align_info.node.firstToken());
                         try renderToken(tree, stream, lparen_token, indent, Space.None); // (
 
-                        try renderExpression(allocator, stream, tree, indent, align_expr, Space.None);
+                        try renderExpression(allocator, stream, tree, indent, align_info.node, Space.None);
 
-                        const rparen_token = tree.nextToken(align_expr.lastToken());
-                        try renderToken(tree, stream, rparen_token, indent, Space.Space); // )
+                        if (align_info.bit_range) |bit_range| {
+                            const colon1 = tree.prevToken(bit_range.start.firstToken());
+                            const colon2 = tree.prevToken(bit_range.end.firstToken());
+
+                            try renderToken(tree, stream, colon1, indent, Space.None); // :
+                            try renderExpression(allocator, stream, tree, indent, bit_range.start, Space.None);
+                            try renderToken(tree, stream, colon2, indent, Space.None); // :
+                            try renderExpression(allocator, stream, tree, indent, bit_range.end, Space.None);
+
+                            const rparen_token = tree.nextToken(bit_range.end.lastToken());
+                            try renderToken(tree, stream, rparen_token, indent, Space.Space); // )
+                        } else {
+                            const rparen_token = tree.nextToken(align_info.node.lastToken());
+                            try renderToken(tree, stream, rparen_token, indent, Space.Space); // )
+                        }
                     }
                     if (addr_of_info.const_token) |const_token| {
                         try renderToken(tree, stream, const_token, indent, Space.Space); // const
@@ -272,21 +285,35 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                         try renderToken(tree, stream, volatile_token, indent, Space.Space); // volatile
                     }
                 },
+
                 ast.Node.PrefixOp.Op.SliceType => |addr_of_info| {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, Space.None); // [
                     try renderToken(tree, stream, tree.nextToken(prefix_op_node.op_token), indent, Space.None); // ]
 
-                    if (addr_of_info.align_expr) |align_expr| {
+                    if (addr_of_info.align_info) |align_info| {
                         const align_token = tree.nextToken(prefix_op_node.op_token);
                         try renderToken(tree, stream, align_token, indent, Space.None); // align
 
-                        const lparen_token = tree.prevToken(align_expr.firstToken());
+                        const lparen_token = tree.prevToken(align_info.node.firstToken());
                         try renderToken(tree, stream, lparen_token, indent, Space.None); // (
 
-                        try renderExpression(allocator, stream, tree, indent, align_expr, Space.None);
+                        try renderExpression(allocator, stream, tree, indent, align_info.node, Space.None);
 
-                        const rparen_token = tree.nextToken(align_expr.lastToken());
-                        try renderToken(tree, stream, rparen_token, indent, Space.Space); // )
+                        if (align_info.bit_range) |bit_range| {
+                            const colon1 = tree.prevToken(bit_range.start.firstToken());
+                            const colon2 = tree.prevToken(bit_range.end.firstToken());
+
+                            try renderToken(tree, stream, colon1, indent, Space.None); // :
+                            try renderExpression(allocator, stream, tree, indent, bit_range.start, Space.None);
+                            try renderToken(tree, stream, colon2, indent, Space.None); // :
+                            try renderExpression(allocator, stream, tree, indent, bit_range.end, Space.None);
+
+                            const rparen_token = tree.nextToken(bit_range.end.lastToken());
+                            try renderToken(tree, stream, rparen_token, indent, Space.Space); // )
+                        } else {
+                            const rparen_token = tree.nextToken(align_info.node.lastToken());
+                            try renderToken(tree, stream, rparen_token, indent, Space.Space); // )
+                        }
                     }
                     if (addr_of_info.const_token) |const_token| {
                         try renderToken(tree, stream, const_token, indent, Space.Space);
@@ -295,6 +322,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                         try renderToken(tree, stream, volatile_token, indent, Space.Space);
                     }
                 },
+
                 ast.Node.PrefixOp.Op.ArrayType => |array_index| {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, Space.None); // [
                     try renderExpression(allocator, stream, tree, indent, array_index, Space.None);

@@ -98,6 +98,7 @@ pub const Error = union(enum) {
     UnattachedDocComment: UnattachedDocComment,
     ExpectedEqOrSemi: ExpectedEqOrSemi,
     ExpectedSemiOrLBrace: ExpectedSemiOrLBrace,
+    ExpectedColonOrRParen: ExpectedColonOrRParen,
     ExpectedLabelable: ExpectedLabelable,
     ExpectedInlinable: ExpectedInlinable,
     ExpectedAsmOutputReturnOrType: ExpectedAsmOutputReturnOrType,
@@ -120,6 +121,7 @@ pub const Error = union(enum) {
             @TagType(Error).UnattachedDocComment => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedEqOrSemi => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedSemiOrLBrace => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedColonOrRParen => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedLabelable => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedInlinable => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedAsmOutputReturnOrType => |*x| return x.render(tokens, stream),
@@ -144,6 +146,7 @@ pub const Error = union(enum) {
             @TagType(Error).UnattachedDocComment => |x| return x.token,
             @TagType(Error).ExpectedEqOrSemi => |x| return x.token,
             @TagType(Error).ExpectedSemiOrLBrace => |x| return x.token,
+            @TagType(Error).ExpectedColonOrRParen => |x| return x.token,
             @TagType(Error).ExpectedLabelable => |x| return x.token,
             @TagType(Error).ExpectedInlinable => |x| return x.token,
             @TagType(Error).ExpectedAsmOutputReturnOrType => |x| return x.token,
@@ -164,6 +167,7 @@ pub const Error = union(enum) {
     pub const ExpectedAggregateKw = SingleTokenError("Expected " ++ @tagName(Token.Id.Keyword_struct) ++ ", " ++ @tagName(Token.Id.Keyword_union) ++ ", or " ++ @tagName(Token.Id.Keyword_enum) ++ ", found {}");
     pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found {}");
     pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found {}");
+    pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found {}");
     pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found {}");
     pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found {}");
     pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or " ++ @tagName(Token.Id.Identifier) ++ ", found {}");
@@ -1487,7 +1491,7 @@ pub const Node = struct {
         op: Op,
         rhs: &Node,
 
-        const Op = union(enum) {
+        pub const Op = union(enum) {
             AddrOf: AddrOfInfo,
             ArrayType: &Node,
             Await,
@@ -1504,12 +1508,20 @@ pub const Node = struct {
             UnwrapMaybe,
         };
 
-        const AddrOfInfo = struct {
-            align_expr: ?&Node,
-            bit_offset_start_token: ?TokenIndex,
-            bit_offset_end_token: ?TokenIndex,
+        pub const AddrOfInfo = struct {
+            align_info: ?Align,
             const_token: ?TokenIndex,
             volatile_token: ?TokenIndex,
+
+            pub const Align = struct {
+                node: &Node,
+                bit_range: ?BitRange,
+
+                pub const BitRange = struct {
+                    start: &Node,
+                    end: &Node,
+                };
+            };
         };
 
         pub fn iterate(self: &PrefixOp, index: usize) ?&Node {

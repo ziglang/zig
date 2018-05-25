@@ -1,5 +1,14 @@
 test "zig fmt: float literal with exponent" {
     try testCanonical(
+        \\test "bit field alignment" {
+        \\    assert(@typeOf(&blah.b) == &align(1:3:6) const u3);
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
         \\test "aoeu" {
         \\    switch (state) {
         \\        TermState.Start => switch (c) {

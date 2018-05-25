@@ -1450,9 +1450,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
             State.SliceOrArrayType => |node| {
                 if (eatToken(&tok_it, &tree, Token.Id.RBracket)) |_| {
                     node.op = ast.Node.PrefixOp.Op{ .SliceType = ast.Node.PrefixOp.AddrOfInfo{
-                        .align_expr = null,
-                        .bit_offset_start_token = null,
-                        .bit_offset_end_token = null,
+                        .align_info = null,
                         .const_token = null,
                         .volatile_token = null,
                     } };
@@ -1467,6 +1465,7 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 try stack.append(State{ .Expression = OptionalCtx{ .Required = &node.op.ArrayType } });
                 continue;
             },
+
             State.AddrOfModifiers => |addr_of_info| {
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -1474,12 +1473,19 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 switch (token_ptr.id) {
                     Token.Id.Keyword_align => {
                         stack.append(state) catch unreachable;
-                        if (addr_of_info.align_expr != null) {
+                        if (addr_of_info.align_info != null) {
                             ((try tree.errors.addOne())).* = Error{ .ExtraAlignQualifier = Error.ExtraAlignQualifier{ .token = token_index } };
                             return tree;
                         }
-                        try stack.append(State{ .ExpectToken = Token.Id.RParen });
-                        try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &addr_of_info.align_expr } });
+                        addr_of_info.align_info = ast.Node.PrefixOp.AddrOfInfo.Align {
+                            .node = undefined,
+                            .bit_range = null,
+                        };
+                        // TODO https://github.com/ziglang/zig/issues/1022
+                        const align_info = &??addr_of_info.align_info;
+
+                        try stack.append(State{ .AlignBitRange = align_info });
+                        try stack.append(State{ .Expression = OptionalCtx{ .Required = &align_info.node } });
                         try stack.append(State{ .ExpectToken = Token.Id.LParen });
                         continue;
                     },
@@ -1504,6 +1510,31 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     else => {
                         prevToken(&tok_it, &tree);
                         continue;
+                    },
+                }
+            },
+
+            State.AlignBitRange => |align_info| {
+                const token = nextToken(&tok_it, &tree);
+                switch (token.ptr.id) {
+                    Token.Id.Colon => {
+                        align_info.bit_range = ast.Node.PrefixOp.AddrOfInfo.Align.BitRange(undefined);
+                        const bit_range = &??align_info.bit_range;
+
+                        try stack.append(State{ .ExpectToken = Token.Id.RParen });
+                        try stack.append(State{ .Expression = OptionalCtx{ .Required = &bit_range.end } });
+                        try stack.append(State{ .ExpectToken = Token.Id.Colon });
+                        try stack.append(State{ .Expression = OptionalCtx{ .Required = &bit_range.start } });
+                        continue;
+                    },
+                    Token.Id.RParen => continue,
+                    else => {
+                        (try tree.errors.addOne()).* = Error{
+                            .ExpectedColonOrRParen = Error.ExpectedColonOrRParen{
+                                .token = token.index,
+                            }
+                        };
+                        return tree;
                     },
                 }
             },
@@ -2801,6 +2832,7 @@ const State = union(enum) {
     SliceOrArrayAccess: &ast.Node.SuffixOp,
     SliceOrArrayType: &ast.Node.PrefixOp,
     AddrOfModifiers: &ast.Node.PrefixOp.AddrOfInfo,
+    AlignBitRange: &ast.Node.PrefixOp.AddrOfInfo.Align,
 
     Payload: OptionalCtx,
     PointerPayload: OptionalCtx,
@@ -3120,9 +3152,7 @@ fn tokenIdToPrefixOp(id: @TagType(Token.Id)) ?ast.Node.PrefixOp.Op {
         Token.Id.Asterisk,
         Token.Id.AsteriskAsterisk => ast.Node.PrefixOp.Op{ .PointerType = void{} },
         Token.Id.Ampersand => ast.Node.PrefixOp.Op{ .AddrOf = ast.Node.PrefixOp.AddrOfInfo{
-            .align_expr = null,
-            .bit_offset_start_token = null,
-            .bit_offset_end_token = null,
+            .align_info = null,
             .const_token = null,
             .volatile_token = null,
         } },
