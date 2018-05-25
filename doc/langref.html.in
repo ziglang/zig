@@ -3111,7 +3111,48 @@ test "error union" {
       {#code_end#}
       <p>TODO the <code>||</code> operator for error sets</p>
       {#header_open|Inferred Error Sets#}
-      <p>TODO</p>
+      <p>
+      Because many functions in Zig return a possible error, Zig supports inferring the error set.
+      To infer the error set for a function, use this syntax:
+      </p>
+{#code_begin|test#}
+// With an inferred error set
+pub fn add_inferred(comptime T: type, a: T, b: T) !T {
+    var answer: T = undefined;
+    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+}
+
+// With an explicit error set
+pub fn add_explicit(comptime T: type, a: T, b: T) Error!T {
+    var answer: T = undefined;
+    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+}
+
+const Error = error {
+    Overflow,
+};
+
+const std = @import("std");
+
+test "inferred error set" {
+    if (add_inferred(u8, 255, 1)) |_| unreachable else |err| switch (err) {
+        error.Overflow => {}, // ok
+    }
+}
+{#code_end#}
+      <p>
+      When a function has an inferred error set, that function becomes generic and thus it becomes
+      trickier to do certain things with it, such as obtain a function pointer, or have an error
+      set that is consistent across different build targets. Additionally, inferred error sets
+      are incompatible with recursion.
+      </p>
+      <p>
+      In these situations, it is recommended to use an explicit error set. You can generally start
+      with an empty error set and let compile errors guide you toward completing the set.
+      </p>
+      <p>
+      These limitations may be overcome in a future version of Zig.
+      </p>
       {#header_close#}
       {#header_close#}
       {#header_open|Error Return Traces#}
@@ -3878,7 +3919,16 @@ pub fn main() void {
       </p>
       {#header_close#}
       {#header_open|@ArgType#}
-      <p>TODO</p>
+      <pre><code class="zig">@ArgType(comptime T: type, comptime n: usize) -&gt; type</code></pre>
+      <p>
+      This builtin function takes a function type and returns the type of the parameter at index <code>n</code>.
+      </p>
+      <p>
+      <code>T</code> must be a function type.
+      </p>
+      <p>
+      Note: This function is deprecated. Use {#link|@typeInfo#} instead.
+      </p>
       {#header_close#}
       {#header_open|@atomicLoad#}
       <pre><code class="zig">@atomicLoad(comptime T: type, ptr: &amp;const T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
