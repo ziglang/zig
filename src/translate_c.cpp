@@ -4658,7 +4658,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     std::shared_ptr<PCHContainerOperations> pch_container_ops = std::make_shared<PCHContainerOperations>();
 
-    bool skip_function_bodies = false;
     bool only_local_decls = true;
     bool capture_diagnostics = true;
     bool user_files_are_volatile = true;
@@ -4671,7 +4670,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             &clang_argv.at(0), &clang_argv.last(),
             pch_container_ops, diags, resources_path,
             only_local_decls, capture_diagnostics, None, true, 0, TU_Complete,
-            false, false, allow_pch_with_compiler_errors, skip_function_bodies,
+            false, false, allow_pch_with_compiler_errors, SkipFunctionBodiesScope::None,
             single_file_parse, user_files_are_volatile, for_serialization, None, &err_unit,
             nullptr));
 

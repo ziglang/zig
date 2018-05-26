@@ -162,7 +162,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
                 abort();
         }
 
-        if (target_machine->addPassesToEmitFile(MPM, dest, ft)) {
+        if (target_machine->addPassesToEmitFile(MPM, dest, nullptr, ft)) {
             *error_message = strdup("TargetMachine can't emit a file of this type");
             return true;
         }
