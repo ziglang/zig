@@ -227,8 +227,7 @@ fn printSourceAtAddress(debug_info: &ElfStackTrace, out_stream: var, address: us
                     else => return err,
                 }
             } else |err| switch (err) {
-                error.MissingDebugInfo,
-                error.InvalidDebugInfo => {
+                error.MissingDebugInfo, error.InvalidDebugInfo => {
                     try out_stream.print(ptr_hex ++ " in ??? ({})\n", address, compile_unit_name);
                 },
                 else => return err,
@@ -597,10 +596,12 @@ fn parseFormValueBlock(allocator: &mem.Allocator, in_stream: var, size: usize) !
 }
 
 fn parseFormValueConstant(allocator: &mem.Allocator, in_stream: var, signed: bool, size: usize) !FormValue {
-    return FormValue{ .Const = Constant{
-        .signed = signed,
-        .payload = try readAllocBytes(allocator, in_stream, size),
-    } };
+    return FormValue{
+        .Const = Constant{
+            .signed = signed,
+            .payload = try readAllocBytes(allocator, in_stream, size),
+        },
+    };
 }
 
 fn parseFormValueDwarfOffsetSize(in_stream: var, is_64: bool) !u64 {
@@ -621,7 +622,7 @@ fn parseFormValueRef(allocator: &mem.Allocator, in_stream: var, comptime T: type
     return parseFormValueRefLen(allocator, in_stream, block_len);
 }
 
-const ParseFormValueError = error {
+const ParseFormValueError = error{
     EndOfStream,
     Io,
     BadFd,
@@ -645,8 +646,7 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_data2 => parseFormValueConstant(allocator, in_stream, false, 2),
         DW.FORM_data4 => parseFormValueConstant(allocator, in_stream, false, 4),
         DW.FORM_data8 => parseFormValueConstant(allocator, in_stream, false, 8),
-        DW.FORM_udata,
-        DW.FORM_sdata => {
+        DW.FORM_udata, DW.FORM_sdata => {
             const block_len = try readULeb128(in_stream);
             const signed = form_id == DW.FORM_sdata;
             return parseFormValueConstant(allocator, in_stream, signed, block_len);

@@ -9,7 +9,6 @@ pub const line_sep = switch (builtin.os) {
     else => "\n",
 };
 
-
 pub fn len(ptr: &const u8) usize {
     var count: usize = 0;
     while (ptr[count] != 0) : (count += 1) {}
@@ -95,7 +94,7 @@ pub const NullTerminated2DArray = struct {
         }
         index_buf[i] = null;
 
-        return NullTerminated2DArray {
+        return NullTerminated2DArray{
             .allocator = allocator,
             .byte_count = byte_count,
             .ptr = @ptrCast(?&?&u8, buf.ptr),
@@ -107,4 +106,3 @@ pub const NullTerminated2DArray = struct {
         self.allocator.free(buf[0..self.byte_count]);
     }
 };
-

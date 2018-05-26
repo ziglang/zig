@@ -41,12 +41,10 @@ pub const Base64Encoder = struct {
             dest[out_index] = encoder.alphabet_chars[(source[i] >> 2) & 0x3f];
             out_index += 1;
 
-            dest[out_index] = encoder.alphabet_chars[((source[i] & 0x3) << 4) |
-                              ((source[i + 1] & 0xf0) >> 4)];
+            dest[out_index] = encoder.alphabet_chars[((source[i] & 0x3) << 4) | ((source[i + 1] & 0xf0) >> 4)];
             out_index += 1;
 
-            dest[out_index] = encoder.alphabet_chars[((source[i + 1] & 0xf) << 2) |
-                              ((source[i + 2] & 0xc0) >> 6)];
+            dest[out_index] = encoder.alphabet_chars[((source[i + 1] & 0xf) << 2) | ((source[i + 2] & 0xc0) >> 6)];
             out_index += 1;
 
             dest[out_index] = encoder.alphabet_chars[source[i + 2] & 0x3f];
@@ -64,8 +62,7 @@ pub const Base64Encoder = struct {
                 dest[out_index] = encoder.pad_char;
                 out_index += 1;
             } else {
-                dest[out_index] = encoder.alphabet_chars[((source[i] & 0x3) << 4) |
-                                  ((source[i + 1] & 0xf0) >> 4)];
+                dest[out_index] = encoder.alphabet_chars[((source[i] & 0x3) << 4) | ((source[i + 1] & 0xf0) >> 4)];
                 out_index += 1;
 
                 dest[out_index] = encoder.alphabet_chars[(source[i + 1] & 0xf) << 2];
@@ -131,26 +128,20 @@ pub const Base64Decoder = struct {
                 // common case
                 if (!decoder.char_in_alphabet[source[src_cursor + 2]]) return error.InvalidCharacter;
                 if (!decoder.char_in_alphabet[source[src_cursor + 3]]) return error.InvalidCharacter;
-                dest[dest_cursor + 0] = decoder.char_to_index[source[src_cursor + 0]] << 2 |
-                                        decoder.char_to_index[source[src_cursor + 1]] >> 4;
-                dest[dest_cursor + 1] = decoder.char_to_index[source[src_cursor + 1]] << 4 |
-                                        decoder.char_to_index[source[src_cursor + 2]] >> 2;
-                dest[dest_cursor + 2] = decoder.char_to_index[source[src_cursor + 2]] << 6 |
-                                        decoder.char_to_index[source[src_cursor + 3]];
+                dest[dest_cursor + 0] = decoder.char_to_index[source[src_cursor + 0]] << 2 | decoder.char_to_index[source[src_cursor + 1]] >> 4;
+                dest[dest_cursor + 1] = decoder.char_to_index[source[src_cursor + 1]] << 4 | decoder.char_to_index[source[src_cursor + 2]] >> 2;
+                dest[dest_cursor + 2] = decoder.char_to_index[source[src_cursor + 2]] << 6 | decoder.char_to_index[source[src_cursor + 3]];
                 dest_cursor += 3;
             } else if (source[src_cursor + 2] != decoder.pad_char) {
                 // one pad char
                 if (!decoder.char_in_alphabet[source[src_cursor + 2]]) return error.InvalidCharacter;
-                dest[dest_cursor + 0] = decoder.char_to_index[source[src_cursor + 0]] << 2 |
-                                        decoder.char_to_index[source[src_cursor + 1]] >> 4;
-                dest[dest_cursor + 1] = decoder.char_to_index[source[src_cursor + 1]] << 4 |
-                                        decoder.char_to_index[source[src_cursor + 2]] >> 2;
+                dest[dest_cursor + 0] = decoder.char_to_index[source[src_cursor + 0]] << 2 | decoder.char_to_index[source[src_cursor + 1]] >> 4;
+                dest[dest_cursor + 1] = decoder.char_to_index[source[src_cursor + 1]] << 4 | decoder.char_to_index[source[src_cursor + 2]] >> 2;
                 if (decoder.char_to_index[source[src_cursor + 2]] << 6 != 0) return error.InvalidPadding;
                 dest_cursor += 2;
             } else {
                 // two pad chars
-                dest[dest_cursor + 0] = decoder.char_to_index[source[src_cursor + 0]] << 2 |
-                                        decoder.char_to_index[source[src_cursor + 1]] >> 4;
+                dest[dest_cursor + 0] = decoder.char_to_index[source[src_cursor + 0]] << 2 | decoder.char_to_index[source[src_cursor + 1]] >> 4;
                 if (decoder.char_to_index[source[src_cursor + 1]] << 4 != 0) return error.InvalidPadding;
                 dest_cursor += 1;
             }
@@ -165,7 +156,7 @@ pub const Base64DecoderWithIgnore = struct {
     decoder: Base64Decoder,
     char_is_ignored: [256]bool,
     pub fn init(alphabet_chars: []const u8, pad_char: u8, ignore_chars: []const u8) Base64DecoderWithIgnore {
-        var result = Base64DecoderWithIgnore {
+        var result = Base64DecoderWithIgnore{
             .decoder = Base64Decoder.init(alphabet_chars, pad_char),
             .char_is_ignored = []bool{false} ** 256,
         };
@@ -223,10 +214,12 @@ pub const Base64DecoderWithIgnore = struct {
                         } else if (decoder_with_ignore.char_is_ignored[c]) {
                             // we can even ignore chars during the padding
                             continue;
-                        } else return error.InvalidCharacter;
+                        } else
+                            return error.InvalidCharacter;
                     }
                     break;
-                } else return error.InvalidCharacter;
+                } else
+                    return error.InvalidCharacter;
             }
 
             switch (available_chars) {
@@ -234,22 +227,17 @@ pub const Base64DecoderWithIgnore = struct {
                     // common case
                     if (dest_cursor + 3 > dest.len) return error.OutputTooSmall;
                     assert(pad_char_count == 0);
-                    dest[dest_cursor + 0] = decoder.char_to_index[next_4_chars[0]] << 2 |
-                                            decoder.char_to_index[next_4_chars[1]] >> 4;
-                    dest[dest_cursor + 1] = decoder.char_to_index[next_4_chars[1]] << 4 |
-                                            decoder.char_to_index[next_4_chars[2]] >> 2;
-                    dest[dest_cursor + 2] = decoder.char_to_index[next_4_chars[2]] << 6 |
-                                            decoder.char_to_index[next_4_chars[3]];
+                    dest[dest_cursor + 0] = decoder.char_to_index[next_4_chars[0]] << 2 | decoder.char_to_index[next_4_chars[1]] >> 4;
+                    dest[dest_cursor + 1] = decoder.char_to_index[next_4_chars[1]] << 4 | decoder.char_to_index[next_4_chars[2]] >> 2;
+                    dest[dest_cursor + 2] = decoder.char_to_index[next_4_chars[2]] << 6 | decoder.char_to_index[next_4_chars[3]];
                     dest_cursor += 3;
                     continue;
                 },
                 3 => {
                     if (dest_cursor + 2 > dest.len) return error.OutputTooSmall;
                     if (pad_char_count != 1) return error.InvalidPadding;
-                    dest[dest_cursor + 0] = decoder.char_to_index[next_4_chars[0]] << 2 |
-                                            decoder.char_to_index[next_4_chars[1]] >> 4;
-                    dest[dest_cursor + 1] = decoder.char_to_index[next_4_chars[1]] << 4 |
-                                            decoder.char_to_index[next_4_chars[2]] >> 2;
+                    dest[dest_cursor + 0] = decoder.char_to_index[next_4_chars[0]] << 2 | decoder.char_to_index[next_4_chars[1]] >> 4;
+                    dest[dest_cursor + 1] = decoder.char_to_index[next_4_chars[1]] << 4 | decoder.char_to_index[next_4_chars[2]] >> 2;
                     if (decoder.char_to_index[next_4_chars[2]] << 6 != 0) return error.InvalidPadding;
                     dest_cursor += 2;
                     break;
@@ -257,8 +245,7 @@ pub const Base64DecoderWithIgnore = struct {
                 2 => {
                     if (dest_cursor + 1 > dest.len) return error.OutputTooSmall;
                     if (pad_char_count != 2) return error.InvalidPadding;
-                    dest[dest_cursor + 0] = decoder.char_to_index[next_4_chars[0]] << 2 |
-                                            decoder.char_to_index[next_4_chars[1]] >> 4;
+                    dest[dest_cursor + 0] = decoder.char_to_index[next_4_chars[0]] << 2 | decoder.char_to_index[next_4_chars[1]] >> 4;
                     if (decoder.char_to_index[next_4_chars[1]] << 4 != 0) return error.InvalidPadding;
                     dest_cursor += 1;
                     break;
@@ -280,7 +267,6 @@ pub const Base64DecoderWithIgnore = struct {
     }
 };
 
-
 pub const standard_decoder_unsafe = Base64DecoderUnsafe.init(standard_alphabet_chars, standard_pad_char);
 
 pub const Base64DecoderUnsafe = struct {
@@ -291,7 +277,7 @@ pub const Base64DecoderUnsafe = struct {
 
     pub fn init(alphabet_chars: []const u8, pad_char: u8) Base64DecoderUnsafe {
         assert(alphabet_chars.len == 64);
-        var result = Base64DecoderUnsafe {
+        var result = Base64DecoderUnsafe{
             .char_to_index = undefined,
             .pad_char = pad_char,
         };
@@ -321,16 +307,13 @@ pub const Base64DecoderUnsafe = struct {
         }
 
         while (in_buf_len > 4) {
-            dest[dest_index] = decoder.char_to_index[source[src_index + 0]] << 2 |
-                               decoder.char_to_index[source[src_index + 1]] >> 4;
+            dest[dest_index] = decoder.char_to_index[source[src_index + 0]] << 2 | decoder.char_to_index[source[src_index + 1]] >> 4;
             dest_index += 1;
 
-            dest[dest_index] = decoder.char_to_index[source[src_index + 1]] << 4 |
-                               decoder.char_to_index[source[src_index + 2]] >> 2;
+            dest[dest_index] = decoder.char_to_index[source[src_index + 1]] << 4 | decoder.char_to_index[source[src_index + 2]] >> 2;
             dest_index += 1;
 
-            dest[dest_index] = decoder.char_to_index[source[src_index + 2]] << 6 |
-                               decoder.char_to_index[source[src_index + 3]];
+            dest[dest_index] = decoder.char_to_index[source[src_index + 2]] << 6 | decoder.char_to_index[source[src_index + 3]];
             dest_index += 1;
 
             src_index += 4;
@@ -338,18 +321,15 @@ pub const Base64DecoderUnsafe = struct {
         }
 
         if (in_buf_len > 1) {
-            dest[dest_index] = decoder.char_to_index[source[src_index + 0]] << 2 |
-                               decoder.char_to_index[source[src_index + 1]] >> 4;
+            dest[dest_index] = decoder.char_to_index[source[src_index + 0]] << 2 | decoder.char_to_index[source[src_index + 1]] >> 4;
             dest_index += 1;
         }
         if (in_buf_len > 2) {
-            dest[dest_index] = decoder.char_to_index[source[src_index + 1]] << 4 |
-                               decoder.char_to_index[source[src_index + 2]] >> 2;
+            dest[dest_index] = decoder.char_to_index[source[src_index + 1]] << 4 | decoder.char_to_index[source[src_index + 2]] >> 2;
             dest_index += 1;
         }
         if (in_buf_len > 3) {
-            dest[dest_index] = decoder.char_to_index[source[src_index + 2]] << 6 |
-                               decoder.char_to_index[source[src_index + 3]];
+            dest[dest_index] = decoder.char_to_index[source[src_index + 2]] << 6 | decoder.char_to_index[source[src_index + 3]];
             dest_index += 1;
         }
     }
@@ -367,7 +347,6 @@ fn calcDecodedSizeExactUnsafe(source: []const u8, pad_char: u8) usize {
     return result;
 }
 
-
 test "base64" {
     @setEvalBranchQuota(8000);
     testBase64() catch unreachable;
@@ -375,26 +354,26 @@ test "base64" {
 }
 
 fn testBase64() !void {
-    try testAllApis("",       "");
-    try testAllApis("f",      "Zg==");
-    try testAllApis("fo",     "Zm8=");
-    try testAllApis("foo",    "Zm9v");
-    try testAllApis("foob",   "Zm9vYg==");
-    try testAllApis("fooba",  "Zm9vYmE=");
+    try testAllApis("", "");
+    try testAllApis("f", "Zg==");
+    try testAllApis("fo", "Zm8=");
+    try testAllApis("foo", "Zm9v");
+    try testAllApis("foob", "Zm9vYg==");
+    try testAllApis("fooba", "Zm9vYmE=");
     try testAllApis("foobar", "Zm9vYmFy");
 
-    try testDecodeIgnoreSpace("",       " ");
-    try testDecodeIgnoreSpace("f",      "Z g= =");
-    try testDecodeIgnoreSpace("fo",     "    Zm8=");
-    try testDecodeIgnoreSpace("foo",    "Zm9v    ");
-    try testDecodeIgnoreSpace("foob",   "Zm9vYg = = ");
-    try testDecodeIgnoreSpace("fooba",  "Zm9v YmE=");
+    try testDecodeIgnoreSpace("", " ");
+    try testDecodeIgnoreSpace("f", "Z g= =");
+    try testDecodeIgnoreSpace("fo", "    Zm8=");
+    try testDecodeIgnoreSpace("foo", "Zm9v    ");
+    try testDecodeIgnoreSpace("foob", "Zm9vYg = = ");
+    try testDecodeIgnoreSpace("fooba", "Zm9v YmE=");
     try testDecodeIgnoreSpace("foobar", " Z m 9 v Y m F y ");
 
     // test getting some api errors
-    try testError("A",    error.InvalidPadding);
-    try testError("AA",   error.InvalidPadding);
-    try testError("AAA",  error.InvalidPadding);
+    try testError("A", error.InvalidPadding);
+    try testError("AA", error.InvalidPadding);
+    try testError("AAA", error.InvalidPadding);
     try testError("A..A", error.InvalidCharacter);
     try testError("AA=A", error.InvalidCharacter);
     try testError("AA/=", error.InvalidPadding);
@@ -427,8 +406,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void
 
     // Base64DecoderWithIgnore
     {
-        const standard_decoder_ignore_nothing = Base64DecoderWithIgnore.init(
-            standard_alphabet_chars, standard_pad_char, "");
+        const standard_decoder_ignore_nothing = Base64DecoderWithIgnore.init(standard_alphabet_chars, standard_pad_char, "");
         var buffer: [0x100]u8 = undefined;
         var decoded = buffer[0..Base64DecoderWithIgnore.calcSizeUpperBound(expected_encoded.len)];
         var written = try standard_decoder_ignore_nothing.decode(decoded, expected_encoded);
@@ -446,8 +424,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void
 }
 
 fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) !void {
-    const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
-        standard_alphabet_chars, standard_pad_char, " ");
+    const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
     var decoded = buffer[0..Base64DecoderWithIgnore.calcSizeUpperBound(encoded.len)];
     var written = try standard_decoder_ignore_space.decode(decoded, encoded);
@@ -455,8 +432,7 @@ fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) !voi
 }
 
 fn testError(encoded: []const u8, expected_err: error) !void {
-    const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
-        standard_alphabet_chars, standard_pad_char, " ");
+    const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
     if (standard_decoder.calcSize(encoded)) |decoded_size| {
         var decoded = buffer[0..decoded_size];
@@ -471,8 +447,7 @@ fn testError(encoded: []const u8, expected_err: error) !void {
 }
 
 fn testOutputTooSmallError(encoded: []const u8) !void {
-    const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
-        standard_alphabet_chars, standard_pad_char, " ");
+    const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
     var decoded = buffer[0..calcDecodedSizeExactUnsafe(encoded, standard_pad_char) - 1];
     if (standard_decoder_ignore_space.decode(decoded, encoded)) |_| {

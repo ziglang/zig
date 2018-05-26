@@ -420,15 +420,7 @@ pub const Builder = struct {
         const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") ?? false;
         const release_small = self.option(bool, "release-small", "size optimizations on and safety off") ?? false;
 
-        const mode = if (release_safe and !release_fast and !release_small)
-            builtin.Mode.ReleaseSafe
-        else if (release_fast and !release_safe and !release_small)
-            builtin.Mode.ReleaseFast
-        else if (release_small and !release_fast and !release_safe)
-            builtin.Mode.ReleaseSmall
-        else if (!release_fast and !release_safe and !release_small)
-            builtin.Mode.Debug
-        else x: {
+        const mode = if (release_safe and !release_fast and !release_small) builtin.Mode.ReleaseSafe else if (release_fast and !release_safe and !release_small) builtin.Mode.ReleaseFast else if (release_small and !release_fast and !release_safe) builtin.Mode.ReleaseSmall else if (!release_fast and !release_safe and !release_small) builtin.Mode.Debug else x: {
             warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)");
             self.markInvalidUserInput();
             break :x builtin.Mode.Debug;
@@ -649,11 +641,7 @@ pub const Builder = struct {
         if (builtin.environ == builtin.Environ.msvc) {
             return "cl.exe";
         } else {
-            return os.getEnvVarOwned(self.allocator, "CC") catch |err|
-                if (err == error.EnvironmentVariableNotFound)
-                    ([]const u8)("cc")
-                else
-                    debug.panic("Unable to get environment variable: {}", err);
+            return os.getEnvVarOwned(self.allocator, "CC") catch |err| if (err == error.EnvironmentVariableNotFound) ([]const u8)("cc") else debug.panic("Unable to get environment variable: {}", err);
         }
     }
 
@@ -782,8 +770,7 @@ pub const Target = union(enum) {
 
     pub fn isDarwin(self: &const Target) bool {
         return switch (self.getOs()) {
-            builtin.Os.ios,
-            builtin.Os.macosx => true,
+            builtin.Os.ios, builtin.Os.macosx => true,
             else => false,
         };
     }
@@ -990,8 +977,7 @@ pub const LibExeObjStep = struct {
                     self.out_filename = self.builder.fmt("lib{}.a", self.name);
                 } else {
                     switch (self.target.getOs()) {
-                        builtin.Os.ios,
-                        builtin.Os.macosx => {
+                        builtin.Os.ios, builtin.Os.macosx => {
                             self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
                             self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
@@ -1011,11 +997,13 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn setTarget(self: &LibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
-        self.target = Target{ .Cross = CrossTarget{
-            .arch = target_arch,
-            .os = target_os,
-            .environ = target_environ,
-        } };
+        self.target = Target{
+            .Cross = CrossTarget{
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            },
+        };
         self.computeOutFileNames();
     }
 
@@ -1079,10 +1067,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn getOutputPath(self: &LibExeObjStep) []const u8 {
-        return if (self.output_path) |output_path|
-            output_path
-        else
-            os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename) catch unreachable;
+        return if (self.output_path) |output_path| output_path else os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename) catch unreachable;
     }
 
     pub fn setOutputHPath(self: &LibExeObjStep, file_path: []const u8) void {
@@ -1095,10 +1080,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn getOutputHPath(self: &LibExeObjStep) []const u8 {
-        return if (self.output_h_path) |output_h_path|
-            output_h_path
-        else
-            os.path.join(self.builder.allocator, self.builder.cache_root, self.out_h_filename) catch unreachable;
+        return if (self.output_h_path) |output_h_path| output_h_path else os.path.join(self.builder.allocator, self.builder.cache_root, self.out_h_filename) catch unreachable;
     }
 
     pub fn addAssemblyFile(self: &LibExeObjStep, path: []const u8) void {
@@ -1352,8 +1334,7 @@ pub const LibExeObjStep = struct {
                     args.append("ssp-buffer-size=4") catch unreachable;
                 }
             },
-            builtin.Mode.ReleaseFast,
-            builtin.Mode.ReleaseSmall => {
+            builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => {
                 args.append("-O2") catch unreachable;
                 args.append("-fno-stack-protector") catch unreachable;
             },
@@ -1652,11 +1633,13 @@ pub const TestStep = struct {
     }
 
     pub fn setTarget(self: &TestStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
-        self.target = Target{ .Cross = CrossTarget{
-            .arch = target_arch,
-            .os = target_os,
-            .environ = target_environ,
-        } };
+        self.target = Target{
+            .Cross = CrossTarget{
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            },
+        };
     }
 
     pub fn setExecCmd(self: &TestStep, args: []const ?[]const u8) void {

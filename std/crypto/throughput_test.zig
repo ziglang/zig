@@ -11,7 +11,7 @@ const Timer = time.Timer;
 const HashFunction = @import("md5.zig").Md5;
 
 const MiB = 1024 * 1024;
-const BytesToHash  = 1024 * MiB;
+const BytesToHash = 1024 * MiB;
 
 pub fn main() !void {
     var stdout_file = try std.io.getStdOut();

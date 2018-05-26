@@ -108,5 +108,4 @@ pub const Instruction = struct {
         ArgType,
         Export,
     };
-
 };

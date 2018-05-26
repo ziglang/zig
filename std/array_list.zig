@@ -150,7 +150,10 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         };
 
         pub fn iterator(self: &const Self) Iterator {
-            return Iterator { .list = self, .count = 0 };
+            return Iterator{
+                .list = self,
+                .count = 0,
+            };
         }
     };
 }
@@ -207,7 +210,7 @@ test "iterator ArrayList test" {
     try list.append(2);
     try list.append(3);
 
-    var count : i32 = 0;
+    var count: i32 = 0;
     var it = list.iterator();
     while (it.next()) |next| {
         assert(next == count + 1);
@@ -225,7 +228,7 @@ test "iterator ArrayList test" {
     }
 
     it.reset();
-    assert(?? it.next() == 1);
+    assert(??it.next() == 1);
 }
 
 test "insert ArrayList test" {

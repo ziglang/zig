@@ -123,12 +123,10 @@ pub const DT_SYMINFO = 0x6ffffeff;
 pub const DT_ADDRRNGHI = 0x6ffffeff;
 pub const DT_ADDRNUM = 11;
 
-
 pub const DT_VERSYM = 0x6ffffff0;
 
 pub const DT_RELACOUNT = 0x6ffffff9;
 pub const DT_RELCOUNT = 0x6ffffffa;
-
 
 pub const DT_FLAGS_1 = 0x6ffffffb;
 pub const DT_VERDEF = 0x6ffffffc;
@@ -139,12 +137,9 @@ pub const DT_VERNEED = 0x6ffffffe;
 pub const DT_VERNEEDNUM = 0x6fffffff;
 pub const DT_VERSIONTAGNUM = 16;
 
-
-
 pub const DT_AUXILIARY = 0x7ffffffd;
 pub const DT_FILTER = 0x7fffffff;
 pub const DT_EXTRANUM = 3;
-
 
 pub const DT_SPARC_REGISTER = 0x70000001;
 pub const DT_SPARC_NUM = 2;
@@ -434,9 +429,7 @@ pub const Elf = struct {
         try elf.in_file.seekForward(4);
 
         const header_size = try in.readInt(elf.endian, u16);
-        if ((elf.is_64 and header_size != 64) or
-            (!elf.is_64 and header_size != 52))
-        {
+        if ((elf.is_64 and header_size != 64) or (!elf.is_64 and header_size != 52)) {
             return error.InvalidFormat;
         }
 
@@ -467,16 +460,16 @@ pub const Elf = struct {
             if (sh_entry_size != 64) return error.InvalidFormat;
 
             for (elf.section_headers) |*elf_section| {
-                elf_section.name         = try in.readInt(elf.endian, u32);
-                elf_section.sh_type      = try in.readInt(elf.endian, u32);
-                elf_section.flags        = try in.readInt(elf.endian, u64);
-                elf_section.addr         = try in.readInt(elf.endian, u64);
-                elf_section.offset       = try in.readInt(elf.endian, u64);
-                elf_section.size         = try in.readInt(elf.endian, u64);
-                elf_section.link         = try in.readInt(elf.endian, u32);
-                elf_section.info         = try in.readInt(elf.endian, u32);
-                elf_section.addr_align   = try in.readInt(elf.endian, u64);
-                elf_section.ent_size     = try in.readInt(elf.endian, u64);
+                elf_section.name = try in.readInt(elf.endian, u32);
+                elf_section.sh_type = try in.readInt(elf.endian, u32);
+                elf_section.flags = try in.readInt(elf.endian, u64);
+                elf_section.addr = try in.readInt(elf.endian, u64);
+                elf_section.offset = try in.readInt(elf.endian, u64);
+                elf_section.size = try in.readInt(elf.endian, u64);
+                elf_section.link = try in.readInt(elf.endian, u32);
+                elf_section.info = try in.readInt(elf.endian, u32);
+                elf_section.addr_align = try in.readInt(elf.endian, u64);
+                elf_section.ent_size = try in.readInt(elf.endian, u64);
             }
         } else {
             if (sh_entry_size != 40) return error.InvalidFormat;
@@ -513,8 +506,7 @@ pub const Elf = struct {
     pub fn close(elf: &Elf) void {
         elf.allocator.free(elf.section_headers);
 
-        if (elf.auto_close_stream)
-            elf.in_file.close();
+        if (elf.auto_close_stream) elf.in_file.close();
     }
 
     pub fn findSection(elf: &Elf, name: []const u8) !?&SectionHeader {
@@ -852,27 +844,27 @@ pub const Elf_MIPS_ABIFlags_v0 = extern struct {
     flags2: Elf32_Word,
 };
 
-pub const Ehdr = switch(@sizeOf(usize)) {
+pub const Ehdr = switch (@sizeOf(usize)) {
     4 => Elf32_Ehdr,
     8 => Elf64_Ehdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Phdr = switch(@sizeOf(usize)) {
+pub const Phdr = switch (@sizeOf(usize)) {
     4 => Elf32_Phdr,
     8 => Elf64_Phdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Sym = switch(@sizeOf(usize)) {
+pub const Sym = switch (@sizeOf(usize)) {
     4 => Elf32_Sym,
     8 => Elf64_Sym,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Verdef = switch(@sizeOf(usize)) {
+pub const Verdef = switch (@sizeOf(usize)) {
     4 => Elf32_Verdef,
     8 => Elf64_Verdef,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Verdaux = switch(@sizeOf(usize)) {
+pub const Verdaux = switch (@sizeOf(usize)) {
     4 => Elf32_Verdaux,
     8 => Elf64_Verdaux,
     else => @compileError("expected pointer size of 32 or 64"),
