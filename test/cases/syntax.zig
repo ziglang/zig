@@ -34,16 +34,11 @@ fn switch_prongs(x: i32) void {
 
 const fn_no_comma = fn(i32, i32)void;
 const fn_trailing_comma = fn(i32, i32,)void;
-const fn_vararg_trailing_comma = fn(i32, i32, ...,)void;
 
 fn fn_calls() void {
     fn add(x: i32, y: i32,) i32 { x + y };
     _ = add(1, 2);
     _ = add(1, 2,);
-
-    fn swallow(x: ...,) void {};
-    _ = swallow(1,2,3,);
-    _ = swallow();
 }
 
 fn asm_lists() void {
