@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 pub fn fma(comptime T: type, x: T, y: T, z: T) T {
     return switch (T) {
         f32 => fma32(x, y, z),
-        f64 => fma64(x, y ,z),
+        f64 => fma64(x, y, z),
         else => @compileError("fma not implemented for " ++ @typeName(T)),
     };
 }
@@ -71,7 +71,10 @@ fn fma64(x: f64, y: f64, z: f64) f64 {
     }
 }
 
-const dd = struct { hi: f64, lo: f64, };
+const dd = struct {
+    hi: f64,
+    lo: f64,
+};
 
 fn dd_add(a: f64, b: f64) dd {
     var ret: dd = undefined;

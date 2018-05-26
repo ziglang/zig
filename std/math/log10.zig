@@ -35,10 +35,10 @@ pub fn log10(x: var) @typeOf(x) {
 }
 
 pub fn log10_32(x_: f32) f32 {
-    const ivln10hi: f32  =  4.3432617188e-01;
-    const ivln10lo: f32  = -3.1689971365e-05;
-    const log10_2hi: f32 =  3.0102920532e-01;
-    const log10_2lo: f32 =  7.9034151668e-07;
+    const ivln10hi: f32 = 4.3432617188e-01;
+    const ivln10lo: f32 = -3.1689971365e-05;
+    const log10_2hi: f32 = 3.0102920532e-01;
+    const log10_2lo: f32 = 7.9034151668e-07;
     const Lg1: f32 = 0xaaaaaa.0p-24;
     const Lg2: f32 = 0xccce13.0p-25;
     const Lg3: f32 = 0x91e9ee.0p-25;
@@ -95,8 +95,8 @@ pub fn log10_32(x_: f32) f32 {
 }
 
 pub fn log10_64(x_: f64) f64 {
-    const ivln10hi: f64  = 4.34294481878168880939e-01;
-    const ivln10lo: f64  = 2.50829467116452752298e-11;
+    const ivln10hi: f64 = 4.34294481878168880939e-01;
+    const ivln10lo: f64 = 2.50829467116452752298e-11;
     const log10_2hi: f64 = 3.01029995663611771306e-01;
     const log10_2lo: f64 = 3.69423907715893078616e-13;
     const Lg1: f64 = 6.666666666666735130e-01;
@@ -126,11 +126,9 @@ pub fn log10_64(x_: f64) f64 {
         k -= 54;
         x *= 0x1.0p54;
         hx = u32(@bitCast(u64, x) >> 32);
-    }
-    else if (hx >= 0x7FF00000) {
+    } else if (hx >= 0x7FF00000) {
         return x;
-    }
-    else if (hx == 0x3FF00000 and ix << 32 == 0) {
+    } else if (hx == 0x3FF00000 and ix << 32 == 0) {
         return 0;
     }
 

@@ -9,9 +9,9 @@ const std = @import("../index.zig");
 const debug = std.debug;
 
 pub const Polynomial = struct {
-    const IEEE       = 0xedb88320;
+    const IEEE = 0xedb88320;
     const Castagnoli = 0x82f63b78;
-    const Koopman    = 0xeb31d82e;
+    const Koopman = 0xeb31d82e;
 };
 
 // IEEE is by far the most common CRC and so is aliased by default.
@@ -27,20 +27,22 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
 
             for (tables[0]) |*e, i| {
                 var crc = u32(i);
-                var j: usize = 0; while (j < 8) : (j += 1) {
+                var j: usize = 0;
+                while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
                         crc = (crc >> 1) ^ poly;
                     } else {
                         crc = (crc >> 1);
                     }
                 }
-                *e = crc;
+                e.* = crc;
             }
 
             var i: usize = 0;
             while (i < 256) : (i += 1) {
                 var crc = tables[0][i];
-                var j: usize = 1; while (j < 8) : (j += 1) {
+                var j: usize = 1;
+                while (j < 8) : (j += 1) {
                     const index = @truncate(u8, crc);
                     crc = tables[0][index] ^ (crc >> 8);
                     tables[j][i] = crc;
@@ -53,21 +55,20 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
         crc: u32,
 
         pub fn init() Self {
-            return Self {
-                .crc = 0xffffffff,
-            };
+            return Self{ .crc = 0xffffffff };
         }
 
         pub fn update(self: &Self, input: []const u8) void {
             var i: usize = 0;
             while (i + 8 <= input.len) : (i += 8) {
-                const p = input[i..i+8];
+                const p = input[i..i + 8];
 
                 // Unrolling this way gives ~50Mb/s increase
-                self.crc ^= (u32(p[0]) <<  0);
-                self.crc ^= (u32(p[1]) <<  8);
+                self.crc ^= (u32(p[0]) << 0);
+                self.crc ^= (u32(p[1]) << 8);
                 self.crc ^= (u32(p[2]) << 16);
                 self.crc ^= (u32(p[3]) << 24);
+
 
                 self.crc =
                     lookup_tables[0][p[7]] ^
@@ -123,14 +124,15 @@ pub fn Crc32SmallWithPoly(comptime poly: u32) type {
 
             for (table) |*e, i| {
                 var crc = u32(i * 16);
-                var j: usize = 0; while (j < 8) : (j += 1) {
+                var j: usize = 0;
+                while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
                         crc = (crc >> 1) ^ poly;
                     } else {
                         crc = (crc >> 1);
                     }
                 }
-                *e = crc;
+                e.* = crc;
             }
 
             break :block table;
@@ -139,9 +141,7 @@ pub fn Crc32SmallWithPoly(comptime poly: u32) type {
         crc: u32,
 
         pub fn init() Self {
-            return Self {
-                .crc = 0xffffffff,
-            };
+            return Self{ .crc = 0xffffffff };
         }
 
         pub fn update(self: &Self, input: []const u8) void {

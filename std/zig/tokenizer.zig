@@ -6,12 +6,12 @@ pub const Token = struct {
     start: usize,
     end: usize,
 
-    const Keyword = struct {
+    pub const Keyword = struct {
         bytes: []const u8,
         id: Id,
     };
 
-    const keywords = []Keyword {
+    pub const keywords = []Keyword {
         Keyword{.bytes="align", .id = Id.Keyword_align},
         Keyword{.bytes="and", .id = Id.Keyword_and},
         Keyword{.bytes="asm", .id = Id.Keyword_asm},
@@ -62,6 +62,7 @@ pub const Token = struct {
         Keyword{.bytes="while", .id = Id.Keyword_while},
     };
 
+    // TODO perfect hash at comptime
     fn getKeyword(bytes: []const u8) ?Id {
         for (keywords) |kw| {
             if (mem.eql(u8, kw.bytes, bytes)) {
@@ -219,6 +220,8 @@ pub const Tokenizer = struct {
         MultilineStringLiteralLineBackslash,
         CharLiteral,
         CharLiteralBackslash,
+        CharLiteralEscape1,
+        CharLiteralEscape2,
         CharLiteralEnd,
         Backslash,
         Equal,
@@ -236,10 +239,15 @@ pub const Tokenizer = struct {
         Zero,
         IntegerLiteral,
         IntegerLiteralWithRadix,
+        IntegerLiteralWithRadixHex,
         NumberDot,
+        NumberDotHex,
         FloatFraction,
+        FloatFractionHex,
         FloatExponentUnsigned,
+        FloatExponentUnsignedHex,
         FloatExponentNumber,
+        FloatExponentNumberHex,
         Ampersand,
         Caret,
         Percent,
@@ -606,8 +614,31 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Invalid;
                         break;
                     },
+                    'x' => {
+                        state = State.CharLiteralEscape1;
+                    },
                     else => {
                         state = State.CharLiteralEnd;
+                    },
+                },
+
+                State.CharLiteralEscape1 => switch (c) {
+                    '0'...'9', 'a'...'z', 'A'...'F' => {
+                        state = State.CharLiteralEscape2;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
+                },
+
+                State.CharLiteralEscape2 => switch (c) {
+                    '0'...'9', 'a'...'z', 'A'...'F' => {
+                        state = State.CharLiteralEnd;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
 
@@ -839,8 +870,11 @@ pub const Tokenizer = struct {
                     else => self.checkLiteralCharacter(),
                 },
                 State.Zero => switch (c) {
-                    'b', 'o', 'x' => {
+                    'b', 'o' => {
                         state = State.IntegerLiteralWithRadix;
+                    },
+                    'x' => {
+                        state = State.IntegerLiteralWithRadixHex;
                     },
                     else => {
                         // reinterpret as a normal number
@@ -862,8 +896,15 @@ pub const Tokenizer = struct {
                     '.' => {
                         state = State.NumberDot;
                     },
+                    '0'...'9' => {},
+                    else => break,
+                },
+                State.IntegerLiteralWithRadixHex => switch (c) {
+                    '.' => {
+                        state = State.NumberDotHex;
+                    },
                     'p', 'P' => {
-                        state = State.FloatExponentUnsigned;
+                        state = State.FloatExponentUnsignedHex;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => break,
@@ -880,11 +921,30 @@ pub const Tokenizer = struct {
                         state = State.FloatFraction;
                     },
                 },
+                State.NumberDotHex => switch (c) {
+                    '.' => {
+                        self.index -= 1;
+                        state = State.Start;
+                        break;
+                    },
+                    else => {
+                        self.index -= 1;
+                        result.id = Token.Id.FloatLiteral;
+                        state = State.FloatFractionHex;
+                    },
+                },
                 State.FloatFraction => switch (c) {
-                    'p', 'P', 'e', 'E' => {
+                    'e', 'E' => {
                         state = State.FloatExponentUnsigned;
                     },
                     '0'...'9' => {},
+                    else => break,
+                },
+                State.FloatFractionHex => switch (c) {
+                    'p', 'P' => {
+                        state = State.FloatExponentUnsignedHex;
+                    },
+                    '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => break,
                 },
                 State.FloatExponentUnsigned => switch (c) {
@@ -897,7 +957,21 @@ pub const Tokenizer = struct {
                         state = State.FloatExponentNumber;
                     }
                 },
+                State.FloatExponentUnsignedHex => switch (c) {
+                    '+', '-' => {
+                        state = State.FloatExponentNumberHex;
+                    },
+                    else => {
+                        // reinterpret as a normal exponent number
+                        self.index -= 1;
+                        state = State.FloatExponentNumberHex;
+                    }
+                },
                 State.FloatExponentNumber => switch (c) {
+                    '0'...'9' => {},
+                    else => break,
+                },
+                State.FloatExponentNumberHex => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => break,
                 },
@@ -908,8 +982,11 @@ pub const Tokenizer = struct {
                 State.C,
                 State.IntegerLiteral,
                 State.IntegerLiteralWithRadix,
+                State.IntegerLiteralWithRadixHex,
                 State.FloatFraction,
+                State.FloatFractionHex,
                 State.FloatExponentNumber,
+                State.FloatExponentNumberHex,
                 State.StringLiteral, // find this error later
                 State.MultilineStringLiteralLine,
                 State.Builtin => {},
@@ -928,12 +1005,16 @@ pub const Tokenizer = struct {
                 },
 
                 State.NumberDot,
+                State.NumberDotHex,
                 State.FloatExponentUnsigned,
+                State.FloatExponentUnsignedHex,
                 State.SawAtSign,
                 State.Backslash,
                 State.MultilineStringLiteralLineBackslash,
                 State.CharLiteral,
                 State.CharLiteralBackslash,
+                State.CharLiteralEscape1,
+                State.CharLiteralEscape2,
                 State.CharLiteralEnd,
                 State.StringLiteralBackslash => {
                     result.id = Token.Id.Invalid;
@@ -1073,8 +1154,24 @@ test "tokenizer" {
     });
 }
 
-test "tokenizer - float literal" {
+test "tokenizer - char literal with hex escape" {
+    testTokenize( \\'\x1b'
+    , []Token.Id {
+        Token.Id.CharLiteral,
+    });
+}
+
+test "tokenizer - float literal e exponent" {
     testTokenize("a = 4.94065645841246544177e-324;\n", []Token.Id {
+        Token.Id.Identifier,
+        Token.Id.Equal,
+        Token.Id.FloatLiteral,
+        Token.Id.Semicolon,
+    });
+}
+
+test "tokenizer - float literal p exponent" {
+    testTokenize("a = 0x1.a827999fcef32p+1022;\n", []Token.Id {
         Token.Id.Identifier,
         Token.Id.Equal,
         Token.Id.FloatLiteral,

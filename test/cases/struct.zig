@@ -2,9 +2,11 @@ const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
 
 const StructWithNoFields = struct {
-    fn add(a: i32, b: i32) i32 { return a + b; }
+    fn add(a: i32, b: i32) i32 {
+        return a + b;
+    }
 };
-const empty_global_instance = StructWithNoFields {};
+const empty_global_instance = StructWithNoFields{};
 
 test "call struct static method" {
     const result = StructWithNoFields.add(3, 4);
@@ -34,11 +36,10 @@ test "void struct fields" {
     assert(@sizeOf(VoidStructFieldsFoo) == 4);
 }
 const VoidStructFieldsFoo = struct {
-    a : void,
-    b : i32,
-    c : void,
+    a: void,
+    b: i32,
+    c: void,
 };
-
 
 test "structs" {
     var foo: StructFoo = undefined;
@@ -50,9 +51,9 @@ test "structs" {
     assert(foo.c == 100);
 }
 const StructFoo = struct {
-    a : i32,
-    b : bool,
-    c : f32,
+    a: i32,
+    b: bool,
+    c: f32,
 };
 fn testFoo(foo: &const StructFoo) void {
     assert(foo.b);
@@ -60,7 +61,6 @@ fn testFoo(foo: &const StructFoo) void {
 fn testMutation(foo: &StructFoo) void {
     foo.c = 100;
 }
-
 
 const Node = struct {
     val: Val,
@@ -72,10 +72,10 @@ const Val = struct {
 };
 
 test "struct point to self" {
-    var root : Node = undefined;
+    var root: Node = undefined;
     root.val.x = 1;
 
-    var node : Node = undefined;
+    var node: Node = undefined;
     node.next = &root;
     node.val.x = 2;
 
@@ -85,8 +85,8 @@ test "struct point to self" {
 }
 
 test "struct byval assign" {
-    var foo1 : StructFoo = undefined;
-    var foo2 : StructFoo = undefined;
+    var foo1: StructFoo = undefined;
+    var foo2: StructFoo = undefined;
 
     foo1.a = 1234;
     foo2.a = 0;
@@ -96,46 +96,57 @@ test "struct byval assign" {
 }
 
 fn structInitializer() void {
-    const val = Val { .x = 42 };
+    const val = Val {
+        .x = 42,
+    };
     assert(val.x == 42);
 }
 
-
 test "fn call of struct field" {
-    assert(callStructField(Foo {.ptr = aFunc,}) == 13);
+    assert(callStructField(Foo {
+        .ptr = aFunc,
+    }) == 13);
 }
 
 const Foo = struct {
     ptr: fn() i32,
 };
 
-fn aFunc() i32 { return 13; }
+fn aFunc() i32 {
+    return 13;
+}
 
 fn callStructField(foo: &const Foo) i32 {
     return foo.ptr();
 }
 
-
 test "store member function in variable" {
-    const instance = MemberFnTestFoo { .x = 1234, };
+    const instance = MemberFnTestFoo {
+        .x = 1234,
+    };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
     assert(result == 1234);
 }
 const MemberFnTestFoo = struct {
     x: i32,
-    fn member(foo: &const MemberFnTestFoo) i32 { return foo.x; }
+    fn member(foo: &const MemberFnTestFoo) i32 {
+        return foo.x;
+    }
 };
 
-
 test "call member function directly" {
-    const instance = MemberFnTestFoo { .x = 1234, };
+    const instance = MemberFnTestFoo {
+        .x = 1234,
+    };
     const result = MemberFnTestFoo.member(instance);
     assert(result == 1234);
 }
 
 test "member functions" {
-    const r = MemberFnRand {.seed = 1234};
+    const r = MemberFnRand {
+        .seed = 1234,
+    };
     assert(r.getSeed() == 1234);
 }
 const MemberFnRand = struct {
@@ -170,17 +181,16 @@ const EmptyStruct = struct {
     }
 };
 
-
 test "return empty struct from fn" {
     _ = testReturnEmptyStructFromFn();
 }
 const EmptyStruct2 = struct {};
 fn testReturnEmptyStructFromFn() EmptyStruct2 {
-    return EmptyStruct2 {};
+    return EmptyStruct2{};
 }
 
 test "pass slice of empty struct to fn" {
-    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
+    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2 {EmptyStruct2{}}) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
@@ -200,7 +210,6 @@ test "packed struct" {
     const four = foo.x + foo.y;
     assert(four == 4);
 }
-
 
 const BitField1 = packed struct {
     a: u3,
@@ -301,7 +310,7 @@ test "packed array 24bits" {
         assert(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
     }
 
-    var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
+    var bytes = []u8 {0} ** (@sizeOf(FooArray24Bits) + 1);
     bytes[bytes.len - 1] = 0xaa;
     const ptr = &([]FooArray24Bits)(bytes[0..bytes.len - 1])[0];
     assert(ptr.a == 0);
@@ -351,7 +360,7 @@ test "aligned array of packed struct" {
         assert(@sizeOf(FooArrayOfAligned) == 2 * 2);
     }
 
-    var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
+    var bytes = []u8 {0xbb} ** @sizeOf(FooArrayOfAligned);
     const ptr = &([]FooArrayOfAligned)(bytes[0..bytes.len])[0];
 
     assert(ptr.a[0].a == 0xbb);
@@ -360,11 +369,15 @@ test "aligned array of packed struct" {
     assert(ptr.a[1].b == 0xbb);
 }
 
-
-
 test "runtime struct initialization of bitfield" {
-    const s1 = Nibbles { .x = x1, .y = x1 };
-    const s2 = Nibbles { .x = u4(x2), .y = u4(x2) };
+    const s1 = Nibbles {
+        .x = x1,
+        .y = x1,
+    };
+    const s2 = Nibbles {
+        .x = u4(x2),
+        .y = u4(x2),
+    };
 
     assert(s1.x == x1);
     assert(s1.y == x1);
@@ -394,7 +407,7 @@ test "native bit field understands endianness" {
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 = undefined;
     @memcpy(&bytes[0], @ptrCast(&u8, &all), 8);
-    var bitfields = *@ptrCast(&Bitfields, &bytes[0]);
+    var bitfields = @ptrCast(&Bitfields, &bytes[0]).*;
 
     assert(bitfields.f1 == 0x1111);
     assert(bitfields.f2 == 0x2222);

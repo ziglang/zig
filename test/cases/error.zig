@@ -30,13 +30,11 @@ test "@errorName" {
     assert(mem.eql(u8, @errorName(error.ALongerErrorName), "ALongerErrorName"));
 }
 
-
 test "error values" {
     const a = i32(error.err1);
     const b = i32(error.err2);
     assert(a != b);
 }
-
 
 test "redefinition of error values allowed" {
     shouldBeNotEqual(error.AnError, error.SecondError);
@@ -44,7 +42,6 @@ test "redefinition of error values allowed" {
 fn shouldBeNotEqual(a: error, b: error) void {
     if (a == b) unreachable;
 }
-
 
 test "error binary operator" {
     const a = errBinaryOperatorG(true) catch 3;
@@ -56,20 +53,20 @@ fn errBinaryOperatorG(x: bool) error!isize {
     return if (x) error.ItBroke else isize(10);
 }
 
-
 test "unwrap simple value from error" {
     const i = unwrapSimpleValueFromErrorDo() catch unreachable;
     assert(i == 13);
 }
-fn unwrapSimpleValueFromErrorDo() error!isize { return 13; }
-
+fn unwrapSimpleValueFromErrorDo() error!isize {
+    return 13;
+}
 
 test "error return in assignment" {
     doErrReturnInAssignment() catch unreachable;
 }
 
 fn doErrReturnInAssignment() error!void {
-    var x : i32 = undefined;
+    var x: i32 = undefined;
     x = try makeANonErr();
 }
 
@@ -95,7 +92,10 @@ test "error set type " {
     comptime testErrorSetType();
 }
 
-const MyErrSet = error {OutOfMemory, FileNotFound};
+const MyErrSet = error {
+    OutOfMemory,
+    FileNotFound,
+};
 
 fn testErrorSetType() void {
     assert(@memberCount(MyErrSet) == 2);
@@ -109,14 +109,19 @@ fn testErrorSetType() void {
     }
 }
 
-
 test "explicit error set cast" {
     testExplicitErrorSetCast(Set1.A);
     comptime testExplicitErrorSetCast(Set1.A);
 }
 
-const Set1 = error{A, B};
-const Set2 = error{A, C};
+const Set1 = error {
+    A,
+    B,
+};
+const Set2 = error {
+    A,
+    C,
+};
 
 fn testExplicitErrorSetCast(set1: Set1) void {
     var x = Set2(set1);
@@ -129,7 +134,8 @@ test "comptime test error for empty error set" {
     comptime testComptimeTestErrorEmptySet(1234);
 }
 
-const EmptyErrorSet = error {};
+const EmptyErrorSet = error {
+};
 
 fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
     if (x) |v| assert(v == 1234) else |err| @compileError("bad");
@@ -145,7 +151,9 @@ test "comptime err to int of error set with only 1 possible value" {
     testErrToIntWithOnePossibleValue(error.A, u32(error.A));
     comptime testErrToIntWithOnePossibleValue(error.A, u32(error.A));
 }
-fn testErrToIntWithOnePossibleValue(x: error{A}, comptime value: u32) void {
+fn testErrToIntWithOnePossibleValue(x: error {
+    A,
+}, comptime value: u32) void {
     if (u32(x) != value) {
         @compileError("bad");
     }
@@ -176,7 +184,6 @@ fn quux_1() !i32 {
     return error.C;
 }
 
-
 test "error: fn returning empty error set can be passed as fn returning any error" {
     entry();
     comptime entry();
@@ -186,23 +193,23 @@ fn entry() void {
     foo2(bar2);
 }
 
-fn foo2(f: fn()error!void) void {
+fn foo2(f: fn() error!void) void {
     const x = f();
 }
 
-fn bar2() (error{}!void) { }
-
+fn bar2() (error {
+}!void) {}
 
 test "error: Zero sized error set returned with value payload crash" {
     _ = foo3(0);
     _ = comptime foo3(0);
 }
 
-const Error = error{};
+const Error = error {
+};
 fn foo3(b: usize) Error!usize {
     return b;
 }
-
 
 test "error: Infer error set from literals" {
     _ = nullLiteral("n") catch |err| handleErrors(err);
@@ -215,29 +222,26 @@ test "error: Infer error set from literals" {
 
 fn handleErrors(err: var) noreturn {
     switch (err) {
-        error.T => {}
+        error.T => {},
     }
 
     unreachable;
 }
 
 fn nullLiteral(str: []const u8) !?i64 {
-    if (str[0] == 'n')
-        return null;
+    if (str[0] == 'n') return null;
 
     return error.T;
 }
 
 fn floatLiteral(str: []const u8) !?f64 {
-    if (str[0] == 'n')
-        return 1.0;
+    if (str[0] == 'n') return 1.0;
 
     return error.T;
 }
 
 fn intLiteral(str: []const u8) !?i64 {
-    if (str[0] == 'n')
-        return 1;
+    if (str[0] == 'n') return 1;
 
     return error.T;
 }

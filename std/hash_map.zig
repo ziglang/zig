@@ -9,10 +9,7 @@ const builtin = @import("builtin");
 const want_modification_safety = builtin.mode != builtin.Mode.ReleaseFast;
 const debug_u32 = if (want_modification_safety) u32 else void;
 
-pub fn HashMap(comptime K: type, comptime V: type,
-    comptime hash: fn(key: K)u32,
-    comptime eql: fn(a: K, b: K)bool) type
-{
+pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32, comptime eql: fn(a: K, b: K) bool) type {
     return struct {
         entries: []Entry,
         size: usize,
@@ -65,7 +62,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
         };
 
         pub fn init(allocator: &Allocator) Self {
-            return Self {
+            return Self{
                 .entries = []Entry{},
                 .allocator = allocator,
                 .size = 0,
@@ -129,34 +126,36 @@ pub fn HashMap(comptime K: type, comptime V: type,
             if (hm.entries.len == 0) return null;
             hm.incrementModificationCount();
             const start_index = hm.keyToIndex(key);
-            {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
-                const index = (start_index + roll_over) % hm.entries.len;
-                var entry = &hm.entries[index];
+            {
+                var roll_over: usize = 0;
+                while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
+                    const index = (start_index + roll_over) % hm.entries.len;
+                    var entry = &hm.entries[index];
 
-                if (!entry.used)
-                    return null;
+                    if (!entry.used) return null;
 
-                if (!eql(entry.key, key)) continue;
+                    if (!eql(entry.key, key)) continue;
 
-                while (roll_over < hm.entries.len) : (roll_over += 1) {
-                    const next_index = (start_index + roll_over + 1) % hm.entries.len;
-                    const next_entry = &hm.entries[next_index];
-                    if (!next_entry.used or next_entry.distance_from_start_index == 0) {
-                        entry.used = false;
-                        hm.size -= 1;
-                        return entry;
+                    while (roll_over < hm.entries.len) : (roll_over += 1) {
+                        const next_index = (start_index + roll_over + 1) % hm.entries.len;
+                        const next_entry = &hm.entries[next_index];
+                        if (!next_entry.used or next_entry.distance_from_start_index == 0) {
+                            entry.used = false;
+                            hm.size -= 1;
+                            return entry;
+                        }
+                        entry.* = next_entry.*;
+                        entry.distance_from_start_index -= 1;
+                        entry = next_entry;
                     }
-                    *entry = *next_entry;
-                    entry.distance_from_start_index -= 1;
-                    entry = next_entry;
+                    unreachable; // shifting everything in the table
                 }
-                unreachable; // shifting everything in the table
-            }}
+            }
             return null;
         }
 
         pub fn iterator(hm: &const Self) Iterator {
-            return Iterator {
+            return Iterator{
                 .hm = hm,
                 .count = 0,
                 .index = 0,
@@ -182,21 +181,23 @@ pub fn HashMap(comptime K: type, comptime V: type,
         /// Returns the value that was already there.
         fn internalPut(hm: &Self, orig_key: K, orig_value: &const V) ?V {
             var key = orig_key;
-            var value = *orig_value;
+            var value = orig_value.*;
             const start_index = hm.keyToIndex(key);
             var roll_over: usize = 0;
             var distance_from_start_index: usize = 0;
-            while (roll_over < hm.entries.len) : ({roll_over += 1; distance_from_start_index += 1;}) {
+            while (roll_over < hm.entries.len) : ({
+                roll_over += 1;
+                distance_from_start_index += 1;
+            }) {
                 const index = (start_index + roll_over) % hm.entries.len;
                 const entry = &hm.entries[index];
 
                 if (entry.used and !eql(entry.key, key)) {
                     if (entry.distance_from_start_index < distance_from_start_index) {
                         // robin hood to the rescue
-                        const tmp = *entry;
-                        hm.max_distance_from_start_index = math.max(hm.max_distance_from_start_index,
-                            distance_from_start_index);
-                        *entry = Entry {
+                        const tmp = entry.*;
+                        hm.max_distance_from_start_index = math.max(hm.max_distance_from_start_index, distance_from_start_index);
+                        entry.* = Entry{
                             .used = true,
                             .distance_from_start_index = distance_from_start_index,
                             .key = key,
@@ -219,7 +220,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 }
 
                 hm.max_distance_from_start_index = math.max(distance_from_start_index, hm.max_distance_from_start_index);
-                *entry = Entry {
+                entry.* = Entry{
                     .used = true,
                     .distance_from_start_index = distance_from_start_index,
                     .key = key,
@@ -232,13 +233,16 @@ pub fn HashMap(comptime K: type, comptime V: type,
 
         fn internalGet(hm: &const Self, key: K) ?&Entry {
             const start_index = hm.keyToIndex(key);
-            {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
-                const index = (start_index + roll_over) % hm.entries.len;
-                const entry = &hm.entries[index];
+            {
+                var roll_over: usize = 0;
+                while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
+                    const index = (start_index + roll_over) % hm.entries.len;
+                    const entry = &hm.entries[index];
 
-                if (!entry.used) return null;
-                if (eql(entry.key, key)) return entry;
-            }}
+                    if (!entry.used) return null;
+                    if (eql(entry.key, key)) return entry;
+                }
+            }
             return null;
         }
 
@@ -282,11 +286,19 @@ test "iterator hash map" {
     assert((reset_map.put(2, 22) catch unreachable) == null);
     assert((reset_map.put(3, 33) catch unreachable) == null);
 
-    var keys = []i32 { 1, 2, 3 };
-    var values = []i32 { 11, 22, 33 };
+    var keys = []i32{
+        1,
+        2,
+        3,
+    };
+    var values = []i32{
+        11,
+        22,
+        33,
+    };
 
     var it = reset_map.iterator();
-    var count : usize = 0;
+    var count: usize = 0;
     while (it.next()) |next| {
         assert(next.key == keys[count]);
         assert(next.value == values[count]);
@@ -305,7 +317,7 @@ test "iterator hash map" {
     }
 
     it.reset();
-    var entry = ?? it.next();
+    var entry = ??it.next();
     assert(entry.key == keys[0]);
     assert(entry.value == values[0]);
 }

@@ -96,6 +96,7 @@ pub const Module = struct {
     pub const LinkLib = struct {
         name: []const u8,
         path: ?[]const u8,
+
         /// the list of symbols we depend on from this lib
         symbols: ArrayList([]u8),
         provided_explicitly: bool,
@@ -130,9 +131,7 @@ pub const Module = struct {
         }
     };
 
-    pub fn create(allocator: &mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: &const Target,
-        kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) !&Module
-    {
+    pub fn create(allocator: &mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: &const Target, kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) !&Module {
         var name_buffer = try Buffer.init(allocator, name);
         errdefer name_buffer.deinit();
 
@@ -148,14 +147,14 @@ pub const Module = struct {
         const module_ptr = try allocator.create(Module);
         errdefer allocator.destroy(module_ptr);
 
-        *module_ptr = Module {
+        module_ptr.* = Module{
             .allocator = allocator,
             .name = name_buffer,
             .root_src_path = root_src_path,
             .module = module,
             .context = context,
             .builder = builder,
-            .target = *target,
+            .target = target.*,
             .kind = kind,
             .build_mode = build_mode,
             .zig_lib_dir = zig_lib_dir,
@@ -221,8 +220,10 @@ pub const Module = struct {
 
     pub fn build(self: &Module) !void {
         if (self.llvm_argv.len != 0) {
-            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(self.allocator,
-                [][]const []const u8 { [][]const u8{"zig (LLVM option parsing)"}, self.llvm_argv, });
+            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(self.allocator, [][]const []const u8{
+                [][]const u8{"zig (LLVM option parsing)"},
+                self.llvm_argv,
+            });
             defer c_compatible_args.deinit();
             c.ZigLLVMParseCommandLineOptions(self.llvm_argv.len + 1, c_compatible_args.ptr);
         }
@@ -261,7 +262,6 @@ pub const Module = struct {
 
         warn("====llvm ir:====\n");
         self.dump();
-        
     }
 
     pub fn link(self: &Module, out_file: ?[]const u8) !void {
@@ -285,7 +285,7 @@ pub const Module = struct {
         }
 
         const link_lib = try self.allocator.create(LinkLib);
-        *link_lib = LinkLib {
+        link_lib.* = LinkLib{
             .name = name,
             .path = null,
             .provided_explicitly = provided_explicitly,

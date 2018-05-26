@@ -29,12 +29,12 @@ pub fn Hmac(comptime H: type) type {
 
             var o_key_pad: [H.block_size]u8 = undefined;
             for (o_key_pad) |*b, i| {
-                *b = scratch[i] ^ 0x5c;
+                b.* = scratch[i] ^ 0x5c;
             }
 
             var i_key_pad: [H.block_size]u8 = undefined;
             for (i_key_pad) |*b, i| {
-                *b = scratch[i] ^ 0x36;
+                b.* = scratch[i] ^ 0x36;
             }
 
             // HMAC(k, m) = H(o_key_pad | H(i_key_pad | message)) where | is concatenation

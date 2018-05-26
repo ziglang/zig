@@ -637,14 +637,12 @@ const usage_fmt =
     \\
     \\Options:
     \\   --help                 Print this help and exit
-    \\   --keep-backups         Retain backup entries for every file
     \\
     \\
     ;
 
 const args_fmt_spec = []Flag {
     Flag.Bool("--help"),
-    Flag.Bool("--keep-backups"),
 };
 
 fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {

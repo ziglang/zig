@@ -6,11 +6,23 @@ const builtin = @import("builtin");
 const htest = @import("test.zig");
 
 const RoundParam = struct {
-    a: usize, b: usize, c: usize, d: usize, x: usize, y: usize,
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    x: usize,
+    y: usize,
 };
 
 fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
-    return RoundParam { .a = a, .b = b, .c = c, .d = d, .x = x, .y = y, };
+    return RoundParam{
+        .a = a,
+        .b = b,
+        .c = c,
+        .d = d,
+        .x = x,
+        .y = y,
+    };
 }
 
 /////////////////////
@@ -19,145 +31,153 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
 pub const Blake2s224 = Blake2s(224);
 pub const Blake2s256 = Blake2s(256);
 
-fn Blake2s(comptime out_len: usize) type { return struct {
-    const Self = this;
-    const block_size = 64;
-    const digest_size = out_len / 8;
+fn Blake2s(comptime out_len: usize) type {
+    return struct {
+        const Self = this;
+        const block_size = 64;
+        const digest_size = out_len / 8;
 
-    const iv = [8]u32 {
-        0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
-        0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
-    };
+        const iv = [8]u32{
+            0x6A09E667,
+            0xBB67AE85,
+            0x3C6EF372,
+            0xA54FF53A,
+            0x510E527F,
+            0x9B05688C,
+            0x1F83D9AB,
+            0x5BE0CD19,
+        };
 
-    const sigma = [10][16]u8 {
-       []const u8 { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
-       []const u8 { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
-       []const u8 { 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
-       []const u8 { 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
-       []const u8 { 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
-       []const u8 { 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
-       []const u8 { 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
-       []const u8 { 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
-       []const u8 { 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
-       []const u8 { 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
-    };
+        const sigma = [10][16]u8{
+            []const u8 { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+            []const u8 { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
+            []const u8 { 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
+            []const u8 { 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
+            []const u8 { 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
+            []const u8 { 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
+            []const u8 { 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
+            []const u8 { 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
+            []const u8 { 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
+            []const u8 { 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
+        };
 
-    h:         [8]u32,
-    t:         u64,
-    // Streaming cache
-    buf:       [64]u8,
-    buf_len:   u8,
+        h: [8]u32,
+        t: u64,
+        // Streaming cache
+        buf: [64]u8,
+        buf_len: u8,
 
-    pub fn init() Self {
-        debug.assert(8 <= out_len and out_len <= 512);
+        pub fn init() Self {
+            debug.assert(8 <= out_len and out_len <= 512);
 
-        var s: Self = undefined;
-        s.reset();
-        return s;
-    }
+            var s: Self = undefined;
+            s.reset();
+            return s;
+        }
 
-    pub fn reset(d: &Self) void {
-        mem.copy(u32, d.h[0..], iv[0..]);
+        pub fn reset(d: &Self) void {
+            mem.copy(u32, d.h[0..], iv[0..]);
 
-        // No key plus default parameters
-        d.h[0] ^= 0x01010000 ^ u32(out_len >> 3);
-        d.t = 0;
-        d.buf_len = 0;
-    }
-
-    pub fn hash(b: []const u8, out: []u8) void {
-        var d = Self.init();
-        d.update(b);
-        d.final(out);
-    }
-
-    pub fn update(d: &Self, b: []const u8) void {
-        var off: usize = 0;
-
-        // Partial buffer exists from previous update. Copy into buffer then hash.
-        if (d.buf_len != 0 and d.buf_len + b.len > 64) {
-            off += 64 - d.buf_len;
-            mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
-            d.t += 64;
-            d.round(d.buf[0..], false);
+            // No key plus default parameters
+            d.h[0] ^= 0x01010000 ^ u32(out_len >> 3);
+            d.t = 0;
             d.buf_len = 0;
         }
 
-        // Full middle blocks.
-        while (off + 64 <= b.len) : (off += 64) {
-            d.t += 64;
-            d.round(b[off..off + 64], false);
+        pub fn hash(b: []const u8, out: []u8) void {
+            var d = Self.init();
+            d.update(b);
+            d.final(out);
         }
 
-        // Copy any remainder for next pass.
-        mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-        d.buf_len += u8(b[off..].len);
-    }
+        pub fn update(d: &Self, b: []const u8) void {
+            var off: usize = 0;
 
-    pub fn final(d: &Self, out: []u8) void {
-        debug.assert(out.len >= out_len / 8);
+            // Partial buffer exists from previous update. Copy into buffer then hash.
+            if (d.buf_len != 0 and d.buf_len + b.len > 64) {
+                off += 64 - d.buf_len;
+                mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+                d.t += 64;
+                d.round(d.buf[0..], false);
+                d.buf_len = 0;
+            }
 
-        mem.set(u8, d.buf[d.buf_len..], 0);
-        d.t += d.buf_len;
-        d.round(d.buf[0..], true);
+            // Full middle blocks.
+            while (off + 64 <= b.len) : (off += 64) {
+                d.t += 64;
+                d.round(b[off..off + 64], false);
+            }
 
-        const rr = d.h[0 .. out_len / 32];
-
-        for (rr) |s, j| {
-            mem.writeInt(out[4*j .. 4*j + 4], s, builtin.Endian.Little);
-        }
-    }
-
-    fn round(d: &Self, b: []const u8, last: bool) void {
-        debug.assert(b.len == 64);
-
-        var m: [16]u32 = undefined;
-        var v: [16]u32 = undefined;
-
-        for (m) |*r, i| {
-            *r = mem.readIntLE(u32, b[4*i .. 4*i + 4]);
+            // Copy any remainder for next pass.
+            mem.copy(u8, d.buf[d.buf_len..], b[off..]);
+            d.buf_len += u8(b[off..].len);
         }
 
-        var k: usize = 0;
-        while (k < 8) : (k += 1) {
-            v[k] = d.h[k];
-            v[k+8] = iv[k];
-        }
+        pub fn final(d: &Self, out: []u8) void {
+            debug.assert(out.len >= out_len / 8);
 
-        v[12] ^= @truncate(u32, d.t);
-        v[13] ^= u32(d.t >> 32);
-        if (last) v[14] = ~v[14];
+            mem.set(u8, d.buf[d.buf_len..], 0);
+            d.t += d.buf_len;
+            d.round(d.buf[0..], true);
 
-        const rounds = comptime []RoundParam {
-            Rp(0,  4,  8, 12,  0,  1),
-            Rp(1,  5,  9, 13,  2,  3),
-            Rp(2,  6, 10, 14,  4,  5),
-            Rp(3,  7, 11, 15,  6,  7),
-            Rp(0,  5, 10, 15,  8,  9),
-            Rp(1,  6, 11, 12, 10, 11),
-            Rp(2,  7,  8, 13, 12, 13),
-            Rp(3,  4,  9, 14, 14, 15),
-        };
+            const rr = d.h[0..out_len / 32];
 
-        comptime var j: usize = 0;
-        inline while (j < 10) : (j += 1) {
-            inline for (rounds) |r| {
-                v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.x]];
-                v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], usize(16));
-                v[r.c] = v[r.c] +% v[r.d];
-                v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], usize(12));
-                v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.y]];
-                v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], usize(8));
-                v[r.c] = v[r.c] +% v[r.d];
-                v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], usize(7));
+            for (rr) |s, j| {
+                mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Little);
             }
         }
 
-        for (d.h) |*r, i| {
-            *r ^= v[i] ^ v[i + 8];
+        fn round(d: &Self, b: []const u8, last: bool) void {
+            debug.assert(b.len == 64);
+
+            var m: [16]u32 = undefined;
+            var v: [16]u32 = undefined;
+
+            for (m) |*r, i| {
+                r.* = mem.readIntLE(u32, b[4 * i..4 * i + 4]);
+            }
+
+            var k: usize = 0;
+            while (k < 8) : (k += 1) {
+                v[k] = d.h[k];
+                v[k + 8] = iv[k];
+            }
+
+            v[12] ^= @truncate(u32, d.t);
+            v[13] ^= u32(d.t >> 32);
+            if (last) v[14] = ~v[14];
+
+            const rounds = comptime []RoundParam{
+                Rp(0, 4, 8, 12, 0, 1),
+                Rp(1, 5, 9, 13, 2, 3),
+                Rp(2, 6, 10, 14, 4, 5),
+                Rp(3, 7, 11, 15, 6, 7),
+                Rp(0, 5, 10, 15, 8, 9),
+                Rp(1, 6, 11, 12, 10, 11),
+                Rp(2, 7, 8, 13, 12, 13),
+                Rp(3, 4, 9, 14, 14, 15),
+            };
+
+            comptime var j: usize = 0;
+            inline while (j < 10) : (j += 1) {
+                inline for (rounds) |r| {
+                    v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.x]];
+                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], usize(16));
+                    v[r.c] = v[r.c] +% v[r.d];
+                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], usize(12));
+                    v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.y]];
+                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], usize(8));
+                    v[r.c] = v[r.c] +% v[r.d];
+                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], usize(7));
+                }
+            }
+
+            for (d.h) |*r, i| {
+                r.* ^= v[i] ^ v[i + 8];
+            }
         }
-    }
-};}
+    };
+}
 
 test "blake2s224 single" {
     const h1 = "1fa1291e65248b37b3433475b2a0dd63d54a11ecc4e3e034e7bc1ef4";
@@ -230,7 +250,7 @@ test "blake2s256 streaming" {
 }
 
 test "blake2s256 aligned final" {
-    var block = []u8 {0} ** Blake2s256.block_size;
+    var block = []u8{0} ** Blake2s256.block_size;
     var out: [Blake2s256.digest_size]u8 = undefined;
 
     var h = Blake2s256.init();
@@ -238,154 +258,363 @@ test "blake2s256 aligned final" {
     h.final(out[0..]);
 }
 
-
 /////////////////////
 // Blake2b
 
 pub const Blake2b384 = Blake2b(384);
 pub const Blake2b512 = Blake2b(512);
 
-fn Blake2b(comptime out_len: usize) type { return struct {
-    const Self = this;
-    const block_size = 128;
-    const digest_size = out_len / 8;
+fn Blake2b(comptime out_len: usize) type {
+    return struct {
+        const Self = this;
+        const block_size = 128;
+        const digest_size = out_len / 8;
 
-    const iv = [8]u64 {
-        0x6a09e667f3bcc908, 0xbb67ae8584caa73b,
-        0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
-        0x510e527fade682d1, 0x9b05688c2b3e6c1f,
-        0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
-    };
+        const iv = [8]u64{
+            0x6a09e667f3bcc908,
+            0xbb67ae8584caa73b,
+            0x3c6ef372fe94f82b,
+            0xa54ff53a5f1d36f1,
+            0x510e527fade682d1,
+            0x9b05688c2b3e6c1f,
+            0x1f83d9abfb41bd6b,
+            0x5be0cd19137e2179,
+        };
 
-    const sigma = [12][16]u8 {
-        []const u8 {  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15 },
-        []const u8 { 14, 10,  4,  8,  9, 15, 13,  6,  1, 12,  0,  2, 11,  7,  5,  3 },
-        []const u8 { 11,  8, 12,  0,  5,  2, 15, 13, 10, 14,  3,  6,  7,  1,  9,  4 },
-        []const u8 {  7,  9,  3,  1, 13, 12, 11, 14,  2,  6,  5, 10,  4,  0, 15,  8 },
-        []const u8 {  9,  0,  5,  7,  2,  4, 10, 15, 14,  1, 11, 12,  6,  8,  3, 13 },
-        []const u8 {  2, 12,  6, 10,  0, 11,  8,  3,  4, 13,  7,  5, 15, 14,  1,  9 },
-        []const u8 { 12,  5,  1, 15, 14, 13,  4, 10,  0,  7,  6,  3,  9,  2,  8, 11 },
-        []const u8 { 13, 11,  7, 14, 12,  1,  3,  9,  5,  0, 15,  4,  8,  6,  2, 10 },
-        []const u8 {  6, 15, 14,  9, 11,  3,  0,  8, 12,  2, 13,  7,  1,  4, 10,  5 },
-        []const u8 { 10,  2,  8,  4,  7,  6,  1,  5, 15, 11,  9, 14,  3, 12, 13 , 0 },
-        []const u8 {  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15 },
-        []const u8 { 14, 10,  4,  8,  9, 15, 13,  6,  1, 12,  0,  2, 11,  7,  5,  3 },
-    };
+        const sigma = [12][16]u8{
+            []const u8{
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+            },
+            []const u8{
+                14,
+                10,
+                4,
+                8,
+                9,
+                15,
+                13,
+                6,
+                1,
+                12,
+                0,
+                2,
+                11,
+                7,
+                5,
+                3,
+            },
+            []const u8{
+                11,
+                8,
+                12,
+                0,
+                5,
+                2,
+                15,
+                13,
+                10,
+                14,
+                3,
+                6,
+                7,
+                1,
+                9,
+                4,
+            },
+            []const u8{
+                7,
+                9,
+                3,
+                1,
+                13,
+                12,
+                11,
+                14,
+                2,
+                6,
+                5,
+                10,
+                4,
+                0,
+                15,
+                8,
+            },
+            []const u8{
+                9,
+                0,
+                5,
+                7,
+                2,
+                4,
+                10,
+                15,
+                14,
+                1,
+                11,
+                12,
+                6,
+                8,
+                3,
+                13,
+            },
+            []const u8{
+                2,
+                12,
+                6,
+                10,
+                0,
+                11,
+                8,
+                3,
+                4,
+                13,
+                7,
+                5,
+                15,
+                14,
+                1,
+                9,
+            },
+            []const u8{
+                12,
+                5,
+                1,
+                15,
+                14,
+                13,
+                4,
+                10,
+                0,
+                7,
+                6,
+                3,
+                9,
+                2,
+                8,
+                11,
+            },
+            []const u8{
+                13,
+                11,
+                7,
+                14,
+                12,
+                1,
+                3,
+                9,
+                5,
+                0,
+                15,
+                4,
+                8,
+                6,
+                2,
+                10,
+            },
+            []const u8{
+                6,
+                15,
+                14,
+                9,
+                11,
+                3,
+                0,
+                8,
+                12,
+                2,
+                13,
+                7,
+                1,
+                4,
+                10,
+                5,
+            },
+            []const u8{
+                10,
+                2,
+                8,
+                4,
+                7,
+                6,
+                1,
+                5,
+                15,
+                11,
+                9,
+                14,
+                3,
+                12,
+                13,
+                0,
+            },
+            []const u8{
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+            },
+            []const u8{
+                14,
+                10,
+                4,
+                8,
+                9,
+                15,
+                13,
+                6,
+                1,
+                12,
+                0,
+                2,
+                11,
+                7,
+                5,
+                3,
+            },
+        };
 
-    h:         [8]u64,
-    t:         u128,
-    // Streaming cache
-    buf:       [128]u8,
-    buf_len:   u8,
+        h: [8]u64,
+        t: u128,
+        // Streaming cache
+        buf: [128]u8,
+        buf_len: u8,
 
-    pub fn init() Self {
-        debug.assert(8 <= out_len and out_len <= 512);
+        pub fn init() Self {
+            debug.assert(8 <= out_len and out_len <= 512);
 
-        var s: Self = undefined;
-        s.reset();
-        return s;
-    }
+            var s: Self = undefined;
+            s.reset();
+            return s;
+        }
 
-    pub fn reset(d: &Self) void {
-        mem.copy(u64, d.h[0..], iv[0..]);
+        pub fn reset(d: &Self) void {
+            mem.copy(u64, d.h[0..], iv[0..]);
 
-        // No key plus default parameters
-        d.h[0] ^= 0x01010000 ^ (out_len >> 3);
-        d.t = 0;
-        d.buf_len = 0;
-    }
-
-    pub fn hash(b: []const u8, out: []u8) void {
-        var d = Self.init();
-        d.update(b);
-        d.final(out);
-    }
-
-    pub fn update(d: &Self, b: []const u8) void {
-        var off: usize = 0;
-
-        // Partial buffer exists from previous update. Copy into buffer then hash.
-        if (d.buf_len != 0 and d.buf_len + b.len > 128) {
-            off += 128 - d.buf_len;
-            mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
-            d.t += 128;
-            d.round(d.buf[0..], false);
+            // No key plus default parameters
+            d.h[0] ^= 0x01010000 ^ (out_len >> 3);
+            d.t = 0;
             d.buf_len = 0;
         }
 
-        // Full middle blocks.
-        while (off + 128 <= b.len) : (off += 128) {
-            d.t += 128;
-            d.round(b[off..off + 128], false);
+        pub fn hash(b: []const u8, out: []u8) void {
+            var d = Self.init();
+            d.update(b);
+            d.final(out);
         }
 
-        // Copy any remainder for next pass.
-        mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-        d.buf_len += u8(b[off..].len);
-    }
+        pub fn update(d: &Self, b: []const u8) void {
+            var off: usize = 0;
 
-    pub fn final(d: &Self, out: []u8) void {
-        mem.set(u8, d.buf[d.buf_len..], 0);
-        d.t += d.buf_len;
-        d.round(d.buf[0..], true);
+            // Partial buffer exists from previous update. Copy into buffer then hash.
+            if (d.buf_len != 0 and d.buf_len + b.len > 128) {
+                off += 128 - d.buf_len;
+                mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+                d.t += 128;
+                d.round(d.buf[0..], false);
+                d.buf_len = 0;
+            }
 
-        const rr = d.h[0 .. out_len / 64];
+            // Full middle blocks.
+            while (off + 128 <= b.len) : (off += 128) {
+                d.t += 128;
+                d.round(b[off..off + 128], false);
+            }
 
-        for (rr) |s, j| {
-            mem.writeInt(out[8*j .. 8*j + 8], s, builtin.Endian.Little);
-        }
-    }
-
-    fn round(d: &Self, b: []const u8, last: bool) void {
-        debug.assert(b.len == 128);
-
-        var m: [16]u64 = undefined;
-        var v: [16]u64 = undefined;
-
-        for (m) |*r, i| {
-            *r = mem.readIntLE(u64, b[8*i .. 8*i + 8]);
+            // Copy any remainder for next pass.
+            mem.copy(u8, d.buf[d.buf_len..], b[off..]);
+            d.buf_len += u8(b[off..].len);
         }
 
-        var k: usize = 0;
-        while (k < 8) : (k += 1) {
-            v[k] = d.h[k];
-            v[k+8] = iv[k];
-        }
+        pub fn final(d: &Self, out: []u8) void {
+            mem.set(u8, d.buf[d.buf_len..], 0);
+            d.t += d.buf_len;
+            d.round(d.buf[0..], true);
 
-        v[12] ^= @truncate(u64, d.t);
-        v[13] ^= u64(d.t >> 64);
-        if (last) v[14] = ~v[14];
+            const rr = d.h[0..out_len / 64];
 
-        const rounds = comptime []RoundParam {
-            Rp(0,  4,  8, 12,  0,  1),
-            Rp(1,  5,  9, 13,  2,  3),
-            Rp(2,  6, 10, 14,  4,  5),
-            Rp(3,  7, 11, 15,  6,  7),
-            Rp(0,  5, 10, 15,  8,  9),
-            Rp(1,  6, 11, 12, 10, 11),
-            Rp(2,  7,  8, 13, 12, 13),
-            Rp(3,  4,  9, 14, 14, 15),
-        };
-
-        comptime var j: usize = 0;
-        inline while (j < 12) : (j += 1) {
-            inline for (rounds) |r| {
-                v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.x]];
-                v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], usize(32));
-                v[r.c] = v[r.c] +% v[r.d];
-                v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], usize(24));
-                v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.y]];
-                v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], usize(16));
-                v[r.c] = v[r.c] +% v[r.d];
-                v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], usize(63));
+            for (rr) |s, j| {
+                mem.writeInt(out[8 * j..8 * j + 8], s, builtin.Endian.Little);
             }
         }
 
-        for (d.h) |*r, i| {
-            *r ^= v[i] ^ v[i + 8];
+        fn round(d: &Self, b: []const u8, last: bool) void {
+            debug.assert(b.len == 128);
+
+            var m: [16]u64 = undefined;
+            var v: [16]u64 = undefined;
+
+            for (m) |*r, i| {
+                r.* = mem.readIntLE(u64, b[8 * i..8 * i + 8]);
+            }
+
+            var k: usize = 0;
+            while (k < 8) : (k += 1) {
+                v[k] = d.h[k];
+                v[k + 8] = iv[k];
+            }
+
+            v[12] ^= @truncate(u64, d.t);
+            v[13] ^= u64(d.t >> 64);
+            if (last) v[14] = ~v[14];
+
+            const rounds = comptime []RoundParam{
+                Rp(0, 4, 8, 12, 0, 1),
+                Rp(1, 5, 9, 13, 2, 3),
+                Rp(2, 6, 10, 14, 4, 5),
+                Rp(3, 7, 11, 15, 6, 7),
+                Rp(0, 5, 10, 15, 8, 9),
+                Rp(1, 6, 11, 12, 10, 11),
+                Rp(2, 7, 8, 13, 12, 13),
+                Rp(3, 4, 9, 14, 14, 15),
+            };
+
+            comptime var j: usize = 0;
+            inline while (j < 12) : (j += 1) {
+                inline for (rounds) |r| {
+                    v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.x]];
+                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], usize(32));
+                    v[r.c] = v[r.c] +% v[r.d];
+                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], usize(24));
+                    v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.y]];
+                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], usize(16));
+                    v[r.c] = v[r.c] +% v[r.d];
+                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], usize(63));
+                }
+            }
+
+            for (d.h) |*r, i| {
+                r.* ^= v[i] ^ v[i + 8];
+            }
         }
-    }
-};}
+    };
+}
 
 test "blake2b384 single" {
     const h1 = "b32811423377f52d7862286ee1a72ee540524380fda1724a6f25d7978c6fd3244a6caf0498812673c5e05ef583825100";
@@ -458,7 +687,7 @@ test "blake2b512 streaming" {
 }
 
 test "blake2b512 aligned final" {
-    var block = []u8 {0} ** Blake2b512.block_size;
+    var block = []u8{0} ** Blake2b512.block_size;
     var out: [Blake2b512.digest_size]u8 = undefined;
 
     var h = Blake2b512.init();

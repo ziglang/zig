@@ -1,3 +1,271 @@
+test "zig fmt: switch cases trailing comma" {
+    try testTransform(
+        \\fn switch_cases(x: i32) void {
+        \\    switch (x) {
+        \\        1,2,3 => {},
+        \\        4,5, => {},
+        \\        6...8, => {},
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        \\fn switch_cases(x: i32) void {
+        \\    switch (x) {
+        \\        1, 2, 3 => {},
+        \\        4,
+        \\        5, => {},
+        \\        6 ... 8 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: slice align" {
+    try testCanonical(
+        \\const A = struct {
+        \\    items: []align(A) T,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: add trailing comma to array literal" {
+    try testTransform(
+        \\comptime {
+        \\    return []u16{'m', 's', 'y', 's', '-' // hi
+        \\   };
+        \\}
+    ,
+        \\comptime {
+        \\    return []u16{
+        \\        'm',
+        \\        's',
+        \\        'y',
+        \\        's',
+        \\        '-', // hi
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: first thing in file is line comment" {
+    try testCanonical(
+        \\// Introspection and determination of system libraries needed by zig.
+        \\
+        \\// Introspection and determination of system libraries needed by zig.
+        \\
+        \\const std = @import("std");
+        \\
+    );
+}
+
+test "zig fmt: line comment after doc comment" {
+    try testCanonical(
+        \\/// doc comment
+        \\// line comment
+        \\fn foo() void {}
+        \\
+    );
+}
+
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\test "bit field alignment" {
+        \\    assert(@typeOf(&blah.b) == &align(1:3:6) const u3);
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    switch (state) {
+        \\        TermState.Start => switch (c) {
+        \\            '\x1b' => state = TermState.Escape,
+        \\            else => try out.writeByte(c),
+        \\        },
+        \\    }
+        \\}
+        \\
+    );
+}
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\pub const f64_true_min = 4.94065645841246544177e-324;
+        \\const threshold = 0x1.a827999fcef32p+1022;
+        \\
+    );
+}
+
+test "zig fmt: if-else end of comptime" {
+    try testCanonical(
+        \\comptime {
+        \\    if (a) {
+        \\        b();
+        \\    } else {
+        \\        b();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: nested blocks" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        {
+        \\            {
+        \\                a();
+        \\            }
+        \\        }
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: block with same line comment after end brace" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        b();
+        \\    } // comment
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: statements with comment between" {
+    try testCanonical(
+        \\comptime {
+        \\    a = b;
+        \\    // comment
+        \\    a = b;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: statements with empty line between" {
+    try testCanonical(
+        \\comptime {
+        \\    a = b;
+        \\
+        \\    a = b;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: ptr deref operator" {
+    try testCanonical(
+        \\const a = b.*;
+        \\
+    );
+}
+
+test "zig fmt: comment after if before another if" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
+        \\test "aoeu" {
+        \\    if (x) {
+        \\        foo();
+        \\    }
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: line comment between if block and else keyword" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
+        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
+        \\        return Complex(f32).new(y - y, y - y);
+        \\    }
+        \\    // cexp(-inf +- i inf|nan) = 0 + i0
+        \\    else if (hx & 0x80000000 != 0) {
+        \\        return Complex(f32).new(0, 0);
+        \\    }
+        \\    // cexp(+inf +- i inf|nan) = inf + i nan
+        \\    // another comment
+        \\    else {
+        \\        return Complex(f32).new(x, y - y);
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same line comments in expression" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    const x = ( // a
+        \\        0 // b
+        \\    ); // c
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: add comma on last switch prong" {
+    try testTransform(
+        \\test "aoeu" {
+        \\switch (self.init_arg_expr) {
+        \\    InitArg.Type => |t| { },
+        \\    InitArg.None,
+        \\    InitArg.Enum => { }
+        \\}
+        \\ switch (self.init_arg_expr) {
+        \\     InitArg.Type => |t| { },
+        \\     InitArg.None,
+        \\     InitArg.Enum => { }//line comment
+        \\ }
+        \\}
+    ,
+        \\test "aoeu" {
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None, InitArg.Enum => {},
+        \\    }
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None, InitArg.Enum => {}, //line comment
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line doc comment on variable declaration" {
+    try testTransform(
+        \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space
+        \\pub const MAP_FILE = 0x0000; /// map from file (default)
+        \\
+    ,
+        \\/// allocated from memory, swap space
+        \\pub const MAP_ANONYMOUS = 0x1000;
+        \\/// map from file (default)
+        \\pub const MAP_FILE = 0x0000;
+        \\
+    );
+}
+
 test "zig fmt: same-line comment after a statement" {
     try testCanonical(
         \\test "" {
@@ -67,13 +335,6 @@ test "zig fmt: switch with empty body" {
         \\test "" {
         \\    foo() catch |err| switch (err) {};
         \\}
-        \\
-    );
-}
-
-test "zig fmt: float literal with exponent" {
-    try testCanonical(
-        \\pub const f64_true_min = 4.94065645841246544177e-324;
         \\
     );
 }
@@ -539,6 +800,11 @@ test "zig fmt: multiline string" {
         \\        c\\two)
         \\        c\\three
         \\    ;
+        \\    const s3 = // hi
+        \\        \\one
+        \\        \\two)
+        \\        \\three
+        \\    ;
         \\}
         \\
     );
@@ -759,8 +1025,7 @@ test "zig fmt: switch" {
         \\    switch (0) {
         \\        0 => {},
         \\        1 => unreachable,
-        \\        2,
-        \\        3 => {},
+        \\        2, 3 => {},
         \\        4 ... 7 => {},
         \\        1 + 4 * 3 + 22 => {},
         \\        else => {

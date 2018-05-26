@@ -135,7 +135,7 @@ pub const Timer = struct {
     
     //At some point we may change our minds on RAW, but for now we're
     //  sticking with posix standard MONOTONIC. For more information, see: 
-    //  https://github.com/zig-lang/zig/pull/933
+    //  https://github.com/ziglang/zig/pull/933
     //
     //const monotonic_clock_id = switch(builtin.os) {
     //    Os.linux => linux.CLOCK_MONOTONIC_RAW,

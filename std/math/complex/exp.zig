@@ -19,8 +19,8 @@ pub fn exp(z: var) Complex(@typeOf(z.re)) {
 fn exp32(z: &const Complex(f32)) Complex(f32) {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
-    const exp_overflow  = 0x42b17218;    // max_exp * ln2 ~= 88.72283955
-    const cexp_overflow = 0x43400074;   // (max_exp - min_denom_exp) * ln2
+    const exp_overflow = 0x42b17218; // max_exp * ln2 ~= 88.72283955
+    const cexp_overflow = 0x43400074; // (max_exp - min_denom_exp) * ln2
 
     const x = z.re;
     const y = z.im;
@@ -41,12 +41,10 @@ fn exp32(z: &const Complex(f32)) Complex(f32) {
         // cexp(finite|nan +- i inf|nan) = nan + i nan
         if ((hx & 0x7fffffff) != 0x7f800000) {
             return Complex(f32).new(y - y, y - y);
-        }
-        // cexp(-inf +- i inf|nan) = 0 + i0
+        } // cexp(-inf +- i inf|nan) = 0 + i0
         else if (hx & 0x80000000 != 0) {
             return Complex(f32).new(0, 0);
-        }
-        // cexp(+inf +- i inf|nan) = inf + i nan
+        } // cexp(+inf +- i inf|nan) = inf + i nan
         else {
             return Complex(f32).new(x, y - y);
         }
@@ -55,8 +53,7 @@ fn exp32(z: &const Complex(f32)) Complex(f32) {
     // 88.7 <= x <= 192 so must scale
     if (hx >= exp_overflow and hx <= cexp_overflow) {
         return ldexp_cexp(z, 0);
-    }
-    // - x < exp_overflow => exp(x) won't overflow (common)
+    } // - x < exp_overflow => exp(x) won't overflow (common)
     // - x > cexp_overflow, so exp(x) * s overflows for s > 0
     // - x = +-inf
     // - x = nan
@@ -67,8 +64,8 @@ fn exp32(z: &const Complex(f32)) Complex(f32) {
 }
 
 fn exp64(z: &const Complex(f64)) Complex(f64) {
-    const exp_overflow  = 0x40862e42;    // high bits of max_exp * ln2 ~= 710
-    const cexp_overflow = 0x4096b8e4;   // (max_exp - min_denorm_exp) * ln2
+    const exp_overflow = 0x40862e42; // high bits of max_exp * ln2 ~= 710
+    const cexp_overflow = 0x4096b8e4; // (max_exp - min_denorm_exp) * ln2
 
     const x = z.re;
     const y = z.im;
@@ -95,12 +92,10 @@ fn exp64(z: &const Complex(f64)) Complex(f64) {
         // cexp(finite|nan +- i inf|nan) = nan + i nan
         if (lx != 0 or (hx & 0x7fffffff) != 0x7ff00000) {
             return Complex(f64).new(y - y, y - y);
-        }
-        // cexp(-inf +- i inf|nan) = 0 + i0
+        } // cexp(-inf +- i inf|nan) = 0 + i0
         else if (hx & 0x80000000 != 0) {
             return Complex(f64).new(0, 0);
-        }
-        // cexp(+inf +- i inf|nan) = inf + i nan
+        } // cexp(+inf +- i inf|nan) = inf + i nan
         else {
             return Complex(f64).new(x, y - y);
         }
@@ -109,9 +104,8 @@ fn exp64(z: &const Complex(f64)) Complex(f64) {
     // 709.7 <= x <= 1454.3 so must scale
     if (hx >= exp_overflow and hx <= cexp_overflow) {
         const r = ldexp_cexp(z, 0);
-        return *r;
-    }
-    // - x < exp_overflow => exp(x) won't overflow (common)
+        return r.*;
+    } // - x < exp_overflow => exp(x) won't overflow (common)
     // - x > cexp_overflow, so exp(x) * s overflows for s > 0
     // - x = +-inf
     // - x = nan

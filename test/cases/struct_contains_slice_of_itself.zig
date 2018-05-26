@@ -6,7 +6,7 @@ const Node = struct {
 };
 
 test "struct contains slice of itself" {
-    var other_nodes = []Node{
+    var other_nodes = []Node {
         Node {
             .payload = 31,
             .children = []Node{},

@@ -586,7 +586,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "nonnull");
         }
         // Note: byval is disabled on windows due to an LLVM bug:
-        // https://github.com/zig-lang/zig/issues/536
+        // https://github.com/ziglang/zig/issues/536
         if (is_byval && g->zig_target.os != OsWindows) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "byval");
         }
@@ -921,6 +921,53 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
 
 static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
+}
+
+static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
+    if (g->stacksave_fn_val)
+        return g->stacksave_fn_val;
+
+    // declare i8* @llvm.stacksave()
+
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMPointerType(LLVMInt8Type(), 0), nullptr, 0, false);
+    g->stacksave_fn_val = LLVMAddFunction(g->module, "llvm.stacksave", fn_type);
+    assert(LLVMGetIntrinsicID(g->stacksave_fn_val));
+
+    return g->stacksave_fn_val;
+}
+
+static LLVMValueRef get_stackrestore_fn_val(CodeGen *g) {
+    if (g->stackrestore_fn_val)
+        return g->stackrestore_fn_val;
+
+    // declare void @llvm.stackrestore(i8* %ptr)
+
+    LLVMTypeRef param_type = LLVMPointerType(LLVMInt8Type(), 0);
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), &param_type, 1, false);
+    g->stackrestore_fn_val = LLVMAddFunction(g->module, "llvm.stackrestore", fn_type);
+    assert(LLVMGetIntrinsicID(g->stackrestore_fn_val));
+
+    return g->stackrestore_fn_val;
+}
+
+static LLVMValueRef get_write_register_fn_val(CodeGen *g) {
+    if (g->write_register_fn_val)
+        return g->write_register_fn_val;
+
+    // declare void @llvm.write_register.i64(metadata, i64 @value)
+    // !0 = !{!"sp\00"}
+
+    LLVMTypeRef param_types[] = {
+        LLVMMetadataTypeInContext(LLVMGetGlobalContext()), 
+        LLVMIntType(g->pointer_size_bytes * 8),
+    };
+
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 2, false);
+    Buf *name = buf_sprintf("llvm.write_register.i%d", g->pointer_size_bytes * 8);
+    g->write_register_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->write_register_fn_val));
+
+    return g->write_register_fn_val;
 }
 
 static LLVMValueRef get_coro_destroy_fn_val(CodeGen *g) {
@@ -2840,6 +2887,38 @@ static size_t get_async_err_code_arg_index(CodeGen *g, FnTypeId *fn_type_id) {
     return 1 + get_async_allocator_arg_index(g, fn_type_id);
 }
 
+
+static LLVMValueRef get_new_stack_addr(CodeGen *g, LLVMValueRef new_stack) {
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, new_stack, (unsigned)slice_ptr_index, "");
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, new_stack, (unsigned)slice_len_index, "");
+
+    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
+    LLVMValueRef len_value = gen_load_untyped(g, len_field_ptr, 0, false, "");
+
+    LLVMValueRef ptr_addr = LLVMBuildPtrToInt(g->builder, ptr_value, LLVMTypeOf(len_value), "");
+    LLVMValueRef end_addr = LLVMBuildNUWAdd(g->builder, ptr_addr, len_value, "");
+    LLVMValueRef align_amt = LLVMConstInt(LLVMTypeOf(end_addr), get_abi_alignment(g, g->builtin_types.entry_usize), false);
+    LLVMValueRef align_adj = LLVMBuildURem(g->builder, end_addr, align_amt, "");
+    return LLVMBuildNUWSub(g->builder, end_addr, align_adj, "");
+}
+
+static void gen_set_stack_pointer(CodeGen *g, LLVMValueRef aligned_end_addr) {
+    LLVMValueRef write_register_fn_val = get_write_register_fn_val(g);
+
+    if (g->sp_md_node == nullptr) {
+        Buf *sp_reg_name = buf_create_from_str(arch_stack_pointer_register_name(&g->zig_target.arch));
+        LLVMValueRef str_node = LLVMMDString(buf_ptr(sp_reg_name), buf_len(sp_reg_name) + 1);
+        g->sp_md_node = LLVMMDNode(&str_node, 1);
+    }
+
+    LLVMValueRef params[] = {
+        g->sp_md_node,
+        aligned_end_addr,
+    };
+
+    LLVMBuildCall(g->builder, write_register_fn_val, params, 2, "");
+}
+
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
     LLVMValueRef fn_val;
     TypeTableEntry *fn_type;
@@ -2906,13 +2985,28 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
 
     LLVMCallConv llvm_cc = get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc);
-    LLVMValueRef result = ZigLLVMBuildCall(g->builder, fn_val,
-            gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
+    LLVMValueRef result;
+    
+    if (instruction->new_stack == nullptr) {
+        result = ZigLLVMBuildCall(g->builder, fn_val,
+                gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
+    } else {
+        LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
+        LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
+
+        LLVMValueRef new_stack_addr = get_new_stack_addr(g, ir_llvm_value(g, instruction->new_stack));
+        LLVMValueRef old_stack_ref = LLVMBuildCall(g->builder, stacksave_fn_val, nullptr, 0, "");
+        gen_set_stack_pointer(g, new_stack_addr);
+        result = ZigLLVMBuildCall(g->builder, fn_val,
+                gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
+        LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
+    }
+
 
     for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
         FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
         // Note: byval is disabled on windows due to an LLVM bug:
-        // https://github.com/zig-lang/zig/issues/536
+        // https://github.com/ziglang/zig/issues/536
         if (gen_info->is_byval && g->zig_target.os != OsWindows) {
             addLLVMCallsiteAttr(result, (unsigned)gen_info->gen_index, "byval");
         }
@@ -6086,6 +6180,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 2);
     create_builtin_fn(g, BuiltinFnIdInlineCall, "inlineCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdNoInlineCall, "noInlineCall", SIZE_MAX);
+    create_builtin_fn(g, BuiltinFnIdNewStackCall, "newStackCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdTypeId, "typeId", 1);
     create_builtin_fn(g, BuiltinFnIdShlExact, "shlExact", 2);
     create_builtin_fn(g, BuiltinFnIdShrExact, "shrExact", 2);
@@ -6550,7 +6645,7 @@ static void init(CodeGen *g) {
     const char *target_specific_features;
     if (g->is_native_target) {
         // LLVM creates invalid binaries on Windows sometimes.
-        // See https://github.com/zig-lang/zig/issues/508
+        // See https://github.com/ziglang/zig/issues/508
         // As a workaround we do not use target native features on Windows.
         if (g->zig_target.os == OsWindows) {
             target_specific_cpu_args = "";

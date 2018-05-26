@@ -96,7 +96,7 @@
       </p>
       <p>
       If you search for something specific in this documentation and do not find it,
-      please <a href="https://github.com/zig-lang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
+      please <a href="https://github.com/ziglang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
       </p>
       <p>
       The code samples in this document are compiled and tested as part of the main test suite of Zig.
@@ -1232,7 +1232,7 @@ mem.eql(u8, pattern, "ababab")</code></pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">*a<code></pre></td>
+          <td><pre><code class="zig">a.*<code></pre></td>
           <td>
             <ul>
               <li>{#link|Pointers#}</li>
@@ -1244,7 +1244,7 @@ mem.eql(u8, pattern, "ababab")</code></pre>
           <td>
             <pre><code class="zig">const x: u32 = 1234;
 const ptr = &amp;x;
-*x == 1234</code></pre>
+x.* == 1234</code></pre>
           </td>
         </tr>
         <tr>
@@ -1258,7 +1258,7 @@ const ptr = &amp;x;
           <td>
             <pre><code class="zig">const x: u32 = 1234;
 const ptr = &amp;x;
-*x == 1234</code></pre>
+x.* == 1234</code></pre>
           </td>
         </tr>
       </table>
@@ -1267,8 +1267,8 @@ const ptr = &amp;x;
       {#header_open|Precedence#}
       <pre><code>x() x[] x.y
 a!b
-!x -x -%x ~x *x &amp;x ?x ??x
-x{}
+!x -x -%x ~x &amp;x ?x ??x
+x{} x.*
 ! * / % ** *%
 + - ++ +% -%
 &lt;&lt; &gt;&gt;
@@ -1316,7 +1316,7 @@ var some_integers: [100]i32 = undefined;
 
 test "modify an array" {
     for (some_integers) |*item, i| {
-        *item = i32(i);
+        item.* = i32(i);
     }
     assert(some_integers[10] == 10);
     assert(some_integers[99] == 99);
@@ -1357,7 +1357,7 @@ comptime {
 var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (initial_value) |*pt, i| {
-        *pt = Point {
+        pt.* = Point {
             .x = i32(i),
             .y = i32(i) * 2,
         };
@@ -1400,7 +1400,7 @@ test "address of syntax" {
     const x_ptr = &x;
 
     // Deference a pointer:
-    assert(*x_ptr == 1234);
+    assert(x_ptr.* == 1234);
 
     // When you get the address of a const variable, you get a const pointer.
     assert(@typeOf(x_ptr) == &const i32);
@@ -1409,8 +1409,8 @@ test "address of syntax" {
     var y: i32 = 5678;
     const y_ptr = &y;
     assert(@typeOf(y_ptr) == &i32);
-    *y_ptr += 1;
-    assert(*y_ptr == 5679);
+    y_ptr.* += 1;
+    assert(y_ptr.* == 5679);
 }
 
 test "pointer array access" {
@@ -1448,9 +1448,9 @@ comptime {
     // @ptrCast.
     var x: i32 = 1;
     const ptr = &x;
-    *ptr += 1;
+    ptr.* += 1;
     x += 1;
-    assert(*ptr == 3);
+    assert(ptr.* == 3);
 }
 
 test "@ptrToInt and @intToPtr" {
@@ -1492,7 +1492,7 @@ test "nullable pointers" {
     var x: i32 = 1;
     ptr = &x;
 
-    assert(*??ptr == 1);
+    assert((??ptr).* == 1);
 
     // Nullable pointers are the same size as normal pointers, because pointer
     // value 0 is used as the null value.
@@ -1505,7 +1505,7 @@ test "pointer casting" {
     // conversions are not possible.
     const bytes align(@alignOf(u32)) = []u8{0x12, 0x12, 0x12, 0x12};
     const u32_ptr = @ptrCast(&const u32, &bytes[0]);
-    assert(*u32_ptr == 0x12121212);
+    assert(u32_ptr.* == 0x12121212);
 
     // Even this example is contrived - there are better ways to do the above than
     // pointer casting. For example, using a slice narrowing cast:
@@ -1610,7 +1610,7 @@ fn foo(bytes: []u8) u32 {
       <code>u8</code> can alias any memory.
       </p>
       <p>As an example, this code produces undefined behavior:</p>
-      <pre><code class="zig">*@ptrCast(&amp;u32, f32(12.34))</code></pre>
+      <pre><code class="zig">@ptrCast(&amp;u32, f32(12.34)).*</code></pre>
       <p>Instead, use {#link|@bitCast#}:
       <pre><code class="zig">@bitCast(u32, f32(12.34))</code></pre>
       <p>As an added benefit, the <code>@bitcast</code> version works at compile-time.</p>
@@ -2040,7 +2040,7 @@ const Variant = union(enum) {
     Bool: bool,
 
     fn truthy(self: &const Variant) bool {
-        return switch (*self) {
+        return switch (self.*) {
             Variant.Int => |x_int| x_int != 0,
             Variant.Bool => |x_bool| x_bool,
         };
@@ -2151,7 +2151,7 @@ test "switch enum" {
 
         // A reference to the matched value can be obtained using `*` syntax.
         Item.C => |*item| blk: {
-            (*item).x += 1;
+            item.*.x += 1;
             break :blk 6;
         },
 
@@ -2374,7 +2374,7 @@ test "for reference" {
     // Iterate over the slice by reference by
     // specifying that the capture value is a pointer.
     for (items) |*value| {
-        *value += 1;
+        value.* += 1;
     }
 
     assert(items[0] == 4);
@@ -2483,7 +2483,7 @@ test "if nullable" {
     // Access the value by reference using a pointer capture.
     var c: ?u32 = 3;
     if (c) |*value| {
-        *value = 2;
+        value.* = 2;
     }
 
     if (c) |value| {
@@ -2524,7 +2524,7 @@ test "if error union" {
     // Access the value by reference using a pointer capture.
     var c: error!u32 = 3;
     if (c) |*value| {
-        *value = 9;
+        value.* = 9;
     } else |err| {
         unreachable;
     }
@@ -2827,7 +2827,7 @@ test "fn reflection" {
       </p>
       <p>
       The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/zig-lang/zig/issues/786">#768</a>.
+      However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
       You can implicitly cast an error from a subset to its superset:
@@ -3111,7 +3111,48 @@ test "error union" {
       {#code_end#}
       <p>TODO the <code>||</code> operator for error sets</p>
       {#header_open|Inferred Error Sets#}
-      <p>TODO</p>
+      <p>
+      Because many functions in Zig return a possible error, Zig supports inferring the error set.
+      To infer the error set for a function, use this syntax:
+      </p>
+{#code_begin|test#}
+// With an inferred error set
+pub fn add_inferred(comptime T: type, a: T, b: T) !T {
+    var answer: T = undefined;
+    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+}
+
+// With an explicit error set
+pub fn add_explicit(comptime T: type, a: T, b: T) Error!T {
+    var answer: T = undefined;
+    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
+}
+
+const Error = error {
+    Overflow,
+};
+
+const std = @import("std");
+
+test "inferred error set" {
+    if (add_inferred(u8, 255, 1)) |_| unreachable else |err| switch (err) {
+        error.Overflow => {}, // ok
+    }
+}
+{#code_end#}
+      <p>
+      When a function has an inferred error set, that function becomes generic and thus it becomes
+      trickier to do certain things with it, such as obtain a function pointer, or have an error
+      set that is consistent across different build targets. Additionally, inferred error sets
+      are incompatible with recursion.
+      </p>
+      <p>
+      In these situations, it is recommended to use an explicit error set. You can generally start
+      with an empty error set and let compile errors guide you toward completing the set.
+      </p>
+      <p>
+      These limitations may be overcome in a future version of Zig.
+      </p>
       {#header_close#}
       {#header_close#}
       {#header_open|Error Return Traces#}
@@ -3872,13 +3913,22 @@ pub fn main() void {
       {#header_open|@addWithOverflow#}
       <pre><code class="zig">@addWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
       <p>
-      Performs <code>*result = a + b</code>. If overflow or underflow occurs,
+      Performs <code>result.* = a + b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
       {#header_close#}
       {#header_open|@ArgType#}
-      <p>TODO</p>
+      <pre><code class="zig">@ArgType(comptime T: type, comptime n: usize) -&gt; type</code></pre>
+      <p>
+      This builtin function takes a function type and returns the type of the parameter at index <code>n</code>.
+      </p>
+      <p>
+      <code>T</code> must be a function type.
+      </p>
+      <p>
+      Note: This function is deprecated. Use {#link|@typeInfo#} instead.
+      </p>
       {#header_close#}
       {#header_open|@atomicLoad#}
       <pre><code class="zig">@atomicLoad(comptime T: type, ptr: &amp;const T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
@@ -4073,9 +4123,9 @@ comptime {
       </p>
       {#code_begin|syntax#}
 fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
-    const old_value = *ptr;
+    const old_value = ptr.*;
     if (old_value == expected_value) {
-        *ptr = new_value;
+        ptr.* = new_value;
         return null;
     } else {
         return old_value;
@@ -4100,9 +4150,9 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_v
       </p>
       {#code_begin|syntax#}
 fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
-    const old_value = *ptr;
+    const old_value = ptr.*;
     if (old_value == expected_value and usuallyTrueButSometimesFalse()) {
-        *ptr = new_value;
+        ptr.* = new_value;
         return null;
     } else {
         return old_value;
@@ -4447,7 +4497,7 @@ mem.copy(u8, dest[0...byte_count], source[0...byte_count]);</code></pre>
       This function is a low level intrinsic with no safety mechanisms. Most
       code should not use this function, instead using something like this:
       </p>
-      <pre><code class="zig">for (dest[0...byte_count]) |*b| *b = c;</code></pre>
+      <pre><code class="zig">for (dest[0...byte_count]) |*b| b.* = c;</code></pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memset.
       </p>
@@ -4480,22 +4530,63 @@ mem.set(u8, dest, c);</code></pre>
       {#header_open|@mulWithOverflow#}
       <pre><code class="zig">@mulWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
       <p>
-      Performs <code>*result = a * b</code>. If overflow or underflow occurs,
+      Performs <code>result.* = a * b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
+      {#header_close#}
+      {#header_open|@newStackCall#}
+      <pre><code class="zig">@newStackCall(new_stack: []u8, function: var, args: ...) -&gt; var</code></pre>
+      <p>
+      This calls a function, in the same way that invoking an expression with parentheses does. However,
+      instead of using the same stack as the caller, the function uses the stack provided in the <code>new_stack</code>
+      parameter.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+var new_stack_bytes: [1024]u8 = undefined;
+
+test "calling a function with a new stack" {
+    const arg = 1234;
+
+    const a = @newStackCall(new_stack_bytes[0..512], targetFunction, arg);
+    const b = @newStackCall(new_stack_bytes[512..], targetFunction, arg);
+    _ = targetFunction(arg);
+
+    assert(arg == 1234);
+    assert(a < b);
+}
+
+fn targetFunction(x: i32) usize {
+    assert(x == 1234);
+
+    var local_variable: i32 = 42;
+    const ptr = &local_variable;
+    ptr.* += 1;
+
+    assert(local_variable == 43);
+    return @ptrToInt(ptr);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|@noInlineCall#}
       <pre><code class="zig">@noInlineCall(function: var, args: ...) -&gt; var</code></pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does:
       </p>
-      <pre><code class="zig">const assert = @import("std").debug.assert;
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
 test "noinline function call" {
     assert(@noInlineCall(add, 3, 9) == 12);
 }
 
-fn add(a: i32, b: i32) -&gt; i32 { a + b }</code></pre>
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
       <p>
       Unlike a normal function call, however, <code>@noInlineCall</code> guarantees that the call
       will not be inlined. If the call must be inlined, a compile error is emitted.
@@ -4705,7 +4796,7 @@ pub const FloatMode = enum {
       {#header_open|@shlWithOverflow#}
       <pre><code class="zig">@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: &T) -&gt; bool</code></pre>
       <p>
-      Performs <code>*result = a &lt;&lt; b</code>. If overflow or underflow occurs,
+      Performs <code>result.* = a &lt;&lt; b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
@@ -4749,7 +4840,7 @@ pub const FloatMode = enum {
       {#header_open|@subWithOverflow#}
       <pre><code class="zig">@subWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
       <p>
-      Performs <code>*result = a - b</code>. If overflow or underflow occurs,
+      Performs <code>result.* = a - b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
@@ -5867,7 +5958,7 @@ pub fn main() void {
       {#code_begin|exe#}
       {#link_libc#}
 const c = @cImport({
-    // See https://github.com/zig-lang/zig/issues/515
+    // See https://github.com/ziglang/zig/issues/515
     @cDefine("_NO_CRT_STDIO_INLINE", "1");
     @cInclude("stdio.h");
 });
@@ -6210,7 +6301,7 @@ fn readU32Be() u32 {}
         <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
       </ul>
       <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code (except possbly the last line of the file).</p>
-      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
+      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/ziglang/zig/issues/663">issue #663</a></p>
       {#header_close#}
       {#header_open|Grammar#}
       <pre><code class="nohighlight">Root = many(TopLevelItem) EOF
@@ -6341,9 +6432,11 @@ MultiplyOperator = "||" | "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp TypeExpr | SuffixOpExpression
 
-SuffixOpExpression = ("async" option("&lt;" SuffixOpExpression "&gt;") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = ("async" option("&lt;" SuffixOpExpression "&gt;") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression | PtrDerefExpression)
 
 FieldAccessExpression = "." Symbol
+
+PtrDerefExpression = ".*"
 
 FnCallExpression = "(" list(Expression, ",") ")"
 
@@ -6357,7 +6450,7 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
+PrefixOp = "!" | "-" | "~" | ("*" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
 
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
 
@@ -6451,7 +6544,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo newStackCall",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

@@ -1,6 +1,5 @@
 const std = @import("index.zig");
 const io = std.io;
-const allocator = std.debug.global_allocator;
 const DefaultPrng = std.rand.DefaultPrng;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -8,6 +7,9 @@ const os = std.os;
 const builtin = @import("builtin");
 
 test "write a file, read it, then delete it" {
+    var raw_bytes: [200 * 1024]u8 = undefined;
+    var allocator = &std.heap.FixedBufferAllocator.init(raw_bytes[0..]).allocator;
+
     var data: [1024]u8 = undefined;
     var prng = DefaultPrng.init(1234);
     prng.random.bytes(data[0..]);
@@ -43,4 +45,18 @@ test "write a file, read it, then delete it" {
         assert(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
     try os.deleteFile(allocator, tmp_file_name);
+}
+
+test "BufferOutStream" {
+    var bytes: [100]u8 = undefined;
+    var allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var buffer = try std.Buffer.initSize(allocator, 0);
+    var buf_stream = &std.io.BufferOutStream.init(&buffer).stream;
+
+    const x: i32 = 42;
+    const y: i32 = 1234;
+    try buf_stream.print("x: {}\ny: {}\n", x, y);
+
+    assert(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
 }

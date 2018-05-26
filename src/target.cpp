@@ -701,6 +701,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsLinux:
         case OsMacOSX:
         case OsZen:
+        case OsOpenBSD:
             switch (id) {
                 case CIntTypeShort:
                 case CIntTypeUShort:
@@ -741,7 +742,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsKFreeBSD:
         case OsLv2:
         case OsNetBSD:
-        case OsOpenBSD:
         case OsSolaris:
         case OsHaiku:
         case OsMinix:
@@ -894,4 +894,66 @@ bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target
     }
 
     return false;
+}
+
+const char *arch_stack_pointer_register_name(const ArchType *arch) {
+    switch (arch->arch) {
+        case ZigLLVM_UnknownArch:
+            zig_unreachable();
+        case ZigLLVM_x86:
+            return "sp";
+        case ZigLLVM_x86_64:
+            return "rsp";
+
+        case ZigLLVM_aarch64:
+        case ZigLLVM_arm:
+        case ZigLLVM_thumb:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_amdgcn:
+        case ZigLLVM_amdil:
+        case ZigLLVM_amdil64:
+        case ZigLLVM_armeb:
+        case ZigLLVM_arc:
+        case ZigLLVM_avr:
+        case ZigLLVM_bpfeb:
+        case ZigLLVM_bpfel:
+        case ZigLLVM_hexagon:
+        case ZigLLVM_lanai:
+        case ZigLLVM_hsail:
+        case ZigLLVM_hsail64:
+        case ZigLLVM_kalimba:
+        case ZigLLVM_le32:
+        case ZigLLVM_le64:
+        case ZigLLVM_mips:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_msp430:
+        case ZigLLVM_nios2:
+        case ZigLLVM_nvptx:
+        case ZigLLVM_nvptx64:
+        case ZigLLVM_ppc64le:
+        case ZigLLVM_r600:
+        case ZigLLVM_renderscript32:
+        case ZigLLVM_renderscript64:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+        case ZigLLVM_shave:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_spir:
+        case ZigLLVM_spir64:
+        case ZigLLVM_systemz:
+        case ZigLLVM_tce:
+        case ZigLLVM_tcele:
+        case ZigLLVM_thumbeb:
+        case ZigLLVM_wasm32:
+        case ZigLLVM_wasm64:
+        case ZigLLVM_xcore:
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppc64:
+            zig_panic("TODO populate this table with stack pointer register name for this CPU architecture");
+    }
+    zig_unreachable();
 }

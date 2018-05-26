@@ -4,6 +4,7 @@ const cstr = @import("std").cstr;
 const builtin = @import("builtin");
 
 // normal comment
+
 /// this is a documentation comment
 /// doc comment line 2
 fn emptyFunctionWithComments() void {}
@@ -16,8 +17,7 @@ comptime {
     @export("disabledExternFn", disabledExternFn, builtin.GlobalLinkage.Internal);
 }
 
-extern fn disabledExternFn() void {
-}
+extern fn disabledExternFn() void {}
 
 test "call disabled extern fn" {
     disabledExternFn();
@@ -110,17 +110,29 @@ fn testShortCircuit(f: bool, t: bool) void {
     var hit_3 = f;
     var hit_4 = f;
 
-    if (t or x: {assert(f); break :x f;}) {
+    if (t or x: {
+        assert(f);
+        break :x f;
+    }) {
         hit_1 = t;
     }
-    if (f or x: { hit_2 = t; break :x f; }) {
+    if (f or x: {
+        hit_2 = t;
+        break :x f;
+    }) {
         assert(f);
     }
 
-    if (t and x: { hit_3 = t; break :x f; }) {
+    if (t and x: {
+        hit_3 = t;
+        break :x f;
+    }) {
         assert(f);
     }
-    if (f and x: {assert(f); break :x f;}) {
+    if (f and x: {
+        assert(f);
+        break :x f;
+    }) {
         assert(f);
     } else {
         hit_4 = t;
@@ -146,8 +158,8 @@ test "return string from function" {
     assert(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
 
-const g1 : i32 = 1233 + 1;
-var g2 : i32 = 0;
+const g1: i32 = 1233 + 1;
+var g2: i32 = 0;
 
 test "global variables" {
     assert(g2 == 0);
@@ -155,10 +167,9 @@ test "global variables" {
     assert(g2 == 1234);
 }
 
-
 test "memcpy and memset intrinsics" {
-    var foo : [20]u8 = undefined;
-    var bar : [20]u8 = undefined;
+    var foo: [20]u8 = undefined;
+    var bar: [20]u8 = undefined;
 
     @memset(&foo[0], 'A', foo.len);
     @memcpy(&bar[0], &foo[0], bar.len);
@@ -167,12 +178,14 @@ test "memcpy and memset intrinsics" {
 }
 
 test "builtin static eval" {
-    const x : i32 = comptime x: {break :x 1 + 2 + 3;};
+    const x: i32 = comptime x: {
+        break :x 1 + 2 + 3;
+    };
     assert(x == comptime 6);
 }
 
 test "slicing" {
-    var array : [20]i32 = undefined;
+    var array: [20]i32 = undefined;
 
     array[5] = 1234;
 
@@ -187,14 +200,14 @@ test "slicing" {
     if (slice_rest.len != 10) unreachable;
 }
 
-
 test "constant equal function pointers" {
     const alias = emptyFn;
-    assert(comptime x: {break :x emptyFn == alias;});
+    assert(comptime x: {
+        break :x emptyFn == alias;
+    });
 }
 
 fn emptyFn() void {}
-
 
 test "hex escape" {
     assert(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
@@ -219,7 +232,7 @@ test "string escapes" {
 }
 
 test "multiline string" {
-    const s1 =
+    const s1 = 
         \\one
         \\two)
         \\three
@@ -229,7 +242,7 @@ test "multiline string" {
 }
 
 test "multiline C string" {
-    const s1 =
+    const s1 = 
         c\\one
         c\\two)
         c\\three
@@ -238,18 +251,16 @@ test "multiline C string" {
     assert(cstr.cmp(s1, s2) == 0);
 }
 
-
 test "type equality" {
     assert(&const u8 != &u8);
 }
-
 
 const global_a: i32 = 1234;
 const global_b: &const i32 = &global_a;
 const global_c: &const f32 = @ptrCast(&const f32, global_b);
 test "compile time global reinterpret" {
     const d = @ptrCast(&const i32, global_c);
-    assert(*d == 1234);
+    assert(d.* == 1234);
 }
 
 test "explicit cast maybe pointers" {
@@ -261,12 +272,11 @@ test "generic malloc free" {
     const a = memAlloc(u8, 10) catch unreachable;
     memFree(u8, a);
 }
-var some_mem : [100]u8 = undefined;
+var some_mem: [100]u8 = undefined;
 fn memAlloc(comptime T: type, n: usize) error![]T {
     return @ptrCast(&T, &some_mem[0])[0..n];
 }
-fn memFree(comptime T: type, memory: []T) void { }
-
+fn memFree(comptime T: type, memory: []T) void {}
 
 test "cast undefined" {
     const array: [100]u8 = undefined;
@@ -275,32 +285,35 @@ test "cast undefined" {
 }
 fn testCastUndefined(x: []const u8) void {}
 
-
 test "cast small unsigned to larger signed" {
     assert(castSmallUnsignedToLargerSigned1(200) == i16(200));
     assert(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
 }
-fn castSmallUnsignedToLargerSigned1(x: u8) i16 { return x; }
-fn castSmallUnsignedToLargerSigned2(x: u16) i64 { return x; }
-
+fn castSmallUnsignedToLargerSigned1(x: u8) i16 {
+    return x;
+}
+fn castSmallUnsignedToLargerSigned2(x: u16) i64 {
+    return x;
+}
 
 test "implicit cast after unreachable" {
     assert(outer() == 1234);
 }
-fn inner() i32 { return 1234; }
+fn inner() i32 {
+    return 1234;
+}
 fn outer() i64 {
     return inner();
 }
-
 
 test "pointer dereferencing" {
     var x = i32(3);
     const y = &x;
 
-    *y += 1;
+    y.* += 1;
 
     assert(x == 4);
-    assert(*y == 4);
+    assert(y.* == 4);
 }
 
 test "call result of if else expression" {
@@ -310,9 +323,12 @@ test "call result of if else expression" {
 fn f2(x: bool) []const u8 {
     return (if (x) fA else fB)();
 }
-fn fA() []const u8 { return "a"; }
-fn fB() []const u8 { return "b"; }
-
+fn fA() []const u8 {
+    return "a";
+}
+fn fB() []const u8 {
+    return "b";
+}
 
 test "const expression eval handling of variables" {
     var x = true;
@@ -320,8 +336,6 @@ test "const expression eval handling of variables" {
         x = false;
     }
 }
-
-
 
 test "constant enum initialization with differing sizes" {
     test3_1(test3_foo);
@@ -336,10 +350,17 @@ const Test3Point = struct {
     x: i32,
     y: i32,
 };
-const test3_foo = Test3Foo { .Three = Test3Point {.x = 3, .y = 4}};
-const test3_bar = Test3Foo { .Two = 13};
+const test3_foo = Test3Foo {
+    .Three = Test3Point {
+        .x = 3,
+        .y = 4,
+    },
+};
+const test3_bar = Test3Foo {
+    .Two = 13,
+};
 fn test3_1(f: &const Test3Foo) void {
-    switch (*f) {
+    switch (f.*) {
         Test3Foo.Three => |pt| {
             assert(pt.x == 3);
             assert(pt.y == 4);
@@ -348,7 +369,7 @@ fn test3_1(f: &const Test3Foo) void {
     }
 }
 fn test3_2(f: &const Test3Foo) void {
-    switch (*f) {
+    switch (f.*) {
         Test3Foo.Two => |x| {
             assert(x == 13);
         },
@@ -356,22 +377,18 @@ fn test3_2(f: &const Test3Foo) void {
     }
 }
 
-
 test "character literals" {
     assert('\'' == single_quote);
 }
 const single_quote = '\'';
-
-
 
 test "take address of parameter" {
     testTakeAddressOfParameter(12.34);
 }
 fn testTakeAddressOfParameter(f: f32) void {
     const f_ptr = &f;
-    assert(*f_ptr == 12.34);
+    assert(f_ptr.* == 12.34);
 }
-
 
 test "pointer comparison" {
     const a = ([]const u8)("a");
@@ -382,23 +399,30 @@ fn ptrEql(a: &const []const u8, b: &const []const u8) bool {
     return a == b;
 }
 
-
 test "C string concatenation" {
     const a = c"OK" ++ c" IT " ++ c"WORKED";
     const b = c"OK IT WORKED";
 
     const len = cstr.len(b);
     const len_with_null = len + 1;
-    {var i: u32 = 0; while (i < len_with_null) : (i += 1) {
-        assert(a[i] == b[i]);
-    }}
+    {
+        var i: u32 = 0;
+        while (i < len_with_null) : (i += 1) {
+            assert(a[i] == b[i]);
+        }
+    }
     assert(a[len] == 0);
     assert(b[len] == 0);
 }
 
 test "cast slice to u8 slice" {
     assert(@sizeOf(i32) == 4);
-    var big_thing_array = []i32{1, 2, 3, 4};
+    var big_thing_array = []i32 {
+        1,
+        2,
+        3,
+        4,
+    };
     const big_thing_slice: []i32 = big_thing_array[0..];
     const bytes = ([]u8)(big_thing_slice);
     assert(bytes.len == 4 * 4);
@@ -421,25 +445,22 @@ test "pointer to void return type" {
 }
 fn testPointerToVoidReturnType() error!void {
     const a = testPointerToVoidReturnType2();
-    return *a;
+    return a.*;
 }
 const test_pointer_to_void_return_type_x = void{};
 fn testPointerToVoidReturnType2() &const void {
     return &test_pointer_to_void_return_type_x;
 }
 
-
 test "non const ptr to aliased type" {
     const int = i32;
     assert(?&int == ?&i32);
 }
 
-
-
 test "array 2D const double ptr" {
     const rect_2d_vertexes = [][1]f32 {
-        []f32{1.0},
-        []f32{2.0},
+        []f32 {1.0},
+        []f32 {2.0},
     };
     testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
 }
@@ -450,10 +471,21 @@ fn testArray2DConstDoublePtr(ptr: &const f32) void {
 }
 
 const Tid = builtin.TypeId;
-const AStruct = struct { x: i32, };
-const AnEnum = enum { One, Two, };
-const AUnionEnum = union(enum) { One: i32, Two: void, };
-const AUnion = union { One: void, Two: void };
+const AStruct = struct {
+    x: i32,
+};
+const AnEnum = enum {
+    One,
+    Two,
+};
+const AUnionEnum = union(enum) {
+    One: i32,
+    Two: void,
+};
+const AUnion = union {
+    One: void,
+    Two: void,
+};
 
 test "@typeId" {
     comptime {
@@ -481,9 +513,11 @@ test "@typeId" {
         assert(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
         assert(@typeId(AUnionEnum) == Tid.Union);
         assert(@typeId(AUnion) == Tid.Union);
-        assert(@typeId(fn()void) == Tid.Fn);
+        assert(@typeId(fn() void) == Tid.Fn);
         assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
-        assert(@typeId(@typeOf(x: {break :x this;})) == Tid.Block);
+        assert(@typeId(@typeOf(x: {
+            break :x this;
+        })) == Tid.Block);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
@@ -499,8 +533,7 @@ test "@canImplicitCast" {
 }
 
 test "@typeName" {
-    const Struct = struct {
-    };
+    const Struct = struct {};
     const Union = union {
         unused: u8,
     };
@@ -510,7 +543,7 @@ test "@typeName" {
     comptime {
         assert(mem.eql(u8, @typeName(i64), "i64"));
         assert(mem.eql(u8, @typeName(&usize), "&usize"));
-        // https://github.com/zig-lang/zig/issues/675
+        // https://github.com/ziglang/zig/issues/675
         assert(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
         assert(mem.eql(u8, @typeName(Struct), "Struct"));
         assert(mem.eql(u8, @typeName(Union), "Union"));
@@ -525,14 +558,19 @@ fn TypeFromFn(comptime T: type) type {
 test "volatile load and store" {
     var number: i32 = 1234;
     const ptr = (&volatile i32)(&number);
-    *ptr += 1;
-    assert(*ptr == 1235);
+    ptr.* += 1;
+    assert(ptr.* == 1235);
 }
 
 test "slice string literal has type []const u8" {
     comptime {
         assert(@typeOf("aoeu"[0..]) == []const u8);
-        const array = []i32{1, 2, 3, 4};
+        const array = []i32 {
+            1,
+            2,
+            3,
+            4,
+        };
         assert(@typeOf(array[0..]) == []const i32);
     }
 }
@@ -544,11 +582,14 @@ const GDTEntry = struct {
     field: i32,
 };
 var gdt = []GDTEntry {
-    GDTEntry {.field = 1},
-    GDTEntry {.field = 2},
+    GDTEntry {
+        .field = 1,
+    },
+    GDTEntry {
+        .field = 2,
+    },
 };
 var global_ptr = &gdt[0];
-
 
 // can't really run this test but we can make sure it has no compile error
 // and generates code
@@ -584,7 +625,7 @@ test "comptime if inside runtime while which unconditionally breaks" {
 }
 fn testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(cond: bool) void {
     while (cond) {
-        if (false) { }
+        if (false) {}
         break;
     }
 }
@@ -607,7 +648,9 @@ fn testStructInFn() void {
         kind: BlockKind,
     };
 
-    var block = Block { .kind = 1234 };
+    var block = Block {
+        .kind = 1234,
+    };
 
     block.kind += 1;
 
@@ -617,7 +660,9 @@ fn testStructInFn() void {
 fn fnThatClosesOverLocalConst() type {
     const c = 1;
     return struct {
-        fn g() i32 { return c; }
+        fn g() i32 {
+            return c;
+        }
     };
 }
 
@@ -635,22 +680,29 @@ fn thisIsAColdFn() void {
     @setCold(true);
 }
 
-
-const PackedStruct = packed struct { a: u8, b: u8, };
-const PackedUnion = packed union { a: u8, b: u32, };
-const PackedEnum = packed enum { A, B, };
+const PackedStruct = packed struct {
+    a: u8,
+    b: u8,
+};
+const PackedUnion = packed union {
+    a: u8,
+    b: u32,
+};
+const PackedEnum = packed enum {
+    A,
+    B,
+};
 
 test "packed struct, enum, union parameters in extern function" {
-    testPackedStuff(
-        PackedStruct{.a = 1, .b = 2},
-        PackedUnion{.a = 1},
-        PackedEnum.A,
-    );
+    testPackedStuff(PackedStruct {
+        .a = 1,
+        .b = 2,
+    }, PackedUnion {
+        .a = 1,
+    }, PackedEnum.A);
 }
 
-export fn testPackedStuff(a: &const PackedStruct, b: &const PackedUnion, c: PackedEnum) void {
-}
-
+export fn testPackedStuff(a: &const PackedStruct, b: &const PackedUnion, c: PackedEnum) void {}
 
 test "slicing zero length array" {
     const s1 = ""[0..];
@@ -660,7 +712,6 @@ test "slicing zero length array" {
     assert(mem.eql(u8, s1, ""));
     assert(mem.eql(u32, s2, []u32{}));
 }
-
 
 const addr1 = @ptrCast(&const u8, emptyFn);
 test "comptime cast fn to ptr" {

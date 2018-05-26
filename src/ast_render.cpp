@@ -66,7 +66,6 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpNegationWrap: return "-%";
         case PrefixOpBoolNot: return "!";
         case PrefixOpBinNot: return "~";
-        case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpUnwrapMaybe: return "??";
     }
@@ -222,6 +221,8 @@ static const char *node_type_str(NodeType node_type) {
             return "AsmExpr";
         case NodeTypeFieldAccessExpr:
             return "FieldAccessExpr";
+        case NodeTypePtrDeref:
+            return "PtrDerefExpr";
         case NodeTypeContainerDecl:
             return "ContainerDecl";
         case NodeTypeStructField:
@@ -694,6 +695,13 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 render_node_ungrouped(ar, lhs);
                 fprintf(ar->f, ".");
                 print_symbol(ar, rhs);
+                break;
+            }
+        case NodeTypePtrDeref:
+            {
+                AstNode *lhs = node->data.ptr_deref_expr.target;
+                render_node_ungrouped(ar, lhs);
+                fprintf(ar->f, ".*");
                 break;
             }
         case NodeTypeUndefinedLiteral:

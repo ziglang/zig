@@ -95,7 +95,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         /// Deinitialize with `deinit`
         pub fn init(allocator: &Allocator) Self {
-            return Self {
+            return Self{
                 .allocator = allocator,
                 .len = 0,
                 .prealloc_segment = undefined,
@@ -106,7 +106,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         pub fn deinit(self: &Self) void {
             self.freeShelves(ShelfIndex(self.dynamic_segments.len), 0);
             self.allocator.free(self.dynamic_segments);
-            *self = undefined;
+            self.* = undefined;
         }
 
         pub fn at(self: &Self, i: usize) &T {
@@ -120,7 +120,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         pub fn push(self: &Self, item: &const T) !void {
             const new_item_ptr = try self.addOne();
-            *new_item_ptr = *item;
+            new_item_ptr.* = item.*;
         }
 
         pub fn pushMany(self: &Self, items: []const T) !void {
@@ -130,11 +130,10 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         }
 
         pub fn pop(self: &Self) ?T {
-            if (self.len == 0)
-                return null;
+            if (self.len == 0) return null;
 
             const index = self.len - 1;
-            const result = *self.uncheckedAt(index);
+            const result = self.uncheckedAt(index).*;
             self.len = index;
             return result;
         }
@@ -247,8 +246,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             shelf_size: usize,
 
             pub fn next(it: &Iterator) ?&T {
-                if (it.index >= it.list.len)
-                    return null;
+                if (it.index >= it.list.len) return null;
                 if (it.index < prealloc_item_count) {
                     const ptr = &it.list.prealloc_segment[it.index];
                     it.index += 1;
@@ -272,12 +270,10 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
 
             pub fn prev(it: &Iterator) ?&T {
-                if (it.index == 0)
-                    return null;
+                if (it.index == 0) return null;
 
                 it.index -= 1;
-                if (it.index < prealloc_item_count)
-                    return &it.list.prealloc_segment[it.index];
+                if (it.index < prealloc_item_count) return &it.list.prealloc_segment[it.index];
 
                 if (it.box_index == 0) {
                     it.shelf_index -= 1;
@@ -298,21 +294,25 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
                 return &it.list.dynamic_segments[it.shelf_index][it.box_index];
             }
+
+            pub fn set(it: &Iterator, index: usize) void {
+                it.index = index;
+                if (index < prealloc_item_count) return;
+                it.shelf_index = shelfIndex(index);
+                it.box_index = boxIndex(index, it.shelf_index);
+                it.shelf_size = shelfSize(it.shelf_index);
+            }
         };
 
         pub fn iterator(self: &Self, start_index: usize) Iterator {
-            var it = Iterator {
+            var it = Iterator{
                 .list = self,
-                .index = start_index,
+                .index = undefined,
                 .shelf_index = undefined,
                 .box_index = undefined,
                 .shelf_size = undefined,
             };
-            if (start_index >= prealloc_item_count) {
-                it.shelf_index = shelfIndex(start_index);
-                it.box_index = boxIndex(start_index, it.shelf_index);
-                it.shelf_size = shelfSize(it.shelf_index);
-            }
+            it.set(start_index);
             return it;
         }
     };
@@ -335,25 +335,31 @@ fn testSegmentedList(comptime prealloc: usize, allocator: &Allocator) !void {
     var list = SegmentedList(i32, prealloc).init(allocator);
     defer list.deinit();
 
-    {var i: usize = 0; while (i < 100) : (i += 1) {
-        try list.push(i32(i + 1));
-        assert(list.len == i + 1);
-    }}
+    {
+        var i: usize = 0;
+        while (i < 100) : (i += 1) {
+            try list.push(i32(i + 1));
+            assert(list.len == i + 1);
+        }
+    }
 
-    {var i: usize = 0; while (i < 100) : (i += 1) {
-        assert(*list.at(i) == i32(i + 1));
-    }}
+    {
+        var i: usize = 0;
+        while (i < 100) : (i += 1) {
+            assert(list.at(i).* == i32(i + 1));
+        }
+    }
 
     {
         var it = list.iterator(0);
         var x: i32 = 0;
         while (it.next()) |item| {
             x += 1;
-            assert(*item == x);
+            assert(item.* == x);
         }
         assert(x == 100);
         while (it.prev()) |item| : (x -= 1) {
-            assert(*item == x);
+            assert(item.* == x);
         }
         assert(x == 0);
     }
@@ -361,14 +367,18 @@ fn testSegmentedList(comptime prealloc: usize, allocator: &Allocator) !void {
     assert(??list.pop() == 100);
     assert(list.len == 99);
 
-    try list.pushMany([]i32 { 1, 2, 3 });
+    try list.pushMany([]i32{
+        1,
+        2,
+        3,
+    });
     assert(list.len == 102);
     assert(??list.pop() == 3);
     assert(??list.pop() == 2);
     assert(??list.pop() == 1);
     assert(list.len == 99);
 
-    try list.pushMany([]const i32 {});
+    try list.pushMany([]const i32{});
     assert(list.len == 99);
 
     var i: i32 = 99;

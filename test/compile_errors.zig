@@ -4,7 +4,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add("invalid deref on switch target",
         \\comptime {
         \\    var tile = Tile.Empty;
-        \\    switch (*tile) {
+        \\    switch (tile.*) {
         \\        Tile.Empty => {},
         \\        Tile.Filled => {},
         \\    }
@@ -14,7 +14,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    Filled,
         \\};
     ,
-        ".tmp_source.zig:3:13: error: invalid deref on switch target");
+        ".tmp_source.zig:3:17: error: invalid deref on switch target");
 
     cases.add("invalid field access in comptime",
         \\comptime { var x = doesnt_exist.whatever; }
@@ -1408,14 +1408,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    Two: i32,
         \\};
         \\fn bad_eql_2(a: &const EnumWithData, b: &const EnumWithData) bool {
-        \\    return *a == *b;
+        \\    return a.* == b.*;
         \\}
         \\
         \\export fn entry1() usize { return @sizeOf(@typeOf(bad_eql_1)); }
         \\export fn entry2() usize { return @sizeOf(@typeOf(bad_eql_2)); }
     ,
             ".tmp_source.zig:2:14: error: operator not allowed for type '[]u8'",
-            ".tmp_source.zig:9:15: error: operator not allowed for type 'EnumWithData'");
+            ".tmp_source.zig:9:16: error: operator not allowed for type 'EnumWithData'");
 
     cases.add("non-const switch number literal",
         \\export fn foo() void {
@@ -1513,7 +1513,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\var bytes: [ext()]u8 = undefined;
         \\export fn f() void {
         \\    for (bytes) |*b, i| {
-        \\        *b = u8(i);
+        \\        b.* = u8(i);
         \\    }
         \\}
     , ".tmp_source.zig:2:13: error: unable to evaluate constant expression");
@@ -1819,7 +1819,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
         \\
         \\fn bar(x: &const u3) u3 {
-        \\    return *x;
+        \\    return x.*;
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
@@ -1903,12 +1903,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\var s_buffer: [10]u8 = undefined;
         \\pub fn pass(in: []u8) []u8 {
         \\    var out = &s_buffer;
-        \\    *out[0] = in[0];
-        \\    return (*out)[0..1];
+        \\    out[0].* = in[0];
+        \\    return out.*[0..1];
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(pass)); }
-    , ".tmp_source.zig:4:5: error: attempt to dereference non pointer type '[10]u8'");
+    , ".tmp_source.zig:4:11: error: attempt to dereference non pointer type '[10]u8'");
 
     cases.add("pass const ptr to mutable ptr fn",
         \\fn foo() bool {
@@ -2434,7 +2434,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
         \\
         \\fn bar(x: &u32) void {
-        \\    *x += 1;
+        \\    x.* += 1;
         \\}
     ,
         ".tmp_source.zig:8:13: error: expected type '&u32', found '&align(1) u32'");
@@ -2461,7 +2461,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn entry() u32 {
         \\    var bytes: [4]u8 = []u8{0x01, 0x02, 0x03, 0x04};
         \\    const ptr = @ptrCast(&u32, &bytes[0]);
-        \\    return *ptr;
+        \\    return ptr.*;
         \\}
     ,
         ".tmp_source.zig:3:17: error: cast increases pointer alignment",
@@ -2540,14 +2540,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\
         \\export fn entry(opaque: &Opaque) void {
         \\   var m2 = &2;
-        \\   const y: u32 = *m2;
+        \\   const y: u32 = m2.*;
         \\
         \\   var a = undefined;
         \\   var b = 1;
         \\   var c = 1.0;
         \\   var d = this;
         \\   var e = null;
-        \\   var f = *opaque;
+        \\   var f = opaque.*;
         \\   var g = i32;
         \\   var h = @import("std");
         \\   var i = (Foo {}).bar;
@@ -3136,13 +3136,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    foo(a);
         \\}
         \\fn foo(a: &const Payload) void {
-        \\    switch (*a) {
+        \\    switch (a.*) {
         \\        Payload.A => {},
         \\        else => unreachable,
         \\    }
         \\}
     ,
-        ".tmp_source.zig:11:13: error: switch on union which has no attached enum",
+        ".tmp_source.zig:11:14: error: switch on union which has no attached enum",
         ".tmp_source.zig:1:17: note: consider 'union(enum)' here");
 
     cases.add("enum in field count range but not matching tag",
