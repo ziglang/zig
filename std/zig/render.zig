@@ -244,7 +244,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
             const op_token = tree.tokens.at(infix_op_node.op_token);
             const op_space = switch (infix_op_node.op) {
-                ast.Node.InfixOp.Op.Period, ast.Node.InfixOp.Op.ErrorUnion => Space.None,
+                ast.Node.InfixOp.Op.Period, ast.Node.InfixOp.Op.ErrorUnion, ast.Node.InfixOp.Op.Range => Space.None,
                 else => Space.Space,
             };
             try renderExpression(allocator, stream, tree, indent, infix_op_node.lhs, op_space);

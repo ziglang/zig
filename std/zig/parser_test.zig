@@ -69,7 +69,7 @@ test "zig fmt: switch cases trailing comma" {
         \\    switch (x) {
         \\        1,2,3 => {},
         \\        4,5, => {},
-        \\        6...8, => {},
+        \\        6... 8, => {},
         \\        else => {},
         \\    }
         \\}
@@ -79,7 +79,7 @@ test "zig fmt: switch cases trailing comma" {
         \\        1, 2, 3 => {},
         \\        4,
         \\        5, => {},
-        \\        6 ... 8 => {},
+        \\        6...8 => {},
         \\        else => {},
         \\    }
         \\}
@@ -1091,7 +1091,7 @@ test "zig fmt: switch" {
         \\        0 => {},
         \\        1 => unreachable,
         \\        2, 3 => {},
-        \\        4 ... 7 => {},
+        \\        4...7 => {},
         \\        1 + 4 * 3 + 22 => {},
         \\        else => {
         \\            const a = 1;
