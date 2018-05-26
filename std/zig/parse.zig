@@ -1153,9 +1153,11 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.AsmClobberItems => |items| {
-                stack.append(State{ .AsmClobberItems = items }) catch unreachable;
-                try stack.append(State{ .IfToken = Token.Id.Comma });
-                try stack.append(State{ .StringLiteral = OptionalCtx{ .Required = try items.addOne() } });
+                while (eatToken(&tok_it, &tree, Token.Id.StringLiteral)) |strlit| {
+                    try items.push(strlit);
+                    if (eatToken(&tok_it, &tree, Token.Id.Comma) == null)
+                        break;
+                }
                 continue;
             },
 

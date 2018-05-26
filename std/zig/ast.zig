@@ -2071,7 +2071,7 @@ pub const Node = struct {
 
         const OutputList = SegmentedList(&AsmOutput, 2);
         const InputList = SegmentedList(&AsmInput, 2);
-        const ClobberList = SegmentedList(&Node, 2);
+        const ClobberList = SegmentedList(TokenIndex, 2);
 
         pub fn iterate(self: &Asm, index: usize) ?&Node {
             var i = index;

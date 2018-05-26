@@ -1,3 +1,44 @@
+test "zig fmt: simple asm" {
+    try testTransform(
+        \\comptime {
+        \\    asm volatile (
+        \\        \\.globl aoeu;
+        \\        \\.type aoeu, @function;
+        \\        \\.set aoeu, derp;
+        \\    );
+        \\
+        \\    asm ("not real assembly"
+        \\        :[a] "x" (x),);
+        \\    asm ("not real assembly"
+        \\        :[a] "x" (->i32),:[a] "x" (1),);
+        \\    asm ("still not real assembly"
+        \\        :::"a","b",);
+        \\}
+    ,
+        \\comptime {
+        \\    asm volatile (
+        \\        \\.globl aoeu;
+        \\        \\.type aoeu, @function;
+        \\        \\.set aoeu, derp;
+        \\    );
+        \\
+        \\    asm ("not real assembly"
+        \\        : [a] "x" (x)
+        \\    );
+        \\    asm ("not real assembly"
+        \\        : [a] "x" (-> i32)
+        \\        : [a] "x" (1)
+        \\    );
+        \\    asm ("still not real assembly"
+        \\        :
+        \\        :
+        \\        : "a", "b"
+        \\    );
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: nested struct literal with one item" {
     try testCanonical(
         \\const a = foo{
@@ -1295,7 +1336,8 @@ test "zig fmt: inline asm" {
         \\        : [ret] "={rax}" (-> usize)
         \\        : [number] "{rax}" (number),
         \\          [arg1] "{rdi}" (arg1)
-        \\        : "rcx", "r11");
+        \\        : "rcx", "r11"
+        \\    );
         \\}
         \\
     );
