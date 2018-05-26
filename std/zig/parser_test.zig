@@ -1,3 +1,14 @@
+test "zig fmt: empty block with only comment" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        // comment
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: no trailing comma on struct decl" {
     try testTransform(
         \\const RoundParam = struct {

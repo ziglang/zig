@@ -1519,7 +1519,7 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
 
                     const after_comment_token = tree.tokens.at(token_index + offset);
                     const next_line_indent = switch (after_comment_token.id) {
-                        Token.Id.RParen, Token.Id.RBrace, Token.Id.RBracket => indent,
+                        Token.Id.RParen, Token.Id.RBrace, Token.Id.RBracket => indent - indent_delta,
                         else => indent,
                     };
                     try stream.writeByteNTimes(' ', next_line_indent);
