@@ -431,12 +431,18 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                         return;
                     }
 
-                    if (field_inits.len == 1) {
-                        const field_init = field_inits.at(0).*;
+                    if (field_inits.len == 1) blk: {
+                        const field_init = ??field_inits.at(0).*.cast(ast.Node.FieldInitializer);
+
+                        if (field_init.expr.cast(ast.Node.SuffixOp)) |nested_suffix_op| {
+                            if (nested_suffix_op.op == ast.Node.SuffixOp.Op.StructInitializer) {
+                                break :blk;
+                            }
+                        }
 
                         try renderExpression(allocator, stream, tree, indent, suffix_op.lhs, Space.None);
                         try renderToken(tree, stream, lbrace, indent, Space.Space);
-                        try renderExpression(allocator, stream, tree, indent, field_init, Space.Space);
+                        try renderExpression(allocator, stream, tree, indent, &field_init.base, Space.Space);
                         try renderToken(tree, stream, suffix_op.rtoken, indent, space);
                         return;
                     }

@@ -1,3 +1,12 @@
+test "zig fmt: nested struct literal with one item" {
+    try testCanonical(
+        \\const a = foo{
+        \\    .item = bar{ .a = b },
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: switch cases trailing comma" {
     try testTransform(
         \\fn switch_cases(x: i32) void {
