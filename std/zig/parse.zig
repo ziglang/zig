@@ -1325,21 +1325,30 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 } else {
                     prevToken(&tok_it, &tree);
-                    try stack.append(State{ .SwitchCaseItem = switch_case });
+                    stack.append(State{ .SwitchCaseItemCommaOrEnd = switch_case }) catch unreachable;
+                    try stack.append(State{ .RangeExpressionBegin = OptionalCtx{ .Required = try switch_case.items.addOne() } });
                     continue;
                 }
             },
-            State.SwitchCaseItem => |node| {
-                stack.append(State{ .SwitchCaseItemCommaOrEnd = node }) catch unreachable;
-                try stack.append(State{ .RangeExpressionBegin = OptionalCtx{ .Required = try node.items.addOne() } });
+            State.SwitchCaseItemOrEnd => |switch_case| {
+                const token = nextToken(&tok_it, &tree);
+                if (token.ptr.id == Token.Id.EqualAngleBracketRight) {
+                    switch_case.arrow_token = token.index;
+                    continue;
+                } else {
+                    prevToken(&tok_it, &tree);
+                    stack.append(State{ .SwitchCaseItemCommaOrEnd = switch_case }) catch unreachable;
+                    try stack.append(State{ .RangeExpressionBegin = OptionalCtx{ .Required = try switch_case.items.addOne() } });
+                    continue;
+                }
             },
-            State.SwitchCaseItemCommaOrEnd => |node| {
+            State.SwitchCaseItemCommaOrEnd => |switch_case| {
                 switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.EqualAngleBracketRight)) {
                     ExpectCommaOrEndResult.end_token => |end_token| {
                         if (end_token) |t| {
-                            node.arrow_token = t;
+                            switch_case.arrow_token = t;
                         } else {
-                            stack.append(State{ .SwitchCaseItem = node }) catch unreachable;
+                            stack.append(State{ .SwitchCaseItemOrEnd = switch_case }) catch unreachable;
                         }
                         continue;
                     },
@@ -2828,8 +2837,8 @@ const State = union(enum) {
     SwitchCaseOrEnd: ListSave(ast.Node.Switch.CaseList),
     SwitchCaseCommaOrEnd: ListSave(ast.Node.Switch.CaseList),
     SwitchCaseFirstItem: &ast.Node.SwitchCase,
-    SwitchCaseItem: &ast.Node.SwitchCase,
     SwitchCaseItemCommaOrEnd: &ast.Node.SwitchCase,
+    SwitchCaseItemOrEnd: &ast.Node.SwitchCase,
 
     SuspendBody: &ast.Node.Suspend,
     AsyncAllocator: &ast.Node.AsyncAttribute,

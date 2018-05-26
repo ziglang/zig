@@ -939,17 +939,41 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
         ast.Node.Id.SwitchCase => {
             const switch_case = @fieldParentPtr(ast.Node.SwitchCase, "base", base);
 
-            var it = switch_case.items.iterator(0);
-            while (it.next()) |node| {
-                if (it.peek()) |next_node| {
-                    try renderExpression(allocator, stream, tree, indent, node.*, Space.None);
+            assert(switch_case.items.len != 0);
+            const src_has_trailing_comma = blk: {
+                const last_node = switch_case.items.at(switch_case.items.len - 1).*;
+                const maybe_comma = tree.nextToken(last_node.lastToken());
+                break :blk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
+            };
 
-                    const comma_token = tree.nextToken(node.*.lastToken());
-                    try renderToken(tree, stream, comma_token, indent, Space.Newline); // ,
-                    try renderExtraNewline(tree, stream, next_node.*);
-                    try stream.writeByteNTimes(' ', indent);
-                } else {
-                    try renderExpression(allocator, stream, tree, indent, node.*, Space.Space);
+            if (switch_case.items.len == 1 or !src_has_trailing_comma) {
+                var it = switch_case.items.iterator(0);
+                while (it.next()) |node| {
+                    if (it.peek()) |next_node| {
+                        try renderExpression(allocator, stream, tree, indent, node.*, Space.None);
+
+                        const comma_token = tree.nextToken(node.*.lastToken());
+                        try renderToken(tree, stream, comma_token, indent, Space.Space); // ,
+                        try renderExtraNewline(tree, stream, next_node.*);
+                    } else {
+                        try renderExpression(allocator, stream, tree, indent, node.*, Space.Space);
+                    }
+                }
+            } else {
+                var it = switch_case.items.iterator(0);
+                while (true) {
+                    const node = ??it.next();
+                    if (it.peek()) |next_node| {
+                        try renderExpression(allocator, stream, tree, indent, node.*, Space.None);
+
+                        const comma_token = tree.nextToken(node.*.lastToken());
+                        try renderToken(tree, stream, comma_token, indent, Space.Newline); // ,
+                        try renderExtraNewline(tree, stream, next_node.*);
+                        try stream.writeByteNTimes(' ', indent);
+                    } else {
+                        try renderTrailingComma(allocator, stream, tree, indent, node.*, Space.Space);
+                        break;
+                    }
                 }
             }
 

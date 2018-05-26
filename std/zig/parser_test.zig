@@ -1,3 +1,27 @@
+test "zig fmt: switch cases trailing comma" {
+    try testTransform(
+        \\fn switch_cases(x: i32) void {
+        \\    switch (x) {
+        \\        1,2,3 => {},
+        \\        4,5, => {},
+        \\        6...8, => {},
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        \\fn switch_cases(x: i32) void {
+        \\    switch (x) {
+        \\        1, 2, 3 => {},
+        \\        4,
+        \\        5, => {},
+        \\        6 ... 8 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: slice align" {
     try testCanonical(
         \\const A = struct {
@@ -7,7 +31,7 @@ test "zig fmt: slice align" {
     );
 }
 
-test "zig fmt: first thing in file is line comment" {
+test "zig fmt: add trailing comma to array literal" {
     try testTransform(
         \\comptime {
         \\    return []u16{'m', 's', 'y', 's', '-' // hi
@@ -217,13 +241,11 @@ test "zig fmt: add comma on last switch prong" {
         \\test "aoeu" {
         \\    switch (self.init_arg_expr) {
         \\        InitArg.Type => |t| {},
-        \\        InitArg.None,
-        \\        InitArg.Enum => {},
+        \\        InitArg.None, InitArg.Enum => {},
         \\    }
         \\    switch (self.init_arg_expr) {
         \\        InitArg.Type => |t| {},
-        \\        InitArg.None,
-        \\        InitArg.Enum => {}, //line comment
+        \\        InitArg.None, InitArg.Enum => {}, //line comment
         \\    }
         \\}
         \\
@@ -1003,8 +1025,7 @@ test "zig fmt: switch" {
         \\    switch (0) {
         \\        0 => {},
         \\        1 => unreachable,
-        \\        2,
-        \\        3 => {},
+        \\        2, 3 => {},
         \\        4 ... 7 => {},
         \\        1 + 4 * 3 + 22 => {},
         \\        else => {
