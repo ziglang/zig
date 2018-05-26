@@ -374,7 +374,42 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     try renderExpression(allocator, stream, tree, indent, suffix_op.lhs, Space.None);
 
                     const lparen = tree.nextToken(suffix_op.lhs.lastToken());
-                    try renderToken(tree, stream, lparen, indent, Space.None);
+
+                    if (call_info.params.len == 0) {
+                        try renderToken(tree, stream, lparen, indent, Space.None);
+                        try renderToken(tree, stream, suffix_op.rtoken, indent, space);
+                        return;
+                    }
+
+                    const src_has_trailing_comma = blk: {
+                        const maybe_comma = tree.prevToken(suffix_op.rtoken);
+                        break :blk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
+                    };
+
+                    if (src_has_trailing_comma) {
+                        const new_indent = indent + indent_delta;
+                        try renderToken(tree, stream, lparen, new_indent, Space.Newline);
+
+                        var it = call_info.params.iterator(0);
+                        while (true) {
+                            const param_node = ??it.next();
+                            try stream.writeByteNTimes(' ', new_indent);
+
+                            if (it.peek()) |next_node| {
+                                try renderExpression(allocator, stream, tree, new_indent, param_node.*, Space.None);
+                                const comma = tree.nextToken(param_node.*.lastToken());
+                                try renderToken(tree, stream, comma, new_indent, Space.Newline); // ,
+                                try renderExtraNewline(tree, stream, next_node.*);
+                            } else {
+                                try renderTrailingComma(allocator, stream, tree, new_indent, param_node.*, Space.Newline);
+                                try stream.writeByteNTimes(' ', indent);
+                                try renderToken(tree, stream, suffix_op.rtoken, indent, space);
+                                return;
+                            }
+                        }
+                    }
+
+                    try renderToken(tree, stream, lparen, indent, Space.None); // (
 
                     var it = call_info.params.iterator(0);
                     while (it.next()) |param_node| {
@@ -385,7 +420,6 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                             try renderToken(tree, stream, comma, indent, Space.Space);
                         }
                     }
-
                     try renderToken(tree, stream, suffix_op.rtoken, indent, space);
                 },
 

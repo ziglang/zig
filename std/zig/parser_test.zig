@@ -1,3 +1,16 @@
+test "zig fmt: trailing comma on fn call" {
+    try testCanonical(
+        \\comptime {
+        \\    var module = try Module.create(
+        \\        allocator,
+        \\        zig_lib_dir,
+        \\        full_cache_dir,
+        \\    );
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: empty block with only comment" {
     try testCanonical(
         \\comptime {
