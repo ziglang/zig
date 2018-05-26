@@ -393,15 +393,21 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                         var it = call_info.params.iterator(0);
                         while (true) {
                             const param_node = ??it.next();
-                            try stream.writeByteNTimes(' ', new_indent);
+
+                            const param_node_new_indent = if (param_node.*.id == ast.Node.Id.MultilineStringLiteral) blk: {
+                                break :blk indent;
+                            } else blk: {
+                                try stream.writeByteNTimes(' ', new_indent);
+                                break :blk new_indent;
+                            };
 
                             if (it.peek()) |next_node| {
-                                try renderExpression(allocator, stream, tree, new_indent, param_node.*, Space.None);
+                                try renderExpression(allocator, stream, tree, param_node_new_indent, param_node.*, Space.None);
                                 const comma = tree.nextToken(param_node.*.lastToken());
                                 try renderToken(tree, stream, comma, new_indent, Space.Newline); // ,
                                 try renderExtraNewline(tree, stream, next_node.*);
                             } else {
-                                try renderTrailingComma(allocator, stream, tree, new_indent, param_node.*, Space.Newline);
+                                try renderTrailingComma(allocator, stream, tree, param_node_new_indent, param_node.*, Space.Newline);
                                 try stream.writeByteNTimes(' ', indent);
                                 try renderToken(tree, stream, suffix_op.rtoken, indent, space);
                                 return;
@@ -1502,7 +1508,13 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
     if (next_token.id != Token.Id.LineComment) {
         switch (space) {
             Space.None, Space.NoNewline, Space.NoIndent => return,
-            Space.Newline => return stream.write("\n"),
+            Space.Newline => {
+                if (next_token.id == Token.Id.MultilineStringLiteralLine) {
+                    return;
+                } else {
+                    return stream.write("\n");
+                }
+            },
             Space.Space => return stream.writeByte(' '),
             Space.NoComment => unreachable,
         }
@@ -1526,7 +1538,13 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
                     };
                     try stream.writeByteNTimes(' ', next_line_indent);
                 },
-                Space.Newline, Space.NoIndent => try stream.write("\n"),
+                Space.Newline, Space.NoIndent => {
+                    if (next_token.id == Token.Id.MultilineStringLiteralLine) {
+                        return;
+                    } else {
+                        return stream.write("\n");
+                    }
+                },
                 Space.NoNewline => {},
                 Space.NoComment => unreachable,
             }
@@ -1547,7 +1565,13 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
         next_token = tree.tokens.at(token_index + offset);
         if (next_token.id != Token.Id.LineComment) {
             switch (space) {
-                Space.Newline, Space.NoIndent => try stream.writeByte('\n'),
+                Space.Newline, Space.NoIndent => {
+                    if (next_token.id == Token.Id.MultilineStringLiteralLine) {
+                        return;
+                    } else {
+                        return stream.write("\n");
+                    }
+                },
                 Space.None, Space.Space => {
                     try stream.writeByte('\n');
 
