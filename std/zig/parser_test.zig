@@ -1,3 +1,18 @@
+test "zig fmt: no trailing comma on struct decl" {
+    try testTransform(
+        \\const RoundParam = struct {
+        \\    k: usize, s: u32, t: u32
+        \\};
+    ,
+        \\const RoundParam = struct {
+        \\    k: usize,
+        \\    s: u32,
+        \\    t: u32,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: simple asm" {
     try testTransform(
         \\comptime {

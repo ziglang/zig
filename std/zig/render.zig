@@ -102,8 +102,7 @@ fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, i
             }
             try renderToken(tree, stream, field.name_token, indent, Space.None); // name
             try renderToken(tree, stream, tree.nextToken(field.name_token), indent, Space.Space); // :
-            try renderExpression(allocator, stream, tree, indent, field.type_expr, Space.None); // type
-            try renderToken(tree, stream, tree.nextToken(field.lastToken()), indent, Space.Newline); // ,
+            try renderTrailingComma(allocator, stream, tree, indent, field.type_expr, Space.Newline); // type,
         },
 
         ast.Node.Id.UnionTag => {
