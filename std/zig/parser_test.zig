@@ -1,3 +1,62 @@
+test "zig fmt: array literal with hint" {
+    try testTransform(
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3,
+        \\    4,
+        \\    5,
+        \\    6,
+        \\    7 };
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3,
+        \\    4,
+        \\    5,
+        \\    6,
+        \\    7, 8 };
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3,
+        \\    4,
+        \\    5,
+        \\    6, // blah
+        \\    7, 8 };
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3, //
+        \\    4,
+        \\    5,
+        \\    6,
+        \\    7 };
+    ,
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3, 4, //
+        \\    5, 6, //
+        \\    7,
+        \\};
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3, 4, //
+        \\    5, 6, //
+        \\    7, 8, //
+        \\};
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3, 4, //
+        \\    5, 6, // blah
+        \\    7, 8, //
+        \\};
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3, 4, //
+        \\    5, 6, //
+        \\    7,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: multiline string with backslash at end of line" {
     try testCanonical(
         \\comptime {
