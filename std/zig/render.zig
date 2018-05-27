@@ -1583,8 +1583,13 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
         }
     }
 
-    if (space == Space.IgnoreEmptyComment and mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ").len == 2) {
-        return stream.writeByte(' ');
+    const comment_is_empty = mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ").len == 2;
+    if (comment_is_empty) {
+        switch (space) {
+            Space.IgnoreEmptyComment => return stream.writeByte(' '),
+            Space.Newline => return stream.writeByte('\n'),
+            else => {},
+        }
     }
 
     var loc = tree.tokenLocationPtr(token.end, next_token);
