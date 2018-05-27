@@ -229,16 +229,14 @@ test "zig fmt: add trailing comma to array literal" {
         \\comptime {
         \\    return []u16{'m', 's', 'y', 's', '-' // hi
         \\   };
+        \\    return []u16{'m', 's', 'y', 's',
+        \\      '-'};
         \\}
     ,
         \\comptime {
-        \\    return []u16{
-        \\        'm',
-        \\        's',
-        \\        'y',
-        \\        's',
-        \\        '-', // hi
+        \\    return []u16{ 'm', 's', 'y', 's', '-' // hi
         \\    };
+        \\    return []u16{ 'm', 's', 'y', 's', '-'};
         \\}
         \\
     );

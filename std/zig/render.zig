@@ -557,11 +557,11 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                     };
 
 
-                    const new_indent = indent + indent_delta;
-                    try renderToken(tree, stream, lbrace, new_indent, Space.Newline);
-                    try stream.writeByteNTimes(' ', new_indent);
-
                     if (maybe_row_size) |row_size| {
+                        const new_indent = indent + indent_delta;
+                        try renderToken(tree, stream, lbrace, new_indent, Space.Newline);
+                        try stream.writeByteNTimes(' ', new_indent);
+
                         var it = exprs.iterator(0);
                         var i: usize = 0;
                         while (it.next()) |expr| {
@@ -596,6 +596,30 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                         try renderToken(tree, stream, suffix_op.rtoken, indent, space);
                         return;
                     }
+
+                    const src_has_trailing_comma = blk: {
+                        const maybe_comma = tree.prevToken(suffix_op.rtoken);
+                        break :blk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
+                    };
+                    if (!src_has_trailing_comma) {
+                        try renderToken(tree, stream, lbrace, indent, Space.Space);
+                        var it = exprs.iterator(0);
+                        while (it.next()) |expr| {
+                            try renderExpression(allocator, stream, tree, indent, expr.*, Space.None);
+
+                            if (it.peek()) |next_expr| {
+                                const comma = tree.nextToken(expr.*.lastToken());
+                                try renderToken(tree, stream, comma, indent, Space.Space); // ,
+                            }
+                        }
+
+                        try renderToken(tree, stream, suffix_op.rtoken, indent, space);
+                        return;
+                    }
+
+                    const new_indent = indent + indent_delta;
+                    try renderToken(tree, stream, lbrace, new_indent, Space.Newline);
+                    try stream.writeByteNTimes(' ', new_indent);
 
                     var it = exprs.iterator(0);
                     while (it.next()) |expr| {
