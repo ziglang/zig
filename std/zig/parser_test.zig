@@ -1,3 +1,15 @@
+test "zig fmt: enum decl with no trailing comma" {
+    try testTransform(
+        \\const StrLitKind = enum {Normal, C};
+    ,
+        \\const StrLitKind = enum {
+        \\    Normal,
+        \\    C,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: switch comment before prong" {
     try testCanonical(
         \\comptime {

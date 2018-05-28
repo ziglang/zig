@@ -110,22 +110,29 @@ fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, i
 
             try renderDocComments(tree, stream, tag, indent);
 
-            const name_space = if (tag.type_expr == null and tag.value_expr != null) Space.Space else Space.None;
-            try renderToken(tree, stream, tag.name_token, indent, name_space); // name
+            if (tag.type_expr == null and tag.value_expr == null) {
+                return renderTokenAndTrailingComma(tree, stream, tag.name_token, indent, Space.Newline); // name,
+            }
+
+            if (tag.type_expr == null) {
+                try renderToken(tree, stream, tag.name_token, indent, Space.Space); // name
+            } else {
+                try renderToken(tree, stream, tag.name_token, indent, Space.None); // name
+            }
 
             if (tag.type_expr) |type_expr| {
                 try renderToken(tree, stream, tree.nextToken(tag.name_token), indent, Space.Space); // :
 
-                const after_type_space = if (tag.value_expr == null) Space.None else Space.Space;
-                try renderExpression(allocator, stream, tree, indent, type_expr, after_type_space);
+                if (tag.value_expr == null) {
+                    return renderTrailingComma(allocator, stream, tree, indent, type_expr, Space.Newline); // type,
+                } else {
+                    try renderExpression(allocator, stream, tree, indent, type_expr, Space.Space); // type
+                }
             }
 
-            if (tag.value_expr) |value_expr| {
-                try renderToken(tree, stream, tree.prevToken(value_expr.firstToken()), indent, Space.Space); // =
-                try renderExpression(allocator, stream, tree, indent, value_expr, Space.None);
-            }
-
-            try renderToken(tree, stream, tree.nextToken(decl.lastToken()), indent, Space.Newline); // ,
+            const value_expr = ??tag.value_expr;
+            try renderToken(tree, stream, tree.prevToken(value_expr.firstToken()), indent, Space.Space); // =
+            try renderTrailingComma(allocator, stream, tree, indent, value_expr, Space.Newline); // value,
         },
 
         ast.Node.Id.EnumTag => {
@@ -133,15 +140,14 @@ fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, i
 
             try renderDocComments(tree, stream, tag, indent);
 
-            const after_name_space = if (tag.value == null) Space.None else Space.Space;
-            try renderToken(tree, stream, tag.name_token, indent, after_name_space); // name
-
             if (tag.value) |value| {
-                try renderToken(tree, stream, tree.nextToken(tag.name_token), indent, Space.Space); // =
-                try renderExpression(allocator, stream, tree, indent, value, Space.None);
-            }
+                try renderToken(tree, stream, tag.name_token, indent, Space.Space); // name
 
-            try renderToken(tree, stream, tree.nextToken(decl.lastToken()), indent, Space.Newline); // ,
+                try renderToken(tree, stream, tree.nextToken(tag.name_token), indent, Space.Space); // =
+                try renderTrailingComma(allocator, stream, tree, indent, value, Space.Newline);
+            } else {
+                try renderTokenAndTrailingComma(tree, stream, tag.name_token, indent, Space.Newline); // name
+            }
         },
 
         ast.Node.Id.Comptime => {
@@ -1584,7 +1590,6 @@ const Space = enum {
     NoNewline,
     NoIndent,
     NoComment,
-    IgnoreEmptyComment,
 };
 
 fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, space: Space) (@typeOf(stream).Child.Error || Error)!void {
@@ -1604,7 +1609,7 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
                     return stream.write("\n");
                 }
             },
-            Space.Space, Space.IgnoreEmptyComment => return stream.writeByte(' '),
+            Space.Space => return stream.writeByte(' '),
             Space.NoComment => unreachable,
         }
     }
@@ -1612,7 +1617,6 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
     const comment_is_empty = mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ").len == 2;
     if (comment_is_empty) {
         switch (space) {
-            Space.IgnoreEmptyComment => return stream.writeByte(' '),
             Space.Newline => return stream.writeByte('\n'),
             else => {},
         }
@@ -1644,7 +1648,7 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
                     }
                 },
                 Space.NoNewline => {},
-                Space.NoComment, Space.IgnoreEmptyComment => unreachable,
+                Space.NoComment => unreachable,
             }
             return;
         }
@@ -1681,7 +1685,7 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
                     try stream.writeByteNTimes(' ', next_line_indent);
                 },
                 Space.NoNewline => {},
-                Space.NoComment, Space.IgnoreEmptyComment => unreachable,
+                Space.NoComment => unreachable,
             }
             return;
         }
@@ -1720,27 +1724,22 @@ fn renderTrailingComma(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, 
     }
 }
 
-fn renderTrailingCommaAndEmptyComment(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, base: &ast.Node) (@typeOf(stream).Child.Error || Error)!void
-{
-    const end_token = base.lastToken() + 1;
+fn renderTokenAndTrailingComma(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, space: Space) (@typeOf(stream).Child.Error || Error)!void {
+    const end_token = token_index + 1;
     switch (tree.tokens.at(end_token).id) {
         Token.Id.Comma => {
-            try renderExpression(allocator, stream, tree, indent, base, Space.None);
-            try renderToken(tree, stream, end_token, indent, Space.Space); // ,
-
-            const next_token = tree.tokens.at(end_token + 1);
-            if (next_token.id != Token.Id.LineComment) {
-                try stream.print("//\n");
-            }
+            try renderToken(tree, stream, token_index, indent, Space.None);
+            try renderToken(tree, stream, end_token, indent, space); // ,
         },
         Token.Id.LineComment => {
-            try renderExpression(allocator, stream, tree, indent, base, Space.NoComment);
+            try renderToken(tree, stream, token_index, indent, Space.NoComment);
             try stream.write(", ");
-            try renderToken(tree, stream, end_token, indent, Space.Newline);
+            try renderToken(tree, stream, end_token, indent, space);
         },
         else => {
-            try renderExpression(allocator, stream, tree, indent, base, Space.None);
-            try stream.write(", //\n");
+            try renderToken(tree, stream, token_index, indent, Space.None);
+            try stream.write(",\n");
+            assert(space == Space.Newline);
         },
     }
 }
