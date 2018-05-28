@@ -534,28 +534,34 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
                     // scan to find row size
                     const maybe_row_size: ?usize = blk: {
-                        var count: usize = 0;
+                        var count: usize = 1;
                         var it = exprs.iterator(0);
-                        var prev_token = (??it.peek()).*.lastToken() + 1;
-                        while (it.next()) |expr| {
-                            const expr_last_token = expr.*.lastToken() + 1;
-                            const next_token = tree.tokens.at(expr_last_token + 1);
-                            const loc = tree.tokenLocationPtr(tree.tokens.at(prev_token).end, next_token);
-                            if (loc.line != 0) break :blk null;
-                            if (next_token.id == Token.Id.LineComment) {
-                                const trimmed = mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ");
-                                if (trimmed.len == 2) {
-                                    break :blk count;
-                                } else {
-                                    break :blk null;
+                        while (true) {
+                            const expr = (??it.next()).*;
+                            if (it.peek()) |next_expr| {
+                                const expr_last_token = expr.*.lastToken() + 1;
+                                const loc = tree.tokenLocation(tree.tokens.at(expr_last_token).end, next_expr.*.firstToken());
+                                if (loc.line != 0) break :blk count;
+                                count += 1;
+                            } else {
+                                const expr_last_token = expr.*.lastToken();
+                                const loc = tree.tokenLocation(tree.tokens.at(expr_last_token).end, suffix_op.rtoken);
+                                if (loc.line == 0) {
+                                    // all on one line
+                                    const src_has_trailing_comma = trailblk: {
+                                        const maybe_comma = tree.prevToken(suffix_op.rtoken);
+                                        break :trailblk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
+                                    };
+                                    if (src_has_trailing_comma) {
+                                        break :blk 1; // force row size 1
+                                    } else {
+                                        break :blk null; // no newlines
+                                    }
                                 }
+                                break :blk count;
                             }
-                            prev_token = expr_last_token;
-                            count += 1;
                         }
-                        break :blk null;
                     };
-
 
                     if (maybe_row_size) |row_size| {
                         const new_indent = indent + indent_delta;
@@ -563,7 +569,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                         try stream.writeByteNTimes(' ', new_indent);
 
                         var it = exprs.iterator(0);
-                        var i: usize = 0;
+                        var i: usize = 1;
                         while (it.next()) |expr| {
                             if (it.peek()) |next_expr| {
                                 try renderExpression(allocator, stream, tree, new_indent, expr.*, Space.None);
@@ -571,23 +577,16 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                                 const comma = tree.nextToken(expr.*.lastToken());
 
                                 if (i != row_size) {
-                                    try renderToken(tree, stream, comma, new_indent, Space.IgnoreEmptyComment); // ,
+                                    try renderToken(tree, stream, comma, new_indent, Space.Space); // ,
                                     i += 1;
                                     continue;
                                 }
-                                i = 0;
+                                i = 1;
 
-                                try renderToken(tree, stream, comma, new_indent, Space.NoIndent); // ,
-
-                                const next_token = tree.tokens.at(comma + 1);
-                                if (next_token.id != Token.Id.LineComment) {
-                                    try stream.print(" //\n");
-                                }
+                                try renderToken(tree, stream, comma, new_indent, Space.Newline); // ,
 
                                 try renderExtraNewline(tree, stream, next_expr.*);
                                 try stream.writeByteNTimes(' ', new_indent);
-                            } else if (i == row_size) {
-                                try renderTrailingCommaAndEmptyComment(allocator, stream, tree, new_indent, expr.*); // , //
                             } else {
                                 try renderTrailingComma(allocator, stream, tree, new_indent, expr.*, Space.Newline); // ,
                             }
@@ -595,50 +594,22 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                         try stream.writeByteNTimes(' ', indent);
                         try renderToken(tree, stream, suffix_op.rtoken, indent, space);
                         return;
-                    }
-
-                    const src_has_trailing_comma = blk: {
-                        const maybe_comma = tree.prevToken(suffix_op.rtoken);
-                        break :blk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
-                    };
-                    if (!src_has_trailing_comma) {
+                    } else {
                         try renderToken(tree, stream, lbrace, indent, Space.Space);
                         var it = exprs.iterator(0);
                         while (it.next()) |expr| {
-                            try renderExpression(allocator, stream, tree, indent, expr.*, Space.None);
-
                             if (it.peek()) |next_expr| {
+                                try renderExpression(allocator, stream, tree, indent, expr.*, Space.None);
                                 const comma = tree.nextToken(expr.*.lastToken());
                                 try renderToken(tree, stream, comma, indent, Space.Space); // ,
+                            } else {
+                                try renderExpression(allocator, stream, tree, indent, expr.*, Space.Space);
                             }
                         }
 
                         try renderToken(tree, stream, suffix_op.rtoken, indent, space);
                         return;
                     }
-
-                    const new_indent = indent + indent_delta;
-                    try renderToken(tree, stream, lbrace, new_indent, Space.Newline);
-                    try stream.writeByteNTimes(' ', new_indent);
-
-                    var it = exprs.iterator(0);
-                    while (it.next()) |expr| {
-
-                        if (it.peek()) |next_expr| {
-                            try renderExpression(allocator, stream, tree, new_indent, expr.*, Space.None);
-
-                            const comma = tree.nextToken(expr.*.lastToken());
-                            try renderToken(tree, stream, comma, new_indent, Space.Newline); // ,
-
-                            try renderExtraNewline(tree, stream, next_expr.*);
-                            try stream.writeByteNTimes(' ', new_indent);
-                        } else {
-                            try renderTrailingComma(allocator, stream, tree, new_indent, expr.*, Space.Newline);
-                        }
-                    }
-
-                    try stream.writeByteNTimes(' ', indent);
-                    try renderToken(tree, stream, suffix_op.rtoken, indent, space);
                 },
             }
         },
