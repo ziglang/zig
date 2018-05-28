@@ -1,3 +1,15 @@
+test "zig fmt: switch comment before prong" {
+    try testCanonical(
+        \\comptime {
+        \\    switch (a) {
+        \\        // hi
+        \\        0 => {},
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: struct literal no trailing comma" {
     try testTransform(
         \\const a = foo{ .x = 1, .y = 2 };

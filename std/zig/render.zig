@@ -1050,10 +1050,10 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
 
             try renderExpression(allocator, stream, tree, indent, switch_node.expr, Space.None);
 
-            try renderToken(tree, stream, rparen, indent, Space.Space); // )
-            try renderToken(tree, stream, lbrace, indent, Space.Newline); // {
-
             const new_indent = indent + indent_delta;
+
+            try renderToken(tree, stream, rparen, indent, Space.Space); // )
+            try renderToken(tree, stream, lbrace, new_indent, Space.Newline); // {
 
             var it = switch_node.cases.iterator(0);
             while (it.next()) |node| {
