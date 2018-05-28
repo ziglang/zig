@@ -486,6 +486,37 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                         return;
                     }
 
+                    const src_has_trailing_comma = blk: {
+                        const maybe_comma = tree.prevToken(suffix_op.rtoken);
+                        break :blk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
+                    };
+
+                    const src_same_line = blk: {
+                        const loc = tree.tokenLocation(tree.tokens.at(lbrace).end, suffix_op.rtoken);
+                        break :blk loc.line == 0;
+                    };
+
+                    if (!src_has_trailing_comma and src_same_line) {
+                        // render all on one line, no trailing comma
+                        try renderExpression(allocator, stream, tree, indent, suffix_op.lhs, Space.None);
+                        try renderToken(tree, stream, lbrace, indent, Space.Space);
+
+                        var it = field_inits.iterator(0);
+                        while (it.next()) |field_init| {
+                            if (it.peek() != null) {
+                                try renderExpression(allocator, stream, tree, indent, field_init.*, Space.None);
+
+                                const comma = tree.nextToken(field_init.*.lastToken());
+                                try renderToken(tree, stream, comma, indent, Space.Space);
+                            } else {
+                                try renderExpression(allocator, stream, tree, indent, field_init.*, Space.Space);
+                            }
+                        }
+
+                        try renderToken(tree, stream, suffix_op.rtoken, indent, space);
+                        return;
+                    }
+
                     try renderExpression(allocator, stream, tree, indent, suffix_op.lhs, Space.None);
                     try renderToken(tree, stream, lbrace, indent, Space.Newline);
 

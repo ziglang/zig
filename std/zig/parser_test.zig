@@ -1,3 +1,18 @@
+test "zig fmt: struct literal no trailing comma" {
+    try testTransform(
+        \\const a = foo{ .x = 1, .y = 2 };
+        \\const a = foo{ .x = 1,
+        \\    .y = 2 };
+    ,
+        \\const a = foo{ .x = 1, .y = 2 };
+        \\const a = foo{
+        \\    .x = 1,
+        \\    .y = 2,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: array literal with hint" {
     try testTransform(
         \\const a = []u8{
