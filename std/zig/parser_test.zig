@@ -1,3 +1,95 @@
+test "zig fmt: if condition wraps" {
+    try testTransform(
+        \\comptime {
+        \\    if (cond and
+        \\        cond) {
+        \\        return x;
+        \\    }
+        \\    while (cond and
+        \\        cond) {
+        \\        return x;
+        \\    }
+        \\    if (a == b and
+        \\        c) {
+        \\        a = b;
+        \\    }
+        \\    while (a == b and
+        \\        c) {
+        \\        a = b;
+        \\    }
+        \\    if ((cond and
+        \\        cond)) {
+        \\        return x;
+        \\    }
+        \\    while ((cond and
+        \\        cond)) {
+        \\        return x;
+        \\    }
+        \\    var a = if (a) |*f| x: {
+        \\        break :x &a.b;
+        \\    } else |err| err;
+        \\}
+    ,
+        \\comptime {
+        \\    if (cond and
+        \\        cond)
+        \\    {
+        \\        return x;
+        \\    }
+        \\    while (cond and
+        \\        cond)
+        \\    {
+        \\        return x;
+        \\    }
+        \\    if (a == b and
+        \\        c)
+        \\    {
+        \\        a = b;
+        \\    }
+        \\    while (a == b and
+        \\        c)
+        \\    {
+        \\        a = b;
+        \\    }
+        \\    if ((cond and
+        \\        cond))
+        \\    {
+        \\        return x;
+        \\    }
+        \\    while ((cond and
+        \\        cond))
+        \\    {
+        \\        return x;
+        \\    }
+        \\    var a = if (a) |*f| x: {
+        \\        break :x &a.b;
+        \\    } else |err| err;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: if condition has line break but must not wrap" {
+    try testCanonical(
+        \\comptime {
+        \\    if (self.user_input_options.put(name, UserInputOption{
+        \\        .name = name,
+        \\        .used = false,
+        \\    }) catch unreachable) |*prev_value| {
+        \\        foo();
+        \\        bar();
+        \\    }
+        \\    if (put(
+        \\        a,
+        \\        b,
+        \\    )) {
+        \\        foo();
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: same-line doc comment on variable declaration" {
     try testTransform(
         \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space

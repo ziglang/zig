@@ -68,6 +68,14 @@ pub const Tree = struct {
         return self.tokenLocationPtr(start_index, self.tokens.at(token_index));
     }
 
+    pub fn tokensOnSameLine(self: &Tree, token1_index: TokenIndex, token2_index: TokenIndex) bool {
+        return self.tokensOnSameLinePtr(self.tokens.at(token1_index), self.tokens.at(token2_index));
+    }
+
+    pub fn tokensOnSameLinePtr(self: &Tree, token1: &const Token, token2: &const Token) bool {
+        return mem.indexOfScalar(u8, self.source[token1.end..token2.start], '\n') == null;
+    }
+
     pub fn dump(self: &Tree) void {
         self.root_node.base.dump(0);
     }
@@ -1529,14 +1537,14 @@ pub const Node = struct {
 
             switch (self.op) {
                 Op.SliceType => |addr_of_info| {
-                    if (addr_of_info.align_expr) |align_expr| {
-                        if (i < 1) return align_expr;
+                    if (addr_of_info.align_info) |align_info| {
+                        if (i < 1) return align_info.node;
                         i -= 1;
                     }
                 },
                 Op.AddrOf => |addr_of_info| {
-                    if (addr_of_info.align_expr) |align_expr| {
-                        if (i < 1) return align_expr;
+                    if (addr_of_info.align_info) |align_info| {
+                        if (i < 1) return align_info.node;
                         i -= 1;
                     }
                 },
@@ -1553,7 +1561,9 @@ pub const Node = struct {
                 Op.NegationWrap,
                 Op.Try,
                 Op.Resume,
-                Op.UnwrapMaybe => {},
+                Op.UnwrapMaybe,
+                Op.PointerType,
+                => {},
             }
 
             if (i < 1) return self.rhs;
@@ -1656,6 +1666,7 @@ pub const Node = struct {
                     if (i < fields.len) return fields.at(i).*;
                     i -= fields.len;
                 },
+                Op.Deref => {},
             }
 
             return null;
@@ -2081,9 +2092,6 @@ pub const Node = struct {
 
             if (i < self.inputs.len) return &(self.inputs.at(index).*).base;
             i -= self.inputs.len;
-
-            if (i < self.clobbers.len) return self.clobbers.at(index).*;
-            i -= self.clobbers.len;
 
             return null;
         }
