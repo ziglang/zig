@@ -1341,7 +1341,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 }
 
                 if (if_node.@"else") |@"else"| {
-                    try renderExpression(allocator, stream, tree, indent, if_node.body, Space.Space);
+                    try renderExpression(allocator, stream, tree, indent, if_node.body, Space.SpaceOrOutdent);
                     return renderExpression(allocator, stream, tree, indent, &@"else".base, space);
                 } else {
                     return renderExpression(allocator, stream, tree, indent, if_node.body, space);
@@ -1685,8 +1685,8 @@ const Space = enum {
     Newline,
     Comma,
     Space,
+    SpaceOrOutdent,
     NoNewline,
-    NoIndent,
     NoComment,
 };
 
@@ -1717,7 +1717,7 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
 
     if (next_token.id != Token.Id.LineComment) {
         switch (space) {
-            Space.None, Space.NoNewline, Space.NoIndent => return,
+            Space.None, Space.NoNewline => return,
             Space.Newline => {
                 if (next_token.id == Token.Id.MultilineStringLiteralLine) {
                     return;
@@ -1725,7 +1725,7 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
                     return stream.write("\n");
                 }
             },
-            Space.Space => return stream.writeByte(' '),
+            Space.Space, Space.SpaceOrOutdent => return stream.writeByte(' '),
             Space.NoComment, Space.Comma => unreachable,
         }
     }
@@ -1756,7 +1756,11 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
                     };
                     try stream.writeByteNTimes(' ', next_line_indent);
                 },
-                Space.Newline, Space.NoIndent => {
+                Space.SpaceOrOutdent => {
+                    try stream.writeByte('\n');
+                    try stream.writeByteNTimes(' ', indent);
+                },
+                Space.Newline => {
                     if (next_token.id == Token.Id.MultilineStringLiteralLine) {
                         return;
                     } else {
@@ -1783,7 +1787,7 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
         next_token = tree.tokens.at(token_index + offset);
         if (next_token.id != Token.Id.LineComment) {
             switch (space) {
-                Space.Newline, Space.NoIndent => {
+                Space.Newline => {
                     if (next_token.id == Token.Id.MultilineStringLiteralLine) {
                         return;
                     } else {
@@ -1799,6 +1803,10 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
                         else => indent,
                     };
                     try stream.writeByteNTimes(' ', next_line_indent);
+                },
+                Space.SpaceOrOutdent => {
+                    try stream.writeByte('\n');
+                    try stream.writeByteNTimes(' ', indent);
                 },
                 Space.NoNewline => {},
                 Space.NoComment, Space.Comma => unreachable,
