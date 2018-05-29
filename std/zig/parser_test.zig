@@ -1,3 +1,28 @@
+test "zig fmt: same-line doc comment on variable declaration" {
+    try testTransform(
+        \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space
+        \\pub const MAP_FILE = 0x0000; /// map from file (default)
+        \\
+        \\pub const EMEDIUMTYPE = 124; /// Wrong medium type
+        \\
+        \\// nameserver query return codes
+        \\pub const ENSROK = 0; /// DNS server returned answer with no data
+    ,
+        \\/// allocated from memory, swap space
+        \\pub const MAP_ANONYMOUS = 0x1000;
+        \\/// map from file (default)
+        \\pub const MAP_FILE = 0x0000;
+        \\
+        \\/// Wrong medium type
+        \\pub const EMEDIUMTYPE = 124;
+        \\
+        \\// nameserver query return codes
+        \\/// DNS server returned answer with no data
+        \\pub const ENSROK = 0;
+        \\
+    );
+}
+
 test "zig fmt: if-else with comment before else" {
     try testCanonical(
         \\comptime {
@@ -553,20 +578,6 @@ test "zig fmt: add comma on last switch prong" {
         \\        InitArg.None, InitArg.Enum => {}, //line comment
         \\    }
         \\}
-        \\
-    );
-}
-
-test "zig fmt: same-line doc comment on variable declaration" {
-    try testTransform(
-        \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space
-        \\pub const MAP_FILE = 0x0000; /// map from file (default)
-        \\
-    ,
-        \\/// allocated from memory, swap space
-        \\pub const MAP_ANONYMOUS = 0x1000;
-        \\/// map from file (default)
-        \\pub const MAP_FILE = 0x0000;
         \\
     );
 }

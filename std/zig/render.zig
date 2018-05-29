@@ -39,11 +39,12 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(
 }
 
 fn renderExtraNewline(tree: &ast.Tree, stream: var, node: &ast.Node) !void {
-    var first_token = node.firstToken();
-    while (tree.tokens.at(first_token - 1).id == Token.Id.DocComment) {
-        first_token -= 1;
+    const first_token = node.firstToken();
+    var prev_token = first_token;
+    while (tree.tokens.at(prev_token - 1).id == Token.Id.DocComment) {
+        prev_token -= 1;
     }
-    const prev_token_end = tree.tokens.at(first_token - 1).end;
+    const prev_token_end = tree.tokens.at(prev_token - 1).end;
     const loc = tree.tokenLocation(prev_token_end, first_token);
     if (loc.line >= 2) {
         try stream.writeByte('\n');
@@ -1715,7 +1716,17 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
         else => {},
     }
 
-    if (next_token.id != Token.Id.LineComment) {
+    // Skip over same line doc comments
+    var offset: usize = 1;
+    if (next_token.id == Token.Id.DocComment) {
+        const loc = tree.tokenLocationPtr(token.end, next_token);
+        if (loc.line == 0) {
+            offset += 1;
+            next_token = tree.tokens.at(token_index + offset);
+        }
+    }
+
+    if (next_token.id != Token.Id.LineComment) blk: {
         switch (space) {
             Space.None, Space.NoNewline => return,
             Space.Newline => {
@@ -1739,7 +1750,6 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
     }
 
     var loc = tree.tokenLocationPtr(token.end, next_token);
-    var offset: usize = 1;
     if (loc.line == 0) {
         try stream.print(" {}", mem.trimRight(u8, tree.tokenSlicePtr(next_token), " "));
         offset = 2;
@@ -1820,8 +1830,15 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
 fn renderDocComments(tree: &ast.Tree, stream: var, node: var, indent: usize) (@typeOf(stream).Child.Error || Error)!void {
     const comment = node.doc_comments ?? return;
     var it = comment.lines.iterator(0);
+    const first_token = node.firstToken();
     while (it.next()) |line_token_index| {
-        try renderToken(tree, stream, line_token_index.*, indent, Space.Newline);
-        try stream.writeByteNTimes(' ', indent);
+        if (line_token_index.* < first_token) {
+            try renderToken(tree, stream, line_token_index.*, indent, Space.Newline);
+            try stream.writeByteNTimes(' ', indent);
+        } else {
+            try renderToken(tree, stream, line_token_index.*, indent, Space.NoComment);
+            try stream.write("\n");
+            try stream.writeByteNTimes(' ', indent);
+        }
     }
 }
