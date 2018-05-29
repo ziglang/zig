@@ -1,3 +1,14 @@
+test "zig fmt: 2nd arg multiline string" {
+    try testCanonical(
+        \\comptime {
+        \\    cases.addAsm("hello world linux x86_64",
+        \\        \\.text
+        \\    , "Hello, world!\n");
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: if condition wraps" {
     try testTransform(
         \\comptime {

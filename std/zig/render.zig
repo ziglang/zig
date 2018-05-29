@@ -1733,6 +1733,8 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
                 }
             },
             Space.Space, Space.SpaceOrOutdent => {
+                if (next_token.id == Token.Id.MultilineStringLiteralLine)
+                    return;
                 try stream.writeByte(' ');
                 return;
             },
