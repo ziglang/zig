@@ -59,7 +59,7 @@ test "reflection: enum member types and names" {
 }
 
 test "reflection: @field" {
-    var f = Foo {
+    var f = Foo{
         .one = 42,
         .two = true,
         .three = void{},

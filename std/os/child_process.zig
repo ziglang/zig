@@ -387,15 +387,12 @@ pub const ChildProcess = struct {
         const pid_err = posix.getErrno(pid_result);
         if (pid_err > 0) {
             return switch (pid_err) {
-                posix.EAGAIN,
-                posix.ENOMEM,
-                posix.ENOSYS => error.SystemResources,
+                posix.EAGAIN, posix.ENOMEM, posix.ENOSYS => error.SystemResources,
                 else => os.unexpectedErrorPosix(pid_err),
             };
         }
         if (pid_result == 0) {
             // we are the child
-
             setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
             setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
             setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
@@ -646,8 +643,7 @@ fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?
     if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0, @ptrCast(?&c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
-            windows.ERROR.FILE_NOT_FOUND,
-            windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
+            windows.ERROR.FILE_NOT_FOUND, windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
             windows.ERROR.INVALID_PARAMETER => unreachable,
             windows.ERROR.INVALID_NAME => error.InvalidName,
             else => os.unexpectedErrorWindows(err),
@@ -745,8 +741,7 @@ fn makePipe() ![2]i32 {
     const err = posix.getErrno(posix.pipe(&fds));
     if (err > 0) {
         return switch (err) {
-            posix.EMFILE,
-            posix.ENFILE => error.SystemResources,
+            posix.EMFILE, posix.ENFILE => error.SystemResources,
             else => os.unexpectedErrorPosix(err),
         };
     }

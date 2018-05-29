@@ -638,7 +638,6 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\}
     );
 
-
     cases.addC("c style cast",
         \\int float_to_int(float a) {
         \\    return (int)a;
@@ -1289,29 +1288,29 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    }
         \\}
     ,
-       \\pub fn switch_fn(i: c_int) c_int {
-       \\    var res: c_int = 0;
-       \\    __switch: {
-       \\        __case_2: {
-       \\            __default: {
-       \\                __case_1: {
-       \\                    __case_0: {
-       \\                        switch (i) {
-       \\                            0 => break :__case_0,
-       \\                            1 => break :__case_1,
-       \\                            else => break :__default,
-       \\                            2 => break :__case_2,
-       \\                        }
-       \\                    }
-       \\                    res = 1;
-       \\                }
-       \\                res = 2;
-       \\            }
-       \\            res = (3 * i);
-       \\            break :__switch;
-       \\        }
-       \\        res = 5;
-       \\    }
-       \\}
+        \\pub fn switch_fn(i: c_int) c_int {
+        \\    var res: c_int = 0;
+        \\    __switch: {
+        \\        __case_2: {
+        \\            __default: {
+        \\                __case_1: {
+        \\                    __case_0: {
+        \\                        switch (i) {
+        \\                            0 => break :__case_0,
+        \\                            1 => break :__case_1,
+        \\                            else => break :__default,
+        \\                            2 => break :__case_2,
+        \\                        }
+        \\                    }
+        \\                    res = 1;
+        \\                }
+        \\                res = 2;
+        \\            }
+        \\            res = (3 * i);
+        \\            break :__switch;
+        \\        }
+        \\        res = 5;
+        \\    }
+        \\}
     );
 }

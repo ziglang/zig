@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 // Imagine that `fn at(self: &Self, index: usize) &T` is a customer asking for a box
 // from a warehouse, based on a flat array, boxes ordered from 0 to N - 1.
 // But the warehouse actually stores boxes in shelves of increasing powers of 2 sizes.
-// So when the customer requests a box index, we have to translate it to shelf index 
+// So when the customer requests a box index, we have to translate it to shelf index
 // and box index within that shelf. Illustration:
 //
 // customer indexes:
@@ -37,14 +37,14 @@ const Allocator = std.mem.Allocator;
 // Now we complicate it a little bit further by adding a preallocated shelf, which must be
 // a power of 2:
 // prealloc=4
-// 
+//
 // customer indexes:
 // prealloc:  0  1  2  3
 //  shelf 0:  4  5  6  7  8  9 10 11
 //  shelf 1: 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27
 //  shelf 2: 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59
 // ...
-// 
+//
 // warehouse indexes:
 // prealloc:  0  1  2  3
 //  shelf 0:  0  1  2  3  4  5  6  7

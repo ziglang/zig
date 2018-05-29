@@ -28,7 +28,6 @@ const assert = std.debug.assert;
 
 // This implementation is taken from the go stlib, musl is a bit more complex.
 pub fn pow(comptime T: type, x: T, y: T) T {
-
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     if (T != f32 and T != f64) {

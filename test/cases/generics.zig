@@ -81,11 +81,11 @@ test "function with return type type" {
 }
 
 test "generic struct" {
-    var a1 = GenNode(i32) {
+    var a1 = GenNode(i32){
         .value = 13,
         .next = null,
     };
-    var b1 = GenNode(bool) {
+    var b1 = GenNode(bool){
         .value = true,
         .next = null,
     };
@@ -120,8 +120,8 @@ fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
 }
 
 test "generic fn with implicit cast" {
-    assert(getFirstByte(u8, []u8 {13}) == 13);
-    assert(getFirstByte(u16, []u16 {
+    assert(getFirstByte(u8, []u8{13}) == 13);
+    assert(getFirstByte(u16, []u16{
         0,
         13,
     }) == 0);
@@ -133,7 +133,7 @@ fn getFirstByte(comptime T: type, mem: []const T) u8 {
     return getByte(@ptrCast(&const u8, &mem[0]));
 }
 
-const foos = []fn(var) bool {
+const foos = []fn(var) bool{
     foo1,
     foo2,
 };

@@ -98,7 +98,6 @@ pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
 /// Uncorrected Errol3 double to ASCII conversion.
 fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     // check if in integer or fixed range
-
     if (val > 9.007199254740992e15 and val < 3.40282366920938e+38) {
         return errolInt(val, buffer);
     } else if (val >= 16.0 and val < 9.007199254740992e15) {
@@ -420,7 +419,7 @@ fn fpprev(val: f64) f64 {
     return @bitCast(f64, @bitCast(u64, val) -% 1);
 }
 
-pub const c_digits_lut = []u8 {
+pub const c_digits_lut = []u8{
     '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6',
     '0', '7', '0', '8', '0', '9', '1', '0', '1', '1', '1', '2', '1', '3',
     '1', '4', '1', '5', '1', '6', '1', '7', '1', '8', '1', '9', '2', '0',

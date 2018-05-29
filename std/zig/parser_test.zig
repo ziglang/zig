@@ -1021,7 +1021,7 @@ test "zig fmt: extern declaration" {
 }
 
 test "zig fmt: alignment" {
-        try testCanonical(
+    try testCanonical(
         \\var foo: c_int align(1);
         \\
     );
@@ -1070,7 +1070,7 @@ test "zig fmt: slice attributes" {
 }
 
 test "zig fmt: test declaration" {
-     try testCanonical(
+    try testCanonical(
         \\test "test name" {
         \\    const a = 1;
         \\    var b = 1;
@@ -1312,7 +1312,7 @@ test "zig fmt: struct declaration" {
 }
 
 test "zig fmt: enum declaration" {
-      try testCanonical(
+    try testCanonical(
         \\const E = enum {
         \\    Ok,
         \\    SomethingElse = 0,
@@ -1340,7 +1340,7 @@ test "zig fmt: enum declaration" {
 }
 
 test "zig fmt: union declaration" {
-      try testCanonical(
+    try testCanonical(
         \\const U = union {
         \\    Int: u8,
         \\    Float: f32,
@@ -1860,10 +1860,15 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    warn("\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
-                        fail_index, needed_alloc_count,
-                        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
-                        failing_allocator.index, failing_allocator.deallocations);
+                    warn(
+                        "\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
+                        fail_index,
+                        needed_alloc_count,
+                        failing_allocator.allocated_bytes,
+                        failing_allocator.freed_bytes,
+                        failing_allocator.index,
+                        failing_allocator.deallocations,
+                    );
                     return error.MemoryLeakDetected;
                 }
             },
@@ -1876,4 +1881,3 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
 fn testCanonical(source: []const u8) !void {
     return testTransform(source, source);
 }
-

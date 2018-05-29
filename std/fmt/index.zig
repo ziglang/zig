@@ -107,7 +107,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                 '}' => {
                     return output(context, args[next_arg]);
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.BufWidth;
                 },
@@ -127,7 +127,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.IntegerWidth;
                 },
@@ -141,7 +141,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.FloatScientific => switch (c) {
@@ -151,7 +151,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.FloatScientificWidth;
                 },
@@ -165,7 +165,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.Float => switch (c) {
@@ -175,7 +175,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.FloatWidth;
                 },
@@ -189,7 +189,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.BufWidth => switch (c) {
@@ -200,7 +200,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.Character => switch (c) {
@@ -223,7 +223,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     radix = 1024;
                     state = State.BytesBase;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.BytesWidth;
                 },
@@ -236,7 +236,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.BytesWidth;
                 },
@@ -250,7 +250,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
         }
@@ -562,9 +562,14 @@ pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, com
     }
 }
 
-pub fn formatBytes(value: var, width: ?usize, comptime radix: usize,
-    context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)Errors!void) Errors!void
-{
+pub fn formatBytes(
+    value: var,
+    width: ?usize,
+    comptime radix: usize,
+    context: var,
+    comptime Errors: type,
+    output: fn(@typeOf(context), []const u8) Errors!void,
+) Errors!void {
     if (value == 0) {
         return output(context, "0B");
     }
@@ -585,16 +590,22 @@ pub fn formatBytes(value: var, width: ?usize, comptime radix: usize,
     }
 
     const buf = switch (radix) {
-        1000 => []u8 { suffix, 'B' },
-        1024 => []u8 { suffix, 'i', 'B' },
+        1000 => []u8{ suffix, 'B' },
+        1024 => []u8{ suffix, 'i', 'B' },
         else => unreachable,
     };
     return output(context, buf);
 }
 
-pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
-    context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)Errors!void) Errors!void
-{
+pub fn formatInt(
+    value: var,
+    base: u8,
+    uppercase: bool,
+    width: usize,
+    context: var,
+    comptime Errors: type,
+    output: fn(@typeOf(context), []const u8) Errors!void,
+) Errors!void {
     if (@typeOf(value).is_signed) {
         return formatIntSigned(value, base, uppercase, width, context, Errors, output);
     } else {
@@ -717,9 +728,9 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
     const value = switch (c) {
-        '0' ... '9' => c - '0',
-        'A' ... 'Z' => c - 'A' + 10,
-        'a' ... 'z' => c - 'a' + 10,
+        '0'...'9' => c - '0',
+        'A'...'Z' => c - 'A' + 10,
+        'a'...'z' => c - 'a' + 10,
         else => return error.InvalidCharacter,
     };
 
@@ -730,8 +741,8 @@ pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
 
 fn digitToChar(digit: u8, uppercase: bool) u8 {
     return switch (digit) {
-        0 ... 9 => digit + '0',
-        10 ... 35 => digit + ((if (uppercase) u8('A') else u8('a')) - 10),
+        0...9 => digit + '0',
+        10...35 => digit + ((if (uppercase) u8('A') else u8('a')) - 10),
         else => unreachable,
     };
 }
@@ -754,8 +765,7 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) ![]u8 {
 
 pub fn allocPrint(allocator: &mem.Allocator, comptime fmt: []const u8, args: ...) ![]u8 {
     var size: usize = 0;
-    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {
-    };
+    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args);
 }
@@ -1043,8 +1053,7 @@ test "fmt.format" {
 fn testFmt(expected: []const u8, comptime template: []const u8, args: ...) !void {
     var buf: [100]u8 = undefined;
     const result = try bufPrint(buf[0..], template, args);
-    if (mem.eql(u8, result, expected))
-        return;
+    if (mem.eql(u8, result, expected)) return;
 
     std.debug.warn("\n====== expected this output: =========\n");
     std.debug.warn("{}", expected);
@@ -1082,10 +1091,7 @@ test "fmt.trim" {
 
 pub fn isWhiteSpace(byte: u8) bool {
     return switch (byte) {
-        ' ',
-        '\t',
-        '\n',
-        '\r' => true,
+        ' ', '\t', '\n', '\r' => true,
         else => false,
     };
 }

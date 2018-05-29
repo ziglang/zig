@@ -12,52 +12,71 @@ pub const STDERR_FILENO = 2;
 
 /// [MC2] no permissions
 pub const PROT_NONE = 0x00;
+
 /// [MC2] pages can be read
 pub const PROT_READ = 0x01;
+
 /// [MC2] pages can be written
 pub const PROT_WRITE = 0x02;
+
 /// [MC2] pages can be executed
 pub const PROT_EXEC = 0x04;
 
 /// allocated from memory, swap space
 pub const MAP_ANONYMOUS = 0x1000;
+
 /// map from file (default)
 pub const MAP_FILE = 0x0000;
+
 /// interpret addr exactly
 pub const MAP_FIXED = 0x0010;
+
 /// region may contain semaphores
 pub const MAP_HASSEMAPHORE = 0x0200;
+
 /// changes are private
 pub const MAP_PRIVATE = 0x0002;
+
 /// share changes
 pub const MAP_SHARED = 0x0001;
+
 /// don't cache pages for this mapping
 pub const MAP_NOCACHE = 0x0400;
+
 /// don't reserve needed swap area
 pub const MAP_NORESERVE = 0x0040;
 pub const MAP_FAILED = @maxValue(usize);
 
 /// [XSI] no hang in wait/no child to reap
 pub const WNOHANG = 0x00000001;
+
 /// [XSI] notify on stop, untraced child
 pub const WUNTRACED = 0x00000002;
 
 /// take signal on signal stack
 pub const SA_ONSTACK = 0x0001;
+
 /// restart system on signal return
 pub const SA_RESTART = 0x0002;
+
 /// reset to SIG_DFL when taking signal
 pub const SA_RESETHAND = 0x0004;
+
 /// do not generate SIGCHLD on child stop
 pub const SA_NOCLDSTOP = 0x0008;
+
 /// don't mask the signal we're delivering
 pub const SA_NODEFER = 0x0010;
+
 /// don't keep zombies around
 pub const SA_NOCLDWAIT = 0x0020;
+
 /// signal handler with SA_SIGINFO args
 pub const SA_SIGINFO = 0x0040;
+
 /// do not bounce off kernel's sigtramp
 pub const SA_USERTRAMP = 0x0100;
+
 /// signal handler with SA_SIGINFO args with 64bit   regs information
 pub const SA_64REGSET = 0x0200;
 
@@ -71,30 +90,43 @@ pub const R_OK = 4;
 
 /// open for reading only
 pub const O_RDONLY = 0x0000;
+
 /// open for writing only
 pub const O_WRONLY = 0x0001;
+
 /// open for reading and writing
 pub const O_RDWR = 0x0002;
+
 /// do not block on open or for data to become available
 pub const O_NONBLOCK = 0x0004;
+
 /// append on each write
 pub const O_APPEND = 0x0008;
+
 /// create file if it does not exist
 pub const O_CREAT = 0x0200;
+
 /// truncate size to 0
 pub const O_TRUNC = 0x0400;
+
 /// error if O_CREAT and the file exists
 pub const O_EXCL = 0x0800;
+
 /// atomically obtain a shared lock
 pub const O_SHLOCK = 0x0010;
+
 /// atomically obtain an exclusive lock
 pub const O_EXLOCK = 0x0020;
+
 /// do not follow symlinks
 pub const O_NOFOLLOW = 0x0100;
+
 /// allow open of symlinks
 pub const O_SYMLINK = 0x200000;
+
 /// descriptor requested for event notifications only
 pub const O_EVTONLY = 0x8000;
+
 /// mark as close-on-exec
 pub const O_CLOEXEC = 0x1000000;
 
@@ -126,75 +158,109 @@ pub const DT_WHT = 14;
 
 /// block specified signal set
 pub const SIG_BLOCK = 1;
+
 /// unblock specified signal set
 pub const SIG_UNBLOCK = 2;
+
 /// set specified signal set
 pub const SIG_SETMASK = 3;
 
 /// hangup
 pub const SIGHUP = 1;
+
 /// interrupt
 pub const SIGINT = 2;
+
 /// quit
 pub const SIGQUIT = 3;
+
 /// illegal instruction (not reset when caught)
 pub const SIGILL = 4;
+
 /// trace trap (not reset when caught)
 pub const SIGTRAP = 5;
+
 /// abort()
 pub const SIGABRT = 6;
+
 /// pollable event ([XSR] generated, not supported)
 pub const SIGPOLL = 7;
+
 /// compatibility
 pub const SIGIOT = SIGABRT;
+
 /// EMT instruction
 pub const SIGEMT = 7;
+
 /// floating point exception
 pub const SIGFPE = 8;
+
 /// kill (cannot be caught or ignored)
 pub const SIGKILL = 9;
+
 /// bus error
 pub const SIGBUS = 10;
+
 /// segmentation violation
 pub const SIGSEGV = 11;
+
 /// bad argument to system call
 pub const SIGSYS = 12;
+
 /// write on a pipe with no one to read it
 pub const SIGPIPE = 13;
+
 /// alarm clock
 pub const SIGALRM = 14;
+
 /// software termination signal from kill
 pub const SIGTERM = 15;
+
 /// urgent condition on IO channel
 pub const SIGURG = 16;
+
 /// sendable stop signal not from tty
 pub const SIGSTOP = 17;
+
 /// stop signal from tty
 pub const SIGTSTP = 18;
+
 /// continue a stopped process
 pub const SIGCONT = 19;
+
 /// to parent on child stop or exit
 pub const SIGCHLD = 20;
+
 /// to readers pgrp upon background tty read
 pub const SIGTTIN = 21;
+
 /// like TTIN for output if (tp->t_local&LTOSTOP)
 pub const SIGTTOU = 22;
+
 /// input/output possible signal
 pub const SIGIO = 23;
+
 /// exceeded CPU time limit
 pub const SIGXCPU = 24;
+
 /// exceeded file size limit
 pub const SIGXFSZ = 25;
+
 /// virtual time alarm
 pub const SIGVTALRM = 26;
+
 /// profiling time alarm
 pub const SIGPROF = 27;
+
 /// window size changes
 pub const SIGWINCH = 28;
+
 /// information request
 pub const SIGINFO = 29;
+
 /// user defined signal 1
 pub const SIGUSR1 = 30;
+
 /// user defined signal 2
 pub const SIGUSR2 = 31;
 

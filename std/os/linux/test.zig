@@ -11,22 +11,22 @@ test "timer" {
     const timer_fd = linux.timerfd_create(linux.CLOCK_MONOTONIC, 0);
     assert(linux.getErrno(timer_fd) == 0);
 
-    const time_interval = linux.timespec {
+    const time_interval = linux.timespec{
         .tv_sec = 0,
-        .tv_nsec = 2000000
+        .tv_nsec = 2000000,
     };
 
-    const new_time = linux.itimerspec {
+    const new_time = linux.itimerspec{
         .it_interval = time_interval,
-        .it_value = time_interval
+        .it_value = time_interval,
     };
 
     err = linux.timerfd_settime(i32(timer_fd), 0, &new_time, null);
     assert(err == 0);
 
-    var event = linux.epoll_event {
+    var event = linux.epoll_event{
         .events = linux.EPOLLIN | linux.EPOLLOUT | linux.EPOLLET,
-        .data = linux.epoll_data { .ptr = 0 },
+        .data = linux.epoll_data{ .ptr = 0 },
     };
 
     err = linux.epoll_ctl(i32(epoll_fd), linux.EPOLL_CTL_ADD, i32(timer_fd), &event);

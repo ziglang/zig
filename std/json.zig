@@ -252,7 +252,7 @@ pub const StreamingJsonParser = struct {
                     p.after_value_state = State.TopLevelEnd;
                     p.count = 0;
                 },
-                '1' ... '9' => {
+                '1'...'9' => {
                     p.number_is_integer = true;
                     p.state = State.NumberMaybeDigitOrDotOrExponent;
                     p.after_value_state = State.TopLevelEnd;
@@ -281,10 +281,7 @@ pub const StreamingJsonParser = struct {
                     p.after_value_state = State.TopLevelEnd;
                     p.count = 0;
                 },
-                0x09,
-                0x0A,
-                0x0D,
-                0x20 => {
+                0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
                 },
                 else => {
@@ -293,10 +290,7 @@ pub const StreamingJsonParser = struct {
             },
 
             State.TopLevelEnd => switch (c) {
-                0x09,
-                0x0A,
-                0x0D,
-                0x20 => {
+                0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
                 },
                 else => {
@@ -392,7 +386,7 @@ pub const StreamingJsonParser = struct {
                     p.state = State.NumberMaybeDotOrExponent;
                     p.count = 0;
                 },
-                '1' ... '9' => {
+                '1'...'9' => {
                     p.state = State.NumberMaybeDigitOrDotOrExponent;
                     p.count = 0;
                 },
@@ -412,10 +406,7 @@ pub const StreamingJsonParser = struct {
                     p.state = State.NullLiteral1;
                     p.count = 0;
                 },
-                0x09,
-                0x0A,
-                0x0D,
-                0x20 => {
+                0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
                 },
                 else => {
@@ -461,7 +452,7 @@ pub const StreamingJsonParser = struct {
                     p.state = State.NumberMaybeDotOrExponent;
                     p.count = 0;
                 },
-                '1' ... '9' => {
+                '1'...'9' => {
                     p.state = State.NumberMaybeDigitOrDotOrExponent;
                     p.count = 0;
                 },
@@ -481,10 +472,7 @@ pub const StreamingJsonParser = struct {
                     p.state = State.NullLiteral1;
                     p.count = 0;
                 },
-                0x09,
-                0x0A,
-                0x0D,
-                0x20 => {
+                0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
                 },
                 else => {
@@ -533,10 +521,7 @@ pub const StreamingJsonParser = struct {
 
                     token.* = Token.initMarker(Token.Id.ObjectEnd);
                 },
-                0x09,
-                0x0A,
-                0x0D,
-                0x20 => {
+                0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
                 },
                 else => {
@@ -549,10 +534,7 @@ pub const StreamingJsonParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
                 },
-                0x09,
-                0x0A,
-                0x0D,
-                0x20 => {
+                0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
                 },
                 else => {
@@ -561,7 +543,7 @@ pub const StreamingJsonParser = struct {
             },
 
             State.String => switch (c) {
-                0x00 ... 0x1F => {
+                0x00...0x1F => {
                     return error.InvalidControlCharacter;
                 },
                 '"' => {
@@ -576,19 +558,16 @@ pub const StreamingJsonParser = struct {
                 '\\' => {
                     p.state = State.StringEscapeCharacter;
                 },
-                0x20,
-                0x21,
-                0x23 ... 0x5B,
-                0x5D ... 0x7F => {
+                0x20, 0x21, 0x23...0x5B, 0x5D...0x7F => {
                     // non-control ascii
                 },
-                0xC0 ... 0xDF => {
+                0xC0...0xDF => {
                     p.state = State.StringUtf8Byte1;
                 },
-                0xE0 ... 0xEF => {
+                0xE0...0xEF => {
                     p.state = State.StringUtf8Byte2;
                 },
-                0xF0 ... 0xFF => {
+                0xF0...0xFF => {
                     p.state = State.StringUtf8Byte3;
                 },
                 else => {
@@ -620,14 +599,7 @@ pub const StreamingJsonParser = struct {
                 // The current JSONTestSuite tests rely on both of this behaviour being present
                 // however, so we default to the status quo where both are accepted until this
                 // is further clarified.
-                '"',
-                '\\',
-                '/',
-                'b',
-                'f',
-                'n',
-                'r',
-                't' => {
+                '"', '\\', '/', 'b', 'f', 'n', 'r', 't' => {
                     p.string_has_escape = true;
                     p.state = State.String;
                 },
@@ -641,36 +613,28 @@ pub const StreamingJsonParser = struct {
             },
 
             State.StringEscapeHexUnicode4 => switch (c) {
-                '0' ... '9',
-                'A' ... 'F',
-                'a' ... 'f' => {
+                '0'...'9', 'A'...'F', 'a'...'f' => {
                     p.state = State.StringEscapeHexUnicode3;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
             State.StringEscapeHexUnicode3 => switch (c) {
-                '0' ... '9',
-                'A' ... 'F',
-                'a' ... 'f' => {
+                '0'...'9', 'A'...'F', 'a'...'f' => {
                     p.state = State.StringEscapeHexUnicode2;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
             State.StringEscapeHexUnicode2 => switch (c) {
-                '0' ... '9',
-                'A' ... 'F',
-                'a' ... 'f' => {
+                '0'...'9', 'A'...'F', 'a'...'f' => {
                     p.state = State.StringEscapeHexUnicode1;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
             State.StringEscapeHexUnicode1 => switch (c) {
-                '0' ... '9',
-                'A' ... 'F',
-                'a' ... 'f' => {
+                '0'...'9', 'A'...'F', 'a'...'f' => {
                     p.state = State.String;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
@@ -682,7 +646,7 @@ pub const StreamingJsonParser = struct {
                     '0' => {
                         p.state = State.NumberMaybeDotOrExponent;
                     },
-                    '1' ... '9' => {
+                    '1'...'9' => {
                         p.state = State.NumberMaybeDigitOrDotOrExponent;
                     },
                     else => {
@@ -698,8 +662,7 @@ pub const StreamingJsonParser = struct {
                         p.number_is_integer = false;
                         p.state = State.NumberFractionalRequired;
                     },
-                    'e',
-                    'E' => {
+                    'e', 'E' => {
                         p.number_is_integer = false;
                         p.state = State.NumberExponent;
                     },
@@ -718,12 +681,11 @@ pub const StreamingJsonParser = struct {
                         p.number_is_integer = false;
                         p.state = State.NumberFractionalRequired;
                     },
-                    'e',
-                    'E' => {
+                    'e', 'E' => {
                         p.number_is_integer = false;
                         p.state = State.NumberExponent;
                     },
-                    '0' ... '9' => {
+                    '0'...'9' => {
                         // another digit
                     },
                     else => {
@@ -737,7 +699,7 @@ pub const StreamingJsonParser = struct {
             State.NumberFractionalRequired => {
                 p.complete = p.after_value_state == State.TopLevelEnd;
                 switch (c) {
-                    '0' ... '9' => {
+                    '0'...'9' => {
                         p.state = State.NumberFractional;
                     },
                     else => {
@@ -749,11 +711,10 @@ pub const StreamingJsonParser = struct {
             State.NumberFractional => {
                 p.complete = p.after_value_state == State.TopLevelEnd;
                 switch (c) {
-                    '0' ... '9' => {
+                    '0'...'9' => {
                         // another digit
                     },
-                    'e',
-                    'E' => {
+                    'e', 'E' => {
                         p.number_is_integer = false;
                         p.state = State.NumberExponent;
                     },
@@ -768,8 +729,7 @@ pub const StreamingJsonParser = struct {
             State.NumberMaybeExponent => {
                 p.complete = p.after_value_state == State.TopLevelEnd;
                 switch (c) {
-                    'e',
-                    'E' => {
+                    'e', 'E' => {
                         p.number_is_integer = false;
                         p.state = State.NumberExponent;
                     },
@@ -782,12 +742,11 @@ pub const StreamingJsonParser = struct {
             },
 
             State.NumberExponent => switch (c) {
-                '-',
-                '+' => {
+                '-', '+' => {
                     p.complete = false;
                     p.state = State.NumberExponentDigitsRequired;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     p.complete = p.after_value_state == State.TopLevelEnd;
                     p.state = State.NumberExponentDigits;
                 },
@@ -797,7 +756,7 @@ pub const StreamingJsonParser = struct {
             },
 
             State.NumberExponentDigitsRequired => switch (c) {
-                '0' ... '9' => {
+                '0'...'9' => {
                     p.complete = p.after_value_state == State.TopLevelEnd;
                     p.state = State.NumberExponentDigits;
                 },
@@ -809,7 +768,7 @@ pub const StreamingJsonParser = struct {
             State.NumberExponentDigits => {
                 p.complete = p.after_value_state == State.TopLevelEnd;
                 switch (c) {
-                    '0' ... '9' => {
+                    '0'...'9' => {
                         // another digit
                     },
                     else => {
@@ -1257,8 +1216,7 @@ pub const JsonParser = struct {
                 Token.Id.Null => {
                     try p.stack.append(Value.Null);
                 },
-                Token.Id.ObjectEnd,
-                Token.Id.ArrayEnd => {
+                Token.Id.ObjectEnd, Token.Id.ArrayEnd => {
                     unreachable;
                 },
             },

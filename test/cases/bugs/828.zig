@@ -1,14 +1,10 @@
 const CountBy = struct {
     a: usize,
 
-    const One = CountBy {
-        .a = 1,
-    };
+    const One = CountBy{ .a = 1 };
 
     pub fn counter(self: &const CountBy) Counter {
-        return Counter {
-            .i = 0,
-        };
+        return Counter{ .i = 0 };
     }
 };
 

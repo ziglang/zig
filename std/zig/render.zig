@@ -161,7 +161,15 @@ fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, i
     }
 }
 
-fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, start_col: &usize, base: &ast.Node, space: Space,) (@typeOf(stream).Child.Error || Error)!void {
+fn renderExpression(
+    allocator: &mem.Allocator,
+    stream: var,
+    tree: &ast.Tree,
+    indent: usize,
+    start_col: &usize,
+    base: &ast.Node,
+    space: Space,
+) (@typeOf(stream).Child.Error || Error)!void {
     switch (base.id) {
         ast.Node.Id.Identifier => {
             const identifier = @fieldParentPtr(ast.Node.Identifier, "base", base);
@@ -259,8 +267,7 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             try renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.lhs, op_space);
 
             const after_op_space = blk: {
-                const loc = tree.tokenLocation(tree.tokens.at(infix_op_node.op_token).end,
-                    tree.nextToken(infix_op_node.op_token));
+                const loc = tree.tokenLocation(tree.tokens.at(infix_op_node.op_token).end, tree.nextToken(infix_op_node.op_token));
                 break :blk if (loc.line == 0) op_space else Space.Newline;
             };
 
@@ -367,14 +374,16 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 ast.Node.PrefixOp.Op.NegationWrap,
                 ast.Node.PrefixOp.Op.UnwrapMaybe,
                 ast.Node.PrefixOp.Op.MaybeType,
-                ast.Node.PrefixOp.Op.PointerType => {
+                ast.Node.PrefixOp.Op.PointerType,
+                => {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None);
                 },
 
                 ast.Node.PrefixOp.Op.Try,
                 ast.Node.PrefixOp.Op.Await,
                 ast.Node.PrefixOp.Op.Cancel,
-                ast.Node.PrefixOp.Op.Resume => {
+                ast.Node.PrefixOp.Op.Resume,
+                => {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
                 },
             }
@@ -1568,13 +1577,19 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
         ast.Node.Id.VarDecl,
         ast.Node.Id.Use,
         ast.Node.Id.TestDecl,
-        ast.Node.Id.ParamDecl => unreachable,
+        ast.Node.Id.ParamDecl,
+        => unreachable,
     }
 }
 
-fn renderVarDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, start_col: &usize,
-    var_decl: &ast.Node.VarDecl,) (@typeOf(stream).Child.Error || Error)!void
-{
+fn renderVarDecl(
+    allocator: &mem.Allocator,
+    stream: var,
+    tree: &ast.Tree,
+    indent: usize,
+    start_col: &usize,
+    var_decl: &ast.Node.VarDecl,
+) (@typeOf(stream).Child.Error || Error)!void {
     if (var_decl.visib_token) |visib_token| {
         try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
     }
@@ -1623,7 +1638,15 @@ fn renderVarDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent
     try renderToken(tree, stream, var_decl.semicolon_token, indent, start_col, Space.Newline);
 }
 
-fn renderParamDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, start_col: &usize, base: &ast.Node, space: Space,) (@typeOf(stream).Child.Error || Error)!void {
+fn renderParamDecl(
+    allocator: &mem.Allocator,
+    stream: var,
+    tree: &ast.Tree,
+    indent: usize,
+    start_col: &usize,
+    base: &ast.Node,
+    space: Space,
+) (@typeOf(stream).Child.Error || Error)!void {
     const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", base);
 
     if (param_decl.comptime_token) |comptime_token| {
@@ -1643,7 +1666,14 @@ fn renderParamDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, inde
     }
 }
 
-fn renderStatement(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, start_col: &usize, base: &ast.Node,) (@typeOf(stream).Child.Error || Error)!void {
+fn renderStatement(
+    allocator: &mem.Allocator,
+    stream: var,
+    tree: &ast.Tree,
+    indent: usize,
+    start_col: &usize,
+    base: &ast.Node,
+) (@typeOf(stream).Child.Error || Error)!void {
     switch (base.id) {
         ast.Node.Id.VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", base);
@@ -1840,7 +1870,13 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
     }
 }
 
-fn renderDocComments(tree: &ast.Tree, stream: var, node: var, indent: usize, start_col: &usize,) (@typeOf(stream).Child.Error || Error)!void {
+fn renderDocComments(
+    tree: &ast.Tree,
+    stream: var,
+    node: var,
+    indent: usize,
+    start_col: &usize,
+) (@typeOf(stream).Child.Error || Error)!void {
     const comment = node.doc_comments ?? return;
     var it = comment.lines.iterator(0);
     const first_token = node.firstToken();

@@ -76,5 +76,4 @@ pub fn addCases(cases: &tests.GenHContext) void {
         \\TEST_EXPORT void entry(struct Foo foo, uint8_t bar[]);
         \\
     );
-
 }

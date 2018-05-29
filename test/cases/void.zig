@@ -8,7 +8,7 @@ const Foo = struct {
 
 test "compare void with void compile time known" {
     comptime {
-        const foo = Foo {
+        const foo = Foo{
             .a = {},
             .b = 1,
             .c = {},

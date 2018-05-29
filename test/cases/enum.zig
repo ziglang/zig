@@ -2,11 +2,9 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 test "enum type" {
-    const foo1 = Foo {
-        .One = 13,
-    };
-    const foo2 = Foo {
-        .Two = Point {
+    const foo1 = Foo{ .One = 13 };
+    const foo2 = Foo{
+        .Two = Point{
             .x = 1234,
             .y = 5678,
         },
@@ -48,18 +46,12 @@ const Bar = enum {
 };
 
 fn returnAnInt(x: i32) Foo {
-    return Foo {
-        .One = x,
-    };
+    return Foo{ .One = x };
 }
 
 test "constant enum with payload" {
-    var empty = AnEnumWithPayload {
-        .Empty = {},
-    };
-    var full = AnEnumWithPayload {
-        .Full = 13,
-    };
+    var empty = AnEnumWithPayload{ .Empty = {} };
+    var full = AnEnumWithPayload{ .Full = 13 };
     shouldBeEmpty(empty);
     shouldBeNotEmpty(full);
 }
@@ -737,7 +729,7 @@ const BitFieldOfEnums = packed struct {
     c: C,
 };
 
-const bit_field_1 = BitFieldOfEnums {
+const bit_field_1 = BitFieldOfEnums{
     .a = A.Two,
     .b = B.Three3,
     .c = C.Four4,

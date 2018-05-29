@@ -81,6 +81,7 @@ pub const Base64Decoder = struct {
     /// e.g. 'A' => 0.
     /// undefined for any value not in the 64 alphabet chars.
     char_to_index: [256]u8,
+
     /// true only for the 64 chars in the alphabet, not the pad char.
     char_in_alphabet: [256]bool,
     pad_char: u8,

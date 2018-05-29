@@ -3,8 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
 const is_posix = switch (builtin.os) {
-    builtin.Os.linux,
-    builtin.Os.macosx => true,
+    builtin.Os.linux, builtin.Os.macosx => true,
     else => false,
 };
 const os = this;
@@ -27,8 +26,7 @@ pub const linux = @import("linux/index.zig");
 pub const zen = @import("zen.zig");
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
-    Os.macosx,
-    Os.ios => darwin,
+    Os.macosx, Os.ios => darwin,
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
@@ -112,8 +110,7 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
             return;
         },
-        Os.macosx,
-        Os.ios => {
+        Os.macosx, Os.ios => {
             const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
             defer close(fd);
 
@@ -175,9 +172,7 @@ pub fn abort() noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux,
-        Os.macosx,
-        Os.ios => {
+        Os.linux, Os.macosx, Os.ios => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -199,9 +194,7 @@ pub fn exit(status: u8) noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux,
-        Os.macosx,
-        Os.ios => {
+        Os.linux, Os.macosx, Os.ios => {
             posix.exit(status);
         },
         Os.windows => {
@@ -250,14 +243,12 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
         if (err > 0) {
             return switch (err) {
                 posix.EINTR => continue,
-                posix.EINVAL,
-                posix.EFAULT => unreachable,
+                posix.EINVAL, posix.EFAULT => unreachable,
                 posix.EAGAIN => error.WouldBlock,
                 posix.EBADF => error.FileClosed,
                 posix.EIO => error.InputOutput,
                 posix.EISDIR => error.IsDir,
-                posix.ENOBUFS,
-                posix.ENOMEM => error.SystemResources,
+                posix.ENOBUFS, posix.ENOMEM => error.SystemResources,
                 else => unexpectedErrorPosix(err),
             };
         }
@@ -292,8 +283,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
         if (write_err > 0) {
             return switch (write_err) {
                 posix.EINTR => continue,
-                posix.EINVAL,
-                posix.EFAULT => unreachable,
+                posix.EINVAL, posix.EFAULT => unreachable,
                 posix.EAGAIN => PosixWriteError.WouldBlock,
                 posix.EBADF => PosixWriteError.FileClosed,
                 posix.EDESTADDRREQ => PosixWriteError.DestinationAddressRequired,
@@ -349,8 +339,7 @@ pub fn posixOpenC(file_path: &const u8, flags: u32, perm: usize) !i32 {
                 posix.EFAULT => unreachable,
                 posix.EINVAL => unreachable,
                 posix.EACCES => return PosixOpenError.AccessDenied,
-                posix.EFBIG,
-                posix.EOVERFLOW => return PosixOpenError.FileTooBig,
+                posix.EFBIG, posix.EOVERFLOW => return PosixOpenError.FileTooBig,
                 posix.EISDIR => return PosixOpenError.IsDir,
                 posix.ELOOP => return PosixOpenError.SymLinkLoop,
                 posix.EMFILE => return PosixOpenError.ProcessFdQuotaExceeded,
@@ -375,8 +364,7 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
         const err = posix.getErrno(posix.dup2(old_fd, new_fd));
         if (err > 0) {
             return switch (err) {
-                posix.EBUSY,
-                posix.EINTR => continue,
+                posix.EBUSY, posix.EINTR => continue,
                 posix.EMFILE => error.ProcessFdQuotaExceeded,
                 posix.EINVAL => unreachable,
                 else => unexpectedErrorPosix(err),
@@ -493,17 +481,10 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     assert(err > 0);
     return switch (err) {
         posix.EFAULT => unreachable,
-        posix.E2BIG,
-        posix.EMFILE,
-        posix.ENAMETOOLONG,
-        posix.ENFILE,
-        posix.ENOMEM => error.SystemResources,
-        posix.EACCES,
-        posix.EPERM => error.AccessDenied,
-        posix.EINVAL,
-        posix.ENOEXEC => error.InvalidExe,
-        posix.EIO,
-        posix.ELOOP => error.FileSystem,
+        posix.E2BIG, posix.EMFILE, posix.ENAMETOOLONG, posix.ENFILE, posix.ENOMEM => error.SystemResources,
+        posix.EACCES, posix.EPERM => error.AccessDenied,
+        posix.EINVAL, posix.ENOEXEC => error.InvalidExe,
+        posix.EIO, posix.ELOOP => error.FileSystem,
         posix.EISDIR => error.IsDir,
         posix.ENOENT => error.FileNotFound,
         posix.ENOTDIR => error.NotDir,
@@ -717,10 +698,8 @@ pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: 
     const err = posix.getErrno(posix.symlink(existing_buf.ptr, new_buf.ptr));
     if (err > 0) {
         return switch (err) {
-            posix.EFAULT,
-            posix.EINVAL => unreachable,
-            posix.EACCES,
-            posix.EPERM => error.AccessDenied,
+            posix.EFAULT, posix.EINVAL => unreachable,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
             posix.EDQUOT => error.DiskQuota,
             posix.EEXIST => error.PathAlreadyExists,
             posix.EIO => error.FileSystem,
@@ -787,8 +766,7 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) !void {
         return switch (err) {
             windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
             windows.ERROR.ACCESS_DENIED => error.AccessDenied,
-            windows.ERROR.FILENAME_EXCED_RANGE,
-            windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
+            windows.ERROR.FILENAME_EXCED_RANGE, windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
             else => unexpectedErrorWindows(err),
         };
     }
@@ -804,11 +782,9 @@ pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) !void {
     const err = posix.getErrno(posix.unlink(buf.ptr));
     if (err > 0) {
         return switch (err) {
-            posix.EACCES,
-            posix.EPERM => error.AccessDenied,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
             posix.EBUSY => error.FileBusy,
-            posix.EFAULT,
-            posix.EINVAL => unreachable,
+            posix.EFAULT, posix.EINVAL => unreachable,
             posix.EIO => error.FileSystem,
             posix.EISDIR => error.IsDir,
             posix.ELOOP => error.SymLinkLoop,
@@ -948,12 +924,10 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
         const err = posix.getErrno(posix.rename(old_buf.ptr, new_buf.ptr));
         if (err > 0) {
             return switch (err) {
-                posix.EACCES,
-                posix.EPERM => error.AccessDenied,
+                posix.EACCES, posix.EPERM => error.AccessDenied,
                 posix.EBUSY => error.FileBusy,
                 posix.EDQUOT => error.DiskQuota,
-                posix.EFAULT,
-                posix.EINVAL => unreachable,
+                posix.EFAULT, posix.EINVAL => unreachable,
                 posix.EISDIR => error.IsDir,
                 posix.ELOOP => error.SymLinkLoop,
                 posix.EMLINK => error.LinkQuotaExceeded,
@@ -962,8 +936,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
                 posix.ENOTDIR => error.NotDir,
                 posix.ENOMEM => error.SystemResources,
                 posix.ENOSPC => error.NoSpaceLeft,
-                posix.EEXIST,
-                posix.ENOTEMPTY => error.PathAlreadyExists,
+                posix.EEXIST, posix.ENOTEMPTY => error.PathAlreadyExists,
                 posix.EROFS => error.ReadOnlyFileSystem,
                 posix.EXDEV => error.RenameAcrossMountPoints,
                 else => unexpectedErrorPosix(err),
@@ -1001,8 +974,7 @@ pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) !void {
     const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
     if (err > 0) {
         return switch (err) {
-            posix.EACCES,
-            posix.EPERM => error.AccessDenied,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
             posix.EDQUOT => error.DiskQuota,
             posix.EEXIST => error.PathAlreadyExists,
             posix.EFAULT => unreachable,
@@ -1065,18 +1037,15 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) !void {
     const err = posix.getErrno(posix.rmdir(path_buf.ptr));
     if (err > 0) {
         return switch (err) {
-            posix.EACCES,
-            posix.EPERM => error.AccessDenied,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
             posix.EBUSY => error.FileBusy,
-            posix.EFAULT,
-            posix.EINVAL => unreachable,
+            posix.EFAULT, posix.EINVAL => unreachable,
             posix.ELOOP => error.SymLinkLoop,
             posix.ENAMETOOLONG => error.NameTooLong,
             posix.ENOENT => error.FileNotFound,
             posix.ENOMEM => error.SystemResources,
             posix.ENOTDIR => error.NotDir,
-            posix.EEXIST,
-            posix.ENOTEMPTY => error.DirNotEmpty,
+            posix.EEXIST, posix.ENOTEMPTY => error.DirNotEmpty,
             posix.EROFS => error.ReadOnlyFileSystem,
             else => unexpectedErrorPosix(err),
         };
@@ -1128,7 +1097,8 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
             error.NotDir,
             error.FileSystem,
             error.FileBusy,
-            error.Unexpected => return err,
+            error.Unexpected,
+            => return err,
         }
         {
             var dir = Dir.open(allocator, full_path) catch |err| switch (err) {
@@ -1152,7 +1122,8 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
                 error.SystemResources,
                 error.NoSpaceLeft,
                 error.PathAlreadyExists,
-                error.Unexpected => return err,
+                error.Unexpected,
+                => return err,
             };
             defer dir.close();
 
@@ -1182,8 +1153,7 @@ pub const Dir = struct {
     end_index: usize,
 
     const darwin_seek_t = switch (builtin.os) {
-        Os.macosx,
-        Os.ios => i64,
+        Os.macosx, Os.ios => i64,
         else => void,
     };
 
@@ -1208,13 +1178,16 @@ pub const Dir = struct {
         const fd = switch (builtin.os) {
             Os.windows => @compileError("TODO support Dir.open for windows"),
             Os.linux => try posixOpen(allocator, dir_path, posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC, 0),
-            Os.macosx,
-            Os.ios => try posixOpen(allocator, dir_path, posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC, 0),
+            Os.macosx, Os.ios => try posixOpen(
+                allocator,
+                dir_path,
+                posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
+                0,
+            ),
             else => @compileError("Dir.open is not supported for this platform"),
         };
         const darwin_seek_init = switch (builtin.os) {
-            Os.macosx,
-            Os.ios => 0,
+            Os.macosx, Os.ios => 0,
             else => {},
         };
         return Dir{
@@ -1237,8 +1210,7 @@ pub const Dir = struct {
     pub fn next(self: &Dir) !?Entry {
         switch (builtin.os) {
             Os.linux => return self.nextLinux(),
-            Os.macosx,
-            Os.ios => return self.nextDarwin(),
+            Os.macosx, Os.ios => return self.nextDarwin(),
             Os.windows => return self.nextWindows(),
             else => @compileError("Dir.next not supported on " ++ @tagName(builtin.os)),
         }
@@ -1256,9 +1228,7 @@ pub const Dir = struct {
                     const err = posix.getErrno(result);
                     if (err > 0) {
                         switch (err) {
-                            posix.EBADF,
-                            posix.EFAULT,
-                            posix.ENOTDIR => unreachable,
+                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
                                 self.buf = try self.allocator.realloc(u8, self.buf, self.buf.len * 2);
                                 continue;
@@ -1317,9 +1287,7 @@ pub const Dir = struct {
                     const err = posix.getErrno(result);
                     if (err > 0) {
                         switch (err) {
-                            posix.EBADF,
-                            posix.EFAULT,
-                            posix.ENOTDIR => unreachable,
+                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
                                 self.buf = try self.allocator.realloc(u8, self.buf, self.buf.len * 2);
                                 continue;
@@ -1402,8 +1370,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) ![]u8 {
         if (err > 0) {
             return switch (err) {
                 posix.EACCES => error.AccessDenied,
-                posix.EFAULT,
-                posix.EINVAL => unreachable,
+                posix.EFAULT, posix.EINVAL => unreachable,
                 posix.EIO => error.FileSystem,
                 posix.ELOOP => error.SymLinkLoop,
                 posix.ENAMETOOLONG => error.NameTooLong,
@@ -1545,8 +1512,7 @@ pub const ArgIteratorWindows = struct {
             const byte = self.cmd_line[self.index];
             switch (byte) {
                 0 => return null,
-                ' ',
-                '\t' => continue,
+                ' ', '\t' => continue,
                 else => break,
             }
         }
@@ -1560,8 +1526,7 @@ pub const ArgIteratorWindows = struct {
             const byte = self.cmd_line[self.index];
             switch (byte) {
                 0 => return false,
-                ' ',
-                '\t' => continue,
+                ' ', '\t' => continue,
                 else => break,
             }
         }
@@ -1580,8 +1545,7 @@ pub const ArgIteratorWindows = struct {
                 '\\' => {
                     backslash_count += 1;
                 },
-                ' ',
-                '\t' => {
+                ' ', '\t' => {
                     if (self.seen_quote_count % 2 == 0 or self.seen_quote_count == self.quote_count) {
                         return true;
                     }
@@ -1621,8 +1585,7 @@ pub const ArgIteratorWindows = struct {
                 '\\' => {
                     backslash_count += 1;
                 },
-                ' ',
-                '\t' => {
+                ' ', '\t' => {
                     try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
                     if (self.seen_quote_count % 2 == 1 and self.seen_quote_count != self.quote_count) {
@@ -1840,8 +1803,7 @@ pub fn openSelfExe() !os.File {
             var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
         },
-        Os.macosx,
-        Os.ios => {
+        Os.macosx, Os.ios => {
             var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
             var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             const self_exe_path = try selfExePath(&fixed_allocator.allocator);
@@ -1853,9 +1815,7 @@ pub fn openSelfExe() !os.File {
 
 test "openSelfExe" {
     switch (builtin.os) {
-        Os.linux,
-        Os.macosx,
-        Os.ios => (try openSelfExe()).close(),
+        Os.linux, Os.macosx, Os.ios => (try openSelfExe()).close(),
         else => return, // Unsupported OS.
     }
 }
@@ -1893,8 +1853,7 @@ pub fn selfExePath(allocator: &mem.Allocator) ![]u8 {
                 try out_path.resize(new_len);
             }
         },
-        Os.macosx,
-        Os.ios => {
+        Os.macosx, Os.ios => {
             var u32_len: u32 = 0;
             const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
             assert(ret1 != 0);
@@ -1922,9 +1881,7 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) ![]u8 {
             const dir = path.dirname(full_exe_path);
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
-        Os.windows,
-        Os.macosx,
-        Os.ios => {
+        Os.windows, Os.macosx, Os.ios => {
             const self_exe_path = try selfExePath(allocator);
             errdefer allocator.free(self_exe_path);
             const dirname = os.path.dirname(self_exe_path);
@@ -1981,8 +1938,7 @@ pub fn posixSocket(domain: u32, socket_type: u32, protocol: u32) !i32 {
         posix.EINVAL => return PosixSocketError.ProtocolFamilyNotAvailable,
         posix.EMFILE => return PosixSocketError.ProcessFdQuotaExceeded,
         posix.ENFILE => return PosixSocketError.SystemFdQuotaExceeded,
-        posix.ENOBUFS,
-        posix.ENOMEM => return PosixSocketError.SystemResources,
+        posix.ENOBUFS, posix.ENOMEM => return PosixSocketError.SystemResources,
         posix.EPROTONOSUPPORT => return PosixSocketError.ProtocolNotSupported,
         else => return unexpectedErrorPosix(err),
     }
@@ -1990,7 +1946,7 @@ pub fn posixSocket(domain: u32, socket_type: u32, protocol: u32) !i32 {
 
 pub const PosixBindError = error{
     /// The address is protected, and the user is not the superuser.
-    /// For UNIX domain sockets: Search permission is denied on  a  component 
+    /// For UNIX domain sockets: Search permission is denied on  a  component
     /// of  the  path  prefix.
     AccessDenied,
 
@@ -2151,8 +2107,7 @@ pub fn posixAccept(fd: i32, addr: &posix.sockaddr, flags: u32) PosixAcceptError!
             posix.EINVAL => return PosixAcceptError.InvalidSyscall,
             posix.EMFILE => return PosixAcceptError.ProcessFdQuotaExceeded,
             posix.ENFILE => return PosixAcceptError.SystemFdQuotaExceeded,
-            posix.ENOBUFS,
-            posix.ENOMEM => return PosixAcceptError.SystemResources,
+            posix.ENOBUFS, posix.ENOMEM => return PosixAcceptError.SystemResources,
             posix.ENOTSOCK => return PosixAcceptError.FileDescriptorNotASocket,
             posix.EOPNOTSUPP => return PosixAcceptError.OperationNotSupported,
             posix.EPROTO => return PosixAcceptError.ProtocolFailure,
@@ -2363,8 +2318,7 @@ pub fn posixConnectAsync(sockfd: i32, sockaddr: &const posix.sockaddr) PosixConn
         const rc = posix.connect(sockfd, sockaddr, @sizeOf(posix.sockaddr));
         const err = posix.getErrno(rc);
         switch (err) {
-            0,
-            posix.EINPROGRESS => return,
+            0, posix.EINPROGRESS => return,
             else => return unexpectedErrorPosix(err),
 
             posix.EACCES => return PosixConnectError.PermissionDenied,
@@ -2416,7 +2370,7 @@ pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
         },
         else => return unexpectedErrorPosix(err),
         posix.EBADF => unreachable, // The argument sockfd is not a valid file descriptor.
-        posix.EFAULT => unreachable, // The address pointed to by optval or optlen is not in a valid part of the process address space. 
+        posix.EFAULT => unreachable, // The address pointed to by optval or optlen is not in a valid part of the process address space.
         posix.EINVAL => unreachable,
         posix.ENOPROTOOPT => unreachable, // The option is unknown at the level indicated.
         posix.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
@@ -2427,11 +2381,13 @@ pub const Thread = struct {
     data: Data,
 
     pub const use_pthreads = is_posix and builtin.link_libc;
-    const Data = if (use_pthreads) struct {
-        handle: c.pthread_t,
-        stack_addr: usize,
-        stack_len: usize,
-    } else switch (builtin.os) {
+    const Data = if (use_pthreads)
+        struct {
+            handle: c.pthread_t,
+            stack_addr: usize,
+            stack_len: usize,
+        }
+    else switch (builtin.os) {
         builtin.Os.linux => struct {
             pid: i32,
             stack_addr: usize,

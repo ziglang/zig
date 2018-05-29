@@ -70,7 +70,7 @@ test "specifying alignment allows pointer cast" {
     testBytesAlign(0x33);
 }
 fn testBytesAlign(b: u8) void {
-    var bytes align(4) = []u8 {
+    var bytes align(4) = []u8{
         b,
         b,
         b,
@@ -84,7 +84,7 @@ test "specifying alignment allows slice cast" {
     testBytesAlignSlice(0x33);
 }
 fn testBytesAlignSlice(b: u8) void {
-    var bytes align(4) = []u8 {
+    var bytes align(4) = []u8{
         b,
         b,
         b,
@@ -107,7 +107,7 @@ fn expects4(x: &align(4) u32) void {
 }
 
 test "@alignCast slices" {
-    var array align(4) = []u32 {
+    var array align(4) = []u32{
         1,
         1,
     };
@@ -169,7 +169,7 @@ test "@ptrCast preserves alignment of bigger source" {
 
 test "compile-time known array index has best alignment possible" {
     // take full advantage of over-alignment
-    var array align(4) = []u8 {
+    var array align(4) = []u8{
         1,
         2,
         3,
@@ -181,7 +181,7 @@ test "compile-time known array index has best alignment possible" {
     assert(@typeOf(&array[3]) == &u8);
 
     // because align is too small but we still figure out to use 2
-    var bigger align(2) = []u64 {
+    var bigger align(2) = []u64{
         1,
         2,
         3,
@@ -193,7 +193,7 @@ test "compile-time known array index has best alignment possible" {
     assert(@typeOf(&bigger[3]) == &align(2) u64);
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
-    var smaller align(2) = []u32 {
+    var smaller align(2) = []u32{
         1,
         2,
         3,

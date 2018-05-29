@@ -18,7 +18,7 @@ test "slice child property" {
 }
 
 test "runtime safety lets us slice from len..len" {
-    var an_array = []u8 {
+    var an_array = []u8{
         1,
         2,
         3,

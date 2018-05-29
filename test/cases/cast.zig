@@ -33,27 +33,21 @@ fn funcWithConstPtrPtr(x: &const &i32) void {
 }
 
 test "implicitly cast a container to a const pointer of it" {
-    const z = Struct(void) {
-        .x = void{},
-    };
+    const z = Struct(void){ .x = void{} };
     assert(0 == @sizeOf(@typeOf(z)));
     assert(void{} == Struct(void).pointer(z).x);
     assert(void{} == Struct(void).pointer(&z).x);
     assert(void{} == Struct(void).maybePointer(z).x);
     assert(void{} == Struct(void).maybePointer(&z).x);
     assert(void{} == Struct(void).maybePointer(null).x);
-    const s = Struct(u8) {
-        .x = 42,
-    };
+    const s = Struct(u8){ .x = 42 };
     assert(0 != @sizeOf(@typeOf(s)));
     assert(42 == Struct(u8).pointer(s).x);
     assert(42 == Struct(u8).pointer(&s).x);
     assert(42 == Struct(u8).maybePointer(s).x);
     assert(42 == Struct(u8).maybePointer(&s).x);
     assert(0 == Struct(u8).maybePointer(null).x);
-    const u = Union {
-        .x = 42,
-    };
+    const u = Union{ .x = 42 };
     assert(42 == Union.pointer(u).x);
     assert(42 == Union.pointer(&u).x);
     assert(42 == Union.maybePointer(u).x);
@@ -77,9 +71,7 @@ fn Struct(comptime T: type) type {
         }
 
         fn maybePointer(self: ?&const Self) Self {
-            const none = Self {
-                .x = if (T == void) void{} else 0,
-            };
+            const none = Self{ .x = if (T == void) void{} else 0 };
             return (self ?? &none).*;
         }
     };
@@ -93,9 +85,7 @@ const Union = union {
     }
 
     fn maybePointer(self: ?&const Union) Union {
-        const none = Union {
-            .x = 0,
-        };
+        const none = Union{ .x = 0 };
         return (self ?? &none).*;
     }
 };
@@ -130,9 +120,7 @@ test "implicitly cast indirect pointer to maybe-indirect pointer" {
             return ((??p).*.*).x;
         }
     };
-    const s = S {
-        .x = 42,
-    };
+    const s = S{ .x = 42 };
     const p = &s;
     const q = &p;
     const r = &q;
@@ -202,9 +190,7 @@ fn castToMaybeTypeError(z: i32) void {
     const f = z;
     const g: error!?i32 = f;
 
-    const a = A {
-        .a = z,
-    };
+    const a = A{ .a = z };
     const b: error!?A = a;
     assert((??(b catch unreachable)).a == 1);
 }
@@ -343,7 +329,6 @@ test "peer type resolution: error and [N]T" {
     // TODO: implicit error!T to error!U where T can implicitly cast to U
     //assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
     //comptime assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
-
     assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
     comptime assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
@@ -387,7 +372,7 @@ fn cast128Float(x: u128) f128 {
 }
 
 test "const slice widen cast" {
-    const bytes align(4) = []u8 {
+    const bytes align(4) = []u8{
         0x12,
         0x12,
         0x12,

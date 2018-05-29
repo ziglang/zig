@@ -21,12 +21,18 @@ pub const File = struct {
     /// Call close to clean up.
     pub fn openRead(allocator: &mem.Allocator, path: []const u8) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE|posix.O_RDONLY;
+            const flags = posix.O_LARGEFILE | posix.O_RDONLY;
             const fd = try os.posixOpen(allocator, path, flags, 0);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(allocator, path, windows.GENERIC_READ, windows.FILE_SHARE_READ,
-                windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL);
+            const handle = try os.windowsOpen(
+                allocator,
+                path,
+                windows.GENERIC_READ,
+                windows.FILE_SHARE_READ,
+                windows.OPEN_EXISTING,
+                windows.FILE_ATTRIBUTE_NORMAL,
+            );
             return openHandle(handle);
         } else {
             @compileError("TODO implement openRead for this OS");
@@ -36,7 +42,6 @@ pub const File = struct {
     /// Calls `openWriteMode` with os.default_file_mode for the mode.
     pub fn openWrite(allocator: &mem.Allocator, path: []const u8) OpenError!File {
         return openWriteMode(allocator, path, os.default_file_mode);
-
     }
 
     /// If the path does not exist it will be created.
@@ -45,18 +50,22 @@ pub const File = struct {
     /// Call close to clean up.
     pub fn openWriteMode(allocator: &mem.Allocator, path: []const u8, file_mode: os.FileMode) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE|posix.O_WRONLY|posix.O_CREAT|posix.O_CLOEXEC|posix.O_TRUNC;
+            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
             const fd = try os.posixOpen(allocator, path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(allocator, path, windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE|windows.FILE_SHARE_READ|windows.FILE_SHARE_DELETE,
-                windows.CREATE_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL);
+            const handle = try os.windowsOpen(
+                allocator,
+                path,
+                windows.GENERIC_WRITE,
+                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+                windows.CREATE_ALWAYS,
+                windows.FILE_ATTRIBUTE_NORMAL,
+            );
             return openHandle(handle);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
         }
-
     }
 
     /// If the path does not exist it will be created.
@@ -65,24 +74,26 @@ pub const File = struct {
     /// Call close to clean up.
     pub fn openWriteNoClobber(allocator: &mem.Allocator, path: []const u8, file_mode: os.FileMode) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE|posix.O_WRONLY|posix.O_CREAT|posix.O_CLOEXEC|posix.O_EXCL;
+            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
             const fd = try os.posixOpen(allocator, path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(allocator, path, windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE|windows.FILE_SHARE_READ|windows.FILE_SHARE_DELETE,
-                windows.CREATE_NEW, windows.FILE_ATTRIBUTE_NORMAL);
+            const handle = try os.windowsOpen(
+                allocator,
+                path,
+                windows.GENERIC_WRITE,
+                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+                windows.CREATE_NEW,
+                windows.FILE_ATTRIBUTE_NORMAL,
+            );
             return openHandle(handle);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
         }
-
     }
 
     pub fn openHandle(handle: os.FileHandle) File {
-        return File {
-            .handle = handle,
-        };
+        return File{ .handle = handle };
     }
 
     pub fn access(allocator: &mem.Allocator, path: []const u8, file_mode: os.FileMode) !bool {
@@ -217,7 +228,7 @@ pub const File = struct {
                 return result;
             },
             Os.windows => {
-                var pos : windows.LARGE_INTEGER = undefined;
+                var pos: windows.LARGE_INTEGER = undefined;
                 if (windows.SetFilePointerEx(self.handle, 0, &pos, windows.FILE_CURRENT) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
@@ -268,7 +279,7 @@ pub const File = struct {
         }
     }
 
-    pub const ModeError = error {
+    pub const ModeError = error{
         BadFd,
         SystemResources,
         Unexpected,
@@ -296,7 +307,7 @@ pub const File = struct {
         }
     }
 
-    pub const ReadError = error {};
+    pub const ReadError = error{};
 
     pub fn read(self: &File, buffer: []u8) !usize {
         if (is_posix) {
@@ -306,12 +317,12 @@ pub const File = struct {
                 const read_err = posix.getErrno(amt_read);
                 if (read_err > 0) {
                     switch (read_err) {
-                        posix.EINTR  => continue,
+                        posix.EINTR => continue,
                         posix.EINVAL => unreachable,
                         posix.EFAULT => unreachable,
-                        posix.EBADF  => return error.BadFd,
-                        posix.EIO    => return error.Io,
-                        else          => return os.unexpectedErrorPosix(read_err),
+                        posix.EBADF => return error.BadFd,
+                        posix.EIO => return error.Io,
+                        else => return os.unexpectedErrorPosix(read_err),
                     }
                 }
                 if (amt_read == 0) return index;

@@ -27,7 +27,7 @@ test "invake static method in global scope" {
 }
 
 test "void struct fields" {
-    const foo = VoidStructFieldsFoo {
+    const foo = VoidStructFieldsFoo{
         .a = void{},
         .b = 1,
         .c = void{},
@@ -96,16 +96,12 @@ test "struct byval assign" {
 }
 
 fn structInitializer() void {
-    const val = Val {
-        .x = 42,
-    };
+    const val = Val{ .x = 42 };
     assert(val.x == 42);
 }
 
 test "fn call of struct field" {
-    assert(callStructField(Foo {
-        .ptr = aFunc,
-    }) == 13);
+    assert(callStructField(Foo{ .ptr = aFunc }) == 13);
 }
 
 const Foo = struct {
@@ -121,9 +117,7 @@ fn callStructField(foo: &const Foo) i32 {
 }
 
 test "store member function in variable" {
-    const instance = MemberFnTestFoo {
-        .x = 1234,
-    };
+    const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
     assert(result == 1234);
@@ -136,17 +130,13 @@ const MemberFnTestFoo = struct {
 };
 
 test "call member function directly" {
-    const instance = MemberFnTestFoo {
-        .x = 1234,
-    };
+    const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
     assert(result == 1234);
 }
 
 test "member functions" {
-    const r = MemberFnRand {
-        .seed = 1234,
-    };
+    const r = MemberFnRand{ .seed = 1234 };
     assert(r.getSeed() == 1234);
 }
 const MemberFnRand = struct {
@@ -165,7 +155,7 @@ const Bar = struct {
     y: i32,
 };
 fn makeBar(x: i32, y: i32) Bar {
-    return Bar {
+    return Bar{
         .x = x,
         .y = y,
     };
@@ -190,7 +180,7 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 }
 
 test "pass slice of empty struct to fn" {
-    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2 {EmptyStruct2{}}) == 1);
+    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
@@ -202,7 +192,7 @@ const APackedStruct = packed struct {
 };
 
 test "packed struct" {
-    var foo = APackedStruct {
+    var foo = APackedStruct{
         .x = 1,
         .y = 2,
     };
@@ -217,7 +207,7 @@ const BitField1 = packed struct {
     c: u2,
 };
 
-const bit_field_1 = BitField1 {
+const bit_field_1 = BitField1{
     .a = 1,
     .b = 2,
     .c = 3,
@@ -267,7 +257,7 @@ test "packed struct 24bits" {
         assert(@sizeOf(Foo96Bits) == 12);
     }
 
-    var value = Foo96Bits {
+    var value = Foo96Bits{
         .a = 0,
         .b = 0,
         .c = 0,
@@ -310,7 +300,7 @@ test "packed array 24bits" {
         assert(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
     }
 
-    var bytes = []u8 {0} ** (@sizeOf(FooArray24Bits) + 1);
+    var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
     bytes[bytes.len - 1] = 0xaa;
     const ptr = &([]FooArray24Bits)(bytes[0..bytes.len - 1])[0];
     assert(ptr.a == 0);
@@ -360,7 +350,7 @@ test "aligned array of packed struct" {
         assert(@sizeOf(FooArrayOfAligned) == 2 * 2);
     }
 
-    var bytes = []u8 {0xbb} ** @sizeOf(FooArrayOfAligned);
+    var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
     const ptr = &([]FooArrayOfAligned)(bytes[0..bytes.len])[0];
 
     assert(ptr.a[0].a == 0xbb);
@@ -370,11 +360,11 @@ test "aligned array of packed struct" {
 }
 
 test "runtime struct initialization of bitfield" {
-    const s1 = Nibbles {
+    const s1 = Nibbles{
         .x = x1,
         .y = x1,
     };
-    const s2 = Nibbles {
+    const s2 = Nibbles{
         .x = u4(x2),
         .y = u4(x2),
     };

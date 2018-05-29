@@ -58,7 +58,7 @@ fn foo(x: ?i32) ?bool {
 }
 
 test "if var maybe pointer" {
-    assert(shouldBeAPlus1(Particle {
+    assert(shouldBeAPlus1(Particle{
         .a = 14,
         .b = 1,
         .c = 1,
@@ -92,9 +92,7 @@ test "null literal outside function" {
 const SillyStruct = struct {
     context: ?i32,
 };
-const here_is_a_null_literal = SillyStruct {
-    .context = null,
-};
+const here_is_a_null_literal = SillyStruct{ .context = null };
 
 test "test null runtime" {
     testTestNullRuntime(null);

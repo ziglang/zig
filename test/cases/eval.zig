@@ -72,12 +72,12 @@ const Point = struct {
     x: i32,
     y: i32,
 };
-const static_point_list = []Point {
+const static_point_list = []Point{
     makePoint(1, 2),
     makePoint(3, 4),
 };
 fn makePoint(x: i32, y: i32) Point {
-    return Point {
+    return Point{
         .x = x,
         .y = y,
     };
@@ -92,13 +92,11 @@ pub const Vec3 = struct {
     data: [3]f32,
 };
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
-    return Vec3 {
-        .data = []f32 {
-            x,
-            y,
-            z,
-        },
-    };
+    return Vec3{ .data = []f32{
+        x,
+        y,
+        z,
+    } };
 }
 
 test "constant expressions" {
@@ -117,22 +115,22 @@ const Vertex = struct {
     g: f32,
     b: f32,
 };
-const vertices = []Vertex {
-    Vertex {
+const vertices = []Vertex{
+    Vertex{
         .x = -0.6,
         .y = -0.4,
         .r = 1.0,
         .g = 0.0,
         .b = 0.0,
     },
-    Vertex {
+    Vertex{
         .x = 0.6,
         .y = -0.4,
         .r = 0.0,
         .g = 1.0,
         .b = 0.0,
     },
-    Vertex {
+    Vertex{
         .x = 0.0,
         .y = 0.6,
         .r = 0.0,
@@ -149,7 +147,7 @@ const StInitStrFoo = struct {
     x: i32,
     y: bool,
 };
-var st_init_str_foo = StInitStrFoo {
+var st_init_str_foo = StInitStrFoo{
     .x = 13,
     .y = true,
 };
@@ -158,7 +156,7 @@ test "statically initalized array literal" {
     const y: [4]u8 = st_init_arr_lit_x;
     assert(y[3] == 4);
 }
-const st_init_arr_lit_x = []u8 {
+const st_init_arr_lit_x = []u8{
     1,
     2,
     3,
@@ -220,16 +218,16 @@ const CmdFn = struct {
     func: fn(i32) i32,
 };
 
-const cmd_fns = []CmdFn {
-    CmdFn {
+const cmd_fns = []CmdFn{
+    CmdFn{
         .name = "one",
         .func = one,
     },
-    CmdFn {
+    CmdFn{
         .name = "two",
         .func = two,
     },
-    CmdFn {
+    CmdFn{
         .name = "three",
         .func = three,
     },
@@ -289,9 +287,7 @@ const SimpleStruct = struct {
     }
 };
 
-var simple_struct = SimpleStruct {
-    .field = 1234,
-};
+var simple_struct = SimpleStruct{ .field = 1234 };
 
 const bound_fn = simple_struct.method;
 
@@ -341,9 +337,7 @@ const Foo = struct {
     name: []const u8,
 };
 
-var foo_contents = Foo {
-    .name = "a",
-};
+var foo_contents = Foo{ .name = "a" };
 const foo_ref = &foo_contents;
 
 test "create global array with for loop" {
@@ -529,9 +523,7 @@ const SingleFieldStruct = struct {
 };
 test "const ptr to comptime mutable data is not memoized" {
     comptime {
-        var foo = SingleFieldStruct {
-            .x = 1,
-        };
+        var foo = SingleFieldStruct{ .x = 1 };
         assert(foo.read_x() == 1);
         foo.x = 2;
         assert(foo.read_x() == 2);
@@ -574,9 +566,7 @@ pub const Info = struct {
     version: u8,
 };
 
-pub const diamond_info = Info {
-    .version = 0,
-};
+pub const diamond_info = Info{ .version = 0 };
 
 test "comptime modification of const struct field" {
     comptime {

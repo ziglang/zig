@@ -501,7 +501,7 @@ test "math.negateCast" {
     if (negateCast(u32(@maxValue(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
 }
 
-/// Cast an integer to a different integer type. If the value doesn't fit, 
+/// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
 pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer

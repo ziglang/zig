@@ -29,7 +29,7 @@ test "this refer to module call private fn" {
 }
 
 test "this refer to container" {
-    var pt = Point(i32) {
+    var pt = Point(i32){
         .x = 12,
         .y = 34,
     };

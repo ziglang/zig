@@ -388,7 +388,8 @@ pub const Node = struct {
                 Id.SwitchElse,
                 Id.FieldInitializer,
                 Id.DocComment,
-                Id.TestDecl => return false,
+                Id.TestDecl,
+                => return false,
                 Id.While => {
                     const while_node = @fieldParentPtr(While, "base", n);
                     if (while_node.@"else") |@"else"| {
@@ -608,8 +609,7 @@ pub const Node = struct {
                     if (i < 1) return t;
                     i -= 1;
                 },
-                InitArg.None,
-                InitArg.Enum => {},
+                InitArg.None, InitArg.Enum => {},
             }
 
             if (i < self.fields_and_decls.len) return self.fields_and_decls.at(i).*;
@@ -1475,7 +1475,8 @@ pub const Node = struct {
                 Op.Range,
                 Op.Sub,
                 Op.SubWrap,
-                Op.UnwrapMaybe => {},
+                Op.UnwrapMaybe,
+                => {},
             }
 
             if (i < 1) return self.rhs;

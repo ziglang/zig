@@ -15,12 +15,8 @@ const ET = union(enum) {
 };
 
 test "enum with members" {
-    const a = ET {
-        .SINT = -42,
-    };
-    const b = ET {
-        .UINT = 42,
-    };
+    const a = ET{ .SINT = -42 };
+    const b = ET{ .UINT = 42 };
     var buf: [20]u8 = undefined;
 
     assert((a.print(buf[0..]) catch unreachable) == 3);

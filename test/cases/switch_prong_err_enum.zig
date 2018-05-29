@@ -14,9 +14,7 @@ const FormValue = union(enum) {
 
 fn doThing(form_id: u64) error!FormValue {
     return switch (form_id) {
-        17 => FormValue {
-            .Address = try readOnce(),
-        },
+        17 => FormValue{ .Address = try readOnce() },
         else => error.InvalidDebugInfo,
     };
 }

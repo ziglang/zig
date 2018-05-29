@@ -823,8 +823,7 @@ pub fn clock_gettime(clk_id: i32, tp: &timespec) usize {
         if (@ptrToInt(f) != 0) {
             const rc = f(clk_id, tp);
             switch (rc) {
-                0,
-                @bitCast(usize, isize(-EINVAL)) => return rc,
+                0, @bitCast(usize, isize(-EINVAL)) => return rc,
                 else => {},
             }
         }

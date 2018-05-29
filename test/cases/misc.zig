@@ -232,7 +232,7 @@ test "string escapes" {
 }
 
 test "multiline string" {
-    const s1 = 
+    const s1 =
         \\one
         \\two)
         \\three
@@ -242,7 +242,7 @@ test "multiline string" {
 }
 
 test "multiline C string" {
-    const s1 = 
+    const s1 =
         c\\one
         c\\two)
         c\\three
@@ -350,15 +350,13 @@ const Test3Point = struct {
     x: i32,
     y: i32,
 };
-const test3_foo = Test3Foo {
-    .Three = Test3Point {
+const test3_foo = Test3Foo{
+    .Three = Test3Point{
         .x = 3,
         .y = 4,
     },
 };
-const test3_bar = Test3Foo {
-    .Two = 13,
-};
+const test3_bar = Test3Foo{ .Two = 13 };
 fn test3_1(f: &const Test3Foo) void {
     switch (f.*) {
         Test3Foo.Three => |pt| {
@@ -417,7 +415,7 @@ test "C string concatenation" {
 
 test "cast slice to u8 slice" {
     assert(@sizeOf(i32) == 4);
-    var big_thing_array = []i32 {
+    var big_thing_array = []i32{
         1,
         2,
         3,
@@ -458,9 +456,9 @@ test "non const ptr to aliased type" {
 }
 
 test "array 2D const double ptr" {
-    const rect_2d_vertexes = [][1]f32 {
-        []f32 {1.0},
-        []f32 {2.0},
+    const rect_2d_vertexes = [][1]f32{
+        []f32{1.0},
+        []f32{2.0},
     };
     testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
 }
@@ -565,7 +563,7 @@ test "volatile load and store" {
 test "slice string literal has type []const u8" {
     comptime {
         assert(@typeOf("aoeu"[0..]) == []const u8);
-        const array = []i32 {
+        const array = []i32{
             1,
             2,
             3,
@@ -581,13 +579,9 @@ test "global variable initialized to global variable array element" {
 const GDTEntry = struct {
     field: i32,
 };
-var gdt = []GDTEntry {
-    GDTEntry {
-        .field = 1,
-    },
-    GDTEntry {
-        .field = 2,
-    },
+var gdt = []GDTEntry{
+    GDTEntry{ .field = 1 },
+    GDTEntry{ .field = 2 },
 };
 var global_ptr = &gdt[0];
 
@@ -648,9 +642,7 @@ fn testStructInFn() void {
         kind: BlockKind,
     };
 
-    var block = Block {
-        .kind = 1234,
-    };
+    var block = Block{ .kind = 1234 };
 
     block.kind += 1;
 
@@ -694,12 +686,10 @@ const PackedEnum = packed enum {
 };
 
 test "packed struct, enum, union parameters in extern function" {
-    testPackedStuff(PackedStruct {
+    testPackedStuff(PackedStruct{
         .a = 1,
         .b = 2,
-    }, PackedUnion {
-        .a = 1,
-    }, PackedEnum.A);
+    }, PackedUnion{ .a = 1 }, PackedEnum.A);
 }
 
 export fn testPackedStuff(a: &const PackedStruct, b: &const PackedUnion, c: PackedEnum) void {}

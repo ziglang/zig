@@ -317,7 +317,6 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
             // 6. merge each A block with any B values that follow, using the cache or the second internal buffer
             // 7. sort the second internal buffer if it exists
             // 8. redistribute the two internal buffers back into the items
-
             var block_size: usize = math.sqrt(iterator.length());
             var buffer_size = iterator.length() / block_size + 1;
 

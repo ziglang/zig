@@ -73,7 +73,7 @@ fn fnWithUnreachable() noreturn {
 }
 
 test "function pointers" {
-    const fns = []@typeOf(fn1) {
+    const fns = []@typeOf(fn1){
         fn1,
         fn2,
         fn3,

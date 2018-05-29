@@ -24,7 +24,6 @@ pub fn main() !void {
 
     const allocator = &arena.allocator;
 
-
     // skip my own exe name
     _ = arg_it.skip();
 
@@ -175,8 +174,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: var) !void {
         try out_stream.print("  (none)\n");
     } else {
         for (builder.available_options_list.toSliceConst()) |option| {
-            const name = try fmt.allocPrint(allocator,
-                "  -D{}=[{}]", option.name, Builder.typeIdName(option.type_id));
+            const name = try fmt.allocPrint(allocator, "  -D{}=[{}]", option.name, Builder.typeIdName(option.type_id));
             defer allocator.free(name);
             try out_stream.print("{s24} {}\n", name, option.description);
         }
@@ -202,7 +200,7 @@ fn usageAndErr(builder: &Builder, already_ran_build: bool, out_stream: var) erro
     return error.InvalidArgs;
 }
 
-const UnwrapArgError = error {OutOfMemory};
+const UnwrapArgError = error{OutOfMemory};
 
 fn unwrapArg(arg: UnwrapArgError![]u8) UnwrapArgError![]u8 {
     return arg catch |err| {

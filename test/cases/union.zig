@@ -50,10 +50,10 @@ test "basic unions" {
 
 test "comptime union field access" {
     comptime {
-        var foo = Foo { .int = 0 };
+        var foo = Foo{ .int = 0 };
         assert(foo.int == 0);
 
-        foo = Foo { .float = 42.42 };
+        foo = Foo{ .float = 42.42 };
         assert(foo.float == 42.42);
     }
 }
@@ -285,7 +285,6 @@ const PartialInst = union(enum) {
 const PartialInstWithPayload = union(enum) {
     Compiled: i32,
 };
-
 
 test "access a member of tagged union with conflicting enum tag name" {
     const Bar = union(enum) {

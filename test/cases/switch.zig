@@ -6,10 +6,7 @@ test "switch with numbers" {
 
 fn testSwitchWithNumbers(x: u32) void {
     const result = switch (x) {
-        1,
-        2,
-        3,
-        4 ... 8 => false,
+        1, 2, 3, 4...8 => false,
         13 => true,
         else => false,
     };
@@ -25,9 +22,9 @@ test "switch with all ranges" {
 
 fn testSwitchWithAllRanges(x: u32, y: u32) u32 {
     return switch (x) {
-        0 ... 100 => 1,
-        101 ... 200 => 2,
-        201 ... 300 => 3,
+        0...100 => 1,
+        101...200 => 2,
+        201...300 => 3,
         else => y,
     };
 }
@@ -37,10 +34,8 @@ test "implicit comptime switch" {
     const result = switch (x) {
         3 => 10,
         4 => 11,
-        5,
-        6 => 12,
-        7,
-        8 => 13,
+        5, 6 => 12,
+        7, 8 => 13,
         else => 14,
     };
 
@@ -86,15 +81,9 @@ const SwitchStatmentFoo = enum {
 };
 
 test "switch prong with variable" {
-    switchProngWithVarFn(SwitchProngWithVarEnum {
-        .One = 13,
-    });
-    switchProngWithVarFn(SwitchProngWithVarEnum {
-        .Two = 13.0,
-    });
-    switchProngWithVarFn(SwitchProngWithVarEnum {
-        .Meh = {},
-    });
+    switchProngWithVarFn(SwitchProngWithVarEnum{ .One = 13 });
+    switchProngWithVarFn(SwitchProngWithVarEnum{ .Two = 13.0 });
+    switchProngWithVarFn(SwitchProngWithVarEnum{ .Meh = {} });
 }
 const SwitchProngWithVarEnum = union(enum) {
     One: i32,
@@ -121,9 +110,7 @@ test "switch on enum using pointer capture" {
 }
 
 fn testSwitchEnumPtrCapture() void {
-    var value = SwitchProngWithVarEnum {
-        .One = 1234,
-    };
+    var value = SwitchProngWithVarEnum{ .One = 1234 };
     switch (value) {
         SwitchProngWithVarEnum.One => |*x| x.* += 1,
         else => unreachable,
@@ -136,12 +123,8 @@ fn testSwitchEnumPtrCapture() void {
 
 test "switch with multiple expressions" {
     const x = switch (returnsFive()) {
-        1,
-        2,
-        3 => 1,
-        4,
-        5,
-        6 => 2,
+        1, 2, 3 => 1,
+        4, 5, 6 => 2,
         else => i32(3),
     };
     assert(x == 2);
@@ -156,9 +139,7 @@ const Number = union(enum) {
     Three: f32,
 };
 
-const number = Number {
-    .Three = 1.23,
-};
+const number = Number{ .Three = 1.23 };
 
 fn returnsFalse() bool {
     switch (number) {
@@ -212,12 +193,11 @@ fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
 
 fn testSwitchHandleAllCasesRange(x: u8) u8 {
     return switch (x) {
-        0 ... 100 => u8(0),
-        101 ... 200 => 1,
-        201,
-        203 => 2,
+        0...100 => u8(0),
+        101...200 => 1,
+        201, 203 => 2,
         202 => 4,
-        204 ... 255 => 3,
+        204...255 => 3,
     };
 }
 

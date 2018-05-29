@@ -64,8 +64,14 @@ pub const ZigTable = struct {
 };
 
 // zigNorInit
-fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn(f64) f64,
-       comptime f_inv: fn(f64) f64, comptime zero_case: fn(&Random, f64) f64) ZigTable {
+fn ZigTableGen(
+    comptime is_symmetric: bool,
+    comptime r: f64,
+    comptime v: f64,
+    comptime f: fn(f64) f64,
+    comptime f_inv: fn(f64) f64,
+    comptime zero_case: fn(&Random, f64) f64,
+) ZigTable {
     var tables: ZigTable = undefined;
 
     tables.is_symmetric = is_symmetric;
@@ -98,8 +104,12 @@ pub const NormDist = blk: {
 const norm_r = 3.6541528853610088;
 const norm_v = 0.00492867323399;
 
-fn norm_f(x: f64) f64 { return math.exp(-x * x / 2.0); }
-fn norm_f_inv(y: f64) f64 { return math.sqrt(-2.0 * math.ln(y)); }
+fn norm_f(x: f64) f64 {
+    return math.exp(-x * x / 2.0);
+}
+fn norm_f_inv(y: f64) f64 {
+    return math.sqrt(-2.0 * math.ln(y));
+}
 fn norm_zero_case(random: &Random, u: f64) f64 {
     var x: f64 = 1;
     var y: f64 = 0;
@@ -133,9 +143,15 @@ pub const ExpDist = blk: {
 const exp_r = 7.69711747013104972;
 const exp_v = 0.0039496598225815571993;
 
-fn exp_f(x: f64) f64 { return math.exp(-x); }
-fn exp_f_inv(y: f64) f64 { return -math.ln(y); }
-fn exp_zero_case(random: &Random, _: f64) f64 { return exp_r - math.ln(random.float(f64)); }
+fn exp_f(x: f64) f64 {
+    return math.exp(-x);
+}
+fn exp_f_inv(y: f64) f64 {
+    return -math.ln(y);
+}
+fn exp_zero_case(random: &Random, _: f64) f64 {
+    return exp_r - math.ln(random.float(f64));
+}
 
 test "ziggurant exp dist sanity" {
     var prng = std.rand.DefaultPrng.init(0);

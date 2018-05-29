@@ -69,7 +69,6 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
                 self.crc ^= (u32(p[2]) << 16);
                 self.crc ^= (u32(p[3]) << 24);
 
-
                 self.crc =
                     lookup_tables[0][p[7]] ^
                     lookup_tables[1][p[6]] ^
@@ -77,8 +76,8 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
                     lookup_tables[3][p[4]] ^
                     lookup_tables[4][@truncate(u8, self.crc >> 24)] ^
                     lookup_tables[5][@truncate(u8, self.crc >> 16)] ^
-                    lookup_tables[6][@truncate(u8, self.crc >>  8)] ^
-                    lookup_tables[7][@truncate(u8, self.crc >>  0)];
+                    lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
+                    lookup_tables[7][@truncate(u8, self.crc >> 0)];
             }
 
             while (i < input.len) : (i += 1) {
