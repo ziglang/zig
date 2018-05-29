@@ -855,14 +855,20 @@ pub const AtomicFile = struct {
         const dirname = os.path.dirname(dest_path);
 
         var rand_buf: [12]u8 = undefined;
-        const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
+
+        const dirname_component_len = if (dirname.len == 0) 0 else dirname.len + 1;
+        const tmp_path = try allocator.alloc(u8, dirname_component_len +
+            base64.Base64Encoder.calcSize(rand_buf.len));
         errdefer allocator.free(tmp_path);
-        mem.copy(u8, tmp_path[0..], dirname);
-        tmp_path[dirname.len] = os.path.sep;
+
+        if (dirname.len != 0) {
+            mem.copy(u8, tmp_path[0..], dirname);
+            tmp_path[dirname.len] = os.path.sep;
+        }
 
         while (true) {
             try getRandomBytes(rand_buf[0..]);
-            b64_fs_encoder.encode(tmp_path[dirname.len + 1..], rand_buf);
+            b64_fs_encoder.encode(tmp_path[dirname_component_len..], rand_buf);
 
             const file = os.File.openWriteNoClobber(allocator, tmp_path, mode) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,

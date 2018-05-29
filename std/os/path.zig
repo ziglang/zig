@@ -647,6 +647,8 @@ fn testResolvePosix(paths: []const []const u8) []u8 {
     return resolvePosix(debug.global_allocator, paths) catch unreachable;
 }
 
+/// If the path is a file in the current directory (no directory component)
+/// then the returned slice has .len = 0.
 pub fn dirname(path: []const u8) []const u8 {
     if (is_windows) {
         return dirnameWindows(path);
