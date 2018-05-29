@@ -1,3 +1,15 @@
+test "zig fmt: fn decl with trailing comma" {
+    try testTransform(
+        \\fn foo(a: i32, b: i32,) void {}
+    ,
+        \\fn foo(
+        \\    a: i32,
+        \\    b: i32,
+        \\) void {}
+        \\
+    );
+}
+
 test "zig fmt: enum decl with no trailing comma" {
     try testTransform(
         \\const StrLitKind = enum {Normal, C};
@@ -247,7 +259,8 @@ test "zig fmt: switch cases trailing comma" {
         \\    switch (x) {
         \\        1, 2, 3 => {},
         \\        4,
-        \\        5, => {},
+        \\        5,
+        \\        => {},
         \\        6...8 => {},
         \\        else => {},
         \\    }
