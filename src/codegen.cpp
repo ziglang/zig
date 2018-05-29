@@ -5513,7 +5513,7 @@ static void report_errors_and_maybe_exit(CodeGen *g) {
     if (g->errors.length != 0) {
         for (size_t i = 0; i < g->errors.length; i += 1) {
             ErrorMsg *err = g->errors.at(i);
-            print_err_msg(err, g->err_color);
+            print_err_msg(err, g->err_color, g->machine_readable_errors);
         }
         exit(1);
     }
@@ -6819,7 +6819,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     if (err == ErrorCCompileErrors && errors.length > 0) {
         for (size_t i = 0; i < errors.length; i += 1) {
             ErrorMsg *err_msg = errors.at(i);
-            print_err_msg(err_msg, g->err_color);
+            print_err_msg(err_msg, g->err_color, g->machine_readable_errors);
         }
         exit(1);
     }

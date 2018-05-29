@@ -36,6 +36,7 @@ static int usage(const char *arg0) {
         "  --emit [filetype]            emit a specific file format as compilation output\n"
         "  --enable-timing-info         print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
+        "  --machine-errors             print compiler errors in a machine-readable format\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
         "  --output-h [file]            override generated header file path\n"
@@ -326,6 +327,7 @@ int main(int argc, char **argv) {
     int comptime_args_end = 0;
     int runtime_args_start = argc;
     bool no_rosegment_workaround = false;
+    bool machine_readable_errors = false;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -509,6 +511,8 @@ int main(int argc, char **argv) {
                 mconsole = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
+            } else if (strcmp(arg, "--machine-errors") == 0) {
+                machine_readable_errors = true;
             } else if (strcmp(arg, "--no-rosegment") == 0) {
                 no_rosegment_workaround = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
@@ -826,6 +830,7 @@ int main(int argc, char **argv) {
             g->verbose_ir = verbose_ir;
             g->verbose_llvm_ir = verbose_llvm_ir;
             g->verbose_cimport = verbose_cimport;
+            g->machine_readable_errors = machine_readable_errors;
             codegen_set_errmsg_color(g, color);
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {

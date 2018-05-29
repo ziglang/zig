@@ -16,7 +16,7 @@ ATTRIBUTE_PRINTF(2, 3)
 void ast_token_error(Token *token, const char *format, ...);
 
 
-AstNode * ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner, ErrColor err_color);
+AstNode * ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner, ErrColor err_color, bool machine_readable_errors);
 
 void ast_print(AstNode *node, int indent);
 

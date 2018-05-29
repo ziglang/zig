@@ -15,14 +15,22 @@ enum ErrType {
     ErrTypeNote,
 };
 
-static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) {
+static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type, bool machine_readable) {
     const char *path = buf_ptr(err->path);
     size_t line = err->line_start + 1;
     size_t col = err->column_start + 1;
     const char *text = buf_ptr(err->msg);
 
     bool is_tty = os_stderr_tty();
-    if (color == ErrColorOn || (color == ErrColorAuto && is_tty)) {
+    if (machine_readable) {
+        if (err_type == ErrTypeError) {
+            fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": %s\n", path, line, col, text);
+        } else if (err_type == ErrTypeNote) {
+            return;
+        } else {
+            zig_unreachable();
+        }
+    } else if (color == ErrColorOn || (color == ErrColorAuto && is_tty)) {
         if (err_type == ErrTypeError) {
             os_stderr_set_color(TermColorBold);
             fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": ", path, line, col);
@@ -65,12 +73,12 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
 
     for (size_t i = 0; i < err->notes.length; i += 1) {
         ErrorMsg *note = err->notes.at(i);
-        print_err_msg_type(note, color, ErrTypeNote);
+        print_err_msg_type(note, color, ErrTypeNote, machine_readable);
     }
 }
 
-void print_err_msg(ErrorMsg *err, ErrColor color) {
-    print_err_msg_type(err, color, ErrTypeError);
+void print_err_msg(ErrorMsg *err, ErrColor color, bool machine_readable) {
+    print_err_msg_type(err, color, ErrTypeError, machine_readable);
 }
 
 void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note) {
