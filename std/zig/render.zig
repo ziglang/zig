@@ -213,13 +213,13 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
             const async_attr = @fieldParentPtr(ast.Node.AsyncAttribute, "base", base);
 
             if (async_attr.allocator_type) |allocator_type| {
-                try renderToken(tree, stream, async_attr.async_token, indent, start_col, Space.None);
+                try renderToken(tree, stream, async_attr.async_token, indent, start_col, Space.None); // async
 
-                try renderToken(tree, stream, tree.nextToken(async_attr.async_token), indent, start_col, Space.None);
-                try renderExpression(allocator, stream, tree, indent, start_col, allocator_type, Space.None);
-                return renderToken(tree, stream, tree.nextToken(allocator_type.lastToken()), indent, start_col, space);
+                try renderToken(tree, stream, tree.nextToken(async_attr.async_token), indent, start_col, Space.None); // <
+                try renderExpression(allocator, stream, tree, indent, start_col, allocator_type, Space.None); // allocator
+                return renderToken(tree, stream, tree.nextToken(allocator_type.lastToken()), indent, start_col, space); // >
             } else {
-                return renderToken(tree, stream, async_attr.async_token, indent, start_col, space);
+                return renderToken(tree, stream, async_attr.async_token, indent, start_col, space); // async
             }
         },
 

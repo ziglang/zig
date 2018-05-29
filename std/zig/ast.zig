@@ -1673,6 +1673,10 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: &SuffixOp) TokenIndex {
+            switch (self.op) {
+                @TagType(Op).Call => |*call_info| if (call_info.async_attr) |async_attr| return async_attr.firstToken(),
+                else => {},
+            }
             return self.lhs.firstToken();
         }
 

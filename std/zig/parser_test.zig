@@ -1,3 +1,14 @@
+test "zig fmt: async call in if condition" {
+    try testCanonical(
+        \\comptime {
+        \\    if (async<a> b()) {
+        \\        a();
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: 2nd arg multiline string" {
     try testCanonical(
         \\comptime {
