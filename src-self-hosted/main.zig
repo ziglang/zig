@@ -682,12 +682,16 @@ const usage_fmt =
     \\   Formats the input files and modifies them in-place.
     \\
     \\Options:
+    \\   --machine-errors       Print errors in a machine-friendly format
     \\   --help                 Print this help and exit
     \\
     \\
 ;
 
-const args_fmt_spec = []Flag{Flag.Bool("--help")};
+const args_fmt_spec = []Flag{
+    Flag.Bool("--machine-errors"),
+    Flag.Bool("--help"),
+};
 
 fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);
@@ -725,6 +729,12 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
             const loc = tree.tokenLocation(0, parse_error.loc());
             try stderr.print("{}:{}:{}: error: ", file_path, loc.line + 1, loc.column + 1);
             try tree.renderError(parse_error, stderr);
+
+            if (flags.present("machine-errors")) {
+                try stderr.write("\n");
+                continue;
+            }
+
             try stderr.print("\n{}\n", source_code[loc.line_start..loc.line_end]);
             {
                 var i: usize = 0;
