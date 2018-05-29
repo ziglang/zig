@@ -76,19 +76,14 @@ pub const TcpServer = struct {
                     }
                     continue;
                 },
-                error.ConnectionAborted,
-                error.FileDescriptorClosed => continue,
+                error.ConnectionAborted, error.FileDescriptorClosed => continue,
 
                 error.PageFault => unreachable,
                 error.InvalidSyscall => unreachable,
                 error.FileDescriptorNotASocket => unreachable,
                 error.OperationNotSupported => unreachable,
 
-                error.SystemFdQuotaExceeded,
-                error.SystemResources,
-                error.ProtocolFailure,
-                error.BlockedByFirewall,
-                error.Unexpected => {
+                error.SystemFdQuotaExceeded, error.SystemResources, error.ProtocolFailure, error.BlockedByFirewall, error.Unexpected => {
                     @panic("TODO handle this error");
                 },
             }
@@ -121,7 +116,6 @@ pub const Loop = struct {
     pub fn removeFd(self: &Loop, fd: i32) void {
         std.os.linuxEpollCtl(self.epollfd, std.os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
     }
-
     async fn waitFd(self: &Loop, fd: i32) !void {
         defer self.removeFd(fd);
         suspend |p| {
@@ -169,7 +163,6 @@ test "listen on a port, send bytes, receive bytes" {
         tcp_server: TcpServer,
 
         const Self = this;
-
         async<&mem.Allocator> fn handler(tcp_server: &TcpServer, _addr: &const std.net.Address, _socket: &const std.os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
@@ -184,7 +177,6 @@ test "listen on a port, send bytes, receive bytes" {
                 cancel p;
             }
         }
-
         async fn errorableHandler(self: &Self, _addr: &const std.net.Address, _socket: &const std.os.File) !void {
             const addr = _addr.*; // TODO https://github.com/ziglang/zig/issues/733
             var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
@@ -207,7 +199,6 @@ test "listen on a port, send bytes, receive bytes" {
     defer cancel p;
     loop.run();
 }
-
 async fn doAsyncTest(loop: &Loop, address: &const std.net.Address) void {
     errdefer @panic("test failure");
 

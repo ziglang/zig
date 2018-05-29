@@ -217,7 +217,6 @@ pub const Tokenizer = struct {
         StringLiteral,
         StringLiteralBackslash,
         MultilineStringLiteralLine,
-        MultilineStringLiteralLineBackslash,
         CharLiteral,
         CharLiteralBackslash,
         CharLiteralEscape1,
@@ -655,21 +654,11 @@ pub const Tokenizer = struct {
                 },
 
                 State.MultilineStringLiteralLine => switch (c) {
-                    '\\' => {
-                        state = State.MultilineStringLiteralLineBackslash;
-                    },
                     '\n' => {
                         self.index += 1;
                         break;
                     },
                     else => self.checkLiteralCharacter(),
-                },
-
-                State.MultilineStringLiteralLineBackslash => switch (c) {
-                    '\n' => break, // Look for this error later.
-                    else => {
-                        state = State.MultilineStringLiteralLine;
-                    },
                 },
 
                 State.Bang => switch (c) {
@@ -1010,7 +999,6 @@ pub const Tokenizer = struct {
                 State.FloatExponentUnsignedHex,
                 State.SawAtSign,
                 State.Backslash,
-                State.MultilineStringLiteralLineBackslash,
                 State.CharLiteral,
                 State.CharLiteralBackslash,
                 State.CharLiteralEscape1,

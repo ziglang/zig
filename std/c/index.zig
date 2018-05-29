@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const Os = builtin.Os;
 
-pub use switch(builtin.os) {
+pub use switch (builtin.os) {
     Os.linux => @import("linux.zig"),
     Os.windows => @import("windows.zig"),
     Os.macosx, Os.ios => @import("darwin.zig"),
@@ -21,8 +21,7 @@ pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: c_int, buf: &c_void, nbyte: usize) isize;
 pub extern "c" fn stat(noalias path: &const u8, noalias buf: &Stat) c_int;
 pub extern "c" fn write(fd: c_int, buf: &const c_void, nbyte: usize) isize;
-pub extern "c" fn mmap(addr: ?&c_void, len: usize, prot: c_int, flags: c_int,
-    fd: c_int, offset: isize) ?&c_void;
+pub extern "c" fn mmap(addr: ?&c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, offset: isize) ?&c_void;
 pub extern "c" fn munmap(addr: &c_void, len: usize) c_int;
 pub extern "c" fn unlink(path: &const u8) c_int;
 pub extern "c" fn getcwd(buf: &u8, size: usize) ?&u8;
@@ -34,8 +33,7 @@ pub extern "c" fn mkdir(path: &const u8, mode: c_uint) c_int;
 pub extern "c" fn symlink(existing: &const u8, new: &const u8) c_int;
 pub extern "c" fn rename(old: &const u8, new: &const u8) c_int;
 pub extern "c" fn chdir(path: &const u8) c_int;
-pub extern "c" fn execve(path: &const u8, argv: &const ?&const u8,
-    envp: &const ?&const u8) c_int;
+pub extern "c" fn execve(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8) c_int;
 pub extern "c" fn dup(fd: c_int) c_int;
 pub extern "c" fn dup2(old_fd: c_int, new_fd: c_int) c_int;
 pub extern "c" fn readlink(noalias path: &const u8, noalias buf: &u8, bufsize: usize) isize;
@@ -54,9 +52,7 @@ pub extern "c" fn realloc(&c_void, usize) ?&c_void;
 pub extern "c" fn free(&c_void) void;
 pub extern "c" fn posix_memalign(memptr: &&c_void, alignment: usize, size: usize) c_int;
 
-pub extern "pthread" fn pthread_create(noalias newthread: &pthread_t,
-    noalias attr: ?&const pthread_attr_t, start_routine: extern fn(?&c_void) ?&c_void,
-    noalias arg: ?&c_void) c_int;
+pub extern "pthread" fn pthread_create(noalias newthread: &pthread_t, noalias attr: ?&const pthread_attr_t, start_routine: extern fn(?&c_void) ?&c_void, noalias arg: ?&c_void) c_int;
 pub extern "pthread" fn pthread_attr_init(attr: &pthread_attr_t) c_int;
 pub extern "pthread" fn pthread_attr_setstack(attr: &pthread_attr_t, stackaddr: &c_void, stacksize: usize) c_int;
 pub extern "pthread" fn pthread_attr_destroy(attr: &pthread_attr_t) c_int;

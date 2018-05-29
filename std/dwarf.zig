@@ -337,7 +337,6 @@ pub const AT_PGI_lbase = 0x3a00;
 pub const AT_PGI_soffset = 0x3a01;
 pub const AT_PGI_lstride = 0x3a02;
 
-
 pub const OP_addr = 0x03;
 pub const OP_deref = 0x06;
 pub const OP_const1u = 0x08;
@@ -576,7 +575,6 @@ pub const ATE_HP_signed_fixed = 0x8d; // Cobol.
 pub const ATE_HP_unsigned_fixed = 0x8e; // Cobol.
 pub const ATE_HP_VAX_complex_float = 0x8f; // F or G floating complex.
 pub const ATE_HP_VAX_complex_float_d = 0x90; // D floating complex.
-
 
 pub const CFA_advance_loc = 0x40;
 pub const CFA_offset = 0x80;

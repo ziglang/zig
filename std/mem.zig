@@ -177,6 +177,14 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
+/// Returns true if all elements in a slice are equal to the scalar value provided
+pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
+    for (slice) |item| {
+        if (item != scalar) return false;
+    }
+    return true;
+}
+
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
 pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);

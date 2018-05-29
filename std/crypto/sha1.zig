@@ -7,11 +7,23 @@ const builtin = @import("builtin");
 pub const u160 = @IntType(false, 160);
 
 const RoundParam = struct {
-    a: usize, b: usize, c: usize, d: usize, e: usize, i: u32,
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    e: usize,
+    i: u32,
 };
 
 fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
-    return RoundParam { .a = a, .b = b, .c = c, .d = d, .e = e, .i = i };
+    return RoundParam{
+        .a = a,
+        .b = b,
+        .c = c,
+        .d = d,
+        .e = e,
+        .i = i,
+    };
 }
 
 pub const Sha1 = struct {
@@ -99,7 +111,7 @@ pub const Sha1 = struct {
         d.round(d.buf[0..]);
 
         for (d.s) |s, j| {
-            mem.writeInt(out[4*j .. 4*j + 4], s, builtin.Endian.Big);
+            mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Big);
         }
     }
 
@@ -108,21 +120,25 @@ pub const Sha1 = struct {
 
         var s: [16]u32 = undefined;
 
-        var v: [5]u32 = []u32 {
-            d.s[0], d.s[1], d.s[2], d.s[3], d.s[4],
+        var v: [5]u32 = []u32{
+            d.s[0],
+            d.s[1],
+            d.s[2],
+            d.s[3],
+            d.s[4],
         };
 
-        const round0a = comptime []RoundParam {
-            Rp(0, 1, 2, 3, 4,  0),
-            Rp(4, 0, 1, 2, 3,  1),
-            Rp(3, 4, 0, 1, 2,  2),
-            Rp(2, 3, 4, 0, 1,  3),
-            Rp(1, 2, 3, 4, 0,  4),
-            Rp(0, 1, 2, 3, 4,  5),
-            Rp(4, 0, 1, 2, 3,  6),
-            Rp(3, 4, 0, 1, 2,  7),
-            Rp(2, 3, 4, 0, 1,  8),
-            Rp(1, 2, 3, 4, 0,  9),
+        const round0a = comptime []RoundParam{
+            Rp(0, 1, 2, 3, 4, 0),
+            Rp(4, 0, 1, 2, 3, 1),
+            Rp(3, 4, 0, 1, 2, 2),
+            Rp(2, 3, 4, 0, 1, 3),
+            Rp(1, 2, 3, 4, 0, 4),
+            Rp(0, 1, 2, 3, 4, 5),
+            Rp(4, 0, 1, 2, 3, 6),
+            Rp(3, 4, 0, 1, 2, 7),
+            Rp(2, 3, 4, 0, 1, 8),
+            Rp(1, 2, 3, 4, 0, 9),
             Rp(0, 1, 2, 3, 4, 10),
             Rp(4, 0, 1, 2, 3, 11),
             Rp(3, 4, 0, 1, 2, 12),
@@ -131,32 +147,27 @@ pub const Sha1 = struct {
             Rp(0, 1, 2, 3, 4, 15),
         };
         inline for (round0a) |r| {
-            s[r.i] = (u32(b[r.i * 4 + 0]) << 24) |
-                     (u32(b[r.i * 4 + 1]) << 16) |
-                     (u32(b[r.i * 4 + 2]) <<  8) |
-                     (u32(b[r.i * 4 + 3]) <<  0);
+            s[r.i] = (u32(b[r.i * 4 + 0]) << 24) | (u32(b[r.i * 4 + 1]) << 16) | (u32(b[r.i * 4 + 2]) << 8) | (u32(b[r.i * 4 + 3]) << 0);
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x5A827999 +% s[r.i & 0xf]
-                        +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
-        const round0b = comptime []RoundParam {
+        const round0b = comptime []RoundParam{
             Rp(4, 0, 1, 2, 3, 16),
             Rp(3, 4, 0, 1, 2, 17),
             Rp(2, 3, 4, 0, 1, 18),
             Rp(1, 2, 3, 4, 0, 19),
         };
         inline for (round0b) |r| {
-            const t = s[(r.i-3) & 0xf] ^ s[(r.i-8) & 0xf] ^ s[(r.i-14) & 0xf] ^ s[(r.i-16) & 0xf];
+            const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
             s[r.i & 0xf] = math.rotl(u32, t, u32(1));
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x5A827999 +% s[r.i & 0xf]
-                        +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
-        const round1 = comptime []RoundParam {
+        const round1 = comptime []RoundParam{
             Rp(0, 1, 2, 3, 4, 20),
             Rp(4, 0, 1, 2, 3, 21),
             Rp(3, 4, 0, 1, 2, 22),
@@ -179,15 +190,14 @@ pub const Sha1 = struct {
             Rp(1, 2, 3, 4, 0, 39),
         };
         inline for (round1) |r| {
-            const t = s[(r.i-3) & 0xf] ^ s[(r.i-8) & 0xf] ^ s[(r.i-14) & 0xf] ^ s[(r.i-16) & 0xf];
+            const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
             s[r.i & 0xf] = math.rotl(u32, t, u32(1));
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x6ED9EBA1 +% s[r.i & 0xf]
-                        +% (v[r.b] ^ v[r.c] ^ v[r.d]);
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x6ED9EBA1 +% s[r.i & 0xf] +% (v[r.b] ^ v[r.c] ^ v[r.d]);
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
-        const round2 = comptime []RoundParam {
+        const round2 = comptime []RoundParam{
             Rp(0, 1, 2, 3, 4, 40),
             Rp(4, 0, 1, 2, 3, 41),
             Rp(3, 4, 0, 1, 2, 42),
@@ -210,15 +220,14 @@ pub const Sha1 = struct {
             Rp(1, 2, 3, 4, 0, 59),
         };
         inline for (round2) |r| {
-            const t = s[(r.i-3) & 0xf] ^ s[(r.i-8) & 0xf] ^ s[(r.i-14) & 0xf] ^ s[(r.i-16) & 0xf];
+            const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
             s[r.i & 0xf] = math.rotl(u32, t, u32(1));
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x8F1BBCDC  +% s[r.i & 0xf]
-                        +% ((v[r.b] & v[r.c]) ^ (v[r.b] & v[r.d]) ^ (v[r.c] & v[r.d]));
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x8F1BBCDC +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) ^ (v[r.b] & v[r.d]) ^ (v[r.c] & v[r.d]));
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
-        const round3 = comptime []RoundParam {
+        const round3 = comptime []RoundParam{
             Rp(0, 1, 2, 3, 4, 60),
             Rp(4, 0, 1, 2, 3, 61),
             Rp(3, 4, 0, 1, 2, 62),
@@ -241,11 +250,10 @@ pub const Sha1 = struct {
             Rp(1, 2, 3, 4, 0, 79),
         };
         inline for (round3) |r| {
-            const t = s[(r.i-3) & 0xf] ^ s[(r.i-8) & 0xf] ^ s[(r.i-14) & 0xf] ^ s[(r.i-16) & 0xf];
+            const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
             s[r.i & 0xf] = math.rotl(u32, t, u32(1));
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0xCA62C1D6 +% s[r.i & 0xf]
-                        +% (v[r.b] ^ v[r.c] ^ v[r.d]);
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0xCA62C1D6 +% s[r.i & 0xf] +% (v[r.b] ^ v[r.c] ^ v[r.d]);
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
@@ -286,7 +294,7 @@ test "sha1 streaming" {
 }
 
 test "sha1 aligned final" {
-    var block = []u8 {0} ** Sha1.block_size;
+    var block = []u8{0} ** Sha1.block_size;
     var out: [Sha1.digest_size]u8 = undefined;
 
     var h = Sha1.init();
