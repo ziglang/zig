@@ -254,7 +254,17 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
                 else => Space.Space,
             };
             try renderExpression(allocator, stream, tree, indent, infix_op_node.lhs, op_space);
-            try renderToken(tree, stream, infix_op_node.op_token, indent, op_space);
+
+            const after_op_space = blk: {
+                const loc = tree.tokenLocation(tree.tokens.at(infix_op_node.op_token).end,
+                    tree.nextToken(infix_op_node.op_token));
+                break :blk if (loc.line == 0) op_space else Space.Newline;
+            };
+
+            try renderToken(tree, stream, infix_op_node.op_token, indent, after_op_space);
+            if (after_op_space == Space.Newline) {
+                try stream.writeByteNTimes(' ', indent + indent_delta);
+            }
 
             switch (infix_op_node.op) {
                 ast.Node.InfixOp.Op.Catch => |maybe_payload| if (maybe_payload) |payload| {
