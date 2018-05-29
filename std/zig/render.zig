@@ -1315,49 +1315,109 @@ fn renderExpression(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, ind
         ast.Node.Id.If => {
             const if_node = @fieldParentPtr(ast.Node.If, "base", base);
 
-            try renderToken(tree, stream, if_node.if_token, indent, Space.Space);
-            try renderToken(tree, stream, tree.prevToken(if_node.condition.firstToken()), indent, Space.None);
+            const lparen = tree.prevToken(if_node.condition.firstToken());
+            const rparen = tree.nextToken(if_node.condition.lastToken());
 
-            try renderExpression(allocator, stream, tree, indent, if_node.condition, Space.None);
-            try renderToken(tree, stream, tree.nextToken(if_node.condition.lastToken()), indent, Space.Space);
+            try renderToken(tree, stream, if_node.if_token, indent, Space.Space); // if
+            try renderToken(tree, stream, lparen, indent, Space.None); // (
 
-            if (if_node.payload) |payload| {
-                try renderExpression(allocator, stream, tree, indent, payload, Space.Space);
-            }
+            try renderExpression(allocator, stream, tree, indent, if_node.condition, Space.None); // condition
 
-            switch (if_node.body.id) {
+            const body_is_block = switch (if_node.body.id) {
                 ast.Node.Id.Block,
                 ast.Node.Id.If,
                 ast.Node.Id.For,
                 ast.Node.Id.While,
-                ast.Node.Id.Switch => {
-                    if (if_node.@"else") |@"else"| {
-                        if (if_node.body.id == ast.Node.Id.Block) {
-                            try renderExpression(allocator, stream, tree, indent, if_node.body, Space.Space);
-                        } else {
-                            try renderExpression(allocator, stream, tree, indent, if_node.body, Space.Newline);
-                            try stream.writeByteNTimes(' ', indent);
-                        }
+                ast.Node.Id.Switch,
+                => true,
+                else => false,
+            };
 
-                        try renderExpression(allocator, stream, tree, indent, &@"else".base, space);
-                    } else {
-                        try renderExpression(allocator, stream, tree, indent, if_node.body, space);
-                    }
-                },
-                else => {
-                    if (if_node.@"else") |@"else"| {
-                        try renderExpression(allocator, stream, tree, indent, if_node.body, Space.Space);
-                        try renderToken(tree, stream, @"else".else_token, indent, Space.Space);
+            if (body_is_block) {
+                try renderToken(tree, stream, rparen, indent, Space.Space); // )
+
+                if (if_node.payload) |payload| {
+                    try renderExpression(allocator, stream, tree, indent, payload, Space.Space); // |x|
+                }
+
+                if (if_node.@"else") |@"else"| {
+                    try renderExpression(allocator, stream, tree, indent, if_node.body, Space.Space);
+                    return renderExpression(allocator, stream, tree, indent, &@"else".base, space);
+                } else {
+                    return renderExpression(allocator, stream, tree, indent, if_node.body, space);
+                }
+            }
+
+            const src_has_newline = blk: {
+                const loc = tree.tokenLocation(tree.tokens.at(rparen).end, if_node.body.lastToken());
+                break :blk loc.line != 0;
+            };
+
+            if (src_has_newline) {
+                const after_rparen_space = if (if_node.payload == null) Space.Newline else Space.Space;
+                try renderToken(tree, stream, rparen, indent, after_rparen_space); // )
+
+                if (if_node.payload) |payload| {
+                    try renderExpression(allocator, stream, tree, indent, payload, Space.Newline);
+                }
+
+                const new_indent = indent + indent_delta;
+                try stream.writeByteNTimes(' ', new_indent);
+
+                if (if_node.@"else") |@"else"| {
+                    const else_is_block = switch (@"else".body.id) {
+                        ast.Node.Id.Block,
+                        ast.Node.Id.If,
+                        ast.Node.Id.For,
+                        ast.Node.Id.While,
+                        ast.Node.Id.Switch,
+                        => true,
+                        else => false,
+                    };
+                    try renderExpression(allocator, stream, tree, new_indent, if_node.body, Space.Newline);
+                    try stream.writeByteNTimes(' ', indent);
+
+                    if (else_is_block) {
+                        try renderToken(tree, stream, @"else".else_token, indent, Space.Space); // else
 
                         if (@"else".payload) |payload| {
                             try renderExpression(allocator, stream, tree, indent, payload, Space.Space);
                         }
 
-                        try renderExpression(allocator, stream, tree, indent, @"else".body, space);
+                        return renderExpression(allocator, stream, tree, indent, @"else".body, space);
                     } else {
-                        try renderExpression(allocator, stream, tree, indent, if_node.body, space);
+                        const after_else_space = if (@"else".payload == null) Space.Newline else Space.Space;
+                        try renderToken(tree, stream, @"else".else_token, indent, after_else_space); // else
+
+                        if (@"else".payload) |payload| {
+                            try renderExpression(allocator, stream, tree, indent, payload, Space.Newline);
+                        }
+                        try stream.writeByteNTimes(' ', new_indent);
+
+                        return renderExpression(allocator, stream, tree, new_indent, @"else".body, space);
                     }
-                },
+                } else {
+                    return renderExpression(allocator, stream, tree, new_indent, if_node.body, space);
+                }
+            }
+
+            try renderToken(tree, stream, rparen, indent, Space.Space); // )
+
+            if (if_node.payload) |payload| {
+                try renderExpression(allocator, stream, tree, indent, payload, Space.Space);
+            }
+
+            if (if_node.@"else") |@"else"| {
+                try renderExpression(allocator, stream, tree, indent, if_node.body, Space.Space);
+                try renderToken(tree, stream, @"else".else_token, indent, Space.Space);
+
+                if (@"else".payload) |payload| {
+                    try renderExpression(allocator, stream, tree, indent, payload, Space.Space);
+                }
+
+                return renderExpression(allocator, stream, tree, indent, @"else".body, space);
+            } else {
+                return renderExpression(allocator, stream, tree, indent, if_node.body, space);
             }
         },
 

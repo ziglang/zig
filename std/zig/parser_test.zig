@@ -1,3 +1,22 @@
+test "zig fmt: respect line breaks in if-else" {
+    try testCanonical(
+        \\comptime {
+        \\    return if (cond) a else b;
+        \\    return if (cond)
+        \\        a
+        \\    else
+        \\        b;
+        \\    return if (cond)
+        \\        a
+        \\    else if (cond)
+        \\        b
+        \\    else
+        \\        c;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: respect line breaks after infix operators" {
     try testCanonical(
         \\comptime {
