@@ -266,7 +266,7 @@ test "os.time.timestamp" {
 
 test "os.time.Timer" {
     const ns_per_ms = (ns_per_s / ms_per_s);
-    const margin = ns_per_ms * 50;
+    const margin = ns_per_ms * 150;
 
     var timer = try Timer.start();
     sleep(0, 10 * ns_per_ms);
