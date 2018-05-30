@@ -64,7 +64,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                 },
                 else => @compileError("Single '}' encountered in format string"),
             },
-            State.FormatString => switch(c) {
+            State.FormatString => switch (c) {
                 '}' => {
                     const s = start_index + 1;
                     try formatType(args[next_arg], fmt[s..i], context, Errors, output);
