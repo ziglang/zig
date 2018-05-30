@@ -42,7 +42,7 @@ test "write a file, read it, then delete it" {
 
         assert(mem.eql(u8, contents[0.."begin".len], "begin"));
         assert(mem.eql(u8, contents["begin".len..contents.len - "end".len], data));
-        assert(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
+        assert(mem.eql(u8, contents[contents.len - "end".len..], "end"));
     }
     try os.deleteFile(allocator, tmp_file_name);
 }

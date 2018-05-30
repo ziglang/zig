@@ -1,5 +1,5 @@
 const c = @cImport({
-    // See https://github.com/zig-lang/zig/issues/515
+    // See https://github.com/ziglang/zig/issues/515
     @cDefine("_NO_CRT_STDIO_INLINE", "1");
     @cInclude("stdio.h");
     @cInclude("string.h");
@@ -8,8 +8,7 @@ const c = @cImport({
 const msg = c"Hello, world!\n";
 
 export fn main(argc: c_int, argv: &&u8) c_int {
-    if (c.printf(msg) != c_int(c.strlen(msg)))
-        return -1;
+    if (c.printf(msg) != c_int(c.strlen(msg))) return -1;
 
     return 0;
 }

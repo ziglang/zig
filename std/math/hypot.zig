@@ -39,11 +39,11 @@ fn hypot32(x: f32, y: f32) f32 {
     }
 
     var z: f32 = 1.0;
-    if (ux >= (0x7F+60) << 23) {
+    if (ux >= (0x7F + 60) << 23) {
         z = 0x1.0p90;
         xx *= 0x1.0p-90;
         yy *= 0x1.0p-90;
-    } else if (uy < (0x7F-60) << 23) {
+    } else if (uy < (0x7F - 60) << 23) {
         z = 0x1.0p-90;
         xx *= 0x1.0p-90;
         yy *= 0x1.0p-90;
@@ -57,8 +57,8 @@ fn sq(hi: &f64, lo: &f64, x: f64) void {
     const xc = x * split;
     const xh = x - xc + xc;
     const xl = x - xh;
-    *hi = x * x;
-    *lo = xh * xh - *hi + 2 * xh * xl + xl * xl;
+    hi.* = x * x;
+    lo.* = xh * xh - hi.* + 2 * xh * xl + xl * xl;
 }
 
 fn hypot64(x: f64, y: f64) f64 {

@@ -81,9 +81,7 @@ test "y_array_with_several_null" {
 }
 
 test "y_array_with_trailing_space" {
-    ok(
-        "[2] "
-    );
+    ok("[2] ");
 }
 
 test "y_number_0e+1" {
@@ -431,15 +429,11 @@ test "y_string_two-byte-utf-8" {
 }
 
 test "y_string_u+2028_line_sep" {
-    ok(
-        \\[" "]
-    );
+    ok("[\"\xe2\x80\xa8\"]");
 }
 
 test "y_string_u+2029_par_sep" {
-    ok(
-        \\[" "]
-    );
+    ok("[\"\xe2\x80\xa9\"]");
 }
 
 test "y_string_uescaped_newline" {
@@ -455,9 +449,7 @@ test "y_string_uEscape" {
 }
 
 test "y_string_unescaped_char_delete" {
-    ok(
-        \\[""]
-    );
+    ok("[\"\x7f\"]");
 }
 
 test "y_string_unicode_2" {
@@ -527,9 +519,7 @@ test "y_string_utf8" {
 }
 
 test "y_string_with_del_character" {
-    ok(
-        \\["aa"]
-    );
+    ok("[\"a\x7fa\"]");
 }
 
 test "y_structure_lonely_false" {
@@ -587,9 +577,7 @@ test "y_structure_true_in_array" {
 }
 
 test "y_structure_whitespace_array" {
-    ok(
-        " [] "
-    );
+    ok(" [] ");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -704,7 +692,6 @@ test "n_array_newlines_unclosed" {
     );
 }
 
-
 test "n_array_number_and_comma" {
     err(
         \\[1,]
@@ -718,9 +705,7 @@ test "n_array_number_and_several_commas" {
 }
 
 test "n_array_spaces_vertical_tab_formfeed" {
-    err(
-        \\["a"\f]
-    );
+    err("[\"\x0aa\"\\f]");
 }
 
 test "n_array_star_inside" {
@@ -774,9 +759,7 @@ test "n_incomplete_true" {
 }
 
 test "n_multidigit_number_then_00" {
-    err(
-        \\123 
-    );
+    err("123\x00");
 }
 
 test "n_number_0.1.2" {
@@ -982,7 +965,6 @@ test "n_number_invalid-utf-8-in-int" {
         \\[0å]
     );
 }
-
 
 test "n_number_++" {
     err(
@@ -1240,7 +1222,7 @@ test "n_object_unterminated-value" {
     err(
         \\{"a":"a
     );
-        }
+}
 
 test "n_object_with_single_string" {
     err(
@@ -1255,9 +1237,7 @@ test "n_object_with_trailing_garbage" {
 }
 
 test "n_single_space" {
-    err(
-        " "
-    );
+    err(" ");
 }
 
 test "n_string_1_surrogate_then_escape" {
@@ -1291,9 +1271,7 @@ test "n_string_accentuated_char_no_quotes" {
 }
 
 test "n_string_backslash_00" {
-    err(
-        \\["\ "]
-    );
+    err("[\"\x00\"]");
 }
 
 test "n_string_escaped_backslash_bad" {
@@ -1303,15 +1281,11 @@ test "n_string_escaped_backslash_bad" {
 }
 
 test "n_string_escaped_ctrl_char_tab" {
-    err(
-        \\["\	"]
-    );
+    err("\x5b\x22\x5c\x09\x22\x5d");
 }
 
 test "n_string_escaped_emoji" {
-    err(
-        \\["\ð"]
-    );
+    err("[\"\x5c\xc3\xb0\xc2\x9f\xc2\x8c\xc2\x80\"]");
 }
 
 test "n_string_escape_x" {
@@ -1357,9 +1331,7 @@ test "n_string_invalid_unicode_escape" {
 }
 
 test "n_string_invalid_utf8_after_escape" {
-    err(
-        \\["\å"]
-    );
+    err("[\"\\\x75\xc3\xa5\"]");
 }
 
 test "n_string_invalid-utf-8-in-escape" {
@@ -1405,9 +1377,7 @@ test "n_string_start_escape_unclosed" {
 }
 
 test "n_string_unescaped_crtl_char" {
-    err(
-        \\["a a"]
-    );
+    err("[\"a\x00a\"]");
 }
 
 test "n_string_unescaped_newline" {
@@ -1418,9 +1388,7 @@ test "n_string_unescaped_newline" {
 }
 
 test "n_string_unescaped_tab" {
-    err(
-        \\["	"]
-    );
+    err("[\"\t\"]");
 }
 
 test "n_string_unicode_CapitalU" {
@@ -1436,9 +1404,7 @@ test "n_string_with_trailing_garbage" {
 }
 
 test "n_structure_100000_opening_arrays" {
-    err(
-        "[" ** 100000
-    );
+    err("[" ** 100000);
 }
 
 test "n_structure_angle_bracket_." {
@@ -1532,9 +1498,7 @@ test "n_structure_no_data" {
 }
 
 test "n_structure_null-byte-outside-string" {
-    err(
-        \\[ ]
-    );
+    err("[\x00]");
 }
 
 test "n_structure_number_with_trailing_garbage" {
@@ -1580,9 +1544,7 @@ test "n_structure_open_array_comma" {
 }
 
 test "n_structure_open_array_object" {
-    err(
-        "[{\"\":" ** 50000
-    );
+    err("[{\"\":" ** 50000);
 }
 
 test "n_structure_open_array_open_object" {
@@ -1718,9 +1680,7 @@ test "n_structure_UTF8_BOM_no_data" {
 }
 
 test "n_structure_whitespace_formfeed" {
-    err(
-        \\[]
-    );
+    err("[\x0c]");
 }
 
 test "n_structure_whitespace_U+2060_word_joiner" {
@@ -1900,21 +1860,15 @@ test "i_string_truncated-utf-8" {
 }
 
 test "i_string_utf16BE_no_BOM" {
-    any(
-        \\ [ " é " ]
-    );
+    any("\x00\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d");
 }
 
 test "i_string_utf16LE_no_BOM" {
-    any(
-        \\[ " é " ] 
-    );
+    any("\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d\x00");
 }
 
 test "i_string_UTF-16LE_with_BOM" {
-    any(
-        \\ÿþ[ " é " ] 
-    );
+    any("\xc3\xbf\xc3\xbe\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d\x00");
 }
 
 test "i_string_UTF-8_invalid_sequence" {
@@ -1930,9 +1884,7 @@ test "i_string_UTF8_surrogate_U+D800" {
 }
 
 test "i_structure_500_nested_arrays" {
-    any(
-        ("[" ** 500) ++ ("]" ** 500)
-    );
+    any(("[" ** 500) ++ ("]" ** 500));
 }
 
 test "i_structure_UTF-8_BOM_empty_object" {

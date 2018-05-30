@@ -26,10 +26,10 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
             data: T,
 
             pub fn init(value: &const T) Node {
-                return Node {
+                return Node{
                     .prev = null,
                     .next = null,
-                    .data = *value,
+                    .data = value.*,
                 };
             }
 
@@ -45,18 +45,18 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         };
 
         first: ?&Node,
-        last:  ?&Node,
-        len:   usize,
+        last: ?&Node,
+        len: usize,
 
         /// Initialize a linked list.
         ///
         /// Returns:
         ///     An empty linked list.
         pub fn init() Self {
-            return Self {
+            return Self{
                 .first = null,
-                .last  = null,
-                .len   = 0,
+                .last = null,
+                .len = 0,
             };
         }
 
@@ -131,7 +131,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
             } else {
                 // Empty list.
                 list.first = new_node;
-                list.last  = new_node;
+                list.last = new_node;
                 new_node.prev = null;
                 new_node.next = null;
 
@@ -217,7 +217,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) !&Node {
             comptime assert(!isIntrusive());
             var node = try list.allocateNode(allocator);
-            *node = Node.init(data);
+            node.* = Node.init(data);
             return node;
         }
     };
@@ -227,11 +227,11 @@ test "basic linked list test" {
     const allocator = debug.global_allocator;
     var list = LinkedList(u32).init();
 
-    var one   = try list.createNode(1, allocator);
-    var two   = try list.createNode(2, allocator);
+    var one = try list.createNode(1, allocator);
+    var two = try list.createNode(2, allocator);
     var three = try list.createNode(3, allocator);
-    var four  = try list.createNode(4, allocator);
-    var five  = try list.createNode(5, allocator);
+    var four = try list.createNode(4, allocator);
+    var five = try list.createNode(5, allocator);
     defer {
         list.destroyNode(one, allocator);
         list.destroyNode(two, allocator);
@@ -240,11 +240,11 @@ test "basic linked list test" {
         list.destroyNode(five, allocator);
     }
 
-    list.append(two);               // {2}
-    list.append(five);              // {2, 5}
-    list.prepend(one);              // {1, 2, 5}
-    list.insertBefore(five, four);  // {1, 2, 4, 5}
-    list.insertAfter(two, three);   // {1, 2, 3, 4, 5}
+    list.append(two); // {2}
+    list.append(five); // {2, 5}
+    list.prepend(one); // {1, 2, 5}
+    list.insertBefore(five, four); // {1, 2, 4, 5}
+    list.insertAfter(two, three); // {1, 2, 3, 4, 5}
 
     // Traverse forwards.
     {
@@ -266,13 +266,13 @@ test "basic linked list test" {
         }
     }
 
-    var first = list.popFirst();    // {2, 3, 4, 5}
-    var last  = list.pop();         // {2, 3, 4}
-    list.remove(three);             // {2, 4}
+    var first = list.popFirst(); // {2, 3, 4, 5}
+    var last = list.pop(); // {2, 3, 4}
+    list.remove(three); // {2, 4}
 
-    assert ((??list.first).data == 2);
-    assert ((??list.last ).data == 4);
-    assert (list.len == 2);
+    assert((??list.first).data == 2);
+    assert((??list.last).data == 4);
+    assert(list.len == 2);
 }
 
 const ElementList = IntrusiveLinkedList(Element, "link");
@@ -285,17 +285,32 @@ test "basic intrusive linked list test" {
     const allocator = debug.global_allocator;
     var list = ElementList.init();
 
-    var one   = Element { .value = 1, .link = ElementList.Node.initIntrusive() };
-    var two   = Element { .value = 2, .link = ElementList.Node.initIntrusive() };
-    var three = Element { .value = 3, .link = ElementList.Node.initIntrusive() };
-    var four  = Element { .value = 4, .link = ElementList.Node.initIntrusive() };
-    var five  = Element { .value = 5, .link = ElementList.Node.initIntrusive() };
+    var one = Element{
+        .value = 1,
+        .link = ElementList.Node.initIntrusive(),
+    };
+    var two = Element{
+        .value = 2,
+        .link = ElementList.Node.initIntrusive(),
+    };
+    var three = Element{
+        .value = 3,
+        .link = ElementList.Node.initIntrusive(),
+    };
+    var four = Element{
+        .value = 4,
+        .link = ElementList.Node.initIntrusive(),
+    };
+    var five = Element{
+        .value = 5,
+        .link = ElementList.Node.initIntrusive(),
+    };
 
-    list.append(&two.link);                     // {2}
-    list.append(&five.link);                    // {2, 5}
-    list.prepend(&one.link);                    // {1, 2, 5}
-    list.insertBefore(&five.link, &four.link);  // {1, 2, 4, 5}
-    list.insertAfter(&two.link, &three.link);   // {1, 2, 3, 4, 5}
+    list.append(&two.link); // {2}
+    list.append(&five.link); // {2, 5}
+    list.prepend(&one.link); // {1, 2, 5}
+    list.insertBefore(&five.link, &four.link); // {1, 2, 4, 5}
+    list.insertAfter(&two.link, &three.link); // {1, 2, 3, 4, 5}
 
     // Traverse forwards.
     {
@@ -317,11 +332,11 @@ test "basic intrusive linked list test" {
         }
     }
 
-    var first = list.popFirst();  // {2, 3, 4, 5}
-    var last  = list.pop();       // {2, 3, 4}
-    list.remove(&three.link);     // {2, 4}
+    var first = list.popFirst(); // {2, 3, 4, 5}
+    var last = list.pop(); // {2, 3, 4}
+    list.remove(&three.link); // {2, 4}
 
-    assert ((??list.first).toData().value == 2);
-    assert ((??list.last ).toData().value == 4);
-    assert (list.len == 2);
+    assert((??list.first).toData().value == 2);
+    assert((??list.last).toData().value == 4);
+    assert(list.len == 2);
 }

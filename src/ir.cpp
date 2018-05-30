@@ -1102,7 +1102,8 @@ static IrInstruction *ir_build_union_field_ptr_from(IrBuilder *irb, IrInstructio
 
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator,
+        IrInstruction *new_stack)
 {
     IrInstructionCall *call_instruction = ir_build_instruction<IrInstructionCall>(irb, scope, source_node);
     call_instruction->fn_entry = fn_entry;
@@ -1113,6 +1114,7 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
     call_instruction->arg_count = arg_count;
     call_instruction->is_async = is_async;
     call_instruction->async_allocator = async_allocator;
+    call_instruction->new_stack = new_stack;
 
     if (fn_ref)
         ir_ref_instruction(fn_ref, irb->current_basic_block);
@@ -1120,16 +1122,19 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
         ir_ref_instruction(args[i], irb->current_basic_block);
     if (async_allocator)
         ir_ref_instruction(async_allocator, irb->current_basic_block);
+    if (new_stack != nullptr)
+        ir_ref_instruction(new_stack, irb->current_basic_block);
 
     return &call_instruction->base;
 }
 
 static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator,
+        IrInstruction *new_stack)
 {
     IrInstruction *new_instruction = ir_build_call(irb, old_instruction->scope,
-            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline, is_async, async_allocator);
+            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline, is_async, async_allocator, new_stack);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -4303,7 +4308,37 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
                 FnInline fn_inline = (builtin_fn->id == BuiltinFnIdInlineCall) ? FnInlineAlways : FnInlineNever;
 
-                IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline, false, nullptr);
+                IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline, false, nullptr, nullptr);
+                return ir_lval_wrap(irb, scope, call, lval);
+            }
+        case BuiltinFnIdNewStackCall:
+            {
+                if (node->data.fn_call_expr.params.length == 0) {
+                    add_node_error(irb->codegen, node, buf_sprintf("expected at least 1 argument, found 0"));
+                    return irb->codegen->invalid_instruction;
+                }
+
+                AstNode *new_stack_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *new_stack = ir_gen_node(irb, new_stack_node, scope);
+                if (new_stack == irb->codegen->invalid_instruction)
+                    return new_stack;
+
+                AstNode *fn_ref_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *fn_ref = ir_gen_node(irb, fn_ref_node, scope);
+                if (fn_ref == irb->codegen->invalid_instruction)
+                    return fn_ref;
+
+                size_t arg_count = node->data.fn_call_expr.params.length - 2;
+
+                IrInstruction **args = allocate<IrInstruction*>(arg_count);
+                for (size_t i = 0; i < arg_count; i += 1) {
+                    AstNode *arg_node = node->data.fn_call_expr.params.at(i + 2);
+                    args[i] = ir_gen_node(irb, arg_node, scope);
+                    if (args[i] == irb->codegen->invalid_instruction)
+                        return args[i];
+                }
+
+                IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, false, nullptr, new_stack);
                 return ir_lval_wrap(irb, scope, call, lval);
             }
         case BuiltinFnIdTypeId:
@@ -4513,7 +4548,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
         }
     }
 
-    IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator);
+    IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator, nullptr);
     return ir_lval_wrap(irb, scope, fn_call, lval);
 }
 
@@ -4574,8 +4609,14 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_gen_prefix_op_id_lval(IrBuilder *irb, Scope *scope, AstNode *node, IrUnOp op_id, LVal lval) {
-    assert(node->type == NodeTypePrefixOpExpr);
-    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
+    AstNode *expr_node;
+    if (node->type == NodeTypePrefixOpExpr) {
+        expr_node = node->data.prefix_op_expr.primary_expr;
+    } else if (node->type == NodeTypePtrDeref) {
+        expr_node = node->data.ptr_deref_expr.target;
+    } else {
+        zig_unreachable();
+    }
 
     IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope, lval);
     if (value == irb->codegen->invalid_instruction)
@@ -4716,8 +4757,6 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegation), lval);
         case PrefixOpNegationWrap:
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegationWrap), lval);
-        case PrefixOpDereference:
-            return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpDereference, lval);
         case PrefixOpMaybe:
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpMaybe), lval);
         case PrefixOpUnwrapMaybe:
@@ -6553,6 +6592,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
 
                 return ir_build_load_ptr(irb, scope, node, ptr_instruction);
             }
+        case NodeTypePtrDeref:
+            return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpDereference, lval);
         case NodeTypeThisLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_this_literal(irb, scope, node), lval);
         case NodeTypeBoolLiteral:
@@ -6825,7 +6866,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
         args[0] = implicit_allocator_ptr; // self
         args[1] = mem_slice; // old_mem
-        ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr);
+        ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr, nullptr);
 
         IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "Resume");
         ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, irb->exec->coro_suspend_block, const_bool_false);
@@ -7592,38 +7633,16 @@ static bool slice_is_const(TypeTableEntry *type) {
     return type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
 }
 
-static bool resolve_inferred_error_set(IrAnalyze *ira, TypeTableEntry *err_set_type, AstNode *source_node) {
-    assert(err_set_type->id == TypeTableEntryIdErrorSet);
-    FnTableEntry *infer_fn = err_set_type->data.error_set.infer_fn;
-    if (infer_fn != nullptr) {
-        if (infer_fn->anal_state == FnAnalStateInvalid) {
-            return false;
-        } else if (infer_fn->anal_state == FnAnalStateReady) {
-            analyze_fn_body(ira->codegen, infer_fn);
-            if (err_set_type->data.error_set.infer_fn != nullptr) {
-                assert(ira->codegen->errors.length != 0);
-                return false;
-            }
-        } else {
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("cannot resolve inferred error set '%s': function '%s' not fully analyzed yet",
-                    buf_ptr(&err_set_type->name), buf_ptr(&err_set_type->data.error_set.infer_fn->symbol_name)));
-            return false;
-        }
-    }
-    return true;
-}
-
 static TypeTableEntry *get_error_set_intersection(IrAnalyze *ira, TypeTableEntry *set1, TypeTableEntry *set2,
         AstNode *source_node)
 {
     assert(set1->id == TypeTableEntryIdErrorSet);
     assert(set2->id == TypeTableEntryIdErrorSet);
 
-    if (!resolve_inferred_error_set(ira, set1, source_node)) {
+    if (!resolve_inferred_error_set(ira->codegen, set1, source_node)) {
         return ira->codegen->builtin_types.entry_invalid;
     }
-    if (!resolve_inferred_error_set(ira, set2, source_node)) {
+    if (!resolve_inferred_error_set(ira->codegen, set2, source_node)) {
         return ira->codegen->builtin_types.entry_invalid;
     }
     if (type_is_global_error_set(set1)) {
@@ -7762,7 +7781,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
             return result;
         }
 
-        if (!resolve_inferred_error_set(ira, contained_set, source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, contained_set, source_node)) {
             result.id = ConstCastResultIdUnresolvedInferredErrSet;
             return result;
         }
@@ -8151,7 +8170,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             err_set_type = ira->codegen->builtin_types.entry_global_error_set;
         } else {
             err_set_type = prev_inst->value.type;
-            if (!resolve_inferred_error_set(ira, err_set_type, prev_inst->source_node)) {
+            if (!resolve_inferred_error_set(ira->codegen, err_set_type, prev_inst->source_node)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
             update_errors_helper(ira->codegen, &errors, &errors_count);
@@ -8190,7 +8209,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 if (type_is_global_error_set(err_set_type)) {
                     continue;
                 }
-                if (!resolve_inferred_error_set(ira, cur_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
                 if (type_is_global_error_set(cur_type)) {
@@ -8256,7 +8275,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     continue;
                 }
                 TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
-                if (!resolve_inferred_error_set(ira, cur_err_set_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
                 if (type_is_global_error_set(cur_err_set_type)) {
@@ -8319,7 +8338,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             if (err_set_type != nullptr && type_is_global_error_set(err_set_type)) {
                 continue;
             }
-            if (!resolve_inferred_error_set(ira, cur_type, cur_inst->source_node)) {
+            if (!resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
 
@@ -8376,11 +8395,11 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 TypeTableEntry *prev_err_set_type = (err_set_type == nullptr) ? prev_type->data.error_union.err_set_type : err_set_type;
                 TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
 
-                if (!resolve_inferred_error_set(ira, prev_err_set_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, prev_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
 
-                if (!resolve_inferred_error_set(ira, cur_err_set_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
 
@@ -8490,7 +8509,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         {
             if (err_set_type != nullptr) {
                 TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
-                if (!resolve_inferred_error_set(ira, cur_err_set_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
                 if (type_is_global_error_set(cur_err_set_type) || type_is_global_error_set(err_set_type)) {
@@ -8686,6 +8705,10 @@ static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_
     *dest = *src;
     if (!same_global_refs) {
         dest->global_refs = global_refs;
+        if (dest->type->id == TypeTableEntryIdStruct) {
+            dest->data.x_struct.fields = allocate_nonzero<ConstExprValue>(dest->type->data.structure.src_field_count);
+            memcpy(dest->data.x_struct.fields, src->data.x_struct.fields, sizeof(ConstExprValue) * dest->type->data.structure.src_field_count);
+        }
     }
 }
 
@@ -9168,7 +9191,7 @@ static IrInstruction *ir_analyze_err_set_cast(IrAnalyze *ira, IrInstruction *sou
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        if (!resolve_inferred_error_set(ira, wanted_type, source_instr->source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, wanted_type, source_instr->source_node)) {
             return ira->codegen->invalid_instruction;
         }
         if (!type_is_global_error_set(wanted_type)) {
@@ -9609,7 +9632,7 @@ static IrInstruction *ir_analyze_int_to_err(IrAnalyze *ira, IrInstruction *sourc
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
 
-        if (!resolve_inferred_error_set(ira, wanted_type, source_instr->source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, wanted_type, source_instr->source_node)) {
             return ira->codegen->invalid_instruction;
         }
 
@@ -9707,7 +9730,7 @@ static IrInstruction *ir_analyze_err_to_int(IrAnalyze *ira, IrInstruction *sourc
         zig_unreachable();
     }
     if (!type_is_global_error_set(err_set_type)) {
-        if (!resolve_inferred_error_set(ira, err_set_type, source_instr->source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, err_set_type, source_instr->source_node)) {
             return ira->codegen->invalid_instruction;
         }
         if (err_set_type->data.error_set.err_count == 0) {
@@ -10602,7 +10625,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        if (!resolve_inferred_error_set(ira, intersect_type, source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, intersect_type, source_node)) {
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -11458,11 +11481,11 @@ static TypeTableEntry *ir_analyze_merge_error_sets(IrAnalyze *ira, IrInstruction
         return ira->codegen->builtin_types.entry_type;
     }
 
-    if (!resolve_inferred_error_set(ira, op1_type, instruction->op1->other->source_node)) {
+    if (!resolve_inferred_error_set(ira->codegen, op1_type, instruction->op1->other->source_node)) {
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (!resolve_inferred_error_set(ira, op2_type, instruction->op2->other->source_node)) {
+    if (!resolve_inferred_error_set(ira->codegen, op2_type, instruction->op2->other->source_node)) {
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -11670,7 +11693,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         if (var->mem_slot_index != SIZE_MAX) {
             assert(var->mem_slot_index < ira->exec_context.mem_slot_count);
             ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-            *mem_slot = casted_init_value->value;
+            copy_const_val(mem_slot, &casted_init_value->value,
+                    !is_comptime_var || var->gen_is_const);
 
             if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
                 ir_build_const_from(ira, &decl_var_instruction->base);
@@ -11987,7 +12011,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *c
     TypeTableEntry *async_return_type = get_error_union_type(ira->codegen, alloc_fn_error_set_type, promise_type);
 
     IrInstruction *result = ir_build_call(&ira->new_irb, call_instruction->base.scope, call_instruction->base.source_node,
-        fn_entry, fn_ref, arg_count, casted_args, false, FnInlineAuto, true, async_allocator_inst);
+        fn_entry, fn_ref, arg_count, casted_args, false, FnInlineAuto, true, async_allocator_inst, nullptr);
     result->value.type = async_return_type;
     return result;
 }
@@ -12084,7 +12108,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
             casted_arg->value.type->id == TypeTableEntryIdNumLitFloat)
     {
         ir_add_error(ira, casted_arg,
-            buf_sprintf("compiler bug: integer and float literals in var args function must be casted. https://github.com/zig-lang/zig/issues/557"));
+            buf_sprintf("compiler bug: integer and float literals in var args function must be casted. https://github.com/ziglang/zig/issues/557"));
         return false;
     }
 
@@ -12285,7 +12309,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         if (fn_proto_node->data.fn_proto.is_var_args) {
             ir_add_error(ira, &call_instruction->base,
-                    buf_sprintf("compiler bug: unable to call var args function at compile time. https://github.com/zig-lang/zig/issues/313"));
+                    buf_sprintf("compiler bug: unable to call var args function at compile time. https://github.com/ziglang/zig/issues/313"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -12357,6 +12381,19 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         return ir_finish_anal(ira, return_type);
     }
 
+    IrInstruction *casted_new_stack = nullptr;
+    if (call_instruction->new_stack != nullptr) {
+        TypeTableEntry *u8_ptr = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, false);
+        TypeTableEntry *u8_slice = get_slice_type(ira->codegen, u8_ptr);
+        IrInstruction *new_stack = call_instruction->new_stack->other;
+        if (type_is_invalid(new_stack->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        casted_new_stack = ir_implicit_cast(ira, new_stack, u8_slice);
+        if (type_is_invalid(casted_new_stack->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
     if (fn_type->data.fn.is_generic) {
         if (!fn_entry) {
             ir_add_error(ira, call_instruction->fn_ref,
@@ -12365,7 +12402,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
         if (call_instruction->is_async && fn_type_id->is_var_args) {
             ir_add_error(ira, call_instruction->fn_ref,
-                buf_sprintf("compiler bug: TODO: implement var args async functions. https://github.com/zig-lang/zig/issues/557"));
+                buf_sprintf("compiler bug: TODO: implement var args async functions. https://github.com/ziglang/zig/issues/557"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -12448,7 +12485,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                     VariableTableEntry *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
                     if (arg_var == nullptr) {
                         ir_add_error(ira, arg,
-                            buf_sprintf("compiler bug: var args can't handle void. https://github.com/zig-lang/zig/issues/557"));
+                            buf_sprintf("compiler bug: var args can't handle void. https://github.com/ziglang/zig/issues/557"));
                         return ira->codegen->builtin_types.entry_invalid;
                     }
                     IrInstruction *arg_var_ptr_inst = ir_get_var_ptr(ira, arg, arg_var, true, false);
@@ -12583,7 +12620,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         assert(async_allocator_inst == nullptr);
         IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline,
-                call_instruction->is_async, nullptr);
+                call_instruction->is_async, nullptr, casted_new_stack);
 
         ir_add_alloca(ira, new_call_instruction, return_type);
 
@@ -12674,7 +12711,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
 
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr);
+            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr, casted_new_stack);
 
     ir_add_alloca(ira, new_call_instruction, return_type);
     return ir_finish_anal(ira, return_type);
@@ -13792,7 +13829,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 }
                 err_set_type = err_entry->set_with_only_this_in_it;
             } else {
-                if (!resolve_inferred_error_set(ira, child_type, field_ptr_instruction->base.source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, child_type, field_ptr_instruction->base.source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
                 err_entry = find_err_table_entry(child_type, field_name);
@@ -15923,10 +15960,6 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                     assert(!fn_entry->is_test);
 
-                    analyze_fn_body(ira->codegen, fn_entry);
-                    if (fn_entry->anal_state == FnAnalStateInvalid)
-                        return;
-
                     AstNodeFnProto *fn_node = (AstNodeFnProto *)(fn_entry->proto_node);
 
                     ConstExprValue *fn_def_val = create_const_vals(1);
@@ -16496,6 +16529,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     {
                         size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, type_entry->type_ref, struct_field->gen_index);
                         inner_fields[1].data.x_maybe = create_const_vals(1);
+                        inner_fields[1].data.x_maybe->special = ConstValSpecialStatic;
                         inner_fields[1].data.x_maybe->type = ira->codegen->builtin_types.entry_usize;
                         bigint_init_unsigned(&inner_fields[1].data.x_maybe->data.x_bigint, byte_offset);
                     }
@@ -17503,7 +17537,7 @@ static TypeTableEntry *ir_analyze_instruction_member_count(IrAnalyze *ira, IrIns
     } else if (container_type->id == TypeTableEntryIdUnion) {
         result = container_type->data.unionation.src_field_count;
     } else if (container_type->id == TypeTableEntryIdErrorSet) {
-        if (!resolve_inferred_error_set(ira, container_type, instruction->base.source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, container_type, instruction->base.source_node)) {
             return ira->codegen->builtin_types.entry_invalid;
         }
         if (type_is_global_error_set(container_type)) {
@@ -17807,7 +17841,7 @@ static TypeTableEntry *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruc
         }
 
         TypeTableEntry *err_set_type = type_entry->data.error_union.err_set_type;
-        if (!resolve_inferred_error_set(ira, err_set_type, instruction->base.source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, err_set_type, instruction->base.source_node)) {
             return ira->codegen->builtin_types.entry_invalid;
         }
         if (!type_is_global_error_set(err_set_type) &&
@@ -17879,6 +17913,15 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
     if (type_is_invalid(value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *ptr_type = value->value.type;
+
+    // Because we don't have Pointer Reform yet, we can't have a pointer to a 'type'.
+    // Therefor, we have to check for type 'type' here, so we can output a correct error
+    // without asserting the assert below.
+    if (ptr_type->id == TypeTableEntryIdMetaType) {
+        ir_add_error(ira, value,
+            buf_sprintf("expected error union type, found '%s'", buf_ptr(&ptr_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
     // This will be a pointer type because unwrap err payload IR instruction operates on a pointer to a thing.
     assert(ptr_type->id == TypeTableEntryIdPointer);
@@ -18030,7 +18073,11 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             if (type_is_invalid(end_value->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
-            assert(start_value->value.type->id == TypeTableEntryIdEnum);
+            if (start_value->value.type->id != TypeTableEntryIdEnum) {
+                ir_add_error(ira, range->start, buf_sprintf("not an enum type"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+
             BigInt start_index;
             bigint_init_bigint(&start_index, &start_value->value.data.x_enum_tag);
 
@@ -18071,7 +18118,7 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             }
         }
     } else if (switch_type->id == TypeTableEntryIdErrorSet) {
-        if (!resolve_inferred_error_set(ira, switch_type, target_value->source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, switch_type, target_value->source_node)) {
             return ira->codegen->builtin_types.entry_invalid;
         }
 

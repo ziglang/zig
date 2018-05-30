@@ -25,6 +25,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type);
 static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type);
 static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
 static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
+static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     if (node->owner->c_import_node != nullptr) {
@@ -1007,7 +1008,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (fn_type_id->return_type != nullptr) {
         ensure_complete_type(g, fn_type_id->return_type);
     } else {
-        zig_panic("TODO implement inferred return types https://github.com/zig-lang/zig/issues/447");
+        zig_panic("TODO implement inferred return types https://github.com/ziglang/zig/issues/447");
     }
 
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
@@ -1556,7 +1557,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             return g->builtin_types.entry_invalid;
         }
         add_node_error(g, proto_node,
-            buf_sprintf("TODO implement inferred return types https://github.com/zig-lang/zig/issues/447"));
+            buf_sprintf("TODO implement inferred return types https://github.com/ziglang/zig/issues/447"));
         return g->builtin_types.entry_invalid;
         //return get_generic_fn_type(g, &fn_type_id);
     }
@@ -3281,6 +3282,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeUnreachable:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
+        case NodeTypePtrDeref:
         case NodeTypeStructField:
         case NodeTypeContainerInitExpr:
         case NodeTypeStructValueField:
@@ -3879,7 +3881,7 @@ static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entr
     }
 }
 
-static bool analyze_resolve_inferred_error_set(CodeGen *g, TypeTableEntry *err_set_type, AstNode *source_node) {
+bool resolve_inferred_error_set(CodeGen *g, TypeTableEntry *err_set_type, AstNode *source_node) {
     FnTableEntry *infer_fn = err_set_type->data.error_set.infer_fn;
     if (infer_fn != nullptr) {
         if (infer_fn->anal_state == FnAnalStateInvalid) {
@@ -3931,7 +3933,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
             }
 
             if (inferred_err_set_type->data.error_set.infer_fn != nullptr) {
-                if (!analyze_resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
+                if (!resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
                     fn_table_entry->anal_state = FnAnalStateInvalid;
                     return;
                 }
@@ -3961,7 +3963,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
     fn_table_entry->anal_state = FnAnalStateComplete;
 }
 
-void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
+static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     assert(fn_table_entry->anal_state != FnAnalStateProbing);
     if (fn_table_entry->anal_state != FnAnalStateReady)
         return;

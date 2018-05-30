@@ -31,28 +31,28 @@ pub fn Complex(comptime T: type) type {
         im: T,
 
         pub fn new(re: T, im: T) Self {
-            return Self {
+            return Self{
                 .re = re,
                 .im = im,
             };
         }
 
         pub fn add(self: &const Self, other: &const Self) Self {
-            return Self {
+            return Self{
                 .re = self.re + other.re,
                 .im = self.im + other.im,
             };
         }
 
         pub fn sub(self: &const Self, other: &const Self) Self {
-            return Self {
+            return Self{
                 .re = self.re - other.re,
                 .im = self.im - other.im,
             };
         }
 
         pub fn mul(self: &const Self, other: &const Self) Self {
-            return Self {
+            return Self{
                 .re = self.re * other.re - self.im * other.im,
                 .im = self.im * other.re + self.re * other.im,
             };
@@ -63,14 +63,14 @@ pub fn Complex(comptime T: type) type {
             const im_num = self.im * other.re - self.re * other.im;
             const den = other.re * other.re + other.im * other.im;
 
-            return Self {
+            return Self{
                 .re = re_num / den,
                 .im = im_num / den,
             };
         }
 
         pub fn conjugate(self: &const Self) Self {
-            return Self {
+            return Self{
                 .re = self.re,
                 .im = -self.im,
             };
@@ -78,7 +78,7 @@ pub fn Complex(comptime T: type) type {
 
         pub fn reciprocal(self: &const Self) Self {
             const m = self.re * self.re + self.im * self.im;
-            return Self {
+            return Self{
                 .re = self.re / m,
                 .im = -self.im / m,
             };
@@ -121,8 +121,8 @@ test "complex.div" {
     const b = Complex(f32).new(2, 7);
     const c = a.div(b);
 
-    debug.assert(math.approxEq(f32, c.re, f32(31)/53, epsilon) and
-                 math.approxEq(f32, c.im, f32(-29)/53, epsilon));
+    debug.assert(math.approxEq(f32, c.re, f32(31) / 53, epsilon) and
+        math.approxEq(f32, c.im, f32(-29) / 53, epsilon));
 }
 
 test "complex.conjugate" {
@@ -136,8 +136,8 @@ test "complex.reciprocal" {
     const a = Complex(f32).new(5, 3);
     const c = a.reciprocal();
 
-    debug.assert(math.approxEq(f32, c.re, f32(5)/34, epsilon) and
-                 math.approxEq(f32, c.im, f32(-3)/34, epsilon));
+    debug.assert(math.approxEq(f32, c.re, f32(5) / 34, epsilon) and
+        math.approxEq(f32, c.im, f32(-3) / 34, epsilon));
 }
 
 test "complex.magnitude" {

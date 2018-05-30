@@ -1,3 +1,701 @@
+test "zig fmt: async call in if condition" {
+    try testCanonical(
+        \\comptime {
+        \\    if (async<a> b()) {
+        \\        a();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: 2nd arg multiline string" {
+    try testCanonical(
+        \\comptime {
+        \\    cases.addAsm("hello world linux x86_64",
+        \\        \\.text
+        \\    , "Hello, world!\n");
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: if condition wraps" {
+    try testTransform(
+        \\comptime {
+        \\    if (cond and
+        \\        cond) {
+        \\        return x;
+        \\    }
+        \\    while (cond and
+        \\        cond) {
+        \\        return x;
+        \\    }
+        \\    if (a == b and
+        \\        c) {
+        \\        a = b;
+        \\    }
+        \\    while (a == b and
+        \\        c) {
+        \\        a = b;
+        \\    }
+        \\    if ((cond and
+        \\        cond)) {
+        \\        return x;
+        \\    }
+        \\    while ((cond and
+        \\        cond)) {
+        \\        return x;
+        \\    }
+        \\    var a = if (a) |*f| x: {
+        \\        break :x &a.b;
+        \\    } else |err| err;
+        \\}
+    ,
+        \\comptime {
+        \\    if (cond and
+        \\        cond)
+        \\    {
+        \\        return x;
+        \\    }
+        \\    while (cond and
+        \\        cond)
+        \\    {
+        \\        return x;
+        \\    }
+        \\    if (a == b and
+        \\        c)
+        \\    {
+        \\        a = b;
+        \\    }
+        \\    while (a == b and
+        \\        c)
+        \\    {
+        \\        a = b;
+        \\    }
+        \\    if ((cond and
+        \\        cond))
+        \\    {
+        \\        return x;
+        \\    }
+        \\    while ((cond and
+        \\        cond))
+        \\    {
+        \\        return x;
+        \\    }
+        \\    var a = if (a) |*f| x: {
+        \\        break :x &a.b;
+        \\    } else |err| err;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: if condition has line break but must not wrap" {
+    try testCanonical(
+        \\comptime {
+        \\    if (self.user_input_options.put(name, UserInputOption{
+        \\        .name = name,
+        \\        .used = false,
+        \\    }) catch unreachable) |*prev_value| {
+        \\        foo();
+        \\        bar();
+        \\    }
+        \\    if (put(
+        \\        a,
+        \\        b,
+        \\    )) {
+        \\        foo();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same-line doc comment on variable declaration" {
+    try testTransform(
+        \\pub const MAP_ANONYMOUS = 0x1000; /// allocated from memory, swap space
+        \\pub const MAP_FILE = 0x0000; /// map from file (default)
+        \\
+        \\pub const EMEDIUMTYPE = 124; /// Wrong medium type
+        \\
+        \\// nameserver query return codes
+        \\pub const ENSROK = 0; /// DNS server returned answer with no data
+    ,
+        \\/// allocated from memory, swap space
+        \\pub const MAP_ANONYMOUS = 0x1000;
+        \\/// map from file (default)
+        \\pub const MAP_FILE = 0x0000;
+        \\
+        \\/// Wrong medium type
+        \\pub const EMEDIUMTYPE = 124;
+        \\
+        \\// nameserver query return codes
+        \\/// DNS server returned answer with no data
+        \\pub const ENSROK = 0;
+        \\
+    );
+}
+
+test "zig fmt: if-else with comment before else" {
+    try testCanonical(
+        \\comptime {
+        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
+        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
+        \\        return Complex(f32).new(y - y, y - y);
+        \\    } // cexp(-inf +- i inf|nan) = 0 + i0
+        \\    else if (hx & 0x80000000 != 0) {
+        \\        return Complex(f32).new(0, 0);
+        \\    } // cexp(+inf +- i inf|nan) = inf + i nan
+        \\    else {
+        \\        return Complex(f32).new(x, y - y);
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: respect line breaks in if-else" {
+    try testCanonical(
+        \\comptime {
+        \\    return if (cond) a else b;
+        \\    return if (cond)
+        \\        a
+        \\    else
+        \\        b;
+        \\    return if (cond)
+        \\        a
+        \\    else if (cond)
+        \\        b
+        \\    else
+        \\        c;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: respect line breaks after infix operators" {
+    try testCanonical(
+        \\comptime {
+        \\    self.crc =
+        \\        lookup_tables[0][p[7]] ^
+        \\        lookup_tables[1][p[6]] ^
+        \\        lookup_tables[2][p[5]] ^
+        \\        lookup_tables[3][p[4]] ^
+        \\        lookup_tables[4][@truncate(u8, self.crc >> 24)] ^
+        \\        lookup_tables[5][@truncate(u8, self.crc >> 16)] ^
+        \\        lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
+        \\        lookup_tables[7][@truncate(u8, self.crc >> 0)];
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: fn decl with trailing comma" {
+    try testTransform(
+        \\fn foo(a: i32, b: i32,) void {}
+    ,
+        \\fn foo(
+        \\    a: i32,
+        \\    b: i32,
+        \\) void {}
+        \\
+    );
+}
+
+test "zig fmt: enum decl with no trailing comma" {
+    try testTransform(
+        \\const StrLitKind = enum {Normal, C};
+    ,
+        \\const StrLitKind = enum {
+        \\    Normal,
+        \\    C,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: switch comment before prong" {
+    try testCanonical(
+        \\comptime {
+        \\    switch (a) {
+        \\        // hi
+        \\        0 => {},
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: struct literal no trailing comma" {
+    try testTransform(
+        \\const a = foo{ .x = 1, .y = 2 };
+        \\const a = foo{ .x = 1,
+        \\    .y = 2 };
+    ,
+        \\const a = foo{ .x = 1, .y = 2 };
+        \\const a = foo{
+        \\    .x = 1,
+        \\    .y = 2,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: array literal with hint" {
+    try testTransform(
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3,
+        \\    4,
+        \\    5,
+        \\    6,
+        \\    7 };
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3,
+        \\    4,
+        \\    5,
+        \\    6,
+        \\    7, 8 };
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3,
+        \\    4,
+        \\    5,
+        \\    6, // blah
+        \\    7, 8 };
+        \\const a = []u8{
+        \\    1, 2, //
+        \\    3, //
+        \\    4,
+        \\    5,
+        \\    6,
+        \\    7 };
+        \\const a = []u8{
+        \\    1,
+        \\    2,
+        \\    3, 4, //
+        \\    5, 6, //
+        \\    7, 8, //
+        \\};
+    ,
+        \\const a = []u8{
+        \\    1, 2,
+        \\    3, 4,
+        \\    5, 6,
+        \\    7,
+        \\};
+        \\const a = []u8{
+        \\    1, 2,
+        \\    3, 4,
+        \\    5, 6,
+        \\    7, 8,
+        \\};
+        \\const a = []u8{
+        \\    1, 2,
+        \\    3, 4,
+        \\    5, 6, // blah
+        \\    7, 8,
+        \\};
+        \\const a = []u8{
+        \\    1, 2,
+        \\    3, //
+        \\        4,
+        \\    5, 6,
+        \\    7,
+        \\};
+        \\const a = []u8{
+        \\    1,
+        \\    2,
+        \\    3,
+        \\    4,
+        \\    5,
+        \\    6,
+        \\    7,
+        \\    8,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: multiline string with backslash at end of line" {
+    try testCanonical(
+        \\comptime {
+        \\    err(
+        \\        \\\
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: multiline string parameter in fn call with trailing comma" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    try stdout.print(
+        \\        \\ZIG_CMAKE_BINARY_DIR {}
+        \\        \\ZIG_C_HEADER_FILES   {}
+        \\        \\ZIG_DIA_GUIDS_LIB    {}
+        \\        \\
+        \\    ,
+        \\        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
+        \\        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
+        \\        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: trailing comma on fn call" {
+    try testCanonical(
+        \\comptime {
+        \\    var module = try Module.create(
+        \\        allocator,
+        \\        zig_lib_dir,
+        \\        full_cache_dir,
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: empty block with only comment" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        // comment
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: no trailing comma on struct decl" {
+    try testTransform(
+        \\const RoundParam = struct {
+        \\    k: usize, s: u32, t: u32
+        \\};
+    ,
+        \\const RoundParam = struct {
+        \\    k: usize,
+        \\    s: u32,
+        \\    t: u32,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: simple asm" {
+    try testTransform(
+        \\comptime {
+        \\    asm volatile (
+        \\        \\.globl aoeu;
+        \\        \\.type aoeu, @function;
+        \\        \\.set aoeu, derp;
+        \\    );
+        \\
+        \\    asm ("not real assembly"
+        \\        :[a] "x" (x),);
+        \\    asm ("not real assembly"
+        \\        :[a] "x" (->i32),:[a] "x" (1),);
+        \\    asm ("still not real assembly"
+        \\        :::"a","b",);
+        \\}
+    ,
+        \\comptime {
+        \\    asm volatile (
+        \\        \\.globl aoeu;
+        \\        \\.type aoeu, @function;
+        \\        \\.set aoeu, derp;
+        \\    );
+        \\
+        \\    asm ("not real assembly"
+        \\        : [a] "x" (x)
+        \\    );
+        \\    asm ("not real assembly"
+        \\        : [a] "x" (-> i32)
+        \\        : [a] "x" (1)
+        \\    );
+        \\    asm ("still not real assembly"
+        \\        :
+        \\        :
+        \\        : "a", "b"
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: nested struct literal with one item" {
+    try testCanonical(
+        \\const a = foo{
+        \\    .item = bar{ .a = b },
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: switch cases trailing comma" {
+    try testTransform(
+        \\fn switch_cases(x: i32) void {
+        \\    switch (x) {
+        \\        1,2,3 => {},
+        \\        4,5, => {},
+        \\        6... 8, => {},
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        \\fn switch_cases(x: i32) void {
+        \\    switch (x) {
+        \\        1, 2, 3 => {},
+        \\        4,
+        \\        5,
+        \\        => {},
+        \\        6...8 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: slice align" {
+    try testCanonical(
+        \\const A = struct {
+        \\    items: []align(A) T,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: add trailing comma to array literal" {
+    try testTransform(
+        \\comptime {
+        \\    return []u16{'m', 's', 'y', 's', '-' // hi
+        \\   };
+        \\    return []u16{'m', 's', 'y', 's',
+        \\      '-'};
+        \\    return []u16{'m', 's', 'y', 's', '-'};
+        \\}
+    ,
+        \\comptime {
+        \\    return []u16{
+        \\        'm', 's', 'y', 's', '-', // hi
+        \\    };
+        \\    return []u16{
+        \\        'm', 's', 'y', 's',
+        \\        '-',
+        \\    };
+        \\    return []u16{ 'm', 's', 'y', 's', '-' };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: first thing in file is line comment" {
+    try testCanonical(
+        \\// Introspection and determination of system libraries needed by zig.
+        \\
+        \\// Introspection and determination of system libraries needed by zig.
+        \\
+        \\const std = @import("std");
+        \\
+    );
+}
+
+test "zig fmt: line comment after doc comment" {
+    try testCanonical(
+        \\/// doc comment
+        \\// line comment
+        \\fn foo() void {}
+        \\
+    );
+}
+
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\test "bit field alignment" {
+        \\    assert(@typeOf(&blah.b) == &align(1:3:6) const u3);
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    switch (state) {
+        \\        TermState.Start => switch (c) {
+        \\            '\x1b' => state = TermState.Escape,
+        \\            else => try out.writeByte(c),
+        \\        },
+        \\    }
+        \\}
+        \\
+    );
+}
+test "zig fmt: float literal with exponent" {
+    try testCanonical(
+        \\pub const f64_true_min = 4.94065645841246544177e-324;
+        \\const threshold = 0x1.a827999fcef32p+1022;
+        \\
+    );
+}
+
+test "zig fmt: if-else end of comptime" {
+    try testCanonical(
+        \\comptime {
+        \\    if (a) {
+        \\        b();
+        \\    } else {
+        \\        b();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: nested blocks" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        {
+        \\            {
+        \\                a();
+        \\            }
+        \\        }
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: block with same line comment after end brace" {
+    try testCanonical(
+        \\comptime {
+        \\    {
+        \\        b();
+        \\    } // comment
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: statements with comment between" {
+    try testCanonical(
+        \\comptime {
+        \\    a = b;
+        \\    // comment
+        \\    a = b;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: statements with empty line between" {
+    try testCanonical(
+        \\comptime {
+        \\    a = b;
+        \\
+        \\    a = b;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: ptr deref operator" {
+    try testCanonical(
+        \\const a = b.*;
+        \\
+    );
+}
+
+test "zig fmt: comment after if before another if" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
+        \\test "aoeu" {
+        \\    if (x) {
+        \\        foo();
+        \\    }
+        \\    // comment
+        \\    if (x) {
+        \\        bar();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: line comment between if block and else keyword" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
+        \\    if ((hx & 0x7fffffff) != 0x7f800000) {
+        \\        return Complex(f32).new(y - y, y - y);
+        \\    }
+        \\    // cexp(-inf +- i inf|nan) = 0 + i0
+        \\    else if (hx & 0x80000000 != 0) {
+        \\        return Complex(f32).new(0, 0);
+        \\    }
+        \\    // cexp(+inf +- i inf|nan) = inf + i nan
+        \\    // another comment
+        \\    else {
+        \\        return Complex(f32).new(x, y - y);
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: same line comments in expression" {
+    try testCanonical(
+        \\test "aoeu" {
+        \\    const x = ( // a
+        \\        0 // b
+        \\    ); // c
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: add comma on last switch prong" {
+    try testTransform(
+        \\test "aoeu" {
+        \\switch (self.init_arg_expr) {
+        \\    InitArg.Type => |t| { },
+        \\    InitArg.None,
+        \\    InitArg.Enum => { }
+        \\}
+        \\ switch (self.init_arg_expr) {
+        \\     InitArg.Type => |t| { },
+        \\     InitArg.None,
+        \\     InitArg.Enum => { }//line comment
+        \\ }
+        \\}
+    ,
+        \\test "aoeu" {
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None, InitArg.Enum => {},
+        \\    }
+        \\    switch (self.init_arg_expr) {
+        \\        InitArg.Type => |t| {},
+        \\        InitArg.None, InitArg.Enum => {}, //line comment
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: same-line comment after a statement" {
     try testCanonical(
         \\test "" {
@@ -67,13 +765,6 @@ test "zig fmt: switch with empty body" {
         \\test "" {
         \\    foo() catch |err| switch (err) {};
         \\}
-        \\
-    );
-}
-
-test "zig fmt: float literal with exponent" {
-    try testCanonical(
-        \\pub const f64_true_min = 4.94065645841246544177e-324;
         \\
     );
 }
@@ -330,7 +1021,7 @@ test "zig fmt: extern declaration" {
 }
 
 test "zig fmt: alignment" {
-        try testCanonical(
+    try testCanonical(
         \\var foo: c_int align(1);
         \\
     );
@@ -379,7 +1070,7 @@ test "zig fmt: slice attributes" {
 }
 
 test "zig fmt: test declaration" {
-     try testCanonical(
+    try testCanonical(
         \\test "test name" {
         \\    const a = 1;
         \\    var b = 1;
@@ -539,6 +1230,11 @@ test "zig fmt: multiline string" {
         \\        c\\two)
         \\        c\\three
         \\    ;
+        \\    const s3 = // hi
+        \\        \\one
+        \\        \\two)
+        \\        \\three
+        \\    ;
         \\}
         \\
     );
@@ -616,7 +1312,7 @@ test "zig fmt: struct declaration" {
 }
 
 test "zig fmt: enum declaration" {
-      try testCanonical(
+    try testCanonical(
         \\const E = enum {
         \\    Ok,
         \\    SomethingElse = 0,
@@ -644,7 +1340,7 @@ test "zig fmt: enum declaration" {
 }
 
 test "zig fmt: union declaration" {
-      try testCanonical(
+    try testCanonical(
         \\const U = union {
         \\    Int: u8,
         \\    Float: f32,
@@ -759,9 +1455,8 @@ test "zig fmt: switch" {
         \\    switch (0) {
         \\        0 => {},
         \\        1 => unreachable,
-        \\        2,
-        \\        3 => {},
-        \\        4 ... 7 => {},
+        \\        2, 3 => {},
+        \\        4...7 => {},
         \\        1 + 4 * 3 + 22 => {},
         \\        else => {
         \\            const a = 1;
@@ -1021,7 +1716,8 @@ test "zig fmt: inline asm" {
         \\        : [ret] "={rax}" (-> usize)
         \\        : [number] "{rax}" (number),
         \\          [arg1] "{rdi}" (arg1)
-        \\        : "rcx", "r11");
+        \\        : "rcx", "r11"
+        \\    );
         \\}
         \\
     );
@@ -1164,10 +1860,15 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    warn("\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
-                        fail_index, needed_alloc_count,
-                        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
-                        failing_allocator.index, failing_allocator.deallocations);
+                    warn(
+                        "\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
+                        fail_index,
+                        needed_alloc_count,
+                        failing_allocator.allocated_bytes,
+                        failing_allocator.freed_bytes,
+                        failing_allocator.index,
+                        failing_allocator.deallocations,
+                    );
                     return error.MemoryLeakDetected;
                 }
             },
@@ -1180,4 +1881,3 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
 fn testCanonical(source: []const u8) !void {
     return testTransform(source, source);
 }
-

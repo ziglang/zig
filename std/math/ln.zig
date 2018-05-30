@@ -120,11 +120,9 @@ pub fn ln_64(x_: f64) f64 {
         k -= 54;
         x *= 0x1.0p54;
         hx = u32(@bitCast(u64, ix) >> 32);
-    }
-    else if (hx >= 0x7FF00000) {
+    } else if (hx >= 0x7FF00000) {
         return x;
-    }
-    else if (hx == 0x3FF00000 and ix << 32 == 0) {
+    } else if (hx == 0x3FF00000 and ix << 32 == 0) {
         return 0;
     }
 

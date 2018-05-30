@@ -44,4 +44,3 @@ test "fixunsdfti" {
     test__fixunsdfti(-0x1.FFFFFFFFFFFFFp+62, 0);
     test__fixunsdfti(-0x1.FFFFFFFFFFFFEp+62, 0);
 }
-

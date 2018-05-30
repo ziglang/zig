@@ -16,7 +16,7 @@ pub fn build(b: &Builder) !void {
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
 
     const rel_zig_exe = try os.path.relative(b.allocator, b.build_root, b.zig_exe);
-    var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8 {
+    var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8{
         docgen_exe.getOutputPath(),
         rel_zig_exe,
         "doc/langref.html.in",
@@ -30,7 +30,10 @@ pub fn build(b: &Builder) !void {
     const test_step = b.step("test", "Run all the tests");
 
     // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
-    const build_info = try b.exec([][]const u8{b.zig_exe, "BUILD_INFO"});
+    const build_info = try b.exec([][]const u8{
+        b.zig_exe,
+        "BUILD_INFO",
+    });
     var index: usize = 0;
     const cmake_binary_dir = nextValue(&index, build_info);
     const cxx_compiler = nextValue(&index, build_info);
@@ -67,7 +70,10 @@ pub fn build(b: &Builder) !void {
     dependOnLib(exe, llvm);
 
     if (exe.target.getOs() == builtin.Os.linux) {
-        const libstdcxx_path_padded = try b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
+        const libstdcxx_path_padded = try b.exec([][]const u8{
+            cxx_compiler,
+            "-print-file-name=libstdc++.a",
+        });
         const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
         if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
             warn(
@@ -111,17 +117,11 @@ pub fn build(b: &Builder) !void {
 
     test_step.dependOn(docs_step);
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter,
-        "test/behavior.zig", "behavior", "Run the behavior tests",
-        with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", with_lldb));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter,
-        "std/index.zig", "std", "Run the standard library tests",
-        with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", with_lldb));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter,
-        "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests",
-        with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", with_lldb));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
@@ -149,8 +149,7 @@ fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) vo
 
 fn addCppLib(b: &Builder, lib_exe_obj: &std.build.LibExeObjStep, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
-    lib_exe_obj.addObjectFile(os.path.join(b.allocator, cmake_binary_dir, "zig_cpp",
-        b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())) catch unreachable);
+    lib_exe_obj.addObjectFile(os.path.join(b.allocator, cmake_binary_dir, "zig_cpp", b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())) catch unreachable);
 }
 
 const LibraryDep = struct {
@@ -161,11 +160,21 @@ const LibraryDep = struct {
 };
 
 fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
-    const libs_output = try b.exec([][]const u8{llvm_config_exe, "--libs", "--system-libs"});
-    const includes_output = try b.exec([][]const u8{llvm_config_exe, "--includedir"});
-    const libdir_output = try b.exec([][]const u8{llvm_config_exe, "--libdir"});
+    const libs_output = try b.exec([][]const u8{
+        llvm_config_exe,
+        "--libs",
+        "--system-libs",
+    });
+    const includes_output = try b.exec([][]const u8{
+        llvm_config_exe,
+        "--includedir",
+    });
+    const libdir_output = try b.exec([][]const u8{
+        llvm_config_exe,
+        "--libdir",
+    });
 
-    var result = LibraryDep {
+    var result = LibraryDep{
         .libs = ArrayList([]const u8).init(b.allocator),
         .system_libs = ArrayList([]const u8).init(b.allocator),
         .includes = ArrayList([]const u8).init(b.allocator),
@@ -227,17 +236,17 @@ pub fn installCHeaders(b: &Builder, c_header_files: []const u8) void {
 }
 
 fn nextValue(index: &usize, build_info: []const u8) []const u8 {
-    const start = *index;
-    while (true) : (*index += 1) {
-        switch (build_info[*index]) {
+    const start = index.*;
+    while (true) : (index.* += 1) {
+        switch (build_info[index.*]) {
             '\n' => {
-                const result = build_info[start..*index];
-                *index += 1;
+                const result = build_info[start..index.*];
+                index.* += 1;
                 return result;
             },
             '\r' => {
-                const result = build_info[start..*index];
-                *index += 2;
+                const result = build_info[start..index.*];
+                index.* += 2;
                 return result;
             },
             else => continue,

@@ -56,7 +56,8 @@ export fn memmove(dest: ?&u8, src: ?&const u8, n: usize) ?&u8 {
 comptime {
     if (builtin.mode != builtin.Mode.ReleaseFast and
         builtin.mode != builtin.Mode.ReleaseSmall and
-        builtin.os != builtin.Os.windows) {
+        builtin.os != builtin.Os.windows)
+    {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
     if (builtin.os == builtin.Os.linux and builtin.arch == builtin.Arch.x86_64) {
@@ -101,15 +102,27 @@ nakedcc fn clone() void {
 
 const math = @import("../math/index.zig");
 
-export fn fmodf(x: f32, y: f32) f32 { return generic_fmod(f32, x, y); }
-export fn fmod(x: f64, y: f64) f64 { return generic_fmod(f64, x, y); }
+export fn fmodf(x: f32, y: f32) f32 {
+    return generic_fmod(f32, x, y);
+}
+export fn fmod(x: f64, y: f64) f64 {
+    return generic_fmod(f64, x, y);
+}
 
 // TODO add intrinsics for these (and probably the double version too)
 // and have the math stuff use the intrinsic. same as @mod and @rem
-export fn floorf(x: f32) f32 { return math.floor(x); }
-export fn ceilf(x: f32) f32 { return math.ceil(x); }
-export fn floor(x: f64) f64 { return math.floor(x); }
-export fn ceil(x: f64) f64 { return math.ceil(x); }
+export fn floorf(x: f32) f32 {
+    return math.floor(x);
+}
+export fn ceilf(x: f32) f32 {
+    return math.ceil(x);
+}
+export fn floor(x: f64) f64 {
+    return math.floor(x);
+}
+export fn ceil(x: f64) f64 {
+    return math.ceil(x);
+}
 
 fn generic_fmod(comptime T: type, x: T, y: T) T {
     @setRuntimeSafety(false);
@@ -139,7 +152,10 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     // normalize x and y
     if (ex == 0) {
         i = ux << exp_bits;
-        while (i >> bits_minus_1 == 0) : (b: {ex -= 1; break :b i <<= 1;}) {}
+        while (i >> bits_minus_1 == 0) : (b: {
+            ex -= 1;
+            i <<= 1;
+        }) {}
         ux <<= log2uint(@bitCast(u32, -ex + 1));
     } else {
         ux &= @maxValue(uint) >> exp_bits;
@@ -147,7 +163,10 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     }
     if (ey == 0) {
         i = uy << exp_bits;
-        while (i >> bits_minus_1 == 0) : (b: {ey -= 1; break :b i <<= 1;}) {}
+        while (i >> bits_minus_1 == 0) : (b: {
+            ey -= 1;
+            i <<= 1;
+        }) {}
         uy <<= log2uint(@bitCast(u32, -ey + 1));
     } else {
         uy &= @maxValue(uint) >> exp_bits;
@@ -170,7 +189,10 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
             return 0 * x;
         ux = i;
     }
-    while (ux >> digits == 0) : (b: {ux <<= 1; break :b ex -= 1;}) {}
+    while (ux >> digits == 0) : (b: {
+        ux <<= 1;
+        ex -= 1;
+    }) {}
 
     // scale result up
     if (ex > 0) {
@@ -298,7 +320,7 @@ export fn sqrt(x: f64) f64 {
 
     // rounding direction
     if (ix0 | ix1 != 0) {
-        var z = 1.0 - tiny;   // raise inexact
+        var z = 1.0 - tiny; // raise inexact
         if (z >= 1.0) {
             z = 1.0 + tiny;
             if (q1 == 0xFFFFFFFF) {
@@ -336,13 +358,13 @@ export fn sqrtf(x: f32) f32 {
     var ix: i32 = @bitCast(i32, x);
 
     if ((ix & 0x7F800000) == 0x7F800000) {
-        return x * x + x;   // sqrt(nan) = nan, sqrt(+inf) = +inf, sqrt(-inf) = snan
+        return x * x + x; // sqrt(nan) = nan, sqrt(+inf) = +inf, sqrt(-inf) = snan
     }
 
     // zero
     if (ix <= 0) {
         if (ix & ~sign == 0) {
-            return x;       // sqrt (+-0) = +-0
+            return x; // sqrt (+-0) = +-0
         }
         if (ix < 0) {
             return math.snan(f32);
@@ -360,20 +382,20 @@ export fn sqrtf(x: f32) f32 {
         m -= i - 1;
     }
 
-    m -= 127;               // unbias exponent
+    m -= 127; // unbias exponent
     ix = (ix & 0x007FFFFF) | 0x00800000;
 
-    if (m & 1 != 0) {       // odd m, double x to even
+    if (m & 1 != 0) { // odd m, double x to even
         ix += ix;
     }
 
-    m >>= 1;                // m = [m / 2]
+    m >>= 1; // m = [m / 2]
 
     // sqrt(x) bit by bit
     ix += ix;
-    var q: i32 = 0;              // q = sqrt(x)
+    var q: i32 = 0; // q = sqrt(x)
     var s: i32 = 0;
-    var r: i32 = 0x01000000;     // r = moving bit right -> left
+    var r: i32 = 0x01000000; // r = moving bit right -> left
 
     while (r != 0) {
         const t = s + r;
@@ -388,7 +410,7 @@ export fn sqrtf(x: f32) f32 {
 
     // floating add to find rounding direction
     if (ix != 0) {
-        var z = 1.0 - tiny;     // inexact
+        var z = 1.0 - tiny; // inexact
         if (z >= 1.0) {
             z = 1.0 + tiny;
             if (z > 1.0) {

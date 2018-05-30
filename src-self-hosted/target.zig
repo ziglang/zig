@@ -12,7 +12,7 @@ pub const Target = union(enum) {
     Cross: CrossTarget,
 
     pub fn oFileExt(self: &const Target) []const u8 {
-        const environ = switch (*self) {
+        const environ = switch (self.*) {
             Target.Native => builtin.environ,
             Target.Cross => |t| t.environ,
         };
@@ -30,7 +30,7 @@ pub const Target = union(enum) {
     }
 
     pub fn getOs(self: &const Target) builtin.Os {
-        return switch (*self) {
+        return switch (self.*) {
             Target.Native => builtin.os,
             Target.Cross => |t| t.os,
         };

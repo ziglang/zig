@@ -10,7 +10,6 @@ test "create a coroutine and cancel it" {
     cancel p;
     assert(x == 2);
 }
-
 async fn simpleAsyncFn() void {
     x += 1;
     suspend;
@@ -28,7 +27,6 @@ test "coroutine suspend, resume, cancel" {
 
     assert(std.mem.eql(u8, points, "abcdefg"));
 }
-
 async fn testAsyncSeq() void {
     defer seq('e');
 
@@ -54,7 +52,6 @@ test "coroutine suspend with block" {
 
 var a_promise: promise = undefined;
 var result = false;
-
 async fn testSuspendBlock() void {
     suspend |p| {
         comptime assert(@typeOf(p) == promise->void);
@@ -75,7 +72,6 @@ test "coroutine await" {
     assert(await_final_result == 1234);
     assert(std.mem.eql(u8, await_points, "abcdefghi"));
 }
-
 async fn await_amain() void {
     await_seq('b');
     const p = async await_another() catch unreachable;
@@ -83,7 +79,6 @@ async fn await_amain() void {
     await_final_result = await p;
     await_seq('h');
 }
-
 async fn await_another() i32 {
     await_seq('c');
     suspend |p| {
@@ -102,7 +97,6 @@ fn await_seq(c: u8) void {
     await_seq_index += 1;
 }
 
-
 var early_final_result: i32 = 0;
 
 test "coroutine await early return" {
@@ -112,7 +106,6 @@ test "coroutine await early return" {
     assert(early_final_result == 1234);
     assert(std.mem.eql(u8, early_points, "abcdef"));
 }
-
 async fn early_amain() void {
     early_seq('b');
     const p = async early_another() catch unreachable;
@@ -120,7 +113,6 @@ async fn early_amain() void {
     early_final_result = await p;
     early_seq('e');
 }
-
 async fn early_another() i32 {
     early_seq('c');
     return 1234;
@@ -142,7 +134,6 @@ test "coro allocation failure" {
         error.OutOfMemory => {},
     }
 }
-
 async fn asyncFuncThatNeverGetsRun() void {
     @panic("coro frame allocation should fail");
 }
@@ -165,18 +156,15 @@ test "async fn pointer in a struct field" {
     const Foo = struct {
         bar: async<&std.mem.Allocator> fn(&i32) void,
     };
-    var foo = Foo {
-        .bar = simpleAsyncFn2,
-    };
+    var foo = Foo{ .bar = simpleAsyncFn2 };
     const p = (async<std.debug.global_allocator> foo.bar(&data)) catch unreachable;
     assert(data == 2);
     cancel p;
     assert(data == 4);
 }
-
 async<&std.mem.Allocator> fn simpleAsyncFn2(y: &i32) void {
-    defer *y += 2;
-    *y += 1;
+    defer y.* += 2;
+    y.* += 1;
     suspend;
 }
 
@@ -185,7 +173,6 @@ test "async fn with inferred error set" {
     resume p;
     cancel p;
 }
-
 async fn failing() !void {
     suspend;
     return error.Fail;
@@ -205,15 +192,14 @@ test "error return trace across suspend points - async return" {
     cancel p2;
 }
 
-fn nonFailing() promise->error!void {
+// TODO https://github.com/ziglang/zig/issues/760
+fn nonFailing() (promise->error!void) {
     return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
 }
-
 async fn suspendThenFail() error!void {
     suspend;
     return error.Fail;
 }
-
 async fn printTrace(p: promise->error!void) void {
     (await p) catch |e| {
         std.debug.assert(e == error.Fail);
@@ -234,12 +220,11 @@ test "break from suspend" {
     cancel p;
     std.debug.assert(my_result == 2);
 }
-
 async fn testBreakFromSuspend(my_result: &i32) void {
     s: suspend |p| {
         break :s;
     }
-    *my_result += 1;
+    my_result.* += 1;
     suspend;
-    *my_result += 1;
+    my_result.* += 1;
 }

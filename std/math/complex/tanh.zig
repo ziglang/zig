@@ -98,7 +98,7 @@ test "complex.ctanh32" {
     const a = Complex(f32).new(5, 3);
     const c = tanh(a);
 
-    debug.assert(math.approxEq(f32, c.re,  0.999913, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 0.999913, epsilon));
     debug.assert(math.approxEq(f32, c.im, -0.000025, epsilon));
 }
 
@@ -106,6 +106,6 @@ test "complex.ctanh64" {
     const a = Complex(f64).new(5, 3);
     const c = tanh(a);
 
-    debug.assert(math.approxEq(f64, c.re,  0.999913, epsilon));
+    debug.assert(math.approxEq(f64, c.re, 0.999913, epsilon));
     debug.assert(math.approxEq(f64, c.im, -0.000025, epsilon));
 }

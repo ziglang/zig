@@ -14,14 +14,16 @@ const FormValue = union(enum) {
 
 fn doThing(form_id: u64) error!FormValue {
     return switch (form_id) {
-        17 => FormValue { .Address = try readOnce() },
+        17 => FormValue{ .Address = try readOnce() },
         else => error.InvalidDebugInfo,
     };
 }
 
 test "switch prong returns error enum" {
     switch (doThing(17) catch unreachable) {
-        FormValue.Address => |payload| { assert(payload == 1); },
+        FormValue.Address => |payload| {
+            assert(payload == 1);
+        },
         else => unreachable,
     }
     assert(read_count == 1);

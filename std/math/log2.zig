@@ -27,7 +27,10 @@ pub fn log2(x: var) @typeOf(x) {
         TypeId.IntLiteral => comptime {
             var result = 0;
             var x_shifted = x;
-            while (b: {x_shifted >>= 1; break :b x_shifted != 0;}) : (result += 1) {}
+            while (b: {
+                x_shifted >>= 1;
+                break :b x_shifted != 0;
+            }) : (result += 1) {}
             return result;
         },
         TypeId.Int => {
@@ -38,7 +41,7 @@ pub fn log2(x: var) @typeOf(x) {
 }
 
 pub fn log2_32(x_: f32) f32 {
-    const ivln2hi: f32 =  1.4428710938e+00;
+    const ivln2hi: f32 = 1.4428710938e+00;
     const ivln2lo: f32 = -1.7605285393e-04;
     const Lg1: f32 = 0xaaaaaa.0p-24;
     const Lg2: f32 = 0xccce13.0p-25;

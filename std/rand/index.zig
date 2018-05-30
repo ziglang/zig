@@ -69,7 +69,7 @@ pub const Random = struct {
                     break :x start;
                 } else x: {
                     // Can't overflow because the range is over signed ints
-                   break :x math.negateCast(value - end_uint) catch unreachable;
+                    break :x math.negateCast(value - end_uint) catch unreachable;
                 };
                 return result;
             } else {
@@ -156,7 +156,7 @@ const SplitMix64 = struct {
     s: u64,
 
     pub fn init(seed: u64) SplitMix64 {
-        return SplitMix64 { .s = seed };
+        return SplitMix64{ .s = seed };
     }
 
     pub fn next(self: &SplitMix64) u64 {
@@ -172,7 +172,7 @@ const SplitMix64 = struct {
 test "splitmix64 sequence" {
     var r = SplitMix64.init(0xaeecf86f7878dd75);
 
-    const seq = []const u64 {
+    const seq = []const u64{
         0x5dbd39db0178eb44,
         0xa9900fb66b397da3,
         0x5c1a28b1aeebcf5c,
@@ -198,8 +198,8 @@ pub const Pcg = struct {
     i: u64,
 
     pub fn init(init_s: u64) Pcg {
-        var pcg = Pcg {
-            .random = Random { .fillFn = fill },
+        var pcg = Pcg{
+            .random = Random{ .fillFn = fill },
             .s = undefined,
             .i = undefined,
         };
@@ -265,7 +265,7 @@ test "pcg sequence" {
     const s1: u64 = 0x84e9c579ef59bbf7;
     r.seedTwo(s0, s1);
 
-    const seq = []const u32 {
+    const seq = []const u32{
         2881561918,
         3063928540,
         1199791034,
@@ -288,8 +288,8 @@ pub const Xoroshiro128 = struct {
     s: [2]u64,
 
     pub fn init(init_s: u64) Xoroshiro128 {
-        var x = Xoroshiro128 {
-            .random = Random { .fillFn = fill },
+        var x = Xoroshiro128{
+            .random = Random{ .fillFn = fill },
             .s = undefined,
         };
 
@@ -314,9 +314,9 @@ pub const Xoroshiro128 = struct {
         var s0: u64 = 0;
         var s1: u64 = 0;
 
-        const table = []const u64 {
+        const table = []const u64{
             0xbeac0467eba5facb,
-            0xd86b048b86aa9922
+            0xd86b048b86aa9922,
         };
 
         inline for (table) |entry| {
@@ -374,7 +374,7 @@ test "xoroshiro sequence" {
     r.s[0] = 0xaeecf86f7878dd75;
     r.s[1] = 0x01cd153642e72622;
 
-    const seq1 = []const u64 {
+    const seq1 = []const u64{
         0xb0ba0da5bb600397,
         0x18a08afde614dccc,
         0xa2635b956a31b929,
@@ -387,10 +387,9 @@ test "xoroshiro sequence" {
         std.debug.assert(s == r.next());
     }
 
-
     r.jump();
 
-    const seq2 = []const u64 {
+    const seq2 = []const u64{
         0x95344a13556d3e22,
         0xb4fb32dafa4d00df,
         0xb2011d9ccdcfe2dd,
@@ -421,8 +420,8 @@ pub const Isaac64 = struct {
     i: usize,
 
     pub fn init(init_s: u64) Isaac64 {
-        var isaac = Isaac64 {
-            .random = Random { .fillFn = fill },
+        var isaac = Isaac64{
+            .random = Random{ .fillFn = fill },
             .r = undefined,
             .m = undefined,
             .a = undefined,
@@ -456,20 +455,20 @@ pub const Isaac64 = struct {
         {
             var i: usize = 0;
             while (i < midpoint) : (i += 4) {
-                self.step( ~(self.a ^ (self.a << 21)), i + 0, 0, midpoint);
-                self.step(   self.a ^ (self.a >>  5) , i + 1, 0, midpoint);
-                self.step(   self.a ^ (self.a << 12) , i + 2, 0, midpoint);
-                self.step(   self.a ^ (self.a >> 33) , i + 3, 0, midpoint);
+                self.step(~(self.a ^ (self.a << 21)), i + 0, 0, midpoint);
+                self.step(self.a ^ (self.a >> 5), i + 1, 0, midpoint);
+                self.step(self.a ^ (self.a << 12), i + 2, 0, midpoint);
+                self.step(self.a ^ (self.a >> 33), i + 3, 0, midpoint);
             }
         }
 
         {
             var i: usize = 0;
             while (i < midpoint) : (i += 4) {
-                self.step( ~(self.a ^ (self.a << 21)), i + 0, midpoint, 0);
-                self.step(   self.a ^ (self.a >>  5) , i + 1, midpoint, 0);
-                self.step(   self.a ^ (self.a << 12) , i + 2, midpoint, 0);
-                self.step(   self.a ^ (self.a >> 33) , i + 3, midpoint, 0);
+                self.step(~(self.a ^ (self.a << 21)), i + 0, midpoint, 0);
+                self.step(self.a ^ (self.a >> 5), i + 1, midpoint, 0);
+                self.step(self.a ^ (self.a << 12), i + 2, midpoint, 0);
+                self.step(self.a ^ (self.a >> 33), i + 3, midpoint, 0);
             }
         }
 
@@ -493,7 +492,7 @@ pub const Isaac64 = struct {
         self.m[0] = init_s;
 
         // prescrambled golden ratio constants
-        var a = []const u64 {
+        var a = []const u64{
             0x647c4677a2884b7c,
             0xb9f8b322c73ac862,
             0x8c0ea5053d4712a0,
@@ -513,14 +512,30 @@ pub const Isaac64 = struct {
                     a[x1] +%= self.m[j + x1];
                 }
 
-                a[0] -%= a[4]; a[5] ^= a[7] >>  9; a[7] +%= a[0];
-                a[1] -%= a[5]; a[6] ^= a[0] <<  9; a[0] +%= a[1];
-                a[2] -%= a[6]; a[7] ^= a[1] >> 23; a[1] +%= a[2];
-                a[3] -%= a[7]; a[0] ^= a[2] << 15; a[2] +%= a[3];
-                a[4] -%= a[0]; a[1] ^= a[3] >> 14; a[3] +%= a[4];
-                a[5] -%= a[1]; a[2] ^= a[4] << 20; a[4] +%= a[5];
-                a[6] -%= a[2]; a[3] ^= a[5] >> 17; a[5] +%= a[6];
-                a[7] -%= a[3]; a[4] ^= a[6] << 14; a[6] +%= a[7];
+                a[0] -%= a[4];
+                a[5] ^= a[7] >> 9;
+                a[7] +%= a[0];
+                a[1] -%= a[5];
+                a[6] ^= a[0] << 9;
+                a[0] +%= a[1];
+                a[2] -%= a[6];
+                a[7] ^= a[1] >> 23;
+                a[1] +%= a[2];
+                a[3] -%= a[7];
+                a[0] ^= a[2] << 15;
+                a[2] +%= a[3];
+                a[4] -%= a[0];
+                a[1] ^= a[3] >> 14;
+                a[3] +%= a[4];
+                a[5] -%= a[1];
+                a[2] ^= a[4] << 20;
+                a[4] +%= a[5];
+                a[6] -%= a[2];
+                a[3] ^= a[5] >> 17;
+                a[5] +%= a[6];
+                a[7] -%= a[3];
+                a[4] ^= a[6] << 14;
+                a[6] +%= a[7];
 
                 comptime var x2: usize = 0;
                 inline while (x2 < 8) : (x2 += 1) {
@@ -533,7 +548,7 @@ pub const Isaac64 = struct {
         self.a = 0;
         self.b = 0;
         self.c = 0;
-        self.i = self.r.len;    // trigger refill on first value
+        self.i = self.r.len; // trigger refill on first value
     }
 
     fn fill(r: &Random, buf: []u8) void {
@@ -567,7 +582,7 @@ test "isaac64 sequence" {
     var r = Isaac64.init(0);
 
     // from reference implementation
-    const seq = []const u64 {
+    const seq = []const u64{
         0xf67dfba498e4937c,
         0x84a5066a9204f380,
         0xfee34bd5f5514dbb,
@@ -609,7 +624,7 @@ test "Random float" {
 
 test "Random scalar" {
     var prng = DefaultPrng.init(0);
-    const s = prng .random.scalar(u64);
+    const s = prng.random.scalar(u64);
 }
 
 test "Random bytes" {
@@ -621,8 +636,8 @@ test "Random bytes" {
 test "Random shuffle" {
     var prng = DefaultPrng.init(0);
 
-    var seq = []const u8 { 0, 1, 2, 3, 4 };
-    var seen = []bool {false} ** 5;
+    var seq = []const u8{ 0, 1, 2, 3, 4 };
+    var seen = []bool{false} ** 5;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
@@ -639,7 +654,8 @@ test "Random shuffle" {
 
 fn sumArray(s: []const u8) u32 {
     var r: u32 = 0;
-    for (s) |e| r += e;
+    for (s) |e|
+        r += e;
     return r;
 }
 

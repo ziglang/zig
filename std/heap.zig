@@ -10,7 +10,7 @@ const c = std.c;
 const Allocator = mem.Allocator;
 
 pub const c_allocator = &c_allocator_state;
-var c_allocator_state = Allocator {
+var c_allocator_state = Allocator{
     .allocFn = cAlloc,
     .reallocFn = cRealloc,
     .freeFn = cFree,
@@ -18,10 +18,7 @@ var c_allocator_state = Allocator {
 
 fn cAlloc(self: &Allocator, n: usize, alignment: u29) ![]u8 {
     assert(alignment <= @alignOf(c_longdouble));
-    return if (c.malloc(n)) |buf|
-        @ptrCast(&u8, buf)[0..n]
-    else
-        error.OutOfMemory;
+    return if (c.malloc(n)) |buf| @ptrCast(&u8, buf)[0..n] else error.OutOfMemory;
 }
 
 fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
@@ -48,8 +45,8 @@ pub const DirectAllocator = struct {
     const HeapHandle = if (builtin.os == Os.windows) os.windows.HANDLE else void;
 
     pub fn init() DirectAllocator {
-        return DirectAllocator {
-            .allocator = Allocator {
+        return DirectAllocator{
+            .allocator = Allocator{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -73,37 +70,35 @@ pub const DirectAllocator = struct {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const p = os.posix;
-                const alloc_size = if(alignment <= os.page_size) n else n + alignment;
-                const addr = p.mmap(null, alloc_size, p.PROT_READ|p.PROT_WRITE, 
-                        p.MAP_PRIVATE|p.MAP_ANONYMOUS, -1, 0);
-                if(addr == p.MAP_FAILED) return error.OutOfMemory;
-                
-                if(alloc_size == n) return @intToPtr(&u8, addr)[0..n];
-                
+                const alloc_size = if (alignment <= os.page_size) n else n + alignment;
+                const addr = p.mmap(null, alloc_size, p.PROT_READ | p.PROT_WRITE, p.MAP_PRIVATE | p.MAP_ANONYMOUS, -1, 0);
+                if (addr == p.MAP_FAILED) return error.OutOfMemory;
+
+                if (alloc_size == n) return @intToPtr(&u8, addr)[0..n];
+
                 var aligned_addr = addr & ~usize(alignment - 1);
                 aligned_addr += alignment;
-                
+
                 //We can unmap the unused portions of our mmap, but we must only
                 //  pass munmap bytes that exist outside our allocated pages or it
                 //  will happily eat us too
-                
+
                 //Since alignment > page_size, we are by definition on a page boundry
                 const unused_start = addr;
                 const unused_len = aligned_addr - 1 - unused_start;
 
                 var err = p.munmap(unused_start, unused_len);
                 debug.assert(p.getErrno(err) == 0);
-                
+
                 //It is impossible that there is an unoccupied page at the top of our
                 //  mmap.
-                
+
                 return @intToPtr(&u8, aligned_addr)[0..n];
             },
             Os.windows => {
                 const amt = n + alignment + @sizeOf(usize);
                 const heap_handle = self.heap_handle ?? blk: {
-                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0)
-                        ?? return error.OutOfMemory;
+                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0) ?? return error.OutOfMemory;
                     self.heap_handle = hh;
                     break :blk hh;
                 };
@@ -113,7 +108,7 @@ pub const DirectAllocator = struct {
                 const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
                 const adjusted_addr = root_addr + march_forward_bytes;
                 const record_addr = adjusted_addr + n;
-                *@intToPtr(&align(1) usize, record_addr) = root_addr;
+                @intToPtr(&align(1) usize, record_addr).* = root_addr;
                 return @intToPtr(&u8, adjusted_addr)[0..n];
             },
             else => @compileError("Unsupported OS"),
@@ -144,13 +139,13 @@ pub const DirectAllocator = struct {
             Os.windows => {
                 const old_adjusted_addr = @ptrToInt(old_mem.ptr);
                 const old_record_addr = old_adjusted_addr + old_mem.len;
-                const root_addr = *@intToPtr(&align(1) usize, old_record_addr);
+                const root_addr = @intToPtr(&align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(os.windows.LPVOID, root_addr);
                 const amt = new_size + alignment + @sizeOf(usize);
                 const new_ptr = os.windows.HeapReAlloc(??self.heap_handle, 0, old_ptr, amt) ?? blk: {
                     if (new_size > old_mem.len) return error.OutOfMemory;
                     const new_record_addr = old_record_addr - new_size + old_mem.len;
-                    *@intToPtr(&align(1) usize, new_record_addr) = root_addr;
+                    @intToPtr(&align(1) usize, new_record_addr).* = root_addr;
                     return old_mem[0..new_size];
                 };
                 const offset = old_adjusted_addr - root_addr;
@@ -158,7 +153,7 @@ pub const DirectAllocator = struct {
                 const new_adjusted_addr = new_root_addr + offset;
                 assert(new_adjusted_addr % alignment == 0);
                 const new_record_addr = new_adjusted_addr + new_size;
-                *@intToPtr(&align(1) usize, new_record_addr) = new_root_addr;
+                @intToPtr(&align(1) usize, new_record_addr).* = new_root_addr;
                 return @intToPtr(&u8, new_adjusted_addr)[0..new_size];
             },
             else => @compileError("Unsupported OS"),
@@ -174,7 +169,7 @@ pub const DirectAllocator = struct {
             },
             Os.windows => {
                 const record_addr = @ptrToInt(bytes.ptr) + bytes.len;
-                const root_addr = *@intToPtr(&align(1) usize, record_addr);
+                const root_addr = @intToPtr(&align(1) usize, record_addr).*;
                 const ptr = @intToPtr(os.windows.LPVOID, root_addr);
                 _ = os.windows.HeapFree(??self.heap_handle, 0, ptr);
             },
@@ -195,8 +190,8 @@ pub const ArenaAllocator = struct {
     const BufNode = std.LinkedList([]u8).Node;
 
     pub fn init(child_allocator: &Allocator) ArenaAllocator {
-        return ArenaAllocator {
-            .allocator = Allocator {
+        return ArenaAllocator{
+            .allocator = Allocator{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -228,7 +223,7 @@ pub const ArenaAllocator = struct {
         const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
         const buf_node_slice = ([]BufNode)(buf[0..@sizeOf(BufNode)]);
         const buf_node = &buf_node_slice[0];
-        *buf_node = BufNode {
+        buf_node.* = BufNode{
             .data = buf,
             .prev = null,
             .next = null,
@@ -253,7 +248,7 @@ pub const ArenaAllocator = struct {
                 cur_node = try self.createNode(cur_buf.len, n + alignment);
                 continue;
             }
-            const result = cur_buf[adjusted_index .. new_end_index];
+            const result = cur_buf[adjusted_index..new_end_index];
             self.end_index = new_end_index;
             return result;
         }
@@ -269,7 +264,7 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) void { }
+    fn free(allocator: &Allocator, bytes: []u8) void {}
 };
 
 pub const FixedBufferAllocator = struct {
@@ -278,8 +273,8 @@ pub const FixedBufferAllocator = struct {
     buffer: []u8,
 
     pub fn init(buffer: []u8) FixedBufferAllocator {
-        return FixedBufferAllocator {
-            .allocator = Allocator {
+        return FixedBufferAllocator{
+            .allocator = Allocator{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -299,7 +294,7 @@ pub const FixedBufferAllocator = struct {
         if (new_end_index > self.buffer.len) {
             return error.OutOfMemory;
         }
-        const result = self.buffer[adjusted_index .. new_end_index];
+        const result = self.buffer[adjusted_index..new_end_index];
         self.end_index = new_end_index;
 
         return result;
@@ -315,7 +310,7 @@ pub const FixedBufferAllocator = struct {
         }
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) void { }
+    fn free(allocator: &Allocator, bytes: []u8) void {}
 };
 
 /// lock free
@@ -325,8 +320,8 @@ pub const ThreadSafeFixedBufferAllocator = struct {
     buffer: []u8,
 
     pub fn init(buffer: []u8) ThreadSafeFixedBufferAllocator {
-        return ThreadSafeFixedBufferAllocator {
-            .allocator = Allocator {
+        return ThreadSafeFixedBufferAllocator{
+            .allocator = Allocator{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -348,8 +343,7 @@ pub const ThreadSafeFixedBufferAllocator = struct {
             if (new_end_index > self.buffer.len) {
                 return error.OutOfMemory;
             }
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index,
-                builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) ?? return self.buffer[adjusted_index .. new_end_index];
+            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) ?? return self.buffer[adjusted_index..new_end_index];
         }
     }
 
@@ -363,10 +357,8 @@ pub const ThreadSafeFixedBufferAllocator = struct {
         }
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) void { }
+    fn free(allocator: &Allocator, bytes: []u8) void {}
 };
-
-
 
 test "c_allocator" {
     if (builtin.link_libc) {
@@ -415,8 +407,8 @@ fn testAllocator(allocator: &mem.Allocator) !void {
     var slice = try allocator.alloc(&i32, 100);
 
     for (slice) |*item, i| {
-        *item = try allocator.create(i32);
-        **item = i32(i);
+        item.* = try allocator.create(i32);
+        item.*.* = i32(i);
     }
 
     for (slice) |item, i| {
@@ -432,28 +424,28 @@ fn testAllocator(allocator: &mem.Allocator) !void {
 }
 
 fn testAllocatorLargeAlignment(allocator: &mem.Allocator) mem.Allocator.Error!void {
-    //Maybe a platform's page_size is actually the same as or 
+    //Maybe a platform's page_size is actually the same as or
     //  very near usize?
-    if(os.page_size << 2 > @maxValue(usize)) return;
-    
+    if (os.page_size << 2 > @maxValue(usize)) return;
+
     const USizeShift = @IntType(false, std.math.log2(usize.bit_count));
     const large_align = u29(os.page_size << 2);
- 
+
     var align_mask: usize = undefined;
     _ = @shlWithOverflow(usize, ~usize(0), USizeShift(@ctz(large_align)), &align_mask);
-    
+
     var slice = try allocator.allocFn(allocator, 500, large_align);
     debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
-    
+
     slice = try allocator.reallocFn(allocator, slice, 100, large_align);
     debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
-    
+
     slice = try allocator.reallocFn(allocator, slice, 5000, large_align);
     debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
-    
+
     slice = try allocator.reallocFn(allocator, slice, 10, large_align);
     debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
-    
+
     slice = try allocator.reallocFn(allocator, slice, 20000, large_align);
     debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 

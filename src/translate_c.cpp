@@ -247,6 +247,12 @@ static AstNode *trans_create_node_field_access_str(Context *c, AstNode *containe
     return trans_create_node_field_access(c, container, buf_create_from_str(field_name));
 }
 
+static AstNode *trans_create_node_ptr_deref(Context *c, AstNode *child_node) {
+    AstNode *node = trans_create_node(c, NodeTypePtrDeref);
+    node->data.ptr_deref_expr.target = child_node;
+    return node;
+}
+
 static AstNode *trans_create_node_prefix_op(Context *c, PrefixOp op, AstNode *child_node) {
     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = op;
@@ -1412,8 +1418,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         AstNode *operation_type_cast = trans_c_cast(c, rhs_location,
             stmt->getComputationLHSType(),
             stmt->getLHS()->getType(),
-            trans_create_node_prefix_op(c, PrefixOpDereference,
-                trans_create_node_symbol(c, tmp_var_name)));
+            trans_create_node_ptr_deref(c, trans_create_node_symbol(c, tmp_var_name)));
 
         // result_type(... >> u5(rhs))
         AstNode *result_type_cast = trans_c_cast(c, rhs_location,
@@ -1426,7 +1431,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 
         // *_ref = ...
         AstNode *assign_statement = trans_create_node_bin_op(c,
-            trans_create_node_prefix_op(c, PrefixOpDereference,
+            trans_create_node_ptr_deref(c,
                 trans_create_node_symbol(c, tmp_var_name)),
             BinOpTypeAssign, result_type_cast);
 
@@ -1436,7 +1441,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
             // break :x *_ref
             child_scope->node->data.block.statements.append(
                 trans_create_node_break(c, label_name,
-                    trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_ptr_deref(c,
                         trans_create_node_symbol(c, tmp_var_name))));
         }
 
@@ -1483,11 +1488,11 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
         if (rhs == nullptr) return nullptr;
 
         AstNode *assign_statement = trans_create_node_bin_op(c,
-            trans_create_node_prefix_op(c, PrefixOpDereference,
+            trans_create_node_ptr_deref(c,
                 trans_create_node_symbol(c, tmp_var_name)),
             BinOpTypeAssign,
             trans_create_node_bin_op(c,
-                trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_ptr_deref(c,
                     trans_create_node_symbol(c, tmp_var_name)),
                 bin_op,
                 rhs));
@@ -1496,7 +1501,7 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
         // break :x *_ref
         child_scope->node->data.block.statements.append(
             trans_create_node_break(c, label_name,
-                trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_ptr_deref(c,
                     trans_create_node_symbol(c, tmp_var_name))));
 
         return child_scope->node;
@@ -1817,13 +1822,13 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
     // const _tmp = *_ref;
     Buf* tmp_var_name = buf_create_from_str("_tmp");
     AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr,
-        trans_create_node_prefix_op(c, PrefixOpDereference,
+        trans_create_node_ptr_deref(c,
             trans_create_node_symbol(c, ref_var_name)));
     child_scope->node->data.block.statements.append(tmp_var_decl);
 
     // *_ref += 1;
     AstNode *assign_statement = trans_create_node_bin_op(c,
-        trans_create_node_prefix_op(c, PrefixOpDereference,
+        trans_create_node_ptr_deref(c,
             trans_create_node_symbol(c, ref_var_name)),
         assign_op,
         trans_create_node_unsigned(c, 1));
@@ -1871,14 +1876,14 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
 
     // *_ref += 1;
     AstNode *assign_statement = trans_create_node_bin_op(c,
-        trans_create_node_prefix_op(c, PrefixOpDereference,
+        trans_create_node_ptr_deref(c,
             trans_create_node_symbol(c, ref_var_name)),
         assign_op,
         trans_create_node_unsigned(c, 1));
     child_scope->node->data.block.statements.append(assign_statement);
 
     // break :x *_ref
-    AstNode *deref_expr = trans_create_node_prefix_op(c, PrefixOpDereference,
+    AstNode *deref_expr = trans_create_node_ptr_deref(c,
             trans_create_node_symbol(c, ref_var_name));
     child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, deref_expr));
 
@@ -1923,7 +1928,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 if (is_fn_ptr)
                     return value_node;
                 AstNode *unwrapped = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, value_node);
-                return trans_create_node_prefix_op(c, PrefixOpDereference, unwrapped);
+                return trans_create_node_ptr_deref(c, unwrapped);
             }
         case UO_Plus:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Plus");
@@ -4443,27 +4448,45 @@ static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *t
     }
 }
 
-static PrefixOp ctok_to_prefix_op(CTok *token) {
-    switch (token->id) {
-        case CTokIdBang: return PrefixOpBoolNot;
-        case CTokIdMinus: return PrefixOpNegation;
-        case CTokIdTilde: return PrefixOpBinNot;
-        case CTokIdAsterisk: return PrefixOpDereference;
-        default: return PrefixOpInvalid;
-    }
-}
 static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
     CTok *op_tok = &ctok->tokens.at(*tok_i);
-    PrefixOp prefix_op = ctok_to_prefix_op(op_tok);
-    if (prefix_op == PrefixOpInvalid) {
-        return parse_ctok_suffix_op_expr(c, ctok, tok_i);
-    }
-    *tok_i += 1;
 
-    AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
-    if (prefix_op_expr == nullptr)
-        return nullptr;
-    return trans_create_node_prefix_op(c, prefix_op, prefix_op_expr);
+    switch (op_tok->id) {
+        case CTokIdBang:
+            {
+                *tok_i += 1;
+                AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+                if (prefix_op_expr == nullptr)
+                    return nullptr;
+                return trans_create_node_prefix_op(c, PrefixOpBoolNot, prefix_op_expr);
+            }
+        case CTokIdMinus:
+            {
+                *tok_i += 1;
+                AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+                if (prefix_op_expr == nullptr)
+                    return nullptr;
+                return trans_create_node_prefix_op(c, PrefixOpNegation, prefix_op_expr);
+            }
+        case CTokIdTilde:
+            {
+                *tok_i += 1;
+                AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+                if (prefix_op_expr == nullptr)
+                    return nullptr;
+                return trans_create_node_prefix_op(c, PrefixOpBinNot, prefix_op_expr);
+            }
+        case CTokIdAsterisk:
+            {
+                *tok_i += 1;
+                AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+                if (prefix_op_expr == nullptr)
+                    return nullptr;
+                return trans_create_node_ptr_deref(c, prefix_op_expr);
+            }
+        default:
+            return parse_ctok_suffix_op_expr(c, ctok, tok_i);
+    }
 }
 
 static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {

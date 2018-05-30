@@ -23,7 +23,9 @@ test "reflection: function return type, var args, and param types" {
     }
 }
 
-fn dummy(a: bool, b: i32, c: f32) i32 { return 1234; }
+fn dummy(a: bool, b: i32, c: f32) i32 {
+    return 1234;
+}
 fn dummy_varargs(args: ...) void {}
 
 test "reflection: struct member types and names" {
@@ -54,11 +56,10 @@ test "reflection: enum member types and names" {
         assert(mem.eql(u8, @memberName(Bar, 2), "Three"));
         assert(mem.eql(u8, @memberName(Bar, 3), "Four"));
     }
-
 }
 
 test "reflection: @field" {
-    var f = Foo {
+    var f = Foo{
         .one = 42,
         .two = true,
         .three = void{},

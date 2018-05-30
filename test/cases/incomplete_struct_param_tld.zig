@@ -21,11 +21,9 @@ fn foo(a: &const A) i32 {
 }
 
 test "incomplete struct param top level declaration" {
-    const a = A {
-        .b = B {
-            .c = C {
-                .x = 13,
-            },
+    const a = A{
+        .b = B{
+            .c = C{ .x = 13 },
         },
     };
     assert(foo(a) == 13);

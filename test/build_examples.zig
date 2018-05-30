@@ -9,7 +9,7 @@ pub fn addCases(cases: &tests.BuildExamplesContext) void {
     cases.add("example/guess_number/main.zig");
     if (!is_windows) {
         // TODO get this test passing on windows
-        // See https://github.com/zig-lang/zig/issues/538
+        // See https://github.com/ziglang/zig/issues/538
         cases.addBuildFile("example/shared_library/build.zig");
         cases.addBuildFile("example/mix_o_files/build.zig");
     }

@@ -9,4 +9,3 @@ pub extern fn __fixunsdfsi(a: f64) u32 {
 test "import fixunsdfsi" {
     _ = @import("fixunsdfsi_test.zig");
 }
-

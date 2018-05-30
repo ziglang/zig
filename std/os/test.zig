@@ -12,7 +12,7 @@ const AtomicOrder = builtin.AtomicOrder;
 test "makePath, put some files in it, deleteTree" {
     if (builtin.os == builtin.Os.windows) {
         // TODO implement os.Dir for windows
-        // https://github.com/zig-lang/zig/issues/709
+        // https://github.com/ziglang/zig/issues/709
         return;
     }
     try os.makePath(a, "os_test_tmp/b/c");

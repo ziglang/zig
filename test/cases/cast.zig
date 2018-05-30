@@ -17,7 +17,7 @@ test "pointer reinterpret const float to int" {
     const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
     const int_ptr = @ptrCast(&const i32, float_ptr);
-    const int_val = *int_ptr;
+    const int_val = int_ptr.*;
     assert(int_val == 858993411);
 }
 
@@ -29,25 +29,25 @@ test "implicitly cast a pointer to a const pointer of it" {
 }
 
 fn funcWithConstPtrPtr(x: &const &i32) void {
-    **x += 1;
+    x.*.* += 1;
 }
 
 test "implicitly cast a container to a const pointer of it" {
-    const z = Struct(void) { .x = void{} };
+    const z = Struct(void){ .x = void{} };
     assert(0 == @sizeOf(@typeOf(z)));
     assert(void{} == Struct(void).pointer(z).x);
     assert(void{} == Struct(void).pointer(&z).x);
     assert(void{} == Struct(void).maybePointer(z).x);
     assert(void{} == Struct(void).maybePointer(&z).x);
     assert(void{} == Struct(void).maybePointer(null).x);
-    const s = Struct(u8) { .x = 42 };
+    const s = Struct(u8){ .x = 42 };
     assert(0 != @sizeOf(@typeOf(s)));
     assert(42 == Struct(u8).pointer(s).x);
     assert(42 == Struct(u8).pointer(&s).x);
     assert(42 == Struct(u8).maybePointer(s).x);
     assert(42 == Struct(u8).maybePointer(&s).x);
     assert(0 == Struct(u8).maybePointer(null).x);
-    const u = Union { .x = 42 };
+    const u = Union{ .x = 42 };
     assert(42 == Union.pointer(u).x);
     assert(42 == Union.pointer(&u).x);
     assert(42 == Union.maybePointer(u).x);
@@ -67,12 +67,12 @@ fn Struct(comptime T: type) type {
         x: T,
 
         fn pointer(self: &const Self) Self {
-            return *self;
+            return self.*;
         }
 
         fn maybePointer(self: ?&const Self) Self {
-            const none = Self { .x = if (T == void) void{} else 0 };
-            return *(self ?? &none);
+            const none = Self{ .x = if (T == void) void{} else 0 };
+            return (self ?? &none).*;
         }
     };
 }
@@ -81,12 +81,12 @@ const Union = union {
     x: u8,
 
     fn pointer(self: &const Union) Union {
-        return *self;
+        return self.*;
     }
 
     fn maybePointer(self: ?&const Union) Union {
-        const none = Union { .x = 0 };
-        return *(self ?? &none);
+        const none = Union{ .x = 0 };
+        return (self ?? &none).*;
     }
 };
 
@@ -95,11 +95,11 @@ const Enum = enum {
     Some,
 
     fn pointer(self: &const Enum) Enum {
-        return *self;
+        return self.*;
     }
 
     fn maybePointer(self: ?&const Enum) Enum {
-        return *(self ?? &Enum.None);
+        return (self ?? &Enum.None).*;
     }
 };
 
@@ -108,19 +108,19 @@ test "implicitly cast indirect pointer to maybe-indirect pointer" {
         const Self = this;
         x: u8,
         fn constConst(p: &const &const Self) u8 {
-            return (*p).x;
+            return (p.*).x;
         }
         fn maybeConstConst(p: ?&const &const Self) u8 {
-            return (*??p).x;
+            return ((??p).*).x;
         }
         fn constConstConst(p: &const &const &const Self) u8 {
-            return (**p).x;
+            return (p.*.*).x;
         }
         fn maybeConstConstConst(p: ?&const &const &const Self) u8 {
-            return (**??p).x;
+            return ((??p).*.*).x;
         }
     };
-    const s = S { .x = 42 };
+    const s = S{ .x = 42 };
     const p = &s;
     const q = &p;
     const r = &q;
@@ -154,7 +154,6 @@ fn boolToStr(b: bool) []const u8 {
     return if (b) "true" else "false";
 }
 
-
 test "peer resolve array and const slice" {
     testPeerResolveArrayConstSlice(true);
     comptime testPeerResolveArrayConstSlice(true);
@@ -168,12 +167,12 @@ fn testPeerResolveArrayConstSlice(b: bool) void {
 
 test "integer literal to &const int" {
     const x: &const i32 = 3;
-    assert(*x == 3);
+    assert(x.* == 3);
 }
 
 test "string literal to &const []const u8" {
     const x: &const []const u8 = "hello";
-    assert(mem.eql(u8, *x, "hello"));
+    assert(mem.eql(u8, x.*, "hello"));
 }
 
 test "implicitly cast from T to error!?T" {
@@ -205,7 +204,6 @@ fn implicitIntLitToMaybe() void {
     const g: error!?i32 = 1;
 }
 
-
 test "return null from fn() error!?&T" {
     const a = returnNullFromMaybeTypeErrorRef();
     const b = returnNullLitFromMaybeTypeErrorRef();
@@ -235,7 +233,6 @@ fn peerTypeTAndMaybeT(c: bool, b: bool) ?usize {
     return usize(3);
 }
 
-
 test "peer type resolution: [0]u8 and []const u8" {
     assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
     assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
@@ -246,7 +243,7 @@ test "peer type resolution: [0]u8 and []const u8" {
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     if (a) {
-        return []const u8 {};
+        return []const u8{};
     }
 
     return slice[0..1];
@@ -260,7 +257,6 @@ test "implicitly cast from [N]T to ?[]const T" {
 fn castToMaybeSlice() ?[]const u8 {
     return "hi";
 }
-
 
 test "implicitly cast from [0]T to error![]T" {
     testCastZeroArrayToErrSliceMut();
@@ -329,12 +325,10 @@ fn foo(args: ...) void {
     assert(@typeOf(args[0]) == &const [5]u8);
 }
 
-
 test "peer type resolution: error and [N]T" {
     // TODO: implicit error!T to error!U where T can implicitly cast to U
     //assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
     //comptime assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
-
     assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
     comptime assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
@@ -378,7 +372,12 @@ fn cast128Float(x: u128) f128 {
 }
 
 test "const slice widen cast" {
-    const bytes align(4) = []u8{0x12, 0x12, 0x12, 0x12};
+    const bytes align(4) = []u8{
+        0x12,
+        0x12,
+        0x12,
+        0x12,
+    };
 
     const u32_value = ([]const u32)(bytes[0..])[0];
     assert(u32_value == 0x12121212);

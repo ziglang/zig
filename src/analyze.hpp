@@ -191,7 +191,7 @@ void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, G
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
 TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g);
-void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
+bool resolve_inferred_error_set(CodeGen *g, TypeTableEntry *err_set_type, AstNode *source_node);
 
 TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry);
 

@@ -16,7 +16,10 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     var base: usize = @maxValue(usize);
     {
         var i: usize = 0;
-        while (i < eh.e_phnum) : ({i += 1; ph_addr += eh.e_phentsize;}) {
+        while (i < eh.e_phnum) : ({
+            i += 1;
+            ph_addr += eh.e_phentsize;
+        }) {
             const this_ph = @intToPtr(&elf.Phdr, ph_addr);
             switch (this_ph.p_type) {
                 elf.PT_LOAD => base = vdso_addr + this_ph.p_offset - this_ph.p_vaddr,
@@ -54,15 +57,14 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     const hashtab = maybe_hashtab ?? return 0;
     if (maybe_verdef == null) maybe_versym = null;
 
-
-    const OK_TYPES = (1<<elf.STT_NOTYPE | 1<<elf.STT_OBJECT | 1<<elf.STT_FUNC | 1<<elf.STT_COMMON);
-    const OK_BINDS = (1<<elf.STB_GLOBAL | 1<<elf.STB_WEAK | 1<<elf.STB_GNU_UNIQUE);
+    const OK_TYPES = (1 << elf.STT_NOTYPE | 1 << elf.STT_OBJECT | 1 << elf.STT_FUNC | 1 << elf.STT_COMMON);
+    const OK_BINDS = (1 << elf.STB_GLOBAL | 1 << elf.STB_WEAK | 1 << elf.STB_GNU_UNIQUE);
 
     var i: usize = 0;
     while (i < hashtab[1]) : (i += 1) {
-        if (0==(u32(1)<<u5(syms[i].st_info&0xf) & OK_TYPES)) continue;
-        if (0==(u32(1)<<u5(syms[i].st_info>>4) & OK_BINDS)) continue;
-        if (0==syms[i].st_shndx) continue;
+        if (0 == (u32(1) << u5(syms[i].st_info & 0xf) & OK_TYPES)) continue;
+        if (0 == (u32(1) << u5(syms[i].st_info >> 4) & OK_BINDS)) continue;
+        if (0 == syms[i].st_shndx) continue;
         if (!mem.eql(u8, name, cstr.toSliceConst(&strings[syms[i].st_name]))) continue;
         if (maybe_versym) |versym| {
             if (!checkver(??maybe_verdef, versym[i], vername, strings))
@@ -78,12 +80,12 @@ fn checkver(def_arg: &elf.Verdef, vsym_arg: i32, vername: []const u8, strings: &
     var def = def_arg;
     const vsym = @bitCast(u32, vsym_arg) & 0x7fff;
     while (true) {
-        if (0==(def.vd_flags & elf.VER_FLG_BASE) and (def.vd_ndx & 0x7fff) == vsym)
+        if (0 == (def.vd_flags & elf.VER_FLG_BASE) and (def.vd_ndx & 0x7fff) == vsym)
             break;
         if (def.vd_next == 0)
             return false;
         def = @intToPtr(&elf.Verdef, @ptrToInt(def) + def.vd_next);
     }
-    const aux = @intToPtr(&elf.Verdaux, @ptrToInt(def ) + def.vd_aux);
+    const aux = @intToPtr(&elf.Verdaux, @ptrToInt(def) + def.vd_aux);
     return mem.eql(u8, vername, cstr.toSliceConst(&strings[aux.vda_name]));
 }

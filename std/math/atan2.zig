@@ -31,7 +31,7 @@ pub fn atan2(comptime T: type, x: T, y: T) T {
 }
 
 fn atan2_32(y: f32, x: f32) f32 {
-    const pi: f32    =  3.1415927410e+00;
+    const pi: f32 = 3.1415927410e+00;
     const pi_lo: f32 = -8.7422776573e-08;
 
     if (math.isNan(x) or math.isNan(y)) {
@@ -53,9 +53,9 @@ fn atan2_32(y: f32, x: f32) f32 {
 
     if (iy == 0) {
         switch (m) {
-            0, 1 => return  y,          // atan(+-0, +...)
-            2    => return  pi,         // atan(+0, -...)
-            3    => return -pi,         // atan(-0, -...)
+            0, 1 => return y, // atan(+-0, +...)
+            2 => return pi, // atan(+0, -...)
+            3 => return -pi, // atan(-0, -...)
             else => unreachable,
         }
     }
@@ -71,18 +71,18 @@ fn atan2_32(y: f32, x: f32) f32 {
     if (ix == 0x7F800000) {
         if (iy == 0x7F800000) {
             switch (m) {
-                0    => return    pi / 4,   // atan(+inf, +inf)
-                1    => return   -pi / 4,   // atan(-inf, +inf)
-                2    => return  3*pi / 4,   // atan(+inf, -inf)
-                3    => return -3*pi / 4,   // atan(-inf, -inf)
+                0 => return pi / 4, // atan(+inf, +inf)
+                1 => return -pi / 4, // atan(-inf, +inf)
+                2 => return 3 * pi / 4, // atan(+inf, -inf)
+                3 => return -3 * pi / 4, // atan(-inf, -inf)
                 else => unreachable,
             }
         } else {
             switch (m) {
-                0    => return  0.0,   // atan(+..., +inf)
-                1    => return -0.0,   // atan(-..., +inf)
-                2    => return   pi,   // atan(+..., -inf)
-                3    => return  -pi,   // atan(-...f, -inf)
+                0 => return 0.0, // atan(+..., +inf)
+                1 => return -0.0, // atan(-..., +inf)
+                2 => return pi, // atan(+..., -inf)
+                3 => return -pi, // atan(-...f, -inf)
                 else => unreachable,
             }
         }
@@ -107,16 +107,16 @@ fn atan2_32(y: f32, x: f32) f32 {
     };
 
     switch (m) {
-        0    => return  z,                  // atan(+, +)
-        1    => return -z,                  // atan(-, +)
-        2    => return pi - (z - pi_lo),    // atan(+, -)
-        3    => return (z - pi_lo) - pi,    // atan(-, -)
+        0 => return z, // atan(+, +)
+        1 => return -z, // atan(-, +)
+        2 => return pi - (z - pi_lo), // atan(+, -)
+        3 => return (z - pi_lo) - pi, // atan(-, -)
         else => unreachable,
     }
 }
 
 fn atan2_64(y: f64, x: f64) f64 {
-    const pi: f64    = 3.1415926535897931160E+00;
+    const pi: f64 = 3.1415926535897931160E+00;
     const pi_lo: f64 = 1.2246467991473531772E-16;
 
     if (math.isNan(x) or math.isNan(y)) {
@@ -143,9 +143,9 @@ fn atan2_64(y: f64, x: f64) f64 {
 
     if (iy | ly == 0) {
         switch (m) {
-            0, 1 => return  y,          // atan(+-0, +...)
-            2    => return  pi,         // atan(+0, -...)
-            3    => return -pi,         // atan(-0, -...)
+            0, 1 => return y, // atan(+-0, +...)
+            2 => return pi, // atan(+0, -...)
+            3 => return -pi, // atan(-0, -...)
             else => unreachable,
         }
     }
@@ -161,18 +161,18 @@ fn atan2_64(y: f64, x: f64) f64 {
     if (ix == 0x7FF00000) {
         if (iy == 0x7FF00000) {
             switch (m) {
-                0    => return    pi / 4,   // atan(+inf, +inf)
-                1    => return   -pi / 4,   // atan(-inf, +inf)
-                2    => return  3*pi / 4,   // atan(+inf, -inf)
-                3    => return -3*pi / 4,   // atan(-inf, -inf)
+                0 => return pi / 4, // atan(+inf, +inf)
+                1 => return -pi / 4, // atan(-inf, +inf)
+                2 => return 3 * pi / 4, // atan(+inf, -inf)
+                3 => return -3 * pi / 4, // atan(-inf, -inf)
                 else => unreachable,
             }
         } else {
             switch (m) {
-                0    => return  0.0,   // atan(+..., +inf)
-                1    => return -0.0,   // atan(-..., +inf)
-                2    => return   pi,   // atan(+..., -inf)
-                3    => return  -pi,   // atan(-...f, -inf)
+                0 => return 0.0, // atan(+..., +inf)
+                1 => return -0.0, // atan(-..., +inf)
+                2 => return pi, // atan(+..., -inf)
+                3 => return -pi, // atan(-...f, -inf)
                 else => unreachable,
             }
         }
@@ -197,10 +197,10 @@ fn atan2_64(y: f64, x: f64) f64 {
     };
 
     switch (m) {
-        0    => return  z,                  // atan(+, +)
-        1    => return -z,                  // atan(-, +)
-        2    => return pi - (z - pi_lo),    // atan(+, -)
-        3    => return (z - pi_lo) - pi,    // atan(-, -)
+        0 => return z, // atan(+, +)
+        1 => return -z, // atan(-, +)
+        2 => return pi - (z - pi_lo), // atan(+, -)
+        3 => return (z - pi_lo) - pi, // atan(-, -)
         else => unreachable,
     }
 }

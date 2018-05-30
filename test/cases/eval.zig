@@ -11,8 +11,6 @@ fn fibonacci(x: i32) i32 {
     return fibonacci(x - 1) + fibonacci(x - 2);
 }
 
-
-
 fn unwrapAndAddOne(blah: ?i32) i32 {
     return ??blah + 1;
 }
@@ -40,13 +38,13 @@ test "inline variable gets result of const if" {
     assert(gimme1or2(false) == 2);
 }
 
-
 test "static function evaluation" {
     assert(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);
-fn staticAdd(a: i32, b: i32) i32 { return a + b; }
-
+fn staticAdd(a: i32, b: i32) i32 {
+    return a + b;
+}
 
 test "const expr eval on single expr blocks" {
     assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
@@ -64,9 +62,6 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
     return result;
 }
 
-
-
-
 test "statically initialized list" {
     assert(static_point_list[0].x == 1);
     assert(static_point_list[0].y == 2);
@@ -77,14 +72,16 @@ const Point = struct {
     x: i32,
     y: i32,
 };
-const static_point_list = []Point { makePoint(1, 2), makePoint(3, 4) };
+const static_point_list = []Point{
+    makePoint(1, 2),
+    makePoint(3, 4),
+};
 fn makePoint(x: i32, y: i32) Point {
-    return Point {
+    return Point{
         .x = x,
         .y = y,
     };
 }
-
 
 test "static eval list init" {
     assert(static_vec3.data[2] == 1.0);
@@ -95,18 +92,18 @@ pub const Vec3 = struct {
     data: [3]f32,
 };
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
-    return Vec3 {
-        .data = []f32 { x, y, z, },
-    };
+    return Vec3{ .data = []f32{
+        x,
+        y,
+        z,
+    } };
 }
-
 
 test "constant expressions" {
-    var array : [array_size]u8 = undefined;
+    var array: [array_size]u8 = undefined;
     assert(@sizeOf(@typeOf(array)) == 20);
 }
-const array_size : u8 = 20;
-
+const array_size: u8 = 20;
 
 test "constant struct with negation" {
     assert(vertices[0].x == -0.6);
@@ -118,12 +115,29 @@ const Vertex = struct {
     g: f32,
     b: f32,
 };
-const vertices = []Vertex {
-    Vertex { .x = -0.6, .y = -0.4, .r = 1.0, .g = 0.0, .b = 0.0 },
-    Vertex { .x =  0.6, .y = -0.4, .r = 0.0, .g = 1.0, .b = 0.0 },
-    Vertex { .x =  0.0, .y =  0.6, .r = 0.0, .g = 0.0, .b = 1.0 },
+const vertices = []Vertex{
+    Vertex{
+        .x = -0.6,
+        .y = -0.4,
+        .r = 1.0,
+        .g = 0.0,
+        .b = 0.0,
+    },
+    Vertex{
+        .x = 0.6,
+        .y = -0.4,
+        .r = 0.0,
+        .g = 1.0,
+        .b = 0.0,
+    },
+    Vertex{
+        .x = 0.0,
+        .y = 0.6,
+        .r = 0.0,
+        .g = 0.0,
+        .b = 1.0,
+    },
 };
-
 
 test "statically initialized struct" {
     st_init_str_foo.x += 1;
@@ -133,15 +147,21 @@ const StInitStrFoo = struct {
     x: i32,
     y: bool,
 };
-var st_init_str_foo = StInitStrFoo { .x = 13, .y = true, };
-
+var st_init_str_foo = StInitStrFoo{
+    .x = 13,
+    .y = true,
+};
 
 test "statically initalized array literal" {
-    const y : [4]u8 = st_init_arr_lit_x;
+    const y: [4]u8 = st_init_arr_lit_x;
     assert(y[3] == 4);
 }
-const st_init_arr_lit_x = []u8{1,2,3,4};
-
+const st_init_arr_lit_x = []u8{
+    1,
+    2,
+    3,
+    4,
+};
 
 test "const slice" {
     comptime {
@@ -199,13 +219,28 @@ const CmdFn = struct {
 };
 
 const cmd_fns = []CmdFn{
-    CmdFn {.name = "one", .func = one},
-    CmdFn {.name = "two", .func = two},
-    CmdFn {.name = "three", .func = three},
+    CmdFn{
+        .name = "one",
+        .func = one,
+    },
+    CmdFn{
+        .name = "two",
+        .func = two,
+    },
+    CmdFn{
+        .name = "three",
+        .func = three,
+    },
 };
-fn one(value: i32) i32 { return value + 1; }
-fn two(value: i32) i32 { return value + 2; }
-fn three(value: i32) i32 { return value + 3; }
+fn one(value: i32) i32 {
+    return value + 1;
+}
+fn two(value: i32) i32 {
+    return value + 2;
+}
+fn three(value: i32) i32 {
+    return value + 3;
+}
 
 fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
     var result: i32 = start_value;
@@ -229,7 +264,7 @@ test "eval @setRuntimeSafety at compile-time" {
     assert(result == 1234);
 }
 
-fn fnWithSetRuntimeSafety() i32{
+fn fnWithSetRuntimeSafety() i32 {
     @setRuntimeSafety(true);
     return 1234;
 }
@@ -244,7 +279,6 @@ fn fnWithFloatMode() f32 {
     return 1234.0;
 }
 
-
 const SimpleStruct = struct {
     field: i32,
 
@@ -253,15 +287,13 @@ const SimpleStruct = struct {
     }
 };
 
-var simple_struct = SimpleStruct{ .field = 1234, };
+var simple_struct = SimpleStruct{ .field = 1234 };
 
 const bound_fn = simple_struct.method;
 
 test "call method on bound fn referring to var instance" {
     assert(bound_fn() == 1237);
 }
-
-
 
 test "ptr to local array argument at comptime" {
     comptime {
@@ -276,7 +308,6 @@ fn modifySomeBytes(bytes: []u8) void {
     bytes[0] = 'a';
     bytes[9] = 'b';
 }
-
 
 test "comparisons 0 <= uint and 0 > uint should be comptime" {
     testCompTimeUIntComparisons(1234);
@@ -296,8 +327,6 @@ fn testCompTimeUIntComparisons(x: u32) void {
     }
 }
 
-
-
 test "const ptr to variable data changes at runtime" {
     assert(foo_ref.name[0] == 'a');
     foo_ref.name = "b";
@@ -308,10 +337,8 @@ const Foo = struct {
     name: []const u8,
 };
 
-var foo_contents = Foo { .name = "a", };
+var foo_contents = Foo{ .name = "a" };
 const foo_ref = &foo_contents;
-
-
 
 test "create global array with for loop" {
     assert(global_array[5] == 5 * 5);
@@ -321,7 +348,7 @@ test "create global array with for loop" {
 const global_array = x: {
     var result: [10]usize = undefined;
     for (result) |*item, index| {
-        *item = index * index;
+        item.* = index * index;
     }
     break :x result;
 };
@@ -379,7 +406,7 @@ test "f128 at compile time is lossy" {
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
     return struct {
-        pub const Node = struct { };
+        pub const Node = struct {};
     };
 }
 
@@ -401,10 +428,10 @@ fn copyWithPartialInline(s: []u32, b: []u8) void {
     comptime var i: usize = 0;
     inline while (i < 4) : (i += 1) {
         s[i] = 0;
-        s[i] |= u32(b[i*4+0]) << 24;
-        s[i] |= u32(b[i*4+1]) << 16;
-        s[i] |= u32(b[i*4+2]) <<  8;
-        s[i] |= u32(b[i*4+3]) <<  0;
+        s[i] |= u32(b[i * 4 + 0]) << 24;
+        s[i] |= u32(b[i * 4 + 1]) << 16;
+        s[i] |= u32(b[i * 4 + 2]) << 8;
+        s[i] |= u32(b[i * 4 + 3]) << 0;
     }
 }
 
@@ -413,7 +440,7 @@ test "binary math operator in partially inlined function" {
     var b: [16]u8 = undefined;
 
     for (b) |*r, i|
-        *r = u8(i + 1);
+        r.* = u8(i + 1);
 
     copyWithPartialInline(s[0..], b[0..]);
     assert(s[0] == 0x1020304);
@@ -421,7 +448,6 @@ test "binary math operator in partially inlined function" {
     assert(s[2] == 0x90a0b0c);
     assert(s[3] == 0xd0e0f10);
 }
-
 
 test "comptime function with the same args is memoized" {
     comptime {
@@ -447,12 +473,12 @@ test "comptime function with mutable pointer is not memoized" {
 }
 
 fn increment(value: &i32) void {
-    *value += 1;
+    value.* += 1;
 }
 
 fn generateTable(comptime T: type) [1010]T {
-    var res : [1010]T = undefined;
-    var i : usize = 0;
+    var res: [1010]T = undefined;
+    var i: usize = 0;
     while (i < 1010) : (i += 1) {
         res[i] = T(i);
     }
@@ -496,9 +522,8 @@ const SingleFieldStruct = struct {
     }
 };
 test "const ptr to comptime mutable data is not memoized" {
-
     comptime {
-        var foo = SingleFieldStruct {.x = 1};
+        var foo = SingleFieldStruct{ .x = 1 };
         assert(foo.read_x() == 1);
         foo.x = 2;
         assert(foo.read_x() == 2);
@@ -535,4 +560,19 @@ test "runtime 128 bit integer division" {
     var b: u128 = 10000000000000000000;
     var c = a / b;
     assert(c == 15231399999);
+}
+
+pub const Info = struct {
+    version: u8,
+};
+
+pub const diamond_info = Info{ .version = 0 };
+
+test "comptime modification of const struct field" {
+    comptime {
+        var res = diamond_info;
+        res.version = 1;
+        assert(diamond_info.version == 0);
+        assert(res.version == 1);
+    }
 }
