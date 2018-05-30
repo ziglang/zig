@@ -1,3 +1,12 @@
+test "zig fmt: spaces around slice operator" {
+    try testCanonical(
+        \\var a = b[c..d];
+        \\var a = b[c + 1 .. d];
+        \\var a = b[c .. d + 1];
+        \\
+    );
+}
+
 test "zig fmt: async call in if condition" {
     try testCanonical(
         \\comptime {

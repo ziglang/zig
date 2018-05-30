@@ -530,9 +530,13 @@ fn renderExpression(
                     const lbracket = tree.prevToken(range.start.firstToken());
                     const dotdot = tree.nextToken(range.start.lastToken());
 
+                    const spaces_around_op = range.start.id == ast.Node.Id.InfixOp or
+                        (if (range.end) |end| end.id == ast.Node.Id.InfixOp else false);
+                    const op_space = if (spaces_around_op) Space.Space else Space.None;
+
                     try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
-                    try renderExpression(allocator, stream, tree, indent, start_col, range.start, Space.None);
-                    try renderToken(tree, stream, dotdot, indent, start_col, Space.None); // ..
+                    try renderExpression(allocator, stream, tree, indent, start_col, range.start, op_space);
+                    try renderToken(tree, stream, dotdot, indent, start_col, op_space); // ..
                     if (range.end) |end| {
                         try renderExpression(allocator, stream, tree, indent, start_col, end, Space.None);
                     }
