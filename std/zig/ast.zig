@@ -120,7 +120,7 @@ pub const Error = union(enum) {
     ExpectedToken: ExpectedToken,
     ExpectedCommaOrEnd: ExpectedCommaOrEnd,
 
-    pub fn render(self: &Error, tokens: &Tree.TokenList, stream: var) !void {
+    pub fn render(self: &const Error, tokens: &Tree.TokenList, stream: var) !void {
         switch (self.*) {
             // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |*x| return x.render(tokens, stream),
@@ -145,7 +145,7 @@ pub const Error = union(enum) {
         }
     }
 
-    pub fn loc(self: &Error) TokenIndex {
+    pub fn loc(self: &const Error) TokenIndex {
         switch (self.*) {
             // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |x| return x.token,
@@ -190,7 +190,7 @@ pub const Error = union(enum) {
     pub const ExpectedCall = struct {
         node: &Node,
 
-        pub fn render(self: &ExpectedCall, tokens: &Tree.TokenList, stream: var) !void {
+        pub fn render(self: &const ExpectedCall, tokens: &Tree.TokenList, stream: var) !void {
             return stream.print("expected " ++ @tagName(@TagType(Node.SuffixOp.Op).Call) ++ ", found {}", @tagName(self.node.id));
         }
     };
@@ -198,7 +198,7 @@ pub const Error = union(enum) {
     pub const ExpectedCallOrFnProto = struct {
         node: &Node,
 
-        pub fn render(self: &ExpectedCallOrFnProto, tokens: &Tree.TokenList, stream: var) !void {
+        pub fn render(self: &const ExpectedCallOrFnProto, tokens: &Tree.TokenList, stream: var) !void {
             return stream.print("expected " ++ @tagName(@TagType(Node.SuffixOp.Op).Call) ++ " or " ++ @tagName(Node.Id.FnProto) ++ ", found {}", @tagName(self.node.id));
         }
     };
@@ -207,7 +207,7 @@ pub const Error = union(enum) {
         token: TokenIndex,
         expected_id: @TagType(Token.Id),
 
-        pub fn render(self: &ExpectedToken, tokens: &Tree.TokenList, stream: var) !void {
+        pub fn render(self: &const ExpectedToken, tokens: &Tree.TokenList, stream: var) !void {
             const token_name = @tagName(tokens.at(self.token).id);
             return stream.print("expected {}, found {}", @tagName(self.expected_id), token_name);
         }
@@ -217,7 +217,7 @@ pub const Error = union(enum) {
         token: TokenIndex,
         end_id: @TagType(Token.Id),
 
-        pub fn render(self: &ExpectedCommaOrEnd, tokens: &Tree.TokenList, stream: var) !void {
+        pub fn render(self: &const ExpectedCommaOrEnd, tokens: &Tree.TokenList, stream: var) !void {
             const token_name = @tagName(tokens.at(self.token).id);
             return stream.print("expected ',' or {}, found {}", @tagName(self.end_id), token_name);
         }
@@ -229,7 +229,7 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: &ThisError, tokens: &Tree.TokenList, stream: var) !void {
+            pub fn render(self: &const ThisError, tokens: &Tree.TokenList, stream: var) !void {
                 const token_name = @tagName(tokens.at(self.token).id);
                 return stream.print(msg, token_name);
             }
@@ -242,7 +242,7 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: &ThisError, tokens: &Tree.TokenList, stream: var) !void {
+            pub fn render(self: &const ThisError, tokens: &Tree.TokenList, stream: var) !void {
                 return stream.write(msg);
             }
         };

@@ -10,6 +10,7 @@ const Target = @import("target.zig").Target;
 const warn = std.debug.warn;
 const Token = std.zig.Token;
 const ArrayList = std.ArrayList;
+const errmsg = @import("errmsg.zig");
 
 pub const Module = struct {
     allocator: &mem.Allocator,
@@ -55,7 +56,7 @@ pub const Module = struct {
     link_libs_list: ArrayList(&LinkLib),
     libc_link_lib: ?&LinkLib,
 
-    err_color: ErrColor,
+    err_color: errmsg.Color,
 
     verbose_tokenize: bool,
     verbose_ast_tree: bool,
@@ -85,12 +86,6 @@ pub const Module = struct {
         Exe,
         Lib,
         Obj,
-    };
-
-    pub const ErrColor = enum {
-        Auto,
-        Off,
-        On,
     };
 
     pub const LinkLib = struct {
@@ -195,7 +190,7 @@ pub const Module = struct {
             .windows_subsystem_console = false,
             .link_libs_list = ArrayList(&LinkLib).init(allocator),
             .libc_link_lib = null,
-            .err_color = ErrColor.Auto,
+            .err_color = errmsg.Color.Auto,
             .darwin_frameworks = [][]const u8{},
             .darwin_version_min = DarwinVersionMin.None,
             .test_filters = [][]const u8{},

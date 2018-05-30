@@ -15,7 +15,9 @@ const Args = arg.Args;
 const Flag = arg.Flag;
 const Module = @import("module.zig").Module;
 const Target = @import("target.zig").Target;
+const errmsg = @import("errmsg.zig");
 
+var stderr_file: os.File = undefined;
 var stderr: &io.OutStream(io.FileOutStream.Error) = undefined;
 var stdout: &io.OutStream(io.FileOutStream.Error) = undefined;
 
@@ -51,7 +53,7 @@ pub fn main() !void {
     var stdout_out_stream = std.io.FileOutStream.init(&stdout_file);
     stdout = &stdout_out_stream.stream;
 
-    var stderr_file = try std.io.getStdErr();
+    stderr_file = try std.io.getStdErr();
     var stderr_out_stream = std.io.FileOutStream.init(&stderr_file);
     stderr = &stderr_out_stream.stream;
 
@@ -440,18 +442,19 @@ fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Mo
         build_mode = builtin.Mode.ReleaseSafe;
     }
 
-    var color = Module.ErrColor.Auto;
-    if (flags.single("color")) |color_flag| {
-        if (mem.eql(u8, color_flag, "auto")) {
-            color = Module.ErrColor.Auto;
-        } else if (mem.eql(u8, color_flag, "on")) {
-            color = Module.ErrColor.On;
-        } else if (mem.eql(u8, color_flag, "off")) {
-            color = Module.ErrColor.Off;
+    const color = blk: {
+        if (flags.single("color")) |color_flag| {
+            if (mem.eql(u8, color_flag, "auto")) {
+                break :blk errmsg.Color.Auto;
+            } else if (mem.eql(u8, color_flag, "on")) {
+                break :blk errmsg.Color.On;
+            } else if (mem.eql(u8, color_flag, "off")) {
+                break :blk errmsg.Color.Off;
+            } else unreachable;
         } else {
-            unreachable;
+            break :blk errmsg.Color.Auto;
         }
-    }
+    };
 
     var emit_type = Module.Emit.Binary;
     if (flags.single("emit")) |emit_flag| {
@@ -687,7 +690,14 @@ const usage_fmt =
     \\
 ;
 
-const args_fmt_spec = []Flag{Flag.Bool("--help")};
+const args_fmt_spec = []Flag{
+    Flag.Bool("--help"),
+    Flag.Option("--color", []const []const u8{
+        "auto",
+        "off",
+        "on",
+    }),
+};
 
 fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);
@@ -702,6 +712,20 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
         try stderr.write("expected at least one source file argument\n");
         os.exit(1);
     }
+
+    const color = blk: {
+        if (flags.single("color")) |color_flag| {
+            if (mem.eql(u8, color_flag, "auto")) {
+                break :blk errmsg.Color.Auto;
+            } else if (mem.eql(u8, color_flag, "on")) {
+                break :blk errmsg.Color.On;
+            } else if (mem.eql(u8, color_flag, "off")) {
+                break :blk errmsg.Color.Off;
+            } else unreachable;
+        } else {
+            break :blk errmsg.Color.Auto;
+        }
+    };
 
     for (flags.positionals.toSliceConst()) |file_path| {
         var file = try os.File.openRead(allocator, file_path);
@@ -721,25 +745,10 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
 
         var error_it = tree.errors.iterator(0);
         while (error_it.next()) |parse_error| {
-            const token = tree.tokens.at(parse_error.loc());
-            const loc = tree.tokenLocation(0, parse_error.loc());
-            try stderr.print("{}:{}:{}: error: ", file_path, loc.line + 1, loc.column + 1);
-            try tree.renderError(parse_error, stderr);
-            try stderr.print("\n{}\n", source_code[loc.line_start..loc.line_end]);
-            {
-                var i: usize = 0;
-                while (i < loc.column) : (i += 1) {
-                    try stderr.write(" ");
-                }
-            }
-            {
-                const caret_count = token.end - token.start;
-                var i: usize = 0;
-                while (i < caret_count) : (i += 1) {
-                    try stderr.write("~");
-                }
-            }
-            try stderr.write("\n");
+            const msg = try errmsg.createFromParseError(allocator, parse_error, &tree, file_path);
+            defer allocator.destroy(msg);
+
+            try errmsg.printToFile(&stderr_file, msg, color);
         }
         if (tree.errors.len != 0) {
             continue;
