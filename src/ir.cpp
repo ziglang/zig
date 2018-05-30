@@ -7633,38 +7633,16 @@ static bool slice_is_const(TypeTableEntry *type) {
     return type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
 }
 
-static bool resolve_inferred_error_set(IrAnalyze *ira, TypeTableEntry *err_set_type, AstNode *source_node) {
-    assert(err_set_type->id == TypeTableEntryIdErrorSet);
-    FnTableEntry *infer_fn = err_set_type->data.error_set.infer_fn;
-    if (infer_fn != nullptr) {
-        if (infer_fn->anal_state == FnAnalStateInvalid) {
-            return false;
-        } else if (infer_fn->anal_state == FnAnalStateReady) {
-            analyze_fn_body(ira->codegen, infer_fn);
-            if (err_set_type->data.error_set.infer_fn != nullptr) {
-                assert(ira->codegen->errors.length != 0);
-                return false;
-            }
-        } else {
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("cannot resolve inferred error set '%s': function '%s' not fully analyzed yet",
-                    buf_ptr(&err_set_type->name), buf_ptr(&err_set_type->data.error_set.infer_fn->symbol_name)));
-            return false;
-        }
-    }
-    return true;
-}
-
 static TypeTableEntry *get_error_set_intersection(IrAnalyze *ira, TypeTableEntry *set1, TypeTableEntry *set2,
         AstNode *source_node)
 {
     assert(set1->id == TypeTableEntryIdErrorSet);
     assert(set2->id == TypeTableEntryIdErrorSet);
 
-    if (!resolve_inferred_error_set(ira, set1, source_node)) {
+    if (!resolve_inferred_error_set(ira->codegen, set1, source_node)) {
         return ira->codegen->builtin_types.entry_invalid;
     }
-    if (!resolve_inferred_error_set(ira, set2, source_node)) {
+    if (!resolve_inferred_error_set(ira->codegen, set2, source_node)) {
         return ira->codegen->builtin_types.entry_invalid;
     }
     if (type_is_global_error_set(set1)) {
@@ -7803,7 +7781,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
             return result;
         }
 
-        if (!resolve_inferred_error_set(ira, contained_set, source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, contained_set, source_node)) {
             result.id = ConstCastResultIdUnresolvedInferredErrSet;
             return result;
         }
@@ -8192,7 +8170,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             err_set_type = ira->codegen->builtin_types.entry_global_error_set;
         } else {
             err_set_type = prev_inst->value.type;
-            if (!resolve_inferred_error_set(ira, err_set_type, prev_inst->source_node)) {
+            if (!resolve_inferred_error_set(ira->codegen, err_set_type, prev_inst->source_node)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
             update_errors_helper(ira->codegen, &errors, &errors_count);
@@ -8231,7 +8209,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 if (type_is_global_error_set(err_set_type)) {
                     continue;
                 }
-                if (!resolve_inferred_error_set(ira, cur_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
                 if (type_is_global_error_set(cur_type)) {
@@ -8297,7 +8275,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     continue;
                 }
                 TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
-                if (!resolve_inferred_error_set(ira, cur_err_set_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
                 if (type_is_global_error_set(cur_err_set_type)) {
@@ -8360,7 +8338,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             if (err_set_type != nullptr && type_is_global_error_set(err_set_type)) {
                 continue;
             }
-            if (!resolve_inferred_error_set(ira, cur_type, cur_inst->source_node)) {
+            if (!resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
 
@@ -8417,11 +8395,11 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 TypeTableEntry *prev_err_set_type = (err_set_type == nullptr) ? prev_type->data.error_union.err_set_type : err_set_type;
                 TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
 
-                if (!resolve_inferred_error_set(ira, prev_err_set_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, prev_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
 
-                if (!resolve_inferred_error_set(ira, cur_err_set_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
 
@@ -8531,7 +8509,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         {
             if (err_set_type != nullptr) {
                 TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
-                if (!resolve_inferred_error_set(ira, cur_err_set_type, cur_inst->source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
                 if (type_is_global_error_set(cur_err_set_type) || type_is_global_error_set(err_set_type)) {
@@ -9213,7 +9191,7 @@ static IrInstruction *ir_analyze_err_set_cast(IrAnalyze *ira, IrInstruction *sou
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        if (!resolve_inferred_error_set(ira, wanted_type, source_instr->source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, wanted_type, source_instr->source_node)) {
             return ira->codegen->invalid_instruction;
         }
         if (!type_is_global_error_set(wanted_type)) {
@@ -9654,7 +9632,7 @@ static IrInstruction *ir_analyze_int_to_err(IrAnalyze *ira, IrInstruction *sourc
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
 
-        if (!resolve_inferred_error_set(ira, wanted_type, source_instr->source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, wanted_type, source_instr->source_node)) {
             return ira->codegen->invalid_instruction;
         }
 
@@ -9752,7 +9730,7 @@ static IrInstruction *ir_analyze_err_to_int(IrAnalyze *ira, IrInstruction *sourc
         zig_unreachable();
     }
     if (!type_is_global_error_set(err_set_type)) {
-        if (!resolve_inferred_error_set(ira, err_set_type, source_instr->source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, err_set_type, source_instr->source_node)) {
             return ira->codegen->invalid_instruction;
         }
         if (err_set_type->data.error_set.err_count == 0) {
@@ -10647,7 +10625,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        if (!resolve_inferred_error_set(ira, intersect_type, source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, intersect_type, source_node)) {
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -11503,11 +11481,11 @@ static TypeTableEntry *ir_analyze_merge_error_sets(IrAnalyze *ira, IrInstruction
         return ira->codegen->builtin_types.entry_type;
     }
 
-    if (!resolve_inferred_error_set(ira, op1_type, instruction->op1->other->source_node)) {
+    if (!resolve_inferred_error_set(ira->codegen, op1_type, instruction->op1->other->source_node)) {
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (!resolve_inferred_error_set(ira, op2_type, instruction->op2->other->source_node)) {
+    if (!resolve_inferred_error_set(ira->codegen, op2_type, instruction->op2->other->source_node)) {
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -13851,7 +13829,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 }
                 err_set_type = err_entry->set_with_only_this_in_it;
             } else {
-                if (!resolve_inferred_error_set(ira, child_type, field_ptr_instruction->base.source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, child_type, field_ptr_instruction->base.source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
                 err_entry = find_err_table_entry(child_type, field_name);
@@ -17559,7 +17537,7 @@ static TypeTableEntry *ir_analyze_instruction_member_count(IrAnalyze *ira, IrIns
     } else if (container_type->id == TypeTableEntryIdUnion) {
         result = container_type->data.unionation.src_field_count;
     } else if (container_type->id == TypeTableEntryIdErrorSet) {
-        if (!resolve_inferred_error_set(ira, container_type, instruction->base.source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, container_type, instruction->base.source_node)) {
             return ira->codegen->builtin_types.entry_invalid;
         }
         if (type_is_global_error_set(container_type)) {
@@ -17863,7 +17841,7 @@ static TypeTableEntry *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruc
         }
 
         TypeTableEntry *err_set_type = type_entry->data.error_union.err_set_type;
-        if (!resolve_inferred_error_set(ira, err_set_type, instruction->base.source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, err_set_type, instruction->base.source_node)) {
             return ira->codegen->builtin_types.entry_invalid;
         }
         if (!type_is_global_error_set(err_set_type) &&
@@ -18131,7 +18109,7 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             }
         }
     } else if (switch_type->id == TypeTableEntryIdErrorSet) {
-        if (!resolve_inferred_error_set(ira, switch_type, target_value->source_node)) {
+        if (!resolve_inferred_error_set(ira->codegen, switch_type, target_value->source_node)) {
             return ira->codegen->builtin_types.entry_invalid;
         }
 
