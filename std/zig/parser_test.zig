@@ -2,7 +2,9 @@ test "zig fmt: spaces around slice operator" {
     try testCanonical(
         \\var a = b[c..d];
         \\var a = b[c + 1 .. d];
+        \\var a = b[c + 1 ..];
         \\var a = b[c .. d + 1];
+        \\var a = b[c.a..d.e];
         \\
     );
 }
