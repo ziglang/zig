@@ -1058,7 +1058,7 @@ fn renderExpression(
                 try renderToken(tree, stream, name_token, indent, start_col, Space.None); // name
                 break :blk tree.nextToken(name_token);
             } else blk: {
-                try renderToken(tree, stream, fn_proto.fn_token, indent, start_col, Space.None); // fn
+                try renderToken(tree, stream, fn_proto.fn_token, indent, start_col, Space.Space); // fn
                 break :blk tree.nextToken(fn_proto.fn_token);
             };
 

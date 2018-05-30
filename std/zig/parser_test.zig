@@ -805,7 +805,7 @@ test "zig fmt: doc comments before struct field" {
         \\pub const Allocator = struct {
         \\    /// Allocate byte_count bytes and return them in a slice, with the
         \\    /// slice's pointer aligned at least to alignment bytes.
-        \\    allocFn: fn() void,
+        \\    allocFn: fn () void,
         \\};
         \\
     );
@@ -1710,10 +1710,10 @@ test "zig fmt: fn type" {
         \\    return i + 1;
         \\}
         \\
-        \\const a: fn(u8) u8 = undefined;
-        \\const b: extern fn(u8) u8 = undefined;
-        \\const c: nakedcc fn(u8) u8 = undefined;
-        \\const ap: fn(u8) u8 = a;
+        \\const a: fn (u8) u8 = undefined;
+        \\const b: extern fn (u8) u8 = undefined;
+        \\const c: nakedcc fn (u8) u8 = undefined;
+        \\const ap: fn (u8) u8 = a;
         \\
     );
 }
@@ -1801,7 +1801,7 @@ const io = std.io;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: &mem.Allocator, changes_expected: bool) ![]u8 {
+fn testParse(source: []const u8, allocator: &mem.Allocator, anything_changed: &bool) ![]u8 {
     var stderr_file = try io.getStdErr();
     var stderr = &io.FileOutStream.init(&stderr_file).stream;
 
@@ -1838,18 +1838,17 @@ fn testParse(source: []const u8, allocator: &mem.Allocator, changes_expected: bo
     errdefer buffer.deinit();
 
     var buffer_out_stream = io.BufferOutStream.init(&buffer);
-    const anything_changed = try std.zig.render(allocator, &buffer_out_stream.stream, &tree);
-    std.debug.assert(anything_changed == changes_expected);
+    anything_changed.* = try std.zig.render(allocator, &buffer_out_stream.stream, &tree);
     return buffer.toOwnedSlice();
 }
 
 fn testTransform(source: []const u8, expected_source: []const u8) !void {
-    const changes_expected = source.ptr != expected_source.ptr;
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
-        const result_source = try testParse(source, &failing_allocator.allocator, changes_expected);
+        var anything_changed: bool = undefined;
+        const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
         if (!mem.eql(u8, result_source, expected_source)) {
             warn("\n====== expected this output: =========\n");
             warn("{}", expected_source);
@@ -1858,6 +1857,12 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
             warn("\n======================================\n");
             return error.TestFailed;
         }
+        const changes_expected = source.ptr != expected_source.ptr;
+        if (anything_changed != changes_expected) {
+            warn("std.zig.render returned {} instead of {}\n", anything_changed, changes_expected);
+            return error.TestFailed;
+        }
+        std.debug.assert(anything_changed == changes_expected);
         failing_allocator.allocator.free(result_source);
         break :x failing_allocator.index;
     };
@@ -1866,7 +1871,8 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
-        if (testParse(source, &failing_allocator.allocator, changes_expected)) |_| {
+        var anything_changed: bool = undefined;
+        if (testParse(source, &failing_allocator.allocator, &anything_changed)) |_| {
             return error.NondeterministicMemoryUsage;
         } else |err| switch (err) {
             error.OutOfMemory => {
