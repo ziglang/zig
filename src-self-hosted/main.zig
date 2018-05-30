@@ -719,6 +719,9 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
         };
         defer tree.deinit();
 
+        var old_digest: [256]u8 = undefined;
+        std.crypto.Sha256.hash(source_code, old_digest[0..]);
+
         var error_it = tree.errors.iterator(0);
         while (error_it.next()) |parse_error| {
             const token = tree.tokens.at(parse_error.loc());
@@ -745,13 +748,14 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
             continue;
         }
 
-        try stderr.print("{}\n", file_path);
-
         const baf = try io.BufferedAtomicFile.create(allocator, file_path);
         defer baf.destroy();
 
-        try std.zig.render(allocator, baf.stream(), &tree);
-        try baf.finish();
+        const anything_changed = try std.zig.render(allocator, baf.stream(), &tree);
+        if (anything_changed) {
+            try stderr.print("{}\n", file_path);
+            try baf.finish();
+        }
     }
 }
 

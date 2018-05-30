@@ -255,7 +255,7 @@ pub const Module = struct {
         const out_stream = &stderr_file_out_stream.stream;
 
         warn("====fmt:====\n");
-        try std.zig.render(self.allocator, out_stream, &tree);
+        _ = try std.zig.render(self.allocator, out_stream, &tree);
 
         warn("====ir:====\n");
         warn("TODO\n\n");

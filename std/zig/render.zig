@@ -12,9 +12,61 @@ pub const Error = error{
     OutOfMemory,
 };
 
-pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(stream).Child.Error || Error)!void {
+/// Returns whether anything changed
+pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(stream).Child.Error || Error)!bool {
     comptime assert(@typeId(@typeOf(stream)) == builtin.TypeId.Pointer);
 
+    var anything_changed: bool = false;
+
+    // make a passthrough stream that checks whether something changed
+    const MyStream = struct {
+        const MyStream = this;
+        const StreamError = @typeOf(stream).Child.Error;
+        const Stream = std.io.OutStream(StreamError);
+
+        anything_changed_ptr: &bool,
+        child_stream: @typeOf(stream),
+        stream: Stream,
+        source_index: usize,
+        source: []const u8,
+
+        fn write(iface_stream: &Stream, bytes: []const u8) StreamError!void {
+            const self = @fieldParentPtr(MyStream, "stream", iface_stream);
+
+            if (!self.anything_changed_ptr.*) {
+                const end = self.source_index + bytes.len;
+                if (end > self.source.len) {
+                    self.anything_changed_ptr.* = true;
+                } else {
+                    const src_slice = self.source[self.source_index..end];
+                    self.source_index += bytes.len;
+                    if (!mem.eql(u8, bytes, src_slice)) {
+                        self.anything_changed_ptr.* = true;
+                    }
+                }
+            }
+
+            try self.child_stream.write(bytes);
+        }
+    };
+    var my_stream = MyStream{
+        .stream = MyStream.Stream{ .writeFn = MyStream.write },
+        .child_stream = stream,
+        .anything_changed_ptr = &anything_changed,
+        .source_index = 0,
+        .source = tree.source,
+    };
+
+    try renderRoot(allocator, &my_stream.stream, tree);
+
+    return anything_changed;
+}
+
+fn renderRoot(
+    allocator: &mem.Allocator,
+    stream: var,
+    tree: &ast.Tree,
+) (@typeOf(stream).Child.Error || Error)!void {
     // render all the line comments at the beginning of the file
     var tok_it = tree.tokens.iterator(0);
     while (tok_it.next()) |token| {
