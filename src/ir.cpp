@@ -17914,6 +17914,15 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *ptr_type = value->value.type;
 
+    // Because we don't have Pointer Reform yet, we can't have a pointer to a 'type'.
+    // Therefor, we have to check for type 'type' here, so we can output a correct error
+    // without asserting the assert below.
+    if (ptr_type->id == TypeTableEntryIdMetaType) {
+        ir_add_error(ira, value,
+            buf_sprintf("expected error union type, found '%s'", buf_ptr(&ptr_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     // This will be a pointer type because unwrap err payload IR instruction operates on a pointer to a thing.
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
