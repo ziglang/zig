@@ -11,7 +11,10 @@ const max_int_digits = 65;
 /// Renders fmt string with args, calling output with slices of bytes.
 /// If `output` returns an error, the error is returned from `format` and
 /// `output` is not called again.
-pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void, comptime fmt: []const u8, args: ...) Errors!void {
+pub fn format(context: var, comptime Errors: type, 
+    output: fn(@typeOf(context), []const u8) Errors!void, comptime fmt: []const u8, 
+    args: ...) Errors!void
+{
     const State = enum {
         Start,
         OpenBrace,
@@ -281,7 +284,9 @@ pub fn formatText(bytes: []const u8, comptime fmt: []const u8, context: var,
     return output(context, bytes);
 }
 
-pub fn formatAsciiChar(c: u8, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+pub fn formatAsciiChar(c: u8, context: var, comptime Errors: type,
+    output: fn(@typeOf(context), []const u8) Errors!void) Errors!void
+{
     return output(context, (&c)[0..1]);
 }
 
@@ -300,7 +305,9 @@ pub fn formatBuf(buf: []const u8, width: usize, context: var,
 // Print a float in scientific notation to the specified precision. Null uses full precision.
 // It should be the case that every full precision, printed value can be re-parsed back to the
 // same type unambiguously.
-pub fn formatFloatScientific(value: var, maybe_precision: ?usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+pub fn formatFloatScientific(value: var, maybe_precision: ?usize, context: var,
+    comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void
+{
     var x = f64(value);
 
     // Errol doesn't handle these special cases.
@@ -389,7 +396,9 @@ pub fn formatFloatScientific(value: var, maybe_precision: ?usize, context: var, 
 
 // Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
 // By default floats are printed at full precision (no rounding).
-pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, comptime Errors: type,
+    output: fn(@typeOf(context), []const u8) Errors!void) Errors!void
+{
     var x = f64(value);
 
     // Errol doesn't handle these special cases.
@@ -579,7 +588,9 @@ pub fn formatInt(
     }
 }
 
-fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize, context: var,
+    comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void
+{
     const uint = @IntType(false, @typeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
@@ -598,7 +609,9 @@ fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize, context:
     }
 }
 
-fn formatIntUnsigned(value: var, base: u8, uppercase: bool, width: usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+fn formatIntUnsigned(value: var, base: u8, uppercase: bool, width: usize, context: var,
+    comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void
+{
     // max_int_digits accounts for the minus sign. when printing an unsigned
     // number we don't need to do that.
     var buf: [max_int_digits - 1]u8 = undefined;
