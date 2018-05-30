@@ -233,3 +233,10 @@ fn testFunction() void {
 fn foo(comptime a: usize, b: bool, args: ...) usize {
     return 0;
 }
+
+test "typeInfo with comptime parameter in struct fn def" {
+    const S = struct {
+        pub fn func(comptime x: f32) void {}
+    };
+    comptime var info = @typeInfo(S);
+}

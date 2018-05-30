@@ -15982,10 +15982,6 @@ static void ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                     FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                     assert(!fn_entry->is_test);
 
-                    analyze_fn_body(ira->codegen, fn_entry);
-                    if (fn_entry->anal_state == FnAnalStateInvalid)
-                        return;
-
                     AstNodeFnProto *fn_node = (AstNodeFnProto *)(fn_entry->proto_node);
 
                     ConstExprValue *fn_def_val = create_const_vals(1);
