@@ -450,7 +450,7 @@ fn testError(encoded: []const u8, expected_err: error) !void {
 fn testOutputTooSmallError(encoded: []const u8) !void {
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
-    var decoded = buffer[0..calcDecodedSizeExactUnsafe(encoded, standard_pad_char) - 1];
+    var decoded = buffer[0 .. calcDecodedSizeExactUnsafe(encoded, standard_pad_char) - 1];
     if (standard_decoder_ignore_space.decode(decoded, encoded)) |_| {
         return error.ExpectedError;
     } else |err| if (err != error.OutputTooSmall) return err;

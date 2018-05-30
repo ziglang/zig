@@ -939,7 +939,7 @@ pub fn sigaction(sig: u6, noalias act: &const Sigaction, noalias oact: ?&Sigacti
         .handler = act.handler,
         .flags = act.flags | SA_RESTORER,
         .mask = undefined,
-        .restorer = @ptrCast(extern fn() void, restore_rt),
+        .restorer = @ptrCast(extern fn () void, restore_rt),
     };
     var ksa_old: k_sigaction = undefined;
     @memcpy(@ptrCast(&u8, &ksa.mask), @ptrCast(&const u8, &act.mask), 8);
@@ -962,22 +962,22 @@ const all_mask = []usize{@maxValue(usize)};
 const app_mask = []usize{0xfffffffc7fffffff};
 
 const k_sigaction = extern struct {
-    handler: extern fn(i32) void,
+    handler: extern fn (i32) void,
     flags: usize,
-    restorer: extern fn() void,
+    restorer: extern fn () void,
     mask: [2]u32,
 };
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {
-    handler: extern fn(i32) void,
+    handler: extern fn (i32) void,
     mask: sigset_t,
     flags: u32,
 };
 
-pub const SIG_ERR = @intToPtr(extern fn(i32) void, @maxValue(usize));
-pub const SIG_DFL = @intToPtr(extern fn(i32) void, 0);
-pub const SIG_IGN = @intToPtr(extern fn(i32) void, 1);
+pub const SIG_ERR = @intToPtr(extern fn (i32) void, @maxValue(usize));
+pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
+pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
 pub const empty_sigset = []usize{0} ** sigset_t.len;
 
 pub fn raise(sig: i32) usize {

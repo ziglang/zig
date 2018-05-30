@@ -105,7 +105,7 @@ fn Blake2s(comptime out_len: usize) type {
             // Full middle blocks.
             while (off + 64 <= b.len) : (off += 64) {
                 d.t += 64;
-                d.round(b[off..off + 64], false);
+                d.round(b[off .. off + 64], false);
             }
 
             // Copy any remainder for next pass.
@@ -120,10 +120,10 @@ fn Blake2s(comptime out_len: usize) type {
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
-            const rr = d.h[0..out_len / 32];
+            const rr = d.h[0 .. out_len / 32];
 
             for (rr) |s, j| {
-                mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Little);
+                mem.writeInt(out[4 * j .. 4 * j + 4], s, builtin.Endian.Little);
             }
         }
 
@@ -134,7 +134,7 @@ fn Blake2s(comptime out_len: usize) type {
             var v: [16]u32 = undefined;
 
             for (m) |*r, i| {
-                r.* = mem.readIntLE(u32, b[4 * i..4 * i + 4]);
+                r.* = mem.readIntLE(u32, b[4 * i .. 4 * i + 4]);
             }
 
             var k: usize = 0;
@@ -340,7 +340,7 @@ fn Blake2b(comptime out_len: usize) type {
             // Full middle blocks.
             while (off + 128 <= b.len) : (off += 128) {
                 d.t += 128;
-                d.round(b[off..off + 128], false);
+                d.round(b[off .. off + 128], false);
             }
 
             // Copy any remainder for next pass.
@@ -353,10 +353,10 @@ fn Blake2b(comptime out_len: usize) type {
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
-            const rr = d.h[0..out_len / 64];
+            const rr = d.h[0 .. out_len / 64];
 
             for (rr) |s, j| {
-                mem.writeInt(out[8 * j..8 * j + 8], s, builtin.Endian.Little);
+                mem.writeInt(out[8 * j .. 8 * j + 8], s, builtin.Endian.Little);
             }
         }
 
@@ -367,7 +367,7 @@ fn Blake2b(comptime out_len: usize) type {
             var v: [16]u64 = undefined;
 
             for (m) |*r, i| {
-                r.* = mem.readIntLE(u64, b[8 * i..8 * i + 8]);
+                r.* = mem.readIntLE(u64, b[8 * i .. 8 * i + 8]);
             }
 
             var k: usize = 0;

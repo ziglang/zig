@@ -511,7 +511,7 @@ test "@typeId" {
         assert(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
         assert(@typeId(AUnionEnum) == Tid.Union);
         assert(@typeId(AUnion) == Tid.Union);
-        assert(@typeId(fn() void) == Tid.Fn);
+        assert(@typeId(fn () void) == Tid.Fn);
         assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
         assert(@typeId(@typeOf(x: {
             break :x this;

@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn get_foo() fn(&u8) usize {
+fn get_foo() fn (&u8) usize {
     comptime {
         return struct {
             fn func(ptr: &u8) usize {

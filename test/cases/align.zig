@@ -18,8 +18,8 @@ fn noop4() align(4) void {}
 
 test "function alignment" {
     assert(derp() == 1234);
-    assert(@typeOf(noop1) == fn() align(1) void);
-    assert(@typeOf(noop4) == fn() align(4) void);
+    assert(@typeOf(noop1) == fn () align(1) void);
+    assert(@typeOf(noop4) == fn () align(4) void);
     noop1();
     noop4();
 }
@@ -127,7 +127,7 @@ test "implicitly decreasing fn alignment" {
     testImplicitlyDecreaseFnAlign(alignedBig, 5678);
 }
 
-fn testImplicitlyDecreaseFnAlign(ptr: fn() align(1) i32, answer: i32) void {
+fn testImplicitlyDecreaseFnAlign(ptr: fn () align(1) i32, answer: i32) void {
     assert(ptr() == answer);
 }
 
@@ -141,10 +141,10 @@ fn alignedBig() align(16) i32 {
 test "@alignCast functions" {
     assert(fnExpectsOnly1(simple4) == 0x19);
 }
-fn fnExpectsOnly1(ptr: fn() align(1) i32) i32 {
+fn fnExpectsOnly1(ptr: fn () align(1) i32) i32 {
     return fnExpects4(@alignCast(4, ptr));
 }
-fn fnExpects4(ptr: fn() align(4) i32) i32 {
+fn fnExpects4(ptr: fn () align(4) i32) i32 {
     return ptr();
 }
 fn simple4() align(4) i32 {

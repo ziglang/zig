@@ -13,7 +13,7 @@ pub const Allocator = struct {
     /// The returned newly allocated memory is undefined.
     /// `alignment` is guaranteed to be >= 1
     /// `alignment` is guaranteed to be a power of 2
-    allocFn: fn(self: &Allocator, byte_count: usize, alignment: u29) Error![]u8,
+    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) Error![]u8,
 
     /// If `new_byte_count > old_mem.len`:
     /// * `old_mem.len` is the same as what was returned from allocFn or reallocFn.
@@ -26,10 +26,10 @@ pub const Allocator = struct {
     /// The returned newly allocated memory is undefined.
     /// `alignment` is guaranteed to be >= 1
     /// `alignment` is guaranteed to be a power of 2
-    reallocFn: fn(self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
+    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
-    freeFn: fn(self: &Allocator, old_mem: []u8) void,
+    freeFn: fn (self: &Allocator, old_mem: []u8) void,
 
     fn create(self: &Allocator, comptime T: type) !&T {
         if (@sizeOf(T) == 0) return &{};
@@ -282,7 +282,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 
     var i: usize = haystack.len - needle.len;
     while (true) : (i -= 1) {
-        if (mem.eql(T, haystack[i..i + needle.len], needle)) return i;
+        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
         if (i == 0) return null;
     }
 }
@@ -294,7 +294,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i..i + needle.len], needle)) return i;
+        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
     }
     return null;
 }
@@ -444,7 +444,7 @@ test "mem.startsWith" {
 }
 
 pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
-    return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len..], needle);
+    return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len ..], needle);
 }
 
 test "mem.endsWith" {

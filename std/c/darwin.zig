@@ -60,7 +60,7 @@ pub const sigset_t = u32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    handler: extern fn(c_int) void,
+    handler: extern fn (c_int) void,
     sa_mask: sigset_t,
     sa_flags: c_int,
 };

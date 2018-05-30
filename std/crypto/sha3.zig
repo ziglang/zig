@@ -46,7 +46,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
 
             // absorb
             while (len >= rate) {
-                for (d.s[offset..offset + rate]) |*r, i|
+                for (d.s[offset .. offset + rate]) |*r, i|
                     r.* ^= b[ip..][i];
 
                 keccak_f(1600, d.s[0..]);
@@ -57,7 +57,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
                 offset = 0;
             }
 
-            for (d.s[offset..offset + len]) |*r, i|
+            for (d.s[offset .. offset + len]) |*r, i|
                 r.* ^= b[ip..][i];
 
             d.offset = offset + len;
@@ -193,7 +193,7 @@ fn keccak_f(comptime F: usize, d: []u8) void {
     var c = []const u64{0} ** 5;
 
     for (s) |*r, i| {
-        r.* = mem.readIntLE(u64, d[8 * i..8 * i + 8]);
+        r.* = mem.readIntLE(u64, d[8 * i .. 8 * i + 8]);
     }
 
     comptime var x: usize = 0;
@@ -240,7 +240,7 @@ fn keccak_f(comptime F: usize, d: []u8) void {
     }
 
     for (s) |r, i| {
-        mem.writeInt(d[8 * i..8 * i + 8], r, builtin.Endian.Little);
+        mem.writeInt(d[8 * i .. 8 * i + 8], r, builtin.Endian.Little);
     }
 }
 

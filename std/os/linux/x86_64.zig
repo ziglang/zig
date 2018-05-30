@@ -463,7 +463,7 @@ pub fn syscall6(
 }
 
 /// This matches the libc clone function.
-pub extern fn clone(func: extern fn(arg: usize) u8, stack: usize, flags: usize, arg: usize, ptid: &i32, tls: usize, ctid: &i32) usize;
+pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: usize, arg: usize, ptid: &i32, tls: usize, ctid: &i32) usize;
 
 pub nakedcc fn restore_rt() void {
     return asm volatile ("syscall"

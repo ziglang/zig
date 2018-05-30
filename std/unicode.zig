@@ -151,7 +151,7 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
                 return false;
             }
 
-            if (utf8Decode(s[i..i + cp_len])) |_| {} else |_| {
+            if (utf8Decode(s[i .. i + cp_len])) |_| {} else |_| {
                 return false;
             }
             i += cp_len;
@@ -216,7 +216,7 @@ const Utf8Iterator = struct {
         const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
 
         it.i += cp_len;
-        return it.bytes[it.i - cp_len..it.i];
+        return it.bytes[it.i - cp_len .. it.i];
     }
 
     pub fn nextCodepoint(it: &Utf8Iterator) ?u32 {

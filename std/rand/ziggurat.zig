@@ -56,11 +56,11 @@ pub const ZigTable = struct {
     f: [257]f64,
 
     // probability density function used as a fallback
-    pdf: fn(f64) f64,
+    pdf: fn (f64) f64,
     // whether the distribution is symmetric
     is_symmetric: bool,
     // fallback calculation in the case we are in the 0 block
-    zero_case: fn(&Random, f64) f64,
+    zero_case: fn (&Random, f64) f64,
 };
 
 // zigNorInit
@@ -68,9 +68,9 @@ fn ZigTableGen(
     comptime is_symmetric: bool,
     comptime r: f64,
     comptime v: f64,
-    comptime f: fn(f64) f64,
-    comptime f_inv: fn(f64) f64,
-    comptime zero_case: fn(&Random, f64) f64,
+    comptime f: fn (f64) f64,
+    comptime f_inv: fn (f64) f64,
+    comptime zero_case: fn (&Random, f64) f64,
 ) ZigTable {
     var tables: ZigTable = undefined;
 

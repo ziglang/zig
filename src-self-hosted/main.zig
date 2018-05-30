@@ -41,7 +41,7 @@ const usage =
 
 const Command = struct {
     name: []const u8,
-    exec: fn(&Allocator, []const []const u8) error!void,
+    exec: fn (&Allocator, []const []const u8) error!void,
 };
 
 pub fn main() !void {
@@ -862,7 +862,7 @@ fn cmdRun(allocator: &Allocator, args: []const []const u8) !void {
     for (args) |argv, i| {
         if (mem.eql(u8, argv, "--")) {
             compile_args = args[0..i];
-            runtime_args = args[i + 1..];
+            runtime_args = args[i + 1 ..];
             break;
         }
     }

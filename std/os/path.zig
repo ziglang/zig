@@ -793,7 +793,7 @@ pub fn basenamePosix(path: []const u8) []const u8 {
         start_index -= 1;
     }
 
-    return path[start_index + 1..end_index];
+    return path[start_index + 1 .. end_index];
 }
 
 pub fn basenameWindows(path: []const u8) []const u8 {
@@ -825,7 +825,7 @@ pub fn basenameWindows(path: []const u8) []const u8 {
         start_index -= 1;
     }
 
-    return path[start_index + 1..end_index];
+    return path[start_index + 1 .. end_index];
 }
 
 test "os.path.basename" {
@@ -999,7 +999,7 @@ pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) ![
         }
         if (to_rest.len == 0) {
             // shave off the trailing slash
-            return result[0..result_index - 1];
+            return result[0 .. result_index - 1];
         }
 
         mem.copy(u8, result[result_index..], to_rest);

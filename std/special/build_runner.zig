@@ -71,7 +71,7 @@ pub fn main() !void {
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0..name_end];
-                const option_value = option_contents[name_end + 1..];
+                const option_value = option_contents[name_end + 1 ..];
                 if (builder.addUserInputOption(option_name, option_value))
                     return usageAndErr(&builder, false, try stderr_stream);
             } else {

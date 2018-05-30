@@ -437,7 +437,7 @@ pub fn sigaction(sig: u5, noalias act: &const Sigaction, noalias oact: ?&Sigacti
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
     var cact = c.Sigaction{
-        .handler = @ptrCast(extern fn(c_int) void, act.handler),
+        .handler = @ptrCast(extern fn (c_int) void, act.handler),
         .sa_flags = @bitCast(c_int, act.flags),
         .sa_mask = act.mask,
     };
@@ -448,7 +448,7 @@ pub fn sigaction(sig: u5, noalias act: &const Sigaction, noalias oact: ?&Sigacti
     }
     if (oact) |old| {
         old.* = Sigaction{
-            .handler = @ptrCast(extern fn(i32) void, coact.handler),
+            .handler = @ptrCast(extern fn (i32) void, coact.handler),
             .flags = @bitCast(u32, coact.sa_flags),
             .mask = coact.sa_mask,
         };
@@ -468,7 +468,7 @@ pub const sockaddr = c.sockaddr;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {
-    handler: extern fn(i32) void,
+    handler: extern fn (i32) void,
     mask: sigset_t,
     flags: u32,
 };

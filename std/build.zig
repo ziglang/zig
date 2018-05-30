@@ -1912,12 +1912,12 @@ pub const RemoveDirStep = struct {
 
 pub const Step = struct {
     name: []const u8,
-    makeFn: fn(self: &Step) error!void,
+    makeFn: fn (self: &Step) error!void,
     dependencies: ArrayList(&Step),
     loop_flag: bool,
     done_flag: bool,
 
-    pub fn init(name: []const u8, allocator: &Allocator, makeFn: fn(&Step) error!void) Step {
+    pub fn init(name: []const u8, allocator: &Allocator, makeFn: fn (&Step) error!void) Step {
         return Step{
             .name = name,
             .makeFn = makeFn,

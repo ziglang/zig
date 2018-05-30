@@ -73,7 +73,7 @@ pub const Md5 = struct {
 
         // Full middle blocks.
         while (off + 64 <= b.len) : (off += 64) {
-            d.round(b[off..off + 64]);
+            d.round(b[off .. off + 64]);
         }
 
         // Copy any remainder for next pass.
@@ -112,7 +112,7 @@ pub const Md5 = struct {
         d.round(d.buf[0..]);
 
         for (d.s) |s, j| {
-            mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Little);
+            mem.writeInt(out[4 * j .. 4 * j + 4], s, builtin.Endian.Little);
         }
     }
 

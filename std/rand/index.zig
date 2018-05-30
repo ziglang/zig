@@ -28,7 +28,7 @@ pub const DefaultPrng = Xoroshiro128;
 pub const DefaultCsprng = Isaac64;
 
 pub const Random = struct {
-    fillFn: fn(r: &Random, buf: []u8) void,
+    fillFn: fn (r: &Random, buf: []u8) void,
 
     /// Read random bytes into the specified buffer until fill.
     pub fn bytes(r: &Random, buf: []u8) void {

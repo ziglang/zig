@@ -61,7 +61,7 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
         pub fn update(self: &Self, input: []const u8) void {
             var i: usize = 0;
             while (i + 8 <= input.len) : (i += 8) {
-                const p = input[i..i + 8];
+                const p = input[i .. i + 8];
 
                 // Unrolling this way gives ~50Mb/s increase
                 self.crc ^= (u32(p[0]) << 0);

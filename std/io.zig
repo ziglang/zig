@@ -82,7 +82,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// Return the number of bytes read. If the number read is smaller than buf.len, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
-        readFn: fn(self: &Self, buffer: []u8) Error!usize,
+        readFn: fn (self: &Self, buffer: []u8) Error!usize,
 
         /// Replaces `buffer` contents by reading from the stream until it is finished.
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and
@@ -208,7 +208,7 @@ pub fn OutStream(comptime WriteError: type) type {
         const Self = this;
         pub const Error = WriteError;
 
-        writeFn: fn(self: &Self, bytes: []const u8) Error!void,
+        writeFn: fn (self: &Self, bytes: []const u8) Error!void,
 
         pub fn print(self: &Self, comptime format: []const u8, args: ...) !void {
             return std.fmt.format(self, Error, self.writeFn, format, args);
@@ -369,7 +369,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             while (src_index < bytes.len) {
                 const dest_space_left = self.buffer.len - self.index;
                 const copy_amt = math.min(dest_space_left, bytes.len - src_index);
-                mem.copy(u8, self.buffer[self.index..], bytes[src_index..src_index + copy_amt]);
+                mem.copy(u8, self.buffer[self.index..], bytes[src_index .. src_index + copy_amt]);
                 self.index += copy_amt;
                 assert(self.index <= self.buffer.len);
                 if (self.index == self.buffer.len) {

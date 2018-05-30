@@ -60,7 +60,7 @@ pub fn roundToPrecision(float_decimal: &FloatDecimal, precision: usize, mode: Ro
 
                 // Re-size the buffer to use the reserved leading byte.
                 const one_before = @intToPtr(&u8, @ptrToInt(&float_decimal.digits[0]) - 1);
-                float_decimal.digits = one_before[0..float_decimal.digits.len + 1];
+                float_decimal.digits = one_before[0 .. float_decimal.digits.len + 1];
                 float_decimal.digits[0] = '1';
                 return;
             }
@@ -84,7 +84,7 @@ pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
     const i = tableLowerBound(bits);
     if (i < enum3.len and enum3[i] == bits) {
         const data = enum3_data[i];
-        const digits = buffer[1..data.str.len + 1];
+        const digits = buffer[1 .. data.str.len + 1];
         mem.copy(u8, digits, data.str);
         return FloatDecimal{
             .digits = digits,

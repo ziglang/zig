@@ -71,7 +71,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             try l.ensureCapacity(l.len + 1);
             l.len += 1;
 
-            mem.copy(T, l.items[n + 1..l.len], l.items[n..l.len - 1]);
+            mem.copy(T, l.items[n + 1 .. l.len], l.items[n .. l.len - 1]);
             l.items[n] = item.*;
         }
 
@@ -79,8 +79,8 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             try l.ensureCapacity(l.len + items.len);
             l.len += items.len;
 
-            mem.copy(T, l.items[n + items.len..l.len], l.items[n..l.len - items.len]);
-            mem.copy(T, l.items[n..n + items.len], items);
+            mem.copy(T, l.items[n + items.len .. l.len], l.items[n .. l.len - items.len]);
+            mem.copy(T, l.items[n .. n + items.len], items);
         }
 
         pub fn append(l: &Self, item: &const T) !void {

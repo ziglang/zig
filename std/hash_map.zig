@@ -9,7 +9,7 @@ const builtin = @import("builtin");
 const want_modification_safety = builtin.mode != builtin.Mode.ReleaseFast;
 const debug_u32 = if (want_modification_safety) u32 else void;
 
-pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32, comptime eql: fn(a: K, b: K) bool) type {
+pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u32, comptime eql: fn (a: K, b: K) bool) type {
     return struct {
         entries: []Entry,
         size: usize,

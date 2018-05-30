@@ -196,7 +196,7 @@ fn testStruct() void {
     assert(!struct_info.Struct.defs[0].data.Fn.is_extern);
     assert(struct_info.Struct.defs[0].data.Fn.lib_name == null);
     assert(struct_info.Struct.defs[0].data.Fn.return_type == void);
-    assert(struct_info.Struct.defs[0].data.Fn.fn_type == fn(&const TestStruct) void);
+    assert(struct_info.Struct.defs[0].data.Fn.fn_type == fn (&const TestStruct) void);
 }
 
 const TestStruct = packed struct {

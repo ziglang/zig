@@ -399,7 +399,7 @@ pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) 
 
 pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) void {
     for (envp_buf) |env| {
-        const env_buf = if (env) |ptr| ptr[0..cstr.len(ptr) + 1] else break;
+        const env_buf = if (env) |ptr| ptr[0 .. cstr.len(ptr) + 1] else break;
         allocator.free(env_buf);
     }
     allocator.free(envp_buf);
@@ -449,7 +449,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap, allocator: 
     while (it.next()) |search_path| {
         mem.copy(u8, path_buf, search_path);
         path_buf[search_path.len] = '/';
-        mem.copy(u8, path_buf[search_path.len + 1..], exe_path);
+        mem.copy(u8, path_buf[search_path.len + 1 ..], exe_path);
         path_buf[search_path.len + exe_path.len + 1] = 0;
         err = posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr));
         assert(err > 0);
@@ -532,7 +532,7 @@ pub fn getEnvMap(allocator: &Allocator) !BufMap {
 
             var end_i: usize = line_i;
             while (ptr[end_i] != 0) : (end_i += 1) {}
-            const value = ptr[line_i + 1..end_i];
+            const value = ptr[line_i + 1 .. end_i];
 
             try result.set(key, value);
         }
@@ -549,7 +549,7 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
 
         var end_i: usize = line_i;
         while (ptr[end_i] != 0) : (end_i += 1) {}
-        const this_value = ptr[line_i + 1..end_i];
+        const this_value = ptr[line_i + 1 .. end_i];
 
         return this_value;
     }
@@ -691,7 +691,7 @@ pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: 
     mem.copy(u8, existing_buf, existing_path);
     existing_buf[existing_path.len] = 0;
 
-    const new_buf = full_buf[existing_path.len + 1..];
+    const new_buf = full_buf[existing_path.len + 1 ..];
     mem.copy(u8, new_buf, new_path);
     new_buf[new_path.len] = 0;
 
@@ -735,7 +735,7 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
     tmp_path[dirname.len] = os.path.sep;
     while (true) {
         try getRandomBytes(rand_buf[0..]);
-        b64_fs_encoder.encode(tmp_path[dirname.len + 1..], rand_buf);
+        b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
 
         if (symLink(allocator, existing_path, tmp_path)) {
             return rename(allocator, tmp_path, new_path);
@@ -914,7 +914,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     mem.copy(u8, old_buf, old_path);
     old_buf[old_path.len] = 0;
 
-    const new_buf = full_buf[old_path.len + 1..];
+    const new_buf = full_buf[old_path.len + 1 ..];
     mem.copy(u8, new_buf, new_path);
     new_buf[new_path.len] = 0;
 
@@ -1141,7 +1141,7 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
                 const full_entry_path = full_entry_buf.toSlice();
                 mem.copy(u8, full_entry_path, full_path);
                 full_entry_path[full_path.len] = '/';
-                mem.copy(u8, full_entry_path[full_path.len + 1..], entry.name);
+                mem.copy(u8, full_entry_path[full_path.len + 1 ..], entry.name);
 
                 try deleteTree(allocator, full_entry_path);
             }

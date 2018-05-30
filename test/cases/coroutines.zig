@@ -154,7 +154,7 @@ test "async function with dot syntax" {
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async<&std.mem.Allocator> fn(&i32) void,
+        bar: async<&std.mem.Allocator> fn (&i32) void,
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
     const p = (async<std.debug.global_allocator> foo.bar(&data)) catch unreachable;

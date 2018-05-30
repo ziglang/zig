@@ -215,7 +215,7 @@ test "inlined block and runtime block phi" {
 
 const CmdFn = struct {
     name: []const u8,
-    func: fn(i32) i32,
+    func: fn (i32) i32,
 };
 
 const cmd_fns = []CmdFn{

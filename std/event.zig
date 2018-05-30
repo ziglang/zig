@@ -6,7 +6,7 @@ const mem = std.mem;
 const posix = std.os.posix;
 
 pub const TcpServer = struct {
-    handleRequestFn: async<&mem.Allocator> fn(&TcpServer, &const std.net.Address, &const std.os.File) void,
+    handleRequestFn: async<&mem.Allocator> fn (&TcpServer, &const std.net.Address, &const std.os.File) void,
 
     loop: &Loop,
     sockfd: i32,
@@ -32,7 +32,7 @@ pub const TcpServer = struct {
         };
     }
 
-    pub fn listen(self: &TcpServer, address: &const std.net.Address, handleRequestFn: async<&mem.Allocator> fn(&TcpServer, &const std.net.Address, &const std.os.File) void) !void {
+    pub fn listen(self: &TcpServer, address: &const std.net.Address, handleRequestFn: async<&mem.Allocator> fn (&TcpServer, &const std.net.Address, &const std.os.File) void) !void {
         self.handleRequestFn = handleRequestFn;
 
         try std.os.posixBind(self.sockfd, &address.os_addr);

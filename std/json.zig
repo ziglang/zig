@@ -77,7 +77,7 @@ pub const Token = struct {
 
     // Slice into the underlying input string.
     pub fn slice(self: &const Token, input: []const u8, i: usize) []const u8 {
-        return input[i + self.offset - self.count..i + self.offset];
+        return input[i + self.offset - self.count .. i + self.offset];
     }
 };
 

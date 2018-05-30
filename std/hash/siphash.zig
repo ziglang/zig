@@ -76,7 +76,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
             // Full middle blocks.
             while (off + 8 <= b.len) : (off += 8) {
-                d.round(b[off..off + 8]);
+                d.round(b[off .. off + 8]);
             }
 
             // Remainder for next pass.

@@ -7,12 +7,12 @@ const ZigTable = struct {
     x: [257]f64,
     f: [257]f64,
 
-    pdf: fn(f64) f64,
+    pdf: fn (f64) f64,
     is_symmetric: bool,
-    zero_case: fn(&Random, f64) f64,
+    zero_case: fn (&Random, f64) f64,
 };
 
-fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn(f64) f64, comptime f_inv: fn(f64) f64, comptime zero_case: fn(&Random, f64) f64) ZigTable {
+fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn (f64) f64, comptime f_inv: fn (f64) f64, comptime zero_case: fn (&Random, f64) f64) ZigTable {
     var tables: ZigTable = undefined;
 
     tables.is_symmetric = is_symmetric;

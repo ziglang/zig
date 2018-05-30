@@ -133,7 +133,7 @@ fn getFirstByte(comptime T: type, mem: []const T) u8 {
     return getByte(@ptrCast(&const u8, &mem[0]));
 }
 
-const foos = []fn(var) bool{
+const foos = []fn (var) bool{
     foo1,
     foo2,
 };

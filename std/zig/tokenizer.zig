@@ -1116,7 +1116,7 @@ pub const Tokenizer = struct {
             if (self.index + length > self.buffer.len) {
                 return u3(self.buffer.len - self.index);
             }
-            const bytes = self.buffer[self.index..self.index + length];
+            const bytes = self.buffer[self.index .. self.index + length];
             switch (length) {
                 2 => {
                     const value = std.unicode.utf8Decode2(bytes) catch return length;

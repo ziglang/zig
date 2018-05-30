@@ -193,7 +193,7 @@ fn entry() void {
     foo2(bar2);
 }
 
-fn foo2(f: fn() error!void) void {
+fn foo2(f: fn () error!void) void {
     const x = f();
 }
 

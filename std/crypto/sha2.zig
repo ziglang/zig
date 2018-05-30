@@ -126,7 +126,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
 
             // Full middle blocks.
             while (off + 64 <= b.len) : (off += 64) {
-                d.round(b[off..off + 64]);
+                d.round(b[off .. off + 64]);
             }
 
             // Copy any remainder for next pass.
@@ -164,10 +164,10 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             d.round(d.buf[0..]);
 
             // May truncate for possible 224 output
-            const rr = d.s[0..params.out_len / 32];
+            const rr = d.s[0 .. params.out_len / 32];
 
             for (rr) |s, j| {
-                mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Big);
+                mem.writeInt(out[4 * j .. 4 * j + 4], s, builtin.Endian.Big);
             }
         }
 
@@ -467,7 +467,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
 
             // Full middle blocks.
             while (off + 128 <= b.len) : (off += 128) {
-                d.round(b[off..off + 128]);
+                d.round(b[off .. off + 128]);
             }
 
             // Copy any remainder for next pass.
@@ -505,10 +505,10 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             d.round(d.buf[0..]);
 
             // May truncate for possible 384 output
-            const rr = d.s[0..params.out_len / 64];
+            const rr = d.s[0 .. params.out_len / 64];
 
             for (rr) |s, j| {
-                mem.writeInt(out[8 * j..8 * j + 8], s, builtin.Endian.Big);
+                mem.writeInt(out[8 * j .. 8 * j + 8], s, builtin.Endian.Big);
             }
         }
 
