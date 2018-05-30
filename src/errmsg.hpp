@@ -27,7 +27,7 @@ struct ErrorMsg {
     ZigList<ErrorMsg *> notes;
 };
 
-void print_err_msg(ErrorMsg *msg, ErrColor color);
+void print_err_msg(ErrorMsg *msg, ErrColor color, bool machine_readable);
 
 void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note);
 ErrorMsg *err_msg_create_with_offset(Buf *path, size_t line, size_t column, size_t offset,

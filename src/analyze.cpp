@@ -4103,7 +4103,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
         ErrorMsg *err = err_msg_create_with_line(abs_full_path, tokenization.err_line, tokenization.err_column,
                 source_code, tokenization.line_offsets, tokenization.err);
 
-        print_err_msg(err, g->err_color);
+        print_err_msg(err, g->err_color, g->machine_readable_errors);
         exit(1);
     }
 
@@ -4120,7 +4120,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = abs_full_path;
 
-    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
+    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color, g->machine_readable_errors);
     assert(import_entry->root);
     if (g->verbose_ast) {
         ast_print(stderr, import_entry->root, 0);

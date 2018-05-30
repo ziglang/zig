@@ -20,6 +20,7 @@ struct ParseContext {
     ZigList<Token> *tokens;
     ImportTableEntry *owner;
     ErrColor err_color;
+    bool machine_readable_errors;
     // These buffers are used freqently so we preallocate them once here.
     Buf *void_buf;
 };
@@ -42,7 +43,7 @@ static void ast_asm_error(ParseContext *pc, AstNode *node, size_t offset, const 
     ErrorMsg *err = err_msg_create_with_line(pc->owner->path, pos.line, pos.column,
             pc->owner->source_code, pc->owner->line_offsets, msg);
 
-    print_err_msg(err, pc->err_color);
+    print_err_msg(err, pc->err_color, pc->machine_readable_errors);
     exit(EXIT_FAILURE);
 }
 
@@ -60,7 +61,7 @@ static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
     err->line_start = token->start_line;
     err->column_start = token->start_column;
 
-    print_err_msg(err, pc->err_color);
+    print_err_msg(err, pc->err_color, pc->machine_readable_errors);
     exit(EXIT_FAILURE);
 }
 
@@ -2905,7 +2906,7 @@ static AstNode *ast_parse_root(ParseContext *pc, size_t *token_index) {
 }
 
 AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
-        ErrColor err_color)
+        ErrColor err_color, bool machine_readable_errors)
 {
     ParseContext pc = {0};
     pc.void_buf = buf_create_from_str("void");
@@ -2913,6 +2914,7 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
     pc.owner = owner;
     pc.buf = buf;
     pc.tokens = tokens;
+    pc.machine_readable_errors = machine_readable_errors;
     size_t token_index = 0;
     pc.root = ast_parse_root(&pc, &token_index);
     return pc.root;

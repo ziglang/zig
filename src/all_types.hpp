@@ -1722,6 +1722,7 @@ struct CodeGen {
     ZigList<Buf *> forbidden_libs;
 
     bool no_rosegment_workaround;
+    bool machine_readable_errors;
 };
 
 enum VarLinkage {
