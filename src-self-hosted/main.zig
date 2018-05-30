@@ -686,6 +686,7 @@ const usage_fmt =
     \\
     \\Options:
     \\   --help                 Print this help and exit
+    \\   --color [auto|off|on]  Enable or disable colored error messages
     \\
     \\
 ;
