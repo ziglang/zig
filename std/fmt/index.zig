@@ -227,7 +227,7 @@ pub fn formatIntValue(value: var, comptime fmt: []const u8, context: var, compti
             'c' => {
                 if(@typeOf(value) == u8) {
                     if(fmt.len > 1) @compileError("Unknown format character: " ++ []u8{fmt[1]});
-                    return formatAsciiChar(fmt[0], context, Errors, output);
+                    return formatAsciiChar(value, context, Errors, output);
                 }
             },
             'd' => {
@@ -810,6 +810,10 @@ test "fmt.format" {
         const value: u3 = 0b101;
         try testFmt("u3: 5\n", "u3: {}\n", value);
     }
+    {
+        const value: u8 = 'a';
+        try testFmt("u8: a\n", "u8: {c}\n", value);
+    }
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
     try testFmt("file size: 66.06MB\n", "file size: {B2}\n", usize(63 * 1024 * 1024));
     {
@@ -1054,10 +1058,8 @@ test "fmt.format" {
         
         var buf1: [32]u8 = undefined;
         var value = Vec2{.x = 10.2, .y = 2.22,};
-        const point_result = try bufPrint(buf1[0..], "point: {}\n", &value);
-        assert(mem.eql(u8, point_result, "point: (10.200,2.220)\n"));
-        const dim_result = try bufPrint(buf1[0..], "dim: {d}\n", &value);
-        assert(mem.eql(u8, dim_result, "dim: 10.200x2.220\n"));
+        try testFmt("point: (10.200,2.220)\n", "point: {}\n", &value);
+        try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", &value);
     }
 }
 
