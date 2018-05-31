@@ -2275,8 +2275,6 @@ struct IrInstructionVarPtr {
     IrInstruction base;
 
     VariableTableEntry *var;
-    bool is_const;
-    bool is_volatile;
 };
 
 struct IrInstructionCall {

@@ -1298,8 +1298,8 @@ test "zig fmt: struct declaration" {
         \\    f1: u8,
         \\    pub f3: u8,
         \\
-        \\    fn method(self: &Self) Self {
-        \\        return *self;
+        \\    fn method(self: *Self) Self {
+        \\        return self.*;
         \\    }
         \\
         \\    f2: u8,
