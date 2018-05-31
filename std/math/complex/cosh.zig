@@ -15,7 +15,7 @@ pub fn cosh(z: var) Complex(@typeOf(z.re)) {
     };
 }
 
-fn cosh32(z: &const Complex(f32)) Complex(f32) {
+fn cosh32(z: *const Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -78,7 +78,7 @@ fn cosh32(z: &const Complex(f32)) Complex(f32) {
     return Complex(f32).new((x * x) * (y - y), (x + x) * (y - y));
 }
 
-fn cosh64(z: &const Complex(f64)) Complex(f64) {
+fn cosh64(z: *const Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 

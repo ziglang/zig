@@ -1,6 +1,6 @@
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.CompareOutputContext) void {
+pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("calling panic",
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

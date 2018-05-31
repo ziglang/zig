@@ -18,8 +18,8 @@ const Target = @import("target.zig").Target;
 const errmsg = @import("errmsg.zig");
 
 var stderr_file: os.File = undefined;
-var stderr: &io.OutStream(io.FileOutStream.Error) = undefined;
-var stdout: &io.OutStream(io.FileOutStream.Error) = undefined;
+var stderr: *io.OutStream(io.FileOutStream.Error) = undefined;
+var stdout: *io.OutStream(io.FileOutStream.Error) = undefined;
 
 const usage =
     \\usage: zig [command] [options]
@@ -43,7 +43,7 @@ const usage =
 
 const Command = struct {
     name: []const u8,
-    exec: fn (&Allocator, []const []const u8) error!void,
+    exec: fn (*Allocator, []const []const u8) error!void,
 };
 
 pub fn main() !void {
@@ -191,7 +191,7 @@ const missing_build_file =
     \\
 ;
 
-fn cmdBuild(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdBuild(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_build_spec, args);
     defer flags.deinit();
 
@@ -426,7 +426,7 @@ const args_build_generic = []Flag{
     Flag.Arg1("--ver-patch"),
 };
 
-fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Module.Kind) !void {
+fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Module.Kind) !void {
     var flags = try Args.parse(allocator, args_build_generic, args);
     defer flags.deinit();
 
@@ -661,19 +661,19 @@ fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Mo
     try stderr.print("building {}: {}\n", @tagName(out_type), in_file);
 }
 
-fn cmdBuildExe(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdBuildExe(allocator: *Allocator, args: []const []const u8) !void {
     try buildOutputType(allocator, args, Module.Kind.Exe);
 }
 
 // cmd:build-lib ///////////////////////////////////////////////////////////////////////////////////
 
-fn cmdBuildLib(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdBuildLib(allocator: *Allocator, args: []const []const u8) !void {
     try buildOutputType(allocator, args, Module.Kind.Lib);
 }
 
 // cmd:build-obj ///////////////////////////////////////////////////////////////////////////////////
 
-fn cmdBuildObj(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdBuildObj(allocator: *Allocator, args: []const []const u8) !void {
     try buildOutputType(allocator, args, Module.Kind.Obj);
 }
 
@@ -700,7 +700,7 @@ const args_fmt_spec = []Flag{
     }),
 };
 
-fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);
     defer flags.deinit();
 
@@ -768,7 +768,7 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
 
 // cmd:targets /////////////////////////////////////////////////////////////////////////////////////
 
-fn cmdTargets(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("Architectures:\n");
     {
         comptime var i: usize = 0;
@@ -810,7 +810,7 @@ fn cmdTargets(allocator: &Allocator, args: []const []const u8) !void {
 
 // cmd:version /////////////////////////////////////////////////////////////////////////////////////
 
-fn cmdVersion(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print("{}\n", std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
 }
 
@@ -827,7 +827,7 @@ const usage_test =
 
 const args_test_spec = []Flag{Flag.Bool("--help")};
 
-fn cmdTest(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdTest(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_build_spec, args);
     defer flags.deinit();
 
@@ -862,7 +862,7 @@ const usage_run =
 
 const args_run_spec = []Flag{Flag.Bool("--help")};
 
-fn cmdRun(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdRun(allocator: *Allocator, args: []const []const u8) !void {
     var compile_args = args;
     var runtime_args: []const []const u8 = []const []const u8{};
 
@@ -912,7 +912,7 @@ const args_translate_c_spec = []Flag{
     Flag.Arg1("--output"),
 };
 
-fn cmdTranslateC(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdTranslateC(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_translate_c_spec, args);
     defer flags.deinit();
 
@@ -958,7 +958,7 @@ fn cmdTranslateC(allocator: &Allocator, args: []const []const u8) !void {
 
 // cmd:help ////////////////////////////////////////////////////////////////////////////////////////
 
-fn cmdHelp(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
     try stderr.write(usage);
 }
 
@@ -981,7 +981,7 @@ const info_zen =
     \\
 ;
 
-fn cmdZen(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdZen(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(info_zen);
 }
 
@@ -996,7 +996,7 @@ const usage_internal =
     \\
 ;
 
-fn cmdInternal(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
     if (args.len == 0) {
         try stderr.write(usage_internal);
         os.exit(1);
@@ -1018,7 +1018,7 @@ fn cmdInternal(allocator: &Allocator, args: []const []const u8) !void {
     try stderr.write(usage_internal);
 }
 
-fn cmdInternalBuildInfo(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print(
         \\ZIG_CMAKE_BINARY_DIR {}
         \\ZIG_CXX_COMPILER     {}

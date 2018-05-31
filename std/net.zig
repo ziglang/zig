@@ -31,7 +31,7 @@ pub const Address = struct {
         };
     }
 
-    pub fn initIp6(ip6: &const Ip6Addr, port: u16) Address {
+    pub fn initIp6(ip6: *const Ip6Addr, port: u16) Address {
         return Address{
             .family = posix.AF_INET6,
             .os_addr = posix.sockaddr{
@@ -46,15 +46,15 @@ pub const Address = struct {
         };
     }
 
-    pub fn initPosix(addr: &const posix.sockaddr) Address {
+    pub fn initPosix(addr: *const posix.sockaddr) Address {
         return Address{ .os_addr = addr.* };
     }
 
-    pub fn format(self: &const Address, out_stream: var) !void {
+    pub fn format(self: *const Address, out_stream: var) !void {
         switch (self.os_addr.in.family) {
             posix.AF_INET => {
                 const native_endian_port = std.mem.endianSwapIfLe(u16, self.os_addr.in.port);
-                const bytes = ([]const u8)((&self.os_addr.in.addr)[0..1]);
+                const bytes = ([]const u8)((*self.os_addr.in.addr)[0..1]);
                 try out_stream.print("{}.{}.{}.{}:{}", bytes[0], bytes[1], bytes[2], bytes[3], native_endian_port);
             },
             posix.AF_INET6 => {

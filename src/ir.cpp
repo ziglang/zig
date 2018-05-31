@@ -41,10 +41,6 @@ struct IrAnalyze {
 static const LVal LVAL_NONE = { false, false, false };
 static const LVal LVAL_PTR = { true, false, false };
 
-static LVal make_lval_addr(bool is_const, bool is_volatile) {
-    return { true, is_const, is_volatile };
-}
-
 enum ConstCastResultId {
     ConstCastResultIdOk,
     ConstCastResultIdErrSet,
@@ -629,8 +625,8 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSetEvalBranchQuo
     return IrInstructionIdSetEvalBranchQuota;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrTypeOf *) {
-    return IrInstructionIdPtrTypeOf;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrType *) {
+    return IrInstructionIdPtrType;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignCast *) {
@@ -1196,11 +1192,11 @@ static IrInstruction *ir_build_br_from(IrBuilder *irb, IrInstruction *old_instru
     return new_instruction;
 }
 
-static IrInstruction *ir_build_ptr_type_of(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstruction *ir_build_ptr_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *child_type, bool is_const, bool is_volatile, IrInstruction *align_value,
         uint32_t bit_offset_start, uint32_t bit_offset_end)
 {
-    IrInstructionPtrTypeOf *ptr_type_of_instruction = ir_build_instruction<IrInstructionPtrTypeOf>(irb, scope, source_node);
+    IrInstructionPtrType *ptr_type_of_instruction = ir_build_instruction<IrInstructionPtrType>(irb, scope, source_node);
     ptr_type_of_instruction->align_value = align_value;
     ptr_type_of_instruction->child_type = child_type;
     ptr_type_of_instruction->is_const = is_const;
@@ -4609,14 +4605,8 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_gen_prefix_op_id_lval(IrBuilder *irb, Scope *scope, AstNode *node, IrUnOp op_id, LVal lval) {
-    AstNode *expr_node;
-    if (node->type == NodeTypePrefixOpExpr) {
-        expr_node = node->data.prefix_op_expr.primary_expr;
-    } else if (node->type == NodeTypePtrDeref) {
-        expr_node = node->data.ptr_deref_expr.target;
-    } else {
-        zig_unreachable();
-    }
+    assert(node->type == NodeTypePrefixOpExpr);
+    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
 
     IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope, lval);
     if (value == irb->codegen->invalid_instruction)
@@ -4640,16 +4630,12 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
     return ir_build_ref(irb, scope, value->source_node, value, lval.is_const, lval.is_volatile);
 }
 
-static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeAddrOfExpr);
-    bool is_const = node->data.addr_of_expr.is_const;
-    bool is_volatile = node->data.addr_of_expr.is_volatile;
-    AstNode *expr_node = node->data.addr_of_expr.op_expr;
-    AstNode *align_expr = node->data.addr_of_expr.align_expr;
-
-    if (align_expr == nullptr && !is_const && !is_volatile) {
-        return ir_gen_node_extra(irb, expr_node, scope, make_lval_addr(is_const, is_volatile));
-    }
+static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypePointerType);
+    bool is_const = node->data.pointer_type.is_const;
+    bool is_volatile = node->data.pointer_type.is_volatile;
+    AstNode *expr_node = node->data.pointer_type.op_expr;
+    AstNode *align_expr = node->data.pointer_type.align_expr;
 
     IrInstruction *align_value;
     if (align_expr != nullptr) {
@@ -4665,27 +4651,27 @@ static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *n
         return child_type;
 
     uint32_t bit_offset_start = 0;
-    if (node->data.addr_of_expr.bit_offset_start != nullptr) {
-        if (!bigint_fits_in_bits(node->data.addr_of_expr.bit_offset_start, 32, false)) {
+    if (node->data.pointer_type.bit_offset_start != nullptr) {
+        if (!bigint_fits_in_bits(node->data.pointer_type.bit_offset_start, 32, false)) {
             Buf *val_buf = buf_alloc();
-            bigint_append_buf(val_buf, node->data.addr_of_expr.bit_offset_start, 10);
+            bigint_append_buf(val_buf, node->data.pointer_type.bit_offset_start, 10);
             exec_add_error_node(irb->codegen, irb->exec, node,
                     buf_sprintf("value %s too large for u32 bit offset", buf_ptr(val_buf)));
             return irb->codegen->invalid_instruction;
         }
-        bit_offset_start = bigint_as_unsigned(node->data.addr_of_expr.bit_offset_start);
+        bit_offset_start = bigint_as_unsigned(node->data.pointer_type.bit_offset_start);
     }
 
     uint32_t bit_offset_end = 0;
-    if (node->data.addr_of_expr.bit_offset_end != nullptr) {
-        if (!bigint_fits_in_bits(node->data.addr_of_expr.bit_offset_end, 32, false)) {
+    if (node->data.pointer_type.bit_offset_end != nullptr) {
+        if (!bigint_fits_in_bits(node->data.pointer_type.bit_offset_end, 32, false)) {
             Buf *val_buf = buf_alloc();
-            bigint_append_buf(val_buf, node->data.addr_of_expr.bit_offset_end, 10);
+            bigint_append_buf(val_buf, node->data.pointer_type.bit_offset_end, 10);
             exec_add_error_node(irb->codegen, irb->exec, node,
                     buf_sprintf("value %s too large for u32 bit offset", buf_ptr(val_buf)));
             return irb->codegen->invalid_instruction;
         }
-        bit_offset_end = bigint_as_unsigned(node->data.addr_of_expr.bit_offset_end);
+        bit_offset_end = bigint_as_unsigned(node->data.pointer_type.bit_offset_end);
     }
 
     if ((bit_offset_start != 0 || bit_offset_end != 0) && bit_offset_start >= bit_offset_end) {
@@ -4694,7 +4680,7 @@ static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *n
         return irb->codegen->invalid_instruction;
     }
 
-    return ir_build_ptr_type_of(irb, scope, node, child_type, is_const, is_volatile,
+    return ir_build_ptr_type(irb, scope, node, child_type, is_const, is_volatile,
             align_value, bit_offset_start, bit_offset_end);
 }
 
@@ -4761,6 +4747,10 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpMaybe), lval);
         case PrefixOpUnwrapMaybe:
             return ir_gen_maybe_assert_ok(irb, scope, node, lval);
+        case PrefixOpAddrOf: {
+            AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
+            return ir_lval_wrap(irb, scope, ir_gen_node_extra(irb, expr_node, scope, LVAL_PTR), lval);
+        }
     }
     zig_unreachable();
 }
@@ -6568,8 +6558,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_if_bool_expr(irb, scope, node), lval);
         case NodeTypePrefixOpExpr:
             return ir_gen_prefix_op_expr(irb, scope, node, lval);
-        case NodeTypeAddrOfExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_address_of(irb, scope, node), lval);
         case NodeTypeContainerInitExpr:
             return ir_lval_wrap(irb, scope, ir_gen_container_init_expr(irb, scope, node), lval);
         case NodeTypeVariableDeclaration:
@@ -6592,14 +6580,23 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
 
                 return ir_build_load_ptr(irb, scope, node, ptr_instruction);
             }
-        case NodeTypePtrDeref:
-            return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpDereference, lval);
+        case NodeTypePtrDeref: {
+            assert(node->type == NodeTypePtrDeref);
+            AstNode *expr_node = node->data.ptr_deref_expr.target;
+            IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope, lval);
+            if (value == irb->codegen->invalid_instruction)
+                return value;
+
+            return ir_build_un_op(irb, scope, node, IrUnOpDereference, value);
+        }
         case NodeTypeThisLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_this_literal(irb, scope, node), lval);
         case NodeTypeBoolLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_bool_literal(irb, scope, node), lval);
         case NodeTypeArrayType:
             return ir_lval_wrap(irb, scope, ir_gen_array_type(irb, scope, node), lval);
+        case NodeTypePointerType:
+            return ir_lval_wrap(irb, scope, ir_gen_pointer_type(irb, scope, node), lval);
         case NodeTypePromiseType:
             return ir_lval_wrap(irb, scope, ir_gen_promise_type(irb, scope, node), lval);
         case NodeTypeStringLiteral:
@@ -8961,6 +8958,7 @@ static IrInstruction *ir_get_const_ptr(IrAnalyze *ira, IrInstruction *instructio
         ConstExprValue *pointee, TypeTableEntry *pointee_type,
         ConstPtrMut ptr_mut, bool ptr_is_const, bool ptr_is_volatile, uint32_t ptr_align)
 {
+    // TODO remove this special case for types
     if (pointee_type->id == TypeTableEntryIdMetaType) {
         TypeTableEntry *type_entry = pointee->data.x_type;
         if (type_entry->id == TypeTableEntryIdUnreachable) {
@@ -18778,10 +18776,15 @@ static TypeTableEntry *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstr
     return usize;
 }
 
-static TypeTableEntry *ir_analyze_instruction_ptr_type_of(IrAnalyze *ira, IrInstructionPtrTypeOf *instruction) {
+static TypeTableEntry *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstructionPtrType *instruction) {
     TypeTableEntry *child_type = ir_resolve_type(ira, instruction->child_type->other);
     if (type_is_invalid(child_type))
         return ira->codegen->builtin_types.entry_invalid;
+
+    if (child_type->id == TypeTableEntryIdUnreachable) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("pointer to noreturn not allowed"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
     uint32_t align_bytes;
     if (instruction->align_value != nullptr) {
@@ -19606,8 +19609,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_type_id(ira, (IrInstructionTypeId *)instruction);
         case IrInstructionIdSetEvalBranchQuota:
             return ir_analyze_instruction_set_eval_branch_quota(ira, (IrInstructionSetEvalBranchQuota *)instruction);
-        case IrInstructionIdPtrTypeOf:
-            return ir_analyze_instruction_ptr_type_of(ira, (IrInstructionPtrTypeOf *)instruction);
+        case IrInstructionIdPtrType:
+            return ir_analyze_instruction_ptr_type(ira, (IrInstructionPtrType *)instruction);
         case IrInstructionIdAlignCast:
             return ir_analyze_instruction_align_cast(ira, (IrInstructionAlignCast *)instruction);
         case IrInstructionIdOpaqueType:
@@ -19783,7 +19786,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCheckStatementIsVoid:
         case IrInstructionIdPanic:
         case IrInstructionIdSetEvalBranchQuota:
-        case IrInstructionIdPtrTypeOf:
+        case IrInstructionIdPtrType:
         case IrInstructionIdSetAlignStack:
         case IrInstructionIdExport:
         case IrInstructionIdCancel:

@@ -9,10 +9,10 @@ const ZigTable = struct {
 
     pdf: fn (f64) f64,
     is_symmetric: bool,
-    zero_case: fn (&Random, f64) f64,
+    zero_case: fn (*Random, f64) f64,
 };
 
-fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn (f64) f64, comptime f_inv: fn (f64) f64, comptime zero_case: fn (&Random, f64) f64) ZigTable {
+fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn (f64) f64, comptime f_inv: fn (f64) f64, comptime zero_case: fn (*Random, f64) f64) ZigTable {
     var tables: ZigTable = undefined;
 
     tables.is_symmetric = is_symmetric;
@@ -45,7 +45,7 @@ fn norm_f(x: f64) f64 {
 fn norm_f_inv(y: f64) f64 {
     return math.sqrt(-2.0 * math.ln(y));
 }
-fn norm_zero_case(random: &Random, u: f64) f64 {
+fn norm_zero_case(random: *Random, u: f64) f64 {
     return 0.0;
 }
 

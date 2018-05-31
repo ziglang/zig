@@ -13,7 +13,7 @@ pub const Error = error{
 };
 
 /// Returns whether anything changed
-pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(stream).Child.Error || Error)!bool {
+pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(stream).Child.Error || Error)!bool {
     comptime assert(@typeId(@typeOf(stream)) == builtin.TypeId.Pointer);
 
     var anything_changed: bool = false;
@@ -24,13 +24,13 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(
         const StreamError = @typeOf(stream).Child.Error;
         const Stream = std.io.OutStream(StreamError);
 
-        anything_changed_ptr: &bool,
+        anything_changed_ptr: *bool,
         child_stream: @typeOf(stream),
         stream: Stream,
         source_index: usize,
         source: []const u8,
 
-        fn write(iface_stream: &Stream, bytes: []const u8) StreamError!void {
+        fn write(iface_stream: *Stream, bytes: []const u8) StreamError!void {
             const self = @fieldParentPtr(MyStream, "stream", iface_stream);
 
             if (!self.anything_changed_ptr.*) {
@@ -63,9 +63,9 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(
 }
 
 fn renderRoot(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
 ) (@typeOf(stream).Child.Error || Error)!void {
     // render all the line comments at the beginning of the file
     var tok_it = tree.tokens.iterator(0);
@@ -90,7 +90,7 @@ fn renderRoot(
     }
 }
 
-fn renderExtraNewline(tree: &ast.Tree, stream: var, start_col: &usize, node: &ast.Node) !void {
+fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *ast.Node) !void {
     const first_token = node.firstToken();
     var prev_token = first_token;
     while (tree.tokens.at(prev_token - 1).id == Token.Id.DocComment) {
@@ -104,7 +104,7 @@ fn renderExtraNewline(tree: &ast.Tree, stream: var, start_col: &usize, node: &as
     }
 }
 
-fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, start_col: &usize, decl: &ast.Node) (@typeOf(stream).Child.Error || Error)!void {
+fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) (@typeOf(stream).Child.Error || Error)!void {
     switch (decl.id) {
         ast.Node.Id.FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
@@ -214,12 +214,12 @@ fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, i
 }
 
 fn renderExpression(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     indent: usize,
-    start_col: &usize,
-    base: &ast.Node,
+    start_col: *usize,
+    base: *ast.Node,
     space: Space,
 ) (@typeOf(stream).Child.Error || Error)!void {
     switch (base.id) {
@@ -1640,12 +1640,12 @@ fn renderExpression(
 }
 
 fn renderVarDecl(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     indent: usize,
-    start_col: &usize,
-    var_decl: &ast.Node.VarDecl,
+    start_col: *usize,
+    var_decl: *ast.Node.VarDecl,
 ) (@typeOf(stream).Child.Error || Error)!void {
     if (var_decl.visib_token) |visib_token| {
         try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
@@ -1696,12 +1696,12 @@ fn renderVarDecl(
 }
 
 fn renderParamDecl(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     indent: usize,
-    start_col: &usize,
-    base: &ast.Node,
+    start_col: *usize,
+    base: *ast.Node,
     space: Space,
 ) (@typeOf(stream).Child.Error || Error)!void {
     const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", base);
@@ -1724,12 +1724,12 @@ fn renderParamDecl(
 }
 
 fn renderStatement(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     indent: usize,
-    start_col: &usize,
-    base: &ast.Node,
+    start_col: *usize,
+    base: *ast.Node,
 ) (@typeOf(stream).Child.Error || Error)!void {
     switch (base.id) {
         ast.Node.Id.VarDecl => {
@@ -1761,7 +1761,7 @@ const Space = enum {
     BlockStart,
 };
 
-fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, start_col: &usize, space: Space) (@typeOf(stream).Child.Error || Error)!void {
+fn renderToken(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, start_col: *usize, space: Space) (@typeOf(stream).Child.Error || Error)!void {
     if (space == Space.BlockStart) {
         if (start_col.* < indent + indent_delta)
             return renderToken(tree, stream, token_index, indent, start_col, Space.Space);
@@ -1928,11 +1928,11 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
 }
 
 fn renderDocComments(
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     stream: var,
     node: var,
     indent: usize,
-    start_col: &usize,
+    start_col: *usize,
 ) (@typeOf(stream).Child.Error || Error)!void {
     const comment = node.doc_comments ?? return;
     var it = comment.lines.iterator(0);
@@ -1949,7 +1949,7 @@ fn renderDocComments(
     }
 }
 
-fn nodeIsBlock(base: &const ast.Node) bool {
+fn nodeIsBlock(base: *const ast.Node) bool {
     return switch (base.id) {
         ast.Node.Id.Block,
         ast.Node.Id.If,
@@ -1961,7 +1961,7 @@ fn nodeIsBlock(base: &const ast.Node) bool {
     };
 }
 
-fn nodeCausesSliceOpSpace(base: &ast.Node) bool {
+fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
     const infix_op = base.cast(ast.Node.InfixOp) ?? return false;
     return switch (infix_op.op) {
         ast.Node.InfixOp.Op.Period => false,

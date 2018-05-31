@@ -1,6 +1,6 @@
 pub const Scope = struct {
     id: Id,
-    parent: &Scope,
+    parent: *Scope,
 
     pub const Id = enum {
         Decls,

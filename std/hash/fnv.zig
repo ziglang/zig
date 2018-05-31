@@ -21,14 +21,14 @@ fn Fnv1a(comptime T: type, comptime prime: T, comptime offset: T) type {
             return Self{ .value = offset };
         }
 
-        pub fn update(self: &Self, input: []const u8) void {
+        pub fn update(self: *Self, input: []const u8) void {
             for (input) |b| {
                 self.value ^= b;
                 self.value *%= prime;
             }
         }
 
-        pub fn final(self: &Self) T {
+        pub fn final(self: *Self) T {
             return self.value;
         }
 

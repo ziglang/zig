@@ -46,12 +46,12 @@ pub fn forceEval(value: var) void {
     switch (T) {
         f32 => {
             var x: f32 = undefined;
-            const p = @ptrCast(&volatile f32, &x);
+            const p = @ptrCast(*volatile f32, &x);
             p.* = x;
         },
         f64 => {
             var x: f64 = undefined;
-            const p = @ptrCast(&volatile f64, &x);
+            const p = @ptrCast(*volatile f64, &x);
             p.* = x;
         },
         else => {

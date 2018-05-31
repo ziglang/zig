@@ -9,7 +9,7 @@ const Error = ast.Error;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
+pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
     var tree_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer tree_arena.deinit();
 
@@ -2754,16 +2754,16 @@ pub fn parse(allocator: &mem.Allocator, source: []const u8) !ast.Tree {
 }
 
 const AnnotatedToken = struct {
-    ptr: &Token,
+    ptr: *Token,
     index: TokenIndex,
 };
 
 const TopLevelDeclCtx = struct {
-    decls: &ast.Node.Root.DeclList,
+    decls: *ast.Node.Root.DeclList,
     visib_token: ?TokenIndex,
     extern_export_inline_token: ?AnnotatedToken,
-    lib_name: ?&ast.Node,
-    comments: ?&ast.Node.DocComment,
+    lib_name: ?*ast.Node,
+    comments: ?*ast.Node.DocComment,
 };
 
 const VarDeclCtx = struct {
@@ -2771,21 +2771,21 @@ const VarDeclCtx = struct {
     visib_token: ?TokenIndex,
     comptime_token: ?TokenIndex,
     extern_export_token: ?TokenIndex,
-    lib_name: ?&ast.Node,
-    list: &ast.Node.Root.DeclList,
-    comments: ?&ast.Node.DocComment,
+    lib_name: ?*ast.Node,
+    list: *ast.Node.Root.DeclList,
+    comments: ?*ast.Node.DocComment,
 };
 
 const TopLevelExternOrFieldCtx = struct {
     visib_token: TokenIndex,
-    container_decl: &ast.Node.ContainerDecl,
-    comments: ?&ast.Node.DocComment,
+    container_decl: *ast.Node.ContainerDecl,
+    comments: ?*ast.Node.DocComment,
 };
 
 const ExternTypeCtx = struct {
     opt_ctx: OptionalCtx,
     extern_token: TokenIndex,
-    comments: ?&ast.Node.DocComment,
+    comments: ?*ast.Node.DocComment,
 };
 
 const ContainerKindCtx = struct {
@@ -2795,24 +2795,24 @@ const ContainerKindCtx = struct {
 
 const ExpectTokenSave = struct {
     id: @TagType(Token.Id),
-    ptr: &TokenIndex,
+    ptr: *TokenIndex,
 };
 
 const OptionalTokenSave = struct {
     id: @TagType(Token.Id),
-    ptr: &?TokenIndex,
+    ptr: *?TokenIndex,
 };
 
 const ExprListCtx = struct {
-    list: &ast.Node.SuffixOp.Op.InitList,
+    list: *ast.Node.SuffixOp.Op.InitList,
     end: Token.Id,
-    ptr: &TokenIndex,
+    ptr: *TokenIndex,
 };
 
 fn ListSave(comptime List: type) type {
     return struct {
-        list: &List,
-        ptr: &TokenIndex,
+        list: *List,
+        ptr: *TokenIndex,
     };
 }
 
@@ -2841,7 +2841,7 @@ const LoopCtx = struct {
 
 const AsyncEndCtx = struct {
     ctx: OptionalCtx,
-    attribute: &ast.Node.AsyncAttribute,
+    attribute: *ast.Node.AsyncAttribute,
 };
 
 const ErrorTypeOrSetDeclCtx = struct {
@@ -2850,21 +2850,21 @@ const ErrorTypeOrSetDeclCtx = struct {
 };
 
 const ParamDeclEndCtx = struct {
-    fn_proto: &ast.Node.FnProto,
-    param_decl: &ast.Node.ParamDecl,
+    fn_proto: *ast.Node.FnProto,
+    param_decl: *ast.Node.ParamDecl,
 };
 
 const ComptimeStatementCtx = struct {
     comptime_token: TokenIndex,
-    block: &ast.Node.Block,
+    block: *ast.Node.Block,
 };
 
 const OptionalCtx = union(enum) {
-    Optional: &?&ast.Node,
-    RequiredNull: &?&ast.Node,
-    Required: &&ast.Node,
+    Optional: *?*ast.Node,
+    RequiredNull: *?*ast.Node,
+    Required: **ast.Node,
 
-    pub fn store(self: &const OptionalCtx, value: &ast.Node) void {
+    pub fn store(self: *const OptionalCtx, value: *ast.Node) void {
         switch (self.*) {
             OptionalCtx.Optional => |ptr| ptr.* = value,
             OptionalCtx.RequiredNull => |ptr| ptr.* = value,
@@ -2872,7 +2872,7 @@ const OptionalCtx = union(enum) {
         }
     }
 
-    pub fn get(self: &const OptionalCtx) ?&ast.Node {
+    pub fn get(self: *const OptionalCtx) ?*ast.Node {
         switch (self.*) {
             OptionalCtx.Optional => |ptr| return ptr.*,
             OptionalCtx.RequiredNull => |ptr| return ??ptr.*,
@@ -2880,7 +2880,7 @@ const OptionalCtx = union(enum) {
         }
     }
 
-    pub fn toRequired(self: &const OptionalCtx) OptionalCtx {
+    pub fn toRequired(self: *const OptionalCtx) OptionalCtx {
         switch (self.*) {
             OptionalCtx.Optional => |ptr| {
                 return OptionalCtx{ .RequiredNull = ptr };
@@ -2892,8 +2892,8 @@ const OptionalCtx = union(enum) {
 };
 
 const AddCommentsCtx = struct {
-    node_ptr: &&ast.Node,
-    comments: ?&ast.Node.DocComment,
+    node_ptr: **ast.Node,
+    comments: ?*ast.Node.DocComment,
 };
 
 const State = union(enum) {
@@ -2904,67 +2904,67 @@ const State = union(enum) {
     TopLevelExternOrField: TopLevelExternOrFieldCtx,
 
     ContainerKind: ContainerKindCtx,
-    ContainerInitArgStart: &ast.Node.ContainerDecl,
-    ContainerInitArg: &ast.Node.ContainerDecl,
-    ContainerDecl: &ast.Node.ContainerDecl,
+    ContainerInitArgStart: *ast.Node.ContainerDecl,
+    ContainerInitArg: *ast.Node.ContainerDecl,
+    ContainerDecl: *ast.Node.ContainerDecl,
 
     VarDecl: VarDeclCtx,
-    VarDeclAlign: &ast.Node.VarDecl,
-    VarDeclEq: &ast.Node.VarDecl,
-    VarDeclSemiColon: &ast.Node.VarDecl,
+    VarDeclAlign: *ast.Node.VarDecl,
+    VarDeclEq: *ast.Node.VarDecl,
+    VarDeclSemiColon: *ast.Node.VarDecl,
 
-    FnDef: &ast.Node.FnProto,
-    FnProto: &ast.Node.FnProto,
-    FnProtoAlign: &ast.Node.FnProto,
-    FnProtoReturnType: &ast.Node.FnProto,
+    FnDef: *ast.Node.FnProto,
+    FnProto: *ast.Node.FnProto,
+    FnProtoAlign: *ast.Node.FnProto,
+    FnProtoReturnType: *ast.Node.FnProto,
 
-    ParamDecl: &ast.Node.FnProto,
-    ParamDeclAliasOrComptime: &ast.Node.ParamDecl,
-    ParamDeclName: &ast.Node.ParamDecl,
+    ParamDecl: *ast.Node.FnProto,
+    ParamDeclAliasOrComptime: *ast.Node.ParamDecl,
+    ParamDeclName: *ast.Node.ParamDecl,
     ParamDeclEnd: ParamDeclEndCtx,
-    ParamDeclComma: &ast.Node.FnProto,
+    ParamDeclComma: *ast.Node.FnProto,
 
     MaybeLabeledExpression: MaybeLabeledExpressionCtx,
     LabeledExpression: LabelCtx,
     Inline: InlineCtx,
     While: LoopCtx,
-    WhileContinueExpr: &?&ast.Node,
+    WhileContinueExpr: *?*ast.Node,
     For: LoopCtx,
-    Else: &?&ast.Node.Else,
+    Else: *?*ast.Node.Else,
 
-    Block: &ast.Node.Block,
-    Statement: &ast.Node.Block,
+    Block: *ast.Node.Block,
+    Statement: *ast.Node.Block,
     ComptimeStatement: ComptimeStatementCtx,
-    Semicolon: &&ast.Node,
+    Semicolon: **ast.Node,
 
-    AsmOutputItems: &ast.Node.Asm.OutputList,
-    AsmOutputReturnOrType: &ast.Node.AsmOutput,
-    AsmInputItems: &ast.Node.Asm.InputList,
-    AsmClobberItems: &ast.Node.Asm.ClobberList,
+    AsmOutputItems: *ast.Node.Asm.OutputList,
+    AsmOutputReturnOrType: *ast.Node.AsmOutput,
+    AsmInputItems: *ast.Node.Asm.InputList,
+    AsmClobberItems: *ast.Node.Asm.ClobberList,
 
     ExprListItemOrEnd: ExprListCtx,
     ExprListCommaOrEnd: ExprListCtx,
     FieldInitListItemOrEnd: ListSave(ast.Node.SuffixOp.Op.InitList),
     FieldInitListCommaOrEnd: ListSave(ast.Node.SuffixOp.Op.InitList),
-    FieldListCommaOrEnd: &ast.Node.ContainerDecl,
+    FieldListCommaOrEnd: *ast.Node.ContainerDecl,
     FieldInitValue: OptionalCtx,
     ErrorTagListItemOrEnd: ListSave(ast.Node.ErrorSetDecl.DeclList),
     ErrorTagListCommaOrEnd: ListSave(ast.Node.ErrorSetDecl.DeclList),
     SwitchCaseOrEnd: ListSave(ast.Node.Switch.CaseList),
     SwitchCaseCommaOrEnd: ListSave(ast.Node.Switch.CaseList),
-    SwitchCaseFirstItem: &ast.Node.SwitchCase,
-    SwitchCaseItemCommaOrEnd: &ast.Node.SwitchCase,
-    SwitchCaseItemOrEnd: &ast.Node.SwitchCase,
+    SwitchCaseFirstItem: *ast.Node.SwitchCase,
+    SwitchCaseItemCommaOrEnd: *ast.Node.SwitchCase,
+    SwitchCaseItemOrEnd: *ast.Node.SwitchCase,
 
-    SuspendBody: &ast.Node.Suspend,
-    AsyncAllocator: &ast.Node.AsyncAttribute,
+    SuspendBody: *ast.Node.Suspend,
+    AsyncAllocator: *ast.Node.AsyncAttribute,
     AsyncEnd: AsyncEndCtx,
 
     ExternType: ExternTypeCtx,
-    SliceOrArrayAccess: &ast.Node.SuffixOp,
-    SliceOrArrayType: &ast.Node.PrefixOp,
-    AddrOfModifiers: &ast.Node.PrefixOp.AddrOfInfo,
-    AlignBitRange: &ast.Node.PrefixOp.AddrOfInfo.Align,
+    SliceOrArrayAccess: *ast.Node.SuffixOp,
+    SliceOrArrayType: *ast.Node.PrefixOp,
+    AddrOfModifiers: *ast.Node.PrefixOp.AddrOfInfo,
+    AlignBitRange: *ast.Node.PrefixOp.AddrOfInfo.Align,
 
     Payload: OptionalCtx,
     PointerPayload: OptionalCtx,
@@ -3007,7 +3007,7 @@ const State = union(enum) {
     ErrorTypeOrSetDecl: ErrorTypeOrSetDeclCtx,
     StringLiteral: OptionalCtx,
     Identifier: OptionalCtx,
-    ErrorTag: &&ast.Node,
+    ErrorTag: **ast.Node,
 
     IfToken: @TagType(Token.Id),
     IfTokenSave: ExpectTokenSave,
@@ -3016,7 +3016,7 @@ const State = union(enum) {
     OptionalTokenSave: OptionalTokenSave,
 };
 
-fn pushDocComment(arena: &mem.Allocator, line_comment: TokenIndex, result: &?&ast.Node.DocComment) !void {
+fn pushDocComment(arena: *mem.Allocator, line_comment: TokenIndex, result: *?*ast.Node.DocComment) !void {
     const node = blk: {
         if (result.*) |comment_node| {
             break :blk comment_node;
@@ -3032,8 +3032,8 @@ fn pushDocComment(arena: &mem.Allocator, line_comment: TokenIndex, result: &?&as
     try node.lines.push(line_comment);
 }
 
-fn eatDocComments(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) !?&ast.Node.DocComment {
-    var result: ?&ast.Node.DocComment = null;
+fn eatDocComments(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree) !?*ast.Node.DocComment {
+    var result: ?*ast.Node.DocComment = null;
     while (true) {
         if (eatToken(tok_it, tree, Token.Id.DocComment)) |line_comment| {
             try pushDocComment(arena, line_comment, &result);
@@ -3044,7 +3044,7 @@ fn eatDocComments(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterator, t
     return result;
 }
 
-fn parseStringLiteral(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterator, token_ptr: &const Token, token_index: TokenIndex, tree: &ast.Tree) !?&ast.Node {
+fn parseStringLiteral(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterator, token_ptr: *const Token, token_index: TokenIndex, tree: *ast.Tree) !?*ast.Node {
     switch (token_ptr.id) {
         Token.Id.StringLiteral => {
             return &(try createLiteral(arena, ast.Node.StringLiteral, token_index)).base;
@@ -3071,11 +3071,11 @@ fn parseStringLiteral(arena: &mem.Allocator, tok_it: &ast.Tree.TokenList.Iterato
         },
         // TODO: We shouldn't need a cast, but:
         // zig: /home/jc/Documents/zig/src/ir.cpp:7962: TypeTableEntry* ir_resolve_peer_types(IrAnalyze*, AstNode*, IrInstruction**, size_t): Assertion `err_set_type != nullptr' failed.
-        else => return (?&ast.Node)(null),
+        else => return (?*ast.Node)(null),
     }
 }
 
-fn parseBlockExpr(stack: &std.ArrayList(State), arena: &mem.Allocator, ctx: &const OptionalCtx, token_ptr: &const Token, token_index: TokenIndex) !bool {
+fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *const OptionalCtx, token_ptr: *const Token, token_index: TokenIndex) !bool {
     switch (token_ptr.id) {
         Token.Id.Keyword_suspend => {
             const node = try arena.construct(ast.Node.Suspend{
@@ -3189,7 +3189,7 @@ const ExpectCommaOrEndResult = union(enum) {
     parse_error: Error,
 };
 
-fn expectCommaOrEnd(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree, end: @TagType(Token.Id)) ExpectCommaOrEndResult {
+fn expectCommaOrEnd(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, end: @TagType(Token.Id)) ExpectCommaOrEndResult {
     const token = nextToken(tok_it, tree);
     const token_index = token.index;
     const token_ptr = token.ptr;
@@ -3212,7 +3212,7 @@ fn expectCommaOrEnd(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree, end: 
     }
 }
 
-fn tokenIdToAssignment(id: &const Token.Id) ?ast.Node.InfixOp.Op {
+fn tokenIdToAssignment(id: *const Token.Id) ?ast.Node.InfixOp.Op {
     // TODO: We have to cast all cases because of this:
     // error: expected type '?InfixOp', found '?@TagType(InfixOp)'
     return switch (id.*) {
@@ -3307,21 +3307,21 @@ fn tokenIdToPrefixOp(id: @TagType(Token.Id)) ?ast.Node.PrefixOp.Op {
     };
 }
 
-fn createLiteral(arena: &mem.Allocator, comptime T: type, token_index: TokenIndex) !&T {
+fn createLiteral(arena: *mem.Allocator, comptime T: type, token_index: TokenIndex) !*T {
     return arena.construct(T{
         .base = ast.Node{ .id = ast.Node.typeToId(T) },
         .token = token_index,
     });
 }
 
-fn createToCtxLiteral(arena: &mem.Allocator, opt_ctx: &const OptionalCtx, comptime T: type, token_index: TokenIndex) !&T {
+fn createToCtxLiteral(arena: *mem.Allocator, opt_ctx: *const OptionalCtx, comptime T: type, token_index: TokenIndex) !*T {
     const node = try createLiteral(arena, T, token_index);
     opt_ctx.store(&node.base);
 
     return node;
 }
 
-fn eatToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree, id: @TagType(Token.Id)) ?TokenIndex {
+fn eatToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, id: @TagType(Token.Id)) ?TokenIndex {
     const token = ??tok_it.peek();
 
     if (token.id == id) {
@@ -3331,7 +3331,7 @@ fn eatToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree, id: @TagType(
     return null;
 }
 
-fn nextToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) AnnotatedToken {
+fn nextToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree) AnnotatedToken {
     const result = AnnotatedToken{
         .index = tok_it.index,
         .ptr = ??tok_it.next(),
@@ -3345,7 +3345,7 @@ fn nextToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) AnnotatedTok
     }
 }
 
-fn prevToken(tok_it: &ast.Tree.TokenList.Iterator, tree: &ast.Tree) void {
+fn prevToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree) void {
     while (true) {
         const prev_tok = tok_it.prev() ?? return;
         if (prev_tok.id == Token.Id.LineComment) continue;

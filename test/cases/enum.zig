@@ -56,14 +56,14 @@ test "constant enum with payload" {
     shouldBeNotEmpty(full);
 }
 
-fn shouldBeEmpty(x: &const AnEnumWithPayload) void {
+fn shouldBeEmpty(x: *const AnEnumWithPayload) void {
     switch (x.*) {
         AnEnumWithPayload.Empty => {},
         else => unreachable,
     }
 }
 
-fn shouldBeNotEmpty(x: &const AnEnumWithPayload) void {
+fn shouldBeNotEmpty(x: *const AnEnumWithPayload) void {
     switch (x.*) {
         AnEnumWithPayload.Empty => unreachable,
         else => {},
@@ -750,15 +750,15 @@ test "bit field access with enum fields" {
     assert(data.b == B.Four3);
 }
 
-fn getA(data: &const BitFieldOfEnums) A {
+fn getA(data: *const BitFieldOfEnums) A {
     return data.a;
 }
 
-fn getB(data: &const BitFieldOfEnums) B {
+fn getB(data: *const BitFieldOfEnums) B {
     return data.b;
 }
 
-fn getC(data: &const BitFieldOfEnums) C {
+fn getC(data: *const BitFieldOfEnums) C {
     return data.c;
 }
 

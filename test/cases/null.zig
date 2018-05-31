@@ -65,7 +65,7 @@ test "if var maybe pointer" {
         .d = 1,
     }) == 15);
 }
-fn shouldBeAPlus1(p: &const Particle) u64 {
+fn shouldBeAPlus1(p: *const Particle) u64 {
     var maybe_particle: ?Particle = p.*;
     if (maybe_particle) |*particle| {
         particle.a += 1;

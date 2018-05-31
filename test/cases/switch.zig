@@ -90,7 +90,7 @@ const SwitchProngWithVarEnum = union(enum) {
     Two: f32,
     Meh: void,
 };
-fn switchProngWithVarFn(a: &const SwitchProngWithVarEnum) void {
+fn switchProngWithVarFn(a: *const SwitchProngWithVarEnum) void {
     switch (a.*) {
         SwitchProngWithVarEnum.One => |x| {
             assert(x == 13);

@@ -27,12 +27,12 @@ test "init static array to undefined" {
 const Foo = struct {
     x: i32,
 
-    fn setFooXMethod(foo: &Foo) void {
+    fn setFooXMethod(foo: *Foo) void {
         foo.x = 3;
     }
 };
 
-fn setFooX(foo: &Foo) void {
+fn setFooX(foo: *Foo) void {
     foo.x = 2;
 }
 

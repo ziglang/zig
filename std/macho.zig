@@ -42,13 +42,13 @@ pub const Symbol = struct {
     name: []const u8,
     address: u64,
 
-    fn addressLessThan(lhs: &const Symbol, rhs: &const Symbol) bool {
+    fn addressLessThan(lhs: *const Symbol, rhs: *const Symbol) bool {
         return lhs.address < rhs.address;
     }
 };
 
 pub const SymbolTable = struct {
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     symbols: []const Symbol,
     strings: []const u8,
 
@@ -56,7 +56,7 @@ pub const SymbolTable = struct {
     // Ideally we'd use _mh_execute_header because it's always at 0x100000000
     // in the image but as it's located in a different section than executable
     // code, its displacement is different.
-    pub fn deinit(self: &SymbolTable) void {
+    pub fn deinit(self: *SymbolTable) void {
         self.allocator.free(self.symbols);
         self.symbols = []const Symbol{};
 
@@ -64,7 +64,7 @@ pub const SymbolTable = struct {
         self.strings = []const u8{};
     }
 
-    pub fn search(self: &const SymbolTable, address: usize) ?&const Symbol {
+    pub fn search(self: *const SymbolTable, address: usize) ?*const Symbol {
         var min: usize = 0;
         var max: usize = self.symbols.len - 1; // Exclude sentinel.
         while (min < max) {
@@ -83,7 +83,7 @@ pub const SymbolTable = struct {
     }
 };
 
-pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable {
+pub fn loadSymbols(allocator: *mem.Allocator, in: *io.FileInStream) !SymbolTable {
     var file = in.file;
     try file.seekTo(0);
 
@@ -160,13 +160,13 @@ pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable
     };
 }
 
-fn readNoEof(in: &io.FileInStream, comptime T: type, result: []T) !void {
+fn readNoEof(in: *io.FileInStream, comptime T: type, result: []T) !void {
     return in.stream.readNoEof(([]u8)(result));
 }
-fn readOneNoEof(in: &io.FileInStream, comptime T: type, result: &T) !void {
+fn readOneNoEof(in: *io.FileInStream, comptime T: type, result: *T) !void {
     return readNoEof(in, T, result[0..1]);
 }
 
-fn isSymbol(sym: &const Nlist64) bool {
+fn isSymbol(sym: *const Nlist64) bool {
     return sym.n_value != 0 and sym.n_desc == 0;
 }

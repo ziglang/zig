@@ -9,7 +9,7 @@ pub extern fn __umodti3(a: u128, b: u128) u128 {
     return r;
 }
 
-pub extern fn __umodti3_windows_x86_64(a: &const u128, b: &const u128) void {
+pub extern fn __umodti3_windows_x86_64(a: *const u128, b: *const u128) void {
     @setRuntimeSafety(builtin.is_test);
     compiler_rt.setXmm0(u128, __umodti3(a.*, b.*));
 }

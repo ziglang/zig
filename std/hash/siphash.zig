@@ -63,7 +63,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             return d;
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial from previous.
@@ -85,7 +85,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             d.msg_len +%= @truncate(u8, b.len);
         }
 
-        pub fn final(d: &Self) T {
+        pub fn final(d: *Self) T {
             // Padding
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.buf[7] = d.msg_len;
@@ -118,7 +118,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             return (u128(b2) << 64) | b1;
         }
 
-        fn round(d: &Self, b: []const u8) void {
+        fn round(d: *Self, b: []const u8) void {
             debug.assert(b.len == 8);
 
             const m = mem.readInt(b[0..], u64, Endian.Little);
@@ -132,7 +132,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             d.v0 ^= m;
         }
 
-        fn sipRound(d: &Self) void {
+        fn sipRound(d: *Self) void {
             d.v0 +%= d.v1;
             d.v1 = math.rotl(u64, d.v1, u64(13));
             d.v1 ^= d.v0;

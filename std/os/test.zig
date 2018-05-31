@@ -63,7 +63,7 @@ fn start1(ctx: void) u8 {
     return 0;
 }
 
-fn start2(ctx: &i32) u8 {
+fn start2(ctx: *i32) u8 {
     _ = @atomicRmw(i32, ctx, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
     return 0;
 }

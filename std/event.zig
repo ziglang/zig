@@ -6,9 +6,9 @@ const mem = std.mem;
 const posix = std.os.posix;
 
 pub const TcpServer = struct {
-    handleRequestFn: async<&mem.Allocator> fn (&TcpServer, &const std.net.Address, &const std.os.File) void,
+    handleRequestFn: async<*mem.Allocator> fn (*TcpServer, *const std.net.Address, *const std.os.File) void,
 
-    loop: &Loop,
+    loop: *Loop,
     sockfd: i32,
     accept_coro: ?promise,
     listen_address: std.net.Address,
@@ -17,7 +17,7 @@ pub const TcpServer = struct {
 
     const PromiseNode = std.LinkedList(promise).Node;
 
-    pub fn init(loop: &Loop) !TcpServer {
+    pub fn init(loop: *Loop) !TcpServer {
         const sockfd = try std.os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC | posix.SOCK_NONBLOCK, posix.PROTO_tcp);
         errdefer std.os.close(sockfd);
 
@@ -32,7 +32,7 @@ pub const TcpServer = struct {
         };
     }
 
-    pub fn listen(self: &TcpServer, address: &const std.net.Address, handleRequestFn: async<&mem.Allocator> fn (&TcpServer, &const std.net.Address, &const std.os.File) void) !void {
+    pub fn listen(self: *TcpServer, address: *const std.net.Address, handleRequestFn: async<*mem.Allocator> fn (*TcpServer, *const std.net.Address, *const std.os.File) void) !void {
         self.handleRequestFn = handleRequestFn;
 
         try std.os.posixBind(self.sockfd, &address.os_addr);
@@ -46,13 +46,13 @@ pub const TcpServer = struct {
         errdefer self.loop.removeFd(self.sockfd);
     }
 
-    pub fn deinit(self: &TcpServer) void {
+    pub fn deinit(self: *TcpServer) void {
         self.loop.removeFd(self.sockfd);
         if (self.accept_coro) |accept_coro| cancel accept_coro;
         std.os.close(self.sockfd);
     }
 
-    pub async fn handler(self: &TcpServer) void {
+    pub async fn handler(self: *TcpServer) void {
         while (true) {
             var accepted_addr: std.net.Address = undefined;
             if (std.os.posixAccept(self.sockfd, &accepted_addr.os_addr, posix.SOCK_NONBLOCK | posix.SOCK_CLOEXEC)) |accepted_fd| {
@@ -92,11 +92,11 @@ pub const TcpServer = struct {
 };
 
 pub const Loop = struct {
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     epollfd: i32,
     keep_running: bool,
 
-    fn init(allocator: &mem.Allocator) !Loop {
+    fn init(allocator: *mem.Allocator) !Loop {
         const epollfd = try std.os.linuxEpollCreate(std.os.linux.EPOLL_CLOEXEC);
         return Loop{
             .keep_running = true,
@@ -105,7 +105,7 @@ pub const Loop = struct {
         };
     }
 
-    pub fn addFd(self: &Loop, fd: i32, prom: promise) !void {
+    pub fn addFd(self: *Loop, fd: i32, prom: promise) !void {
         var ev = std.os.linux.epoll_event{
             .events = std.os.linux.EPOLLIN | std.os.linux.EPOLLOUT | std.os.linux.EPOLLET,
             .data = std.os.linux.epoll_data{ .ptr = @ptrToInt(prom) },
@@ -113,23 +113,23 @@ pub const Loop = struct {
         try std.os.linuxEpollCtl(self.epollfd, std.os.linux.EPOLL_CTL_ADD, fd, &ev);
     }
 
-    pub fn removeFd(self: &Loop, fd: i32) void {
+    pub fn removeFd(self: *Loop, fd: i32) void {
         std.os.linuxEpollCtl(self.epollfd, std.os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
     }
-    async fn waitFd(self: &Loop, fd: i32) !void {
+    async fn waitFd(self: *Loop, fd: i32) !void {
         defer self.removeFd(fd);
         suspend |p| {
             try self.addFd(fd, p);
         }
     }
 
-    pub fn stop(self: &Loop) void {
+    pub fn stop(self: *Loop) void {
         // TODO make atomic
         self.keep_running = false;
         // TODO activate an fd in the epoll set
     }
 
-    pub fn run(self: &Loop) void {
+    pub fn run(self: *Loop) void {
         while (self.keep_running) {
             var events: [16]std.os.linux.epoll_event = undefined;
             const count = std.os.linuxEpollWait(self.epollfd, events[0..], -1);
@@ -141,7 +141,7 @@ pub const Loop = struct {
     }
 };
 
-pub async fn connect(loop: &Loop, _address: &const std.net.Address) !std.os.File {
+pub async fn connect(loop: *Loop, _address: *const std.net.Address) !std.os.File {
     var address = _address.*; // TODO https://github.com/ziglang/zig/issues/733
 
     const sockfd = try std.os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC | posix.SOCK_NONBLOCK, posix.PROTO_tcp);
@@ -163,7 +163,7 @@ test "listen on a port, send bytes, receive bytes" {
         tcp_server: TcpServer,
 
         const Self = this;
-        async<&mem.Allocator> fn handler(tcp_server: &TcpServer, _addr: &const std.net.Address, _socket: &const std.os.File) void {
+        async<*mem.Allocator> fn handler(tcp_server: *TcpServer, _addr: *const std.net.Address, _socket: *const std.os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
             defer socket.close();
@@ -177,7 +177,7 @@ test "listen on a port, send bytes, receive bytes" {
                 cancel p;
             }
         }
-        async fn errorableHandler(self: &Self, _addr: &const std.net.Address, _socket: &const std.os.File) !void {
+        async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: *const std.os.File) !void {
             const addr = _addr.*; // TODO https://github.com/ziglang/zig/issues/733
             var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
 
@@ -199,7 +199,7 @@ test "listen on a port, send bytes, receive bytes" {
     defer cancel p;
     loop.run();
 }
-async fn doAsyncTest(loop: &Loop, address: &const std.net.Address) void {
+async fn doAsyncTest(loop: *Loop, address: *const std.net.Address) void {
     errdefer @panic("test failure");
 
     var socket_file = try await try async event.connect(loop, address);

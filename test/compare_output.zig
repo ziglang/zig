@@ -3,10 +3,10 @@ const std = @import("std");
 const os = std.os;
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.CompareOutputContext) void {
+pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("hello world with libc",
         \\const c = @cImport(@cInclude("stdio.h"));
-        \\export fn main(argc: c_int, argv: &&u8) c_int {
+        \\export fn main(argc: c_int, argv: **u8) c_int {
         \\    _ = c.puts(c"Hello, world!");
         \\    return 0;
         \\}
@@ -139,7 +139,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\export fn main(argc: c_int, argv: &&u8) c_int {
+        \\export fn main(argc: c_int, argv: **u8) c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -284,9 +284,9 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
     cases.addC("expose function pointer to C land",
         \\const c = @cImport(@cInclude("stdlib.h"));
         \\
-        \\export fn compare_fn(a: ?&const c_void, b: ?&const c_void) c_int {
-        \\    const a_int = @ptrCast(&align(1) const i32, a ?? unreachable);
-        \\    const b_int = @ptrCast(&align(1) const i32, b ?? unreachable);
+        \\export fn compare_fn(a: ?*const c_void, b: ?*const c_void) c_int {
+        \\    const a_int = @ptrCast(*align(1) const i32, a ?? unreachable);
+        \\    const b_int = @ptrCast(*align(1) const i32, b ?? unreachable);
         \\    if (a_int.* < b_int.*) {
         \\        return -1;
         \\    } else if (a_int.* > b_int.*) {
@@ -299,7 +299,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\export fn main() c_int {
         \\    var array = []u32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
-        \\    c.qsort(@ptrCast(&c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
+        \\    c.qsort(@ptrCast(*c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
         \\
         \\    for (array) |item, i| {
         \\        if (item != i) {
@@ -324,7 +324,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\export fn main(argc: c_int, argv: &&u8) c_int {
+        \\export fn main(argc: c_int, argv: **u8) c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -344,13 +344,13 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\const Foo = struct {
         \\    field1: Bar,
         \\
-        \\    fn method(a: &const Foo) bool { return true; }
+        \\    fn method(a: *const Foo) bool { return true; }
         \\};
         \\
         \\const Bar = struct {
         \\    field2: i32,
         \\
-        \\    fn method(b: &const Bar) bool { return true; }
+        \\    fn method(b: *const Bar) bool { return true; }
         \\};
         \\
         \\pub fn main() void {

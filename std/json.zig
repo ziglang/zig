@@ -76,7 +76,7 @@ pub const Token = struct {
     }
 
     // Slice into the underlying input string.
-    pub fn slice(self: &const Token, input: []const u8, i: usize) []const u8 {
+    pub fn slice(self: *const Token, input: []const u8, i: usize) []const u8 {
         return input[i + self.offset - self.count .. i + self.offset];
     }
 };
@@ -115,7 +115,7 @@ pub const StreamingJsonParser = struct {
         return p;
     }
 
-    pub fn reset(p: &StreamingJsonParser) void {
+    pub fn reset(p: *StreamingJsonParser) void {
         p.state = State.TopLevelBegin;
         p.count = 0;
         // Set before ever read in main transition function
@@ -205,7 +205,7 @@ pub const StreamingJsonParser = struct {
     // tokens. token2 is always null if token1 is null.
     //
     // There is currently no error recovery on a bad stream.
-    pub fn feed(p: &StreamingJsonParser, c: u8, token1: &?Token, token2: &?Token) Error!void {
+    pub fn feed(p: *StreamingJsonParser, c: u8, token1: *?Token, token2: *?Token) Error!void {
         token1.* = null;
         token2.* = null;
         p.count += 1;
@@ -217,7 +217,7 @@ pub const StreamingJsonParser = struct {
     }
 
     // Perform a single transition on the state machine and return any possible token.
-    fn transition(p: &StreamingJsonParser, c: u8, token: &?Token) Error!bool {
+    fn transition(p: *StreamingJsonParser, c: u8, token: *?Token) Error!bool {
         switch (p.state) {
             State.TopLevelBegin => switch (c) {
                 '{' => {
@@ -861,7 +861,7 @@ pub fn validate(s: []const u8) bool {
         var token1: ?Token = undefined;
         var token2: ?Token = undefined;
 
-        p.feed(c, &token1, &token2) catch |err| {
+        p.feed(c, *token1, *token2) catch |err| {
             return false;
         };
     }
@@ -878,7 +878,7 @@ pub const ValueTree = struct {
     arena: ArenaAllocator,
     root: Value,
 
-    pub fn deinit(self: &ValueTree) void {
+    pub fn deinit(self: *ValueTree) void {
         self.arena.deinit();
     }
 };
@@ -894,7 +894,7 @@ pub const Value = union(enum) {
     Array: ArrayList(Value),
     Object: ObjectMap,
 
-    pub fn dump(self: &const Value) void {
+    pub fn dump(self: *const Value) void {
         switch (self.*) {
             Value.Null => {
                 std.debug.warn("null");
@@ -941,7 +941,7 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn dumpIndent(self: &const Value, indent: usize) void {
+    pub fn dumpIndent(self: *const Value, indent: usize) void {
         if (indent == 0) {
             self.dump();
         } else {
@@ -949,7 +949,7 @@ pub const Value = union(enum) {
         }
     }
 
-    fn dumpIndentLevel(self: &const Value, indent: usize, level: usize) void {
+    fn dumpIndentLevel(self: *const Value, indent: usize, level: usize) void {
         switch (self.*) {
             Value.Null => {
                 std.debug.warn("null");
@@ -1013,7 +1013,7 @@ pub const Value = union(enum) {
 
 // A non-stream JSON parser which constructs a tree of Value's.
 pub const JsonParser = struct {
-    allocator: &Allocator,
+    allocator: *Allocator,
     state: State,
     copy_strings: bool,
     // Stores parent nodes and un-combined Values.
@@ -1026,7 +1026,7 @@ pub const JsonParser = struct {
         Simple,
     };
 
-    pub fn init(allocator: &Allocator, copy_strings: bool) JsonParser {
+    pub fn init(allocator: *Allocator, copy_strings: bool) JsonParser {
         return JsonParser{
             .allocator = allocator,
             .state = State.Simple,
@@ -1035,16 +1035,16 @@ pub const JsonParser = struct {
         };
     }
 
-    pub fn deinit(p: &JsonParser) void {
+    pub fn deinit(p: *JsonParser) void {
         p.stack.deinit();
     }
 
-    pub fn reset(p: &JsonParser) void {
+    pub fn reset(p: *JsonParser) void {
         p.state = State.Simple;
         p.stack.shrink(0);
     }
 
-    pub fn parse(p: &JsonParser, input: []const u8) !ValueTree {
+    pub fn parse(p: *JsonParser, input: []const u8) !ValueTree {
         var mp = StreamingJsonParser.init();
 
         var arena = ArenaAllocator.init(p.allocator);
@@ -1090,7 +1090,7 @@ pub const JsonParser = struct {
 
     // Even though p.allocator exists, we take an explicit allocator so that allocation state
     // can be cleaned up on error correctly during a `parse` on call.
-    fn transition(p: &JsonParser, allocator: &Allocator, input: []const u8, i: usize, token: &const Token) !void {
+    fn transition(p: *JsonParser, allocator: *Allocator, input: []const u8, i: usize, token: *const Token) !void {
         switch (p.state) {
             State.ObjectKey => switch (token.id) {
                 Token.Id.ObjectEnd => {
@@ -1223,7 +1223,7 @@ pub const JsonParser = struct {
         }
     }
 
-    fn pushToParent(p: &JsonParser, value: &const Value) !void {
+    fn pushToParent(p: *JsonParser, value: *const Value) !void {
         switch (p.stack.at(p.stack.len - 1)) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
@@ -1244,14 +1244,14 @@ pub const JsonParser = struct {
         }
     }
 
-    fn parseString(p: &JsonParser, allocator: &Allocator, token: &const Token, input: []const u8, i: usize) !Value {
+    fn parseString(p: *JsonParser, allocator: *Allocator, token: *const Token, input: []const u8, i: usize) !Value {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);
         return Value{ .String = try mem.dupe(p.allocator, u8, slice) };
     }
 
-    fn parseNumber(p: &JsonParser, token: &const Token, input: []const u8, i: usize) !Value {
+    fn parseNumber(p: *JsonParser, token: *const Token, input: []const u8, i: usize) !Value {
         return if (token.number_is_integer)
             Value{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
         else

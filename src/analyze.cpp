@@ -418,12 +418,12 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     const char *volatile_str = is_volatile ? "volatile " : "";
     buf_resize(&entry->name, 0);
     if (unaligned_bit_count == 0 && byte_alignment == abi_alignment) {
-        buf_appendf(&entry->name, "&%s%s%s", const_str, volatile_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "*%s%s%s", const_str, volatile_str, buf_ptr(&child_type->name));
     } else if (unaligned_bit_count == 0) {
-        buf_appendf(&entry->name, "&align(%" PRIu32 ") %s%s%s", byte_alignment,
+        buf_appendf(&entry->name, "*align(%" PRIu32 ") %s%s%s", byte_alignment,
                 const_str, volatile_str, buf_ptr(&child_type->name));
     } else {
-        buf_appendf(&entry->name, "&align(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s", byte_alignment,
+        buf_appendf(&entry->name, "*align(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s", byte_alignment,
                 bit_offset, bit_offset + unaligned_bit_count, const_str, volatile_str, buf_ptr(&child_type->name));
     }
 
@@ -3270,7 +3270,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeThisLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
-        case NodeTypeAddrOfExpr:
+        case NodeTypePointerType:
         case NodeTypeIfBoolExpr:
         case NodeTypeWhileExpr:
         case NodeTypeForExpr:

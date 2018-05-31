@@ -1803,7 +1803,7 @@ const io = std.io;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: &mem.Allocator, anything_changed: &bool) ![]u8 {
+fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
     var stderr_file = try io.getStdErr();
     var stderr = &io.FileOutStream.init(&stderr_file).stream;
 

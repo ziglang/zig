@@ -4,7 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
-pub fn pow(comptime T: type, z: &const T, c: &const T) T {
+pub fn pow(comptime T: type, z: *const T, c: *const T) T {
     const p = cmath.log(z);
     const q = c.mul(p);
     return cmath.exp(q);

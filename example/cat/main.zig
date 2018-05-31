@@ -41,7 +41,7 @@ fn usage(exe: []const u8) !void {
     return error.Invalid;
 }
 
-fn cat_file(stdout: &os.File, file: &os.File) !void {
+fn cat_file(stdout: *os.File, file: *os.File) !void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {

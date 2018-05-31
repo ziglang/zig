@@ -26,7 +26,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
             return d;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             mem.set(u8, d.s[0..], 0);
             d.offset = 0;
             d.rate = 200 - (bits / 4);
@@ -38,7 +38,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var ip: usize = 0;
             var len = b.len;
             var rate = d.rate - d.offset;
@@ -63,7 +63,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
             d.offset = offset + len;
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             // padding
             d.s[d.offset] ^= delim;
             d.s[d.rate - 1] ^= 0x80;

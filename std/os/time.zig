@@ -200,7 +200,7 @@ pub const Timer = struct {
     }
 
     /// Reads the timer value since start or the last reset in nanoseconds
-    pub fn read(self: &Timer) u64 {
+    pub fn read(self: *Timer) u64 {
         var clock = clockNative() - self.start_time;
         return switch (builtin.os) {
             Os.windows => @divFloor(clock * ns_per_s, self.frequency),
@@ -211,12 +211,12 @@ pub const Timer = struct {
     }
 
     /// Resets the timer value to 0/now.
-    pub fn reset(self: &Timer) void {
+    pub fn reset(self: *Timer) void {
         self.start_time = clockNative();
     }
 
     /// Returns the current value of the timer in nanoseconds, then resets it
-    pub fn lap(self: &Timer) u64 {
+    pub fn lap(self: *Timer) u64 {
         var now = clockNative();
         var lap_time = self.read();
         self.start_time = now;

@@ -15,7 +15,7 @@ pub fn sqrt(z: var) Complex(@typeOf(z.re)) {
     };
 }
 
-fn sqrt32(z: &const Complex(f32)) Complex(f32) {
+fn sqrt32(z: *const Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -57,7 +57,7 @@ fn sqrt32(z: &const Complex(f32)) Complex(f32) {
     }
 }
 
-fn sqrt64(z: &const Complex(f64)) Complex(f64) {
+fn sqrt64(z: *const Complex(f64)) Complex(f64) {
     // may encounter overflow for im,re >= DBL_MAX / (1 + sqrt(2))
     const threshold = 0x1.a827999fcef32p+1022;
 

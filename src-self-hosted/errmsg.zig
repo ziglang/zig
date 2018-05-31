@@ -16,18 +16,18 @@ pub const Msg = struct {
     text: []u8,
     first_token: TokenIndex,
     last_token: TokenIndex,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
 };
 
 /// `path` must outlive the returned Msg
 /// `tree` must outlive the returned Msg
 /// Caller owns returned Msg and must free with `allocator`
 pub fn createFromParseError(
-    allocator: &mem.Allocator,
-    parse_error: &const ast.Error,
-    tree: &ast.Tree,
+    allocator: *mem.Allocator,
+    parse_error: *const ast.Error,
+    tree: *ast.Tree,
     path: []const u8,
-) !&Msg {
+) !*Msg {
     const loc_token = parse_error.loc();
     var text_buf = try std.Buffer.initSize(allocator, 0);
     defer text_buf.deinit();
@@ -47,7 +47,7 @@ pub fn createFromParseError(
     return msg;
 }
 
-pub fn printToStream(stream: var, msg: &const Msg, color_on: bool) !void {
+pub fn printToStream(stream: var, msg: *const Msg, color_on: bool) !void {
     const first_token = msg.tree.tokens.at(msg.first_token);
     const last_token = msg.tree.tokens.at(msg.last_token);
     const start_loc = msg.tree.tokenLocationPtr(0, first_token);
@@ -76,7 +76,7 @@ pub fn printToStream(stream: var, msg: &const Msg, color_on: bool) !void {
     try stream.write("\n");
 }
 
-pub fn printToFile(file: &os.File, msg: &const Msg, color: Color) !void {
+pub fn printToFile(file: *os.File, msg: *const Msg, color: Color) !void {
     const color_on = switch (color) {
         Color.Auto => file.isTty(),
         Color.On => true,

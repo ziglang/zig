@@ -1167,20 +1167,19 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdTilde: return PrefixOpBinNot;
         case TokenIdMaybe: return PrefixOpMaybe;
         case TokenIdDoubleQuestion: return PrefixOpUnwrapMaybe;
+        case TokenIdAmpersand: return PrefixOpAddrOf;
         default: return PrefixOpInvalid;
     }
 }
 
-static AstNode *ast_parse_addr_of(ParseContext *pc, size_t *token_index) {
-    Token *ampersand_tok = ast_eat_token(pc, token_index, TokenIdAmpersand);
-
-    AstNode *node = ast_create_node(pc, NodeTypeAddrOfExpr, ampersand_tok);
+static AstNode *ast_parse_pointer_type(ParseContext *pc, size_t *token_index, Token *star_tok) {
+    AstNode *node = ast_create_node(pc, NodeTypePointerType, star_tok);
 
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdKeywordAlign) {
         *token_index += 1;
         ast_eat_token(pc, token_index, TokenIdLParen);
-        node->data.addr_of_expr.align_expr = ast_parse_expression(pc, token_index, true);
+        node->data.pointer_type.align_expr = ast_parse_expression(pc, token_index, true);
 
         token = &pc->tokens->at(*token_index);
         if (token->id == TokenIdColon) {
@@ -1189,24 +1188,24 @@ static AstNode *ast_parse_addr_of(ParseContext *pc, size_t *token_index) {
             ast_eat_token(pc, token_index, TokenIdColon);
             Token *bit_offset_end_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
 
-            node->data.addr_of_expr.bit_offset_start = token_bigint(bit_offset_start_tok);
-            node->data.addr_of_expr.bit_offset_end = token_bigint(bit_offset_end_tok);
+            node->data.pointer_type.bit_offset_start = token_bigint(bit_offset_start_tok);
+            node->data.pointer_type.bit_offset_end = token_bigint(bit_offset_end_tok);
         }
         ast_eat_token(pc, token_index, TokenIdRParen);
         token = &pc->tokens->at(*token_index);
     }
     if (token->id == TokenIdKeywordConst) {
         *token_index += 1;
-        node->data.addr_of_expr.is_const = true;
+        node->data.pointer_type.is_const = true;
 
         token = &pc->tokens->at(*token_index);
     }
     if (token->id == TokenIdKeywordVolatile) {
         *token_index += 1;
-        node->data.addr_of_expr.is_volatile = true;
+        node->data.pointer_type.is_volatile = true;
     }
 
-    node->data.addr_of_expr.op_expr = ast_parse_prefix_op_expr(pc, token_index, true);
+    node->data.pointer_type.op_expr = ast_parse_prefix_op_expr(pc, token_index, true);
     return node;
 }
 
@@ -1216,8 +1215,17 @@ PrefixOp = "!" | "-" | "~" | ("*" option("align" "(" Expression option(":" Integ
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdAmpersand) {
-        return ast_parse_addr_of(pc, token_index);
+    if (token->id == TokenIdStar) {
+        *token_index += 1;
+        return ast_parse_pointer_type(pc, token_index, token);
+    }
+    if (token->id == TokenIdStarStar) {
+        *token_index += 1;
+        AstNode *child_node = ast_parse_pointer_type(pc, token_index, token);
+        child_node->column += 1;
+        AstNode *parent_node = ast_create_node(pc, NodeTypePointerType, token);
+        parent_node->data.pointer_type.op_expr = child_node;
+        return parent_node;
     }
     if (token->id == TokenIdKeywordTry) {
         return ast_parse_try_expr(pc, token_index);
@@ -1234,13 +1242,12 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
 
 
     AstNode *node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
-    AstNode *parent_node = node;
 
     AstNode *prefix_op_expr = ast_parse_error_set_expr(pc, token_index, true);
     node->data.prefix_op_expr.primary_expr = prefix_op_expr;
     node->data.prefix_op_expr.prefix_op = prefix_op;
 
-    return parent_node;
+    return node;
 }
 
 
@@ -3121,9 +3128,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeErrorType:
             // none
             break;
-        case NodeTypeAddrOfExpr:
-            visit_field(&node->data.addr_of_expr.align_expr, visit, context);
-            visit_field(&node->data.addr_of_expr.op_expr, visit, context);
+        case NodeTypePointerType:
+            visit_field(&node->data.pointer_type.align_expr, visit, context);
+            visit_field(&node->data.pointer_type.op_expr, visit, context);
             break;
         case NodeTypeErrorSetDecl:
             visit_node_list(&node->data.err_set_decl.decls, visit, context);
