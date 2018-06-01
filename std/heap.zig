@@ -343,7 +343,7 @@ pub const ThreadSafeFixedBufferAllocator = struct {
             if (new_end_index > self.buffer.len) {
                 return error.OutOfMemory;
             }
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst,) ?? return self.buffer[adjusted_index..new_end_index];
+            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) ?? return self.buffer[adjusted_index..new_end_index];
         }
     }
 

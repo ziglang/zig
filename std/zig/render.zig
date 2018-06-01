@@ -1765,7 +1765,13 @@ const Space = enum {
     BlockStart,
 };
 
-fn renderTokenOffset(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, start_col: *usize, space: Space,
+fn renderTokenOffset(
+    tree: *ast.Tree,
+    stream: var,
+    token_index: ast.TokenIndex,
+    indent: usize,
+    start_col: *usize,
+    space: Space,
     token_skip_bytes: usize,
 ) (@typeOf(stream).Child.Error || Error)!void {
     if (space == Space.BlockStart) {
@@ -1933,7 +1939,14 @@ fn renderTokenOffset(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, 
     }
 }
 
-fn renderToken(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, start_col: *usize, space: Space,) (@typeOf(stream).Child.Error || Error)!void {
+fn renderToken(
+    tree: *ast.Tree,
+    stream: var,
+    token_index: ast.TokenIndex,
+    indent: usize,
+    start_col: *usize,
+    space: Space,
+) (@typeOf(stream).Child.Error || Error)!void {
     return renderTokenOffset(tree, stream, token_index, indent, start_col, space, 0);
 }
 
