@@ -254,7 +254,7 @@ pub const ChildProcess = struct {
 
         self.term = (SpawnError!Term)(x: {
             var exit_code: windows.DWORD = undefined;
-            if (windows.GetExitCodeProcess(self.handle, *exit_code) == 0) {
+            if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
             } else {
                 break :x Term{ .Exited = @bitCast(i32, exit_code) };
