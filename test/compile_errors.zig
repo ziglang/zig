@@ -3232,7 +3232,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    fn bar(self: *const Foo) void {}
         \\};
     ,
-        ".tmp_source.zig:4:4: error: variable of type '*const (integer literal)' must be const or comptime",
+        ".tmp_source.zig:4:4: error: variable of type '*(integer literal)' must be const or comptime",
         ".tmp_source.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
         ".tmp_source.zig:8:4: error: variable of type '(integer literal)' must be const or comptime",
         ".tmp_source.zig:9:4: error: variable of type '(float literal)' must be const or comptime",
