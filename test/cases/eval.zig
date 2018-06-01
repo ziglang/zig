@@ -576,3 +576,37 @@ test "comptime modification of const struct field" {
         assert(res.version == 1);
     }
 }
+
+test "pointer to type" {
+    comptime {
+        var T: type = i32;
+        assert(T == i32);
+        var ptr = &T;
+        assert(@typeOf(ptr) == *type);
+        ptr.* = f32;
+        assert(T == f32);
+        assert(*T == *f32);
+    }
+}
+
+test "slice of type" {
+    comptime {
+        var types_array = []type{ i32, f64, type };
+        for (types_array) |T, i| {
+            switch (i) {
+                0 => assert(T == i32),
+                1 => assert(T == f64),
+                2 => assert(T == type),
+                else => unreachable,
+            }
+        }
+        for (types_array[0..]) |T, i| {
+            switch (i) {
+                0 => assert(T == i32),
+                1 => assert(T == f64),
+                2 => assert(T == type),
+                else => unreachable,
+            }
+        }
+    }
+}
