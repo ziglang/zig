@@ -1533,14 +1533,14 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.SliceOrArrayType => |node| {
                 if (eatToken(&tok_it, &tree, Token.Id.RBracket)) |_| {
                     node.op = ast.Node.PrefixOp.Op{
-                        .SliceType = ast.Node.PrefixOp.AddrOfInfo{
+                        .SliceType = ast.Node.PrefixOp.PtrInfo{
                             .align_info = null,
                             .const_token = null,
                             .volatile_token = null,
                         },
                     };
                     stack.append(State{ .TypeExprBegin = OptionalCtx{ .Required = &node.rhs } }) catch unreachable;
-                    try stack.append(State{ .AddrOfModifiers = &node.op.SliceType });
+                    try stack.append(State{ .PtrTypeModifiers = &node.op.SliceType });
                     continue;
                 }
 
@@ -1551,7 +1551,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
 
-            State.AddrOfModifiers => |addr_of_info| {
+            State.PtrTypeModifiers => |addr_of_info| {
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
@@ -1562,7 +1562,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             ((try tree.errors.addOne())).* = Error{ .ExtraAlignQualifier = Error.ExtraAlignQualifier{ .token = token_index } };
                             return tree;
                         }
-                        addr_of_info.align_info = ast.Node.PrefixOp.AddrOfInfo.Align{
+                        addr_of_info.align_info = ast.Node.PrefixOp.PtrInfo.Align{
                             .node = undefined,
                             .bit_range = null,
                         };
@@ -1603,7 +1603,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token = nextToken(&tok_it, &tree);
                 switch (token.ptr.id) {
                     Token.Id.Colon => {
-                        align_info.bit_range = ast.Node.PrefixOp.AddrOfInfo.Align.BitRange(undefined);
+                        align_info.bit_range = ast.Node.PrefixOp.PtrInfo.Align.BitRange(undefined);
                         const bit_range = &??align_info.bit_range;
 
                         try stack.append(State{ .ExpectToken = Token.Id.RParen });
@@ -2220,7 +2220,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     });
                     opt_ctx.store(&node.base);
 
-                    // Treat '**' token as two derefs
+                    // Treat '**' token as two pointer types
                     if (token_ptr.id == Token.Id.AsteriskAsterisk) {
                         const child = try arena.construct(ast.Node.PrefixOp{
                             .base = ast.Node{ .id = ast.Node.Id.PrefixOp },
@@ -2233,8 +2233,8 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     }
 
                     stack.append(State{ .TypeExprBegin = OptionalCtx{ .Required = &node.rhs } }) catch unreachable;
-                    if (node.op == ast.Node.PrefixOp.Op.AddrOf) {
-                        try stack.append(State{ .AddrOfModifiers = &node.op.AddrOf });
+                    if (node.op == ast.Node.PrefixOp.Op.PtrType) {
+                        try stack.append(State{ .PtrTypeModifiers = &node.op.PtrType });
                     }
                     continue;
                 } else {
@@ -2963,8 +2963,8 @@ const State = union(enum) {
     ExternType: ExternTypeCtx,
     SliceOrArrayAccess: *ast.Node.SuffixOp,
     SliceOrArrayType: *ast.Node.PrefixOp,
-    AddrOfModifiers: *ast.Node.PrefixOp.AddrOfInfo,
-    AlignBitRange: *ast.Node.PrefixOp.AddrOfInfo.Align,
+    PtrTypeModifiers: *ast.Node.PrefixOp.PtrInfo,
+    AlignBitRange: *ast.Node.PrefixOp.PtrInfo.Align,
 
     Payload: OptionalCtx,
     PointerPayload: OptionalCtx,
@@ -3291,9 +3291,9 @@ fn tokenIdToPrefixOp(id: @TagType(Token.Id)) ?ast.Node.PrefixOp.Op {
         Token.Id.Tilde => ast.Node.PrefixOp.Op{ .BitNot = void{} },
         Token.Id.Minus => ast.Node.PrefixOp.Op{ .Negation = void{} },
         Token.Id.MinusPercent => ast.Node.PrefixOp.Op{ .NegationWrap = void{} },
-        Token.Id.Asterisk, Token.Id.AsteriskAsterisk => ast.Node.PrefixOp.Op{ .PointerType = void{} },
-        Token.Id.Ampersand => ast.Node.PrefixOp.Op{
-            .AddrOf = ast.Node.PrefixOp.AddrOfInfo{
+        Token.Id.Ampersand => ast.Node.PrefixOp.Op{ .AddressOf = void{} },
+        Token.Id.Asterisk, Token.Id.AsteriskAsterisk => ast.Node.PrefixOp.Op{
+            .PtrType = ast.Node.PrefixOp.PtrInfo{
                 .align_info = null,
                 .const_token = null,
                 .volatile_token = null,

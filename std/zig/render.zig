@@ -343,9 +343,13 @@ fn renderExpression(
             const prefix_op_node = @fieldParentPtr(ast.Node.PrefixOp, "base", base);
 
             switch (prefix_op_node.op) {
-                ast.Node.PrefixOp.Op.AddrOf => |addr_of_info| {
-                    try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None); // &
-                    if (addr_of_info.align_info) |align_info| {
+                ast.Node.PrefixOp.Op.PtrType => |ptr_info| {
+                    const star_offset = switch (tree.tokens.at(prefix_op_node.op_token).id) {
+                        Token.Id.AsteriskAsterisk => usize(1),
+                        else => usize(0),
+                    };
+                    try renderTokenOffset(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None, star_offset); // *
+                    if (ptr_info.align_info) |align_info| {
                         const lparen_token = tree.prevToken(align_info.node.firstToken());
                         const align_token = tree.prevToken(lparen_token);
 
@@ -370,19 +374,19 @@ fn renderExpression(
                             try renderToken(tree, stream, rparen_token, indent, start_col, Space.Space); // )
                         }
                     }
-                    if (addr_of_info.const_token) |const_token| {
+                    if (ptr_info.const_token) |const_token| {
                         try renderToken(tree, stream, const_token, indent, start_col, Space.Space); // const
                     }
-                    if (addr_of_info.volatile_token) |volatile_token| {
+                    if (ptr_info.volatile_token) |volatile_token| {
                         try renderToken(tree, stream, volatile_token, indent, start_col, Space.Space); // volatile
                     }
                 },
 
-                ast.Node.PrefixOp.Op.SliceType => |addr_of_info| {
+                ast.Node.PrefixOp.Op.SliceType => |ptr_info| {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None); // [
                     try renderToken(tree, stream, tree.nextToken(prefix_op_node.op_token), indent, start_col, Space.None); // ]
 
-                    if (addr_of_info.align_info) |align_info| {
+                    if (ptr_info.align_info) |align_info| {
                         const lparen_token = tree.prevToken(align_info.node.firstToken());
                         const align_token = tree.prevToken(lparen_token);
 
@@ -407,10 +411,10 @@ fn renderExpression(
                             try renderToken(tree, stream, rparen_token, indent, start_col, Space.Space); // )
                         }
                     }
-                    if (addr_of_info.const_token) |const_token| {
+                    if (ptr_info.const_token) |const_token| {
                         try renderToken(tree, stream, const_token, indent, start_col, Space.Space);
                     }
-                    if (addr_of_info.volatile_token) |volatile_token| {
+                    if (ptr_info.volatile_token) |volatile_token| {
                         try renderToken(tree, stream, volatile_token, indent, start_col, Space.Space);
                     }
                 },
@@ -426,7 +430,7 @@ fn renderExpression(
                 ast.Node.PrefixOp.Op.NegationWrap,
                 ast.Node.PrefixOp.Op.UnwrapMaybe,
                 ast.Node.PrefixOp.Op.MaybeType,
-                ast.Node.PrefixOp.Op.PointerType,
+                ast.Node.PrefixOp.Op.AddressOf,
                 => {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None);
                 },
@@ -1761,7 +1765,9 @@ const Space = enum {
     BlockStart,
 };
 
-fn renderToken(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, start_col: *usize, space: Space) (@typeOf(stream).Child.Error || Error)!void {
+fn renderTokenOffset(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, start_col: *usize, space: Space,
+    token_skip_bytes: usize,
+) (@typeOf(stream).Child.Error || Error)!void {
     if (space == Space.BlockStart) {
         if (start_col.* < indent + indent_delta)
             return renderToken(tree, stream, token_index, indent, start_col, Space.Space);
@@ -1772,7 +1778,7 @@ fn renderToken(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, indent
     }
 
     var token = tree.tokens.at(token_index);
-    try stream.write(mem.trimRight(u8, tree.tokenSlicePtr(token), " "));
+    try stream.write(mem.trimRight(u8, tree.tokenSlicePtr(token)[token_skip_bytes..], " "));
 
     if (space == Space.NoComment)
         return;
@@ -1925,6 +1931,10 @@ fn renderToken(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, indent
         }
         loc = tree.tokenLocationPtr(token.end, next_token);
     }
+}
+
+fn renderToken(tree: *ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, start_col: *usize, space: Space,) (@typeOf(stream).Child.Error || Error)!void {
+    return renderTokenOffset(tree, stream, token_index, indent, start_col, space, 0);
 }
 
 fn renderDocComments(

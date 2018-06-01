@@ -1501,23 +1501,23 @@ pub const Node = struct {
         rhs: *Node,
 
         pub const Op = union(enum) {
-            AddrOf: AddrOfInfo,
+            AddressOf,
             ArrayType: *Node,
             Await,
             BitNot,
             BoolNot,
             Cancel,
-            PointerType,
             MaybeType,
             Negation,
             NegationWrap,
             Resume,
-            SliceType: AddrOfInfo,
+            PtrType: PtrInfo,
+            SliceType: PtrInfo,
             Try,
             UnwrapMaybe,
         };
 
-        pub const AddrOfInfo = struct {
+        pub const PtrInfo = struct {
             align_info: ?Align,
             const_token: ?TokenIndex,
             volatile_token: ?TokenIndex,
