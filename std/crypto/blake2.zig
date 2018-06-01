@@ -75,7 +75,7 @@ fn Blake2s(comptime out_len: usize) type {
             return s;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             mem.copy(u32, d.h[0..], iv[0..]);
 
             // No key plus default parameters
@@ -90,7 +90,7 @@ fn Blake2s(comptime out_len: usize) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -113,7 +113,7 @@ fn Blake2s(comptime out_len: usize) type {
             d.buf_len += u8(b[off..].len);
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             debug.assert(out.len >= out_len / 8);
 
             mem.set(u8, d.buf[d.buf_len..], 0);
@@ -127,7 +127,7 @@ fn Blake2s(comptime out_len: usize) type {
             }
         }
 
-        fn round(d: &Self, b: []const u8, last: bool) void {
+        fn round(d: *Self, b: []const u8, last: bool) void {
             debug.assert(b.len == 64);
 
             var m: [16]u32 = undefined;
@@ -310,7 +310,7 @@ fn Blake2b(comptime out_len: usize) type {
             return s;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             mem.copy(u64, d.h[0..], iv[0..]);
 
             // No key plus default parameters
@@ -325,7 +325,7 @@ fn Blake2b(comptime out_len: usize) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -348,7 +348,7 @@ fn Blake2b(comptime out_len: usize) type {
             d.buf_len += u8(b[off..].len);
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
@@ -360,7 +360,7 @@ fn Blake2b(comptime out_len: usize) type {
             }
         }
 
-        fn round(d: &Self, b: []const u8, last: bool) void {
+        fn round(d: *Self, b: []const u8, last: bool) void {
             debug.assert(b.len == 128);
 
             var m: [16]u64 = undefined;

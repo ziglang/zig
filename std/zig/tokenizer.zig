@@ -200,7 +200,7 @@ pub const Tokenizer = struct {
     pending_invalid_token: ?Token,
 
     /// For debugging purposes
-    pub fn dump(self: &Tokenizer, token: &const Token) void {
+    pub fn dump(self: *Tokenizer, token: *const Token) void {
         std.debug.warn("{} \"{}\"\n", @tagName(token.id), self.buffer[token.start..token.end]);
     }
 
@@ -265,7 +265,7 @@ pub const Tokenizer = struct {
         SawAtSign,
     };
 
-    pub fn next(self: &Tokenizer) Token {
+    pub fn next(self: *Tokenizer) Token {
         if (self.pending_invalid_token) |token| {
             self.pending_invalid_token = null;
             return token;
@@ -1089,7 +1089,7 @@ pub const Tokenizer = struct {
         return result;
     }
 
-    fn checkLiteralCharacter(self: &Tokenizer) void {
+    fn checkLiteralCharacter(self: *Tokenizer) void {
         if (self.pending_invalid_token != null) return;
         const invalid_length = self.getInvalidCharacterLength();
         if (invalid_length == 0) return;
@@ -1100,7 +1100,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn getInvalidCharacterLength(self: &Tokenizer) u3 {
+    fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
         if (c0 < 0x80) {
             if (c0 < 0x20 or c0 == 0x7f) {

@@ -68,11 +68,11 @@ test "init union with runtime value" {
     assert(foo.int == 42);
 }
 
-fn setFloat(foo: &Foo, x: f64) void {
+fn setFloat(foo: *Foo, x: f64) void {
     foo.* = Foo{ .float = x };
 }
 
-fn setInt(foo: &Foo, x: i32) void {
+fn setInt(foo: *Foo, x: i32) void {
     foo.* = Foo{ .int = x };
 }
 
@@ -108,7 +108,7 @@ fn doTest() void {
     assert(bar(Payload{ .A = 1234 }) == -10);
 }
 
-fn bar(value: &const Payload) i32 {
+fn bar(value: *const Payload) i32 {
     assert(Letter(value.*) == Letter.A);
     return switch (value.*) {
         Payload.A => |x| return x - 1244,
@@ -147,7 +147,7 @@ test "union(enum(u32)) with specified and unspecified tag values" {
     comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
 }
 
-fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: &const MultipleChoice2) void {
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: *const MultipleChoice2) void {
     assert(u32(@TagType(MultipleChoice2)(x.*)) == 60);
     assert(1123 == switch (x.*) {
         MultipleChoice2.A => 1,
@@ -163,7 +163,7 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: &const MultipleChoice2) void 
 }
 
 const ExternPtrOrInt = extern union {
-    ptr: &u8,
+    ptr: *u8,
     int: u64,
 };
 test "extern union size" {
@@ -171,7 +171,7 @@ test "extern union size" {
 }
 
 const PackedPtrOrInt = packed union {
-    ptr: &u8,
+    ptr: *u8,
     int: u64,
 };
 test "extern union size" {
@@ -206,7 +206,7 @@ test "cast union to tag type of union" {
     comptime testCastUnionToTagType(TheUnion{ .B = 1234 });
 }
 
-fn testCastUnionToTagType(x: &const TheUnion) void {
+fn testCastUnionToTagType(x: *const TheUnion) void {
     assert(TheTag(x.*) == TheTag.B);
 }
 
@@ -243,7 +243,7 @@ const TheUnion2 = union(enum) {
     Item2: i32,
 };
 
-fn assertIsTheUnion2Item1(value: &const TheUnion2) void {
+fn assertIsTheUnion2Item1(value: *const TheUnion2) void {
     assert(value.* == TheUnion2.Item1);
 }
 

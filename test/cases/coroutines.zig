@@ -154,7 +154,7 @@ test "async function with dot syntax" {
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async<&std.mem.Allocator> fn (&i32) void,
+        bar: async<*std.mem.Allocator> fn (*i32) void,
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
     const p = (async<std.debug.global_allocator> foo.bar(&data)) catch unreachable;
@@ -162,7 +162,7 @@ test "async fn pointer in a struct field" {
     cancel p;
     assert(data == 4);
 }
-async<&std.mem.Allocator> fn simpleAsyncFn2(y: &i32) void {
+async<*std.mem.Allocator> fn simpleAsyncFn2(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
     suspend;
@@ -220,7 +220,7 @@ test "break from suspend" {
     cancel p;
     std.debug.assert(my_result == 2);
 }
-async fn testBreakFromSuspend(my_result: &i32) void {
+async fn testBreakFromSuspend(my_result: *i32) void {
     s: suspend |p| {
         break :s;
     }

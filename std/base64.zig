@@ -32,7 +32,7 @@ pub const Base64Encoder = struct {
     }
 
     /// dest.len must be what you get from ::calcSize.
-    pub fn encode(encoder: &const Base64Encoder, dest: []u8, source: []const u8) void {
+    pub fn encode(encoder: *const Base64Encoder, dest: []u8, source: []const u8) void {
         assert(dest.len == Base64Encoder.calcSize(source.len));
 
         var i: usize = 0;
@@ -107,7 +107,7 @@ pub const Base64Decoder = struct {
     }
 
     /// If the encoded buffer is detected to be invalid, returns error.InvalidPadding.
-    pub fn calcSize(decoder: &const Base64Decoder, source: []const u8) !usize {
+    pub fn calcSize(decoder: *const Base64Decoder, source: []const u8) !usize {
         if (source.len % 4 != 0) return error.InvalidPadding;
         return calcDecodedSizeExactUnsafe(source, decoder.pad_char);
     }
@@ -115,7 +115,7 @@ pub const Base64Decoder = struct {
     /// dest.len must be what you get from ::calcSize.
     /// invalid characters result in error.InvalidCharacter.
     /// invalid padding results in error.InvalidPadding.
-    pub fn decode(decoder: &const Base64Decoder, dest: []u8, source: []const u8) !void {
+    pub fn decode(decoder: *const Base64Decoder, dest: []u8, source: []const u8) !void {
         assert(dest.len == (decoder.calcSize(source) catch unreachable));
         assert(source.len % 4 == 0);
 
@@ -181,7 +181,7 @@ pub const Base64DecoderWithIgnore = struct {
     /// Invalid padding results in error.InvalidPadding.
     /// Decoding more data than can fit in dest results in error.OutputTooSmall. See also ::calcSizeUpperBound.
     /// Returns the number of bytes writen to dest.
-    pub fn decode(decoder_with_ignore: &const Base64DecoderWithIgnore, dest: []u8, source: []const u8) !usize {
+    pub fn decode(decoder_with_ignore: *const Base64DecoderWithIgnore, dest: []u8, source: []const u8) !usize {
         const decoder = &decoder_with_ignore.decoder;
 
         var src_cursor: usize = 0;
@@ -290,13 +290,13 @@ pub const Base64DecoderUnsafe = struct {
     }
 
     /// The source buffer must be valid.
-    pub fn calcSize(decoder: &const Base64DecoderUnsafe, source: []const u8) usize {
+    pub fn calcSize(decoder: *const Base64DecoderUnsafe, source: []const u8) usize {
         return calcDecodedSizeExactUnsafe(source, decoder.pad_char);
     }
 
     /// dest.len must be what you get from ::calcDecodedSizeExactUnsafe.
     /// invalid characters or padding will result in undefined values.
-    pub fn decode(decoder: &const Base64DecoderUnsafe, dest: []u8, source: []const u8) void {
+    pub fn decode(decoder: *const Base64DecoderUnsafe, dest: []u8, source: []const u8) void {
         assert(dest.len == decoder.calcSize(source));
 
         var src_index: usize = 0;

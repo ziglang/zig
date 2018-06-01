@@ -16,15 +16,15 @@ var c_allocator_state = Allocator{
     .freeFn = cFree,
 };
 
-fn cAlloc(self: &Allocator, n: usize, alignment: u29) ![]u8 {
+fn cAlloc(self: *Allocator, n: usize, alignment: u29) ![]u8 {
     assert(alignment <= @alignOf(c_longdouble));
-    return if (c.malloc(n)) |buf| @ptrCast(&u8, buf)[0..n] else error.OutOfMemory;
+    return if (c.malloc(n)) |buf| @ptrCast(*u8, buf)[0..n] else error.OutOfMemory;
 }
 
-fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-    const old_ptr = @ptrCast(&c_void, old_mem.ptr);
+fn cRealloc(self: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
     if (c.realloc(old_ptr, new_size)) |buf| {
-        return @ptrCast(&u8, buf)[0..new_size];
+        return @ptrCast(*u8, buf)[0..new_size];
     } else if (new_size <= old_mem.len) {
         return old_mem[0..new_size];
     } else {
@@ -32,8 +32,8 @@ fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![
     }
 }
 
-fn cFree(self: &Allocator, old_mem: []u8) void {
-    const old_ptr = @ptrCast(&c_void, old_mem.ptr);
+fn cFree(self: *Allocator, old_mem: []u8) void {
+    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
     c.free(old_ptr);
 }
 
@@ -55,7 +55,7 @@ pub const DirectAllocator = struct {
         };
     }
 
-    pub fn deinit(self: &DirectAllocator) void {
+    pub fn deinit(self: *DirectAllocator) void {
         switch (builtin.os) {
             Os.windows => if (self.heap_handle) |heap_handle| {
                 _ = os.windows.HeapDestroy(heap_handle);
@@ -64,7 +64,7 @@ pub const DirectAllocator = struct {
         }
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
+    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
 
         switch (builtin.os) {
@@ -74,7 +74,7 @@ pub const DirectAllocator = struct {
                 const addr = p.mmap(null, alloc_size, p.PROT_READ | p.PROT_WRITE, p.MAP_PRIVATE | p.MAP_ANONYMOUS, -1, 0);
                 if (addr == p.MAP_FAILED) return error.OutOfMemory;
 
-                if (alloc_size == n) return @intToPtr(&u8, addr)[0..n];
+                if (alloc_size == n) return @intToPtr(*u8, addr)[0..n];
 
                 var aligned_addr = addr & ~usize(alignment - 1);
                 aligned_addr += alignment;
@@ -93,7 +93,7 @@ pub const DirectAllocator = struct {
                 //It is impossible that there is an unoccupied page at the top of our
                 //  mmap.
 
-                return @intToPtr(&u8, aligned_addr)[0..n];
+                return @intToPtr(*u8, aligned_addr)[0..n];
             },
             Os.windows => {
                 const amt = n + alignment + @sizeOf(usize);
@@ -108,14 +108,14 @@ pub const DirectAllocator = struct {
                 const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
                 const adjusted_addr = root_addr + march_forward_bytes;
                 const record_addr = adjusted_addr + n;
-                @intToPtr(&align(1) usize, record_addr).* = root_addr;
-                return @intToPtr(&u8, adjusted_addr)[0..n];
+                @intToPtr(*align(1) usize, record_addr).* = root_addr;
+                return @intToPtr(*u8, adjusted_addr)[0..n];
             },
             else => @compileError("Unsupported OS"),
         }
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
 
         switch (builtin.os) {
@@ -139,13 +139,13 @@ pub const DirectAllocator = struct {
             Os.windows => {
                 const old_adjusted_addr = @ptrToInt(old_mem.ptr);
                 const old_record_addr = old_adjusted_addr + old_mem.len;
-                const root_addr = @intToPtr(&align(1) usize, old_record_addr).*;
+                const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(os.windows.LPVOID, root_addr);
                 const amt = new_size + alignment + @sizeOf(usize);
                 const new_ptr = os.windows.HeapReAlloc(??self.heap_handle, 0, old_ptr, amt) ?? blk: {
                     if (new_size > old_mem.len) return error.OutOfMemory;
                     const new_record_addr = old_record_addr - new_size + old_mem.len;
-                    @intToPtr(&align(1) usize, new_record_addr).* = root_addr;
+                    @intToPtr(*align(1) usize, new_record_addr).* = root_addr;
                     return old_mem[0..new_size];
                 };
                 const offset = old_adjusted_addr - root_addr;
@@ -153,14 +153,14 @@ pub const DirectAllocator = struct {
                 const new_adjusted_addr = new_root_addr + offset;
                 assert(new_adjusted_addr % alignment == 0);
                 const new_record_addr = new_adjusted_addr + new_size;
-                @intToPtr(&align(1) usize, new_record_addr).* = new_root_addr;
-                return @intToPtr(&u8, new_adjusted_addr)[0..new_size];
+                @intToPtr(*align(1) usize, new_record_addr).* = new_root_addr;
+                return @intToPtr(*u8, new_adjusted_addr)[0..new_size];
             },
             else => @compileError("Unsupported OS"),
         }
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) void {
+    fn free(allocator: *Allocator, bytes: []u8) void {
         const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
 
         switch (builtin.os) {
@@ -169,7 +169,7 @@ pub const DirectAllocator = struct {
             },
             Os.windows => {
                 const record_addr = @ptrToInt(bytes.ptr) + bytes.len;
-                const root_addr = @intToPtr(&align(1) usize, record_addr).*;
+                const root_addr = @intToPtr(*align(1) usize, record_addr).*;
                 const ptr = @intToPtr(os.windows.LPVOID, root_addr);
                 _ = os.windows.HeapFree(??self.heap_handle, 0, ptr);
             },
@@ -183,13 +183,13 @@ pub const DirectAllocator = struct {
 pub const ArenaAllocator = struct {
     pub allocator: Allocator,
 
-    child_allocator: &Allocator,
+    child_allocator: *Allocator,
     buffer_list: std.LinkedList([]u8),
     end_index: usize,
 
     const BufNode = std.LinkedList([]u8).Node;
 
-    pub fn init(child_allocator: &Allocator) ArenaAllocator {
+    pub fn init(child_allocator: *Allocator) ArenaAllocator {
         return ArenaAllocator{
             .allocator = Allocator{
                 .allocFn = alloc,
@@ -202,7 +202,7 @@ pub const ArenaAllocator = struct {
         };
     }
 
-    pub fn deinit(self: &ArenaAllocator) void {
+    pub fn deinit(self: *ArenaAllocator) void {
         var it = self.buffer_list.first;
         while (it) |node| {
             // this has to occur before the free because the free frees node
@@ -212,7 +212,7 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn createNode(self: &ArenaAllocator, prev_len: usize, minimum_size: usize) !&BufNode {
+    fn createNode(self: *ArenaAllocator, prev_len: usize, minimum_size: usize) !*BufNode {
         const actual_min_size = minimum_size + @sizeOf(BufNode);
         var len = prev_len;
         while (true) {
@@ -233,7 +233,7 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
+    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
         var cur_node = if (self.buffer_list.last) |last_node| last_node else try self.createNode(0, n + alignment);
@@ -254,7 +254,7 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
@@ -264,7 +264,7 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) void {}
+    fn free(allocator: *Allocator, bytes: []u8) void {}
 };
 
 pub const FixedBufferAllocator = struct {
@@ -284,7 +284,7 @@ pub const FixedBufferAllocator = struct {
         };
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
+    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
         const addr = @ptrToInt(self.buffer.ptr) + self.end_index;
         const rem = @rem(addr, alignment);
@@ -300,7 +300,7 @@ pub const FixedBufferAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
@@ -310,7 +310,7 @@ pub const FixedBufferAllocator = struct {
         }
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) void {}
+    fn free(allocator: *Allocator, bytes: []u8) void {}
 };
 
 /// lock free
@@ -331,7 +331,7 @@ pub const ThreadSafeFixedBufferAllocator = struct {
         };
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
+    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(ThreadSafeFixedBufferAllocator, "allocator", allocator);
         var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
         while (true) {
@@ -347,7 +347,7 @@ pub const ThreadSafeFixedBufferAllocator = struct {
         }
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
@@ -357,7 +357,7 @@ pub const ThreadSafeFixedBufferAllocator = struct {
         }
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) void {}
+    fn free(allocator: *Allocator, bytes: []u8) void {}
 };
 
 test "c_allocator" {
@@ -403,8 +403,8 @@ test "ThreadSafeFixedBufferAllocator" {
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
 }
 
-fn testAllocator(allocator: &mem.Allocator) !void {
-    var slice = try allocator.alloc(&i32, 100);
+fn testAllocator(allocator: *mem.Allocator) !void {
+    var slice = try allocator.alloc(*i32, 100);
 
     for (slice) |*item, i| {
         item.* = try allocator.create(i32);
@@ -415,15 +415,15 @@ fn testAllocator(allocator: &mem.Allocator) !void {
         allocator.destroy(item);
     }
 
-    slice = try allocator.realloc(&i32, slice, 20000);
-    slice = try allocator.realloc(&i32, slice, 50);
-    slice = try allocator.realloc(&i32, slice, 25);
-    slice = try allocator.realloc(&i32, slice, 10);
+    slice = try allocator.realloc(*i32, slice, 20000);
+    slice = try allocator.realloc(*i32, slice, 50);
+    slice = try allocator.realloc(*i32, slice, 25);
+    slice = try allocator.realloc(*i32, slice, 10);
 
     allocator.free(slice);
 }
 
-fn testAllocatorLargeAlignment(allocator: &mem.Allocator) mem.Allocator.Error!void {
+fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
     //Maybe a platform's page_size is actually the same as or
     //  very near usize?
     if (os.page_size << 2 > @maxValue(usize)) return;

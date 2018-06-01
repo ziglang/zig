@@ -529,7 +529,7 @@ test "zig fmt: line comment after doc comment" {
 test "zig fmt: float literal with exponent" {
     try testCanonical(
         \\test "bit field alignment" {
-        \\    assert(@typeOf(&blah.b) == &align(1:3:6) const u3);
+        \\    assert(@typeOf(&blah.b) == *align(1:3:6) const u3);
         \\}
         \\
     );
@@ -1040,7 +1040,7 @@ test "zig fmt: alignment" {
 
 test "zig fmt: C main" {
     try testCanonical(
-        \\fn main(argc: c_int, argv: &&u8) c_int {
+        \\fn main(argc: c_int, argv: **u8) c_int {
         \\    const a = b;
         \\}
         \\
@@ -1049,7 +1049,7 @@ test "zig fmt: C main" {
 
 test "zig fmt: return" {
     try testCanonical(
-        \\fn foo(argc: c_int, argv: &&u8) c_int {
+        \\fn foo(argc: c_int, argv: **u8) c_int {
         \\    return 0;
         \\}
         \\
@@ -1062,20 +1062,20 @@ test "zig fmt: return" {
 
 test "zig fmt: pointer attributes" {
     try testCanonical(
-        \\extern fn f1(s: &align(&u8) u8) c_int;
-        \\extern fn f2(s: &&align(1) &const &volatile u8) c_int;
-        \\extern fn f3(s: &align(1) const &align(1) volatile &const volatile u8) c_int;
-        \\extern fn f4(s: &align(1) const volatile u8) c_int;
+        \\extern fn f1(s: *align(*u8) u8) c_int;
+        \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
+        \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
+        \\extern fn f4(s: *align(1) const volatile u8) c_int;
         \\
     );
 }
 
 test "zig fmt: slice attributes" {
     try testCanonical(
-        \\extern fn f1(s: &align(&u8) u8) c_int;
-        \\extern fn f2(s: &&align(1) &const &volatile u8) c_int;
-        \\extern fn f3(s: &align(1) const &align(1) volatile &const volatile u8) c_int;
-        \\extern fn f4(s: &align(1) const volatile u8) c_int;
+        \\extern fn f1(s: *align(*u8) u8) c_int;
+        \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
+        \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
+        \\extern fn f4(s: *align(1) const volatile u8) c_int;
         \\
     );
 }
@@ -1212,18 +1212,18 @@ test "zig fmt: var type" {
 
 test "zig fmt: functions" {
     try testCanonical(
-        \\extern fn puts(s: &const u8) c_int;
-        \\extern "c" fn puts(s: &const u8) c_int;
-        \\export fn puts(s: &const u8) c_int;
-        \\inline fn puts(s: &const u8) c_int;
-        \\pub extern fn puts(s: &const u8) c_int;
-        \\pub extern "c" fn puts(s: &const u8) c_int;
-        \\pub export fn puts(s: &const u8) c_int;
-        \\pub inline fn puts(s: &const u8) c_int;
-        \\pub extern fn puts(s: &const u8) align(2 + 2) c_int;
-        \\pub extern "c" fn puts(s: &const u8) align(2 + 2) c_int;
-        \\pub export fn puts(s: &const u8) align(2 + 2) c_int;
-        \\pub inline fn puts(s: &const u8) align(2 + 2) c_int;
+        \\extern fn puts(s: *const u8) c_int;
+        \\extern "c" fn puts(s: *const u8) c_int;
+        \\export fn puts(s: *const u8) c_int;
+        \\inline fn puts(s: *const u8) c_int;
+        \\pub extern fn puts(s: *const u8) c_int;
+        \\pub extern "c" fn puts(s: *const u8) c_int;
+        \\pub export fn puts(s: *const u8) c_int;
+        \\pub inline fn puts(s: *const u8) c_int;
+        \\pub extern fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub extern "c" fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
         \\
     );
 }
@@ -1298,8 +1298,8 @@ test "zig fmt: struct declaration" {
         \\    f1: u8,
         \\    pub f3: u8,
         \\
-        \\    fn method(self: &Self) Self {
-        \\        return *self;
+        \\    fn method(self: *Self) Self {
+        \\        return self.*;
         \\    }
         \\
         \\    f2: u8,
@@ -1803,7 +1803,7 @@ const io = std.io;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: &mem.Allocator, anything_changed: &bool) ![]u8 {
+fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
     var stderr_file = try io.getStdErr();
     var stderr = &io.FileOutStream.init(&stderr_file).stream;
 

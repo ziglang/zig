@@ -13,7 +13,7 @@ pub const Error = error{
 };
 
 /// Returns whether anything changed
-pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(stream).Child.Error || Error)!bool {
+pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(stream).Child.Error || Error)!bool {
     comptime assert(@typeId(@typeOf(stream)) == builtin.TypeId.Pointer);
 
     var anything_changed: bool = false;
@@ -24,13 +24,13 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(
         const StreamError = @typeOf(stream).Child.Error;
         const Stream = std.io.OutStream(StreamError);
 
-        anything_changed_ptr: &bool,
+        anything_changed_ptr: *bool,
         child_stream: @typeOf(stream),
         stream: Stream,
         source_index: usize,
         source: []const u8,
 
-        fn write(iface_stream: &Stream, bytes: []const u8) StreamError!void {
+        fn write(iface_stream: *Stream, bytes: []const u8) StreamError!void {
             const self = @fieldParentPtr(MyStream, "stream", iface_stream);
 
             if (!self.anything_changed_ptr.*) {
@@ -63,9 +63,9 @@ pub fn render(allocator: &mem.Allocator, stream: var, tree: &ast.Tree) (@typeOf(
 }
 
 fn renderRoot(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
 ) (@typeOf(stream).Child.Error || Error)!void {
     // render all the line comments at the beginning of the file
     var tok_it = tree.tokens.iterator(0);
@@ -90,7 +90,7 @@ fn renderRoot(
     }
 }
 
-fn renderExtraNewline(tree: &ast.Tree, stream: var, start_col: &usize, node: &ast.Node) !void {
+fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *ast.Node) !void {
     const first_token = node.firstToken();
     var prev_token = first_token;
     while (tree.tokens.at(prev_token - 1).id == Token.Id.DocComment) {
@@ -104,7 +104,7 @@ fn renderExtraNewline(tree: &ast.Tree, stream: var, start_col: &usize, node: &as
     }
 }
 
-fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, indent: usize, start_col: &usize, decl: &ast.Node) (@typeOf(stream).Child.Error || Error)!void {
+fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) (@typeOf(stream).Child.Error || Error)!void {
     switch (decl.id) {
         ast.Node.Id.FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
@@ -214,12 +214,12 @@ fn renderTopLevelDecl(allocator: &mem.Allocator, stream: var, tree: &ast.Tree, i
 }
 
 fn renderExpression(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     indent: usize,
-    start_col: &usize,
-    base: &ast.Node,
+    start_col: *usize,
+    base: *ast.Node,
     space: Space,
 ) (@typeOf(stream).Child.Error || Error)!void {
     switch (base.id) {
@@ -343,9 +343,13 @@ fn renderExpression(
             const prefix_op_node = @fieldParentPtr(ast.Node.PrefixOp, "base", base);
 
             switch (prefix_op_node.op) {
-                ast.Node.PrefixOp.Op.AddrOf => |addr_of_info| {
-                    try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None); // &
-                    if (addr_of_info.align_info) |align_info| {
+                ast.Node.PrefixOp.Op.PtrType => |ptr_info| {
+                    const star_offset = switch (tree.tokens.at(prefix_op_node.op_token).id) {
+                        Token.Id.AsteriskAsterisk => usize(1),
+                        else => usize(0),
+                    };
+                    try renderTokenOffset(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None, star_offset); // *
+                    if (ptr_info.align_info) |align_info| {
                         const lparen_token = tree.prevToken(align_info.node.firstToken());
                         const align_token = tree.prevToken(lparen_token);
 
@@ -370,19 +374,19 @@ fn renderExpression(
                             try renderToken(tree, stream, rparen_token, indent, start_col, Space.Space); // )
                         }
                     }
-                    if (addr_of_info.const_token) |const_token| {
+                    if (ptr_info.const_token) |const_token| {
                         try renderToken(tree, stream, const_token, indent, start_col, Space.Space); // const
                     }
-                    if (addr_of_info.volatile_token) |volatile_token| {
+                    if (ptr_info.volatile_token) |volatile_token| {
                         try renderToken(tree, stream, volatile_token, indent, start_col, Space.Space); // volatile
                     }
                 },
 
-                ast.Node.PrefixOp.Op.SliceType => |addr_of_info| {
+                ast.Node.PrefixOp.Op.SliceType => |ptr_info| {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None); // [
                     try renderToken(tree, stream, tree.nextToken(prefix_op_node.op_token), indent, start_col, Space.None); // ]
 
-                    if (addr_of_info.align_info) |align_info| {
+                    if (ptr_info.align_info) |align_info| {
                         const lparen_token = tree.prevToken(align_info.node.firstToken());
                         const align_token = tree.prevToken(lparen_token);
 
@@ -407,10 +411,10 @@ fn renderExpression(
                             try renderToken(tree, stream, rparen_token, indent, start_col, Space.Space); // )
                         }
                     }
-                    if (addr_of_info.const_token) |const_token| {
+                    if (ptr_info.const_token) |const_token| {
                         try renderToken(tree, stream, const_token, indent, start_col, Space.Space);
                     }
-                    if (addr_of_info.volatile_token) |volatile_token| {
+                    if (ptr_info.volatile_token) |volatile_token| {
                         try renderToken(tree, stream, volatile_token, indent, start_col, Space.Space);
                     }
                 },
@@ -426,7 +430,7 @@ fn renderExpression(
                 ast.Node.PrefixOp.Op.NegationWrap,
                 ast.Node.PrefixOp.Op.UnwrapMaybe,
                 ast.Node.PrefixOp.Op.MaybeType,
-                ast.Node.PrefixOp.Op.PointerType,
+                ast.Node.PrefixOp.Op.AddressOf,
                 => {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None);
                 },
@@ -1640,12 +1644,12 @@ fn renderExpression(
 }
 
 fn renderVarDecl(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     indent: usize,
-    start_col: &usize,
-    var_decl: &ast.Node.VarDecl,
+    start_col: *usize,
+    var_decl: *ast.Node.VarDecl,
 ) (@typeOf(stream).Child.Error || Error)!void {
     if (var_decl.visib_token) |visib_token| {
         try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
@@ -1696,12 +1700,12 @@ fn renderVarDecl(
 }
 
 fn renderParamDecl(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     indent: usize,
-    start_col: &usize,
-    base: &ast.Node,
+    start_col: *usize,
+    base: *ast.Node,
     space: Space,
 ) (@typeOf(stream).Child.Error || Error)!void {
     const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", base);
@@ -1724,12 +1728,12 @@ fn renderParamDecl(
 }
 
 fn renderStatement(
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     stream: var,
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     indent: usize,
-    start_col: &usize,
-    base: &ast.Node,
+    start_col: *usize,
+    base: *ast.Node,
 ) (@typeOf(stream).Child.Error || Error)!void {
     switch (base.id) {
         ast.Node.Id.VarDecl => {
@@ -1761,7 +1765,15 @@ const Space = enum {
     BlockStart,
 };
 
-fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent: usize, start_col: &usize, space: Space) (@typeOf(stream).Child.Error || Error)!void {
+fn renderTokenOffset(
+    tree: *ast.Tree,
+    stream: var,
+    token_index: ast.TokenIndex,
+    indent: usize,
+    start_col: *usize,
+    space: Space,
+    token_skip_bytes: usize,
+) (@typeOf(stream).Child.Error || Error)!void {
     if (space == Space.BlockStart) {
         if (start_col.* < indent + indent_delta)
             return renderToken(tree, stream, token_index, indent, start_col, Space.Space);
@@ -1772,7 +1784,7 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
     }
 
     var token = tree.tokens.at(token_index);
-    try stream.write(mem.trimRight(u8, tree.tokenSlicePtr(token), " "));
+    try stream.write(mem.trimRight(u8, tree.tokenSlicePtr(token)[token_skip_bytes..], " "));
 
     if (space == Space.NoComment)
         return;
@@ -1927,12 +1939,23 @@ fn renderToken(tree: &ast.Tree, stream: var, token_index: ast.TokenIndex, indent
     }
 }
 
+fn renderToken(
+    tree: *ast.Tree,
+    stream: var,
+    token_index: ast.TokenIndex,
+    indent: usize,
+    start_col: *usize,
+    space: Space,
+) (@typeOf(stream).Child.Error || Error)!void {
+    return renderTokenOffset(tree, stream, token_index, indent, start_col, space, 0);
+}
+
 fn renderDocComments(
-    tree: &ast.Tree,
+    tree: *ast.Tree,
     stream: var,
     node: var,
     indent: usize,
-    start_col: &usize,
+    start_col: *usize,
 ) (@typeOf(stream).Child.Error || Error)!void {
     const comment = node.doc_comments ?? return;
     var it = comment.lines.iterator(0);
@@ -1949,7 +1972,7 @@ fn renderDocComments(
     }
 }
 
-fn nodeIsBlock(base: &const ast.Node) bool {
+fn nodeIsBlock(base: *const ast.Node) bool {
     return switch (base.id) {
         ast.Node.Id.Block,
         ast.Node.Id.If,
@@ -1961,7 +1984,7 @@ fn nodeIsBlock(base: &const ast.Node) bool {
     };
 }
 
-fn nodeCausesSliceOpSpace(base: &ast.Node) bool {
+fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
     const infix_op = base.cast(ast.Node.InfixOp) ?? return false;
     return switch (infix_op.op) {
         ast.Node.InfixOp.Op.Period => false,

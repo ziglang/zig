@@ -11,12 +11,12 @@ const B = struct {
 const C = struct {
     x: i32,
 
-    fn d(c: &const C) i32 {
+    fn d(c: *const C) i32 {
         return c.x;
     }
 };
 
-fn foo(a: &const A) i32 {
+fn foo(a: *const A) i32 {
     return a.b.c.d();
 }
 

@@ -13,7 +13,7 @@ pub const Allocator = struct {
     /// The returned newly allocated memory is undefined.
     /// `alignment` is guaranteed to be >= 1
     /// `alignment` is guaranteed to be a power of 2
-    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) Error![]u8,
+    allocFn: fn (self: *Allocator, byte_count: usize, alignment: u29) Error![]u8,
 
     /// If `new_byte_count > old_mem.len`:
     /// * `old_mem.len` is the same as what was returned from allocFn or reallocFn.
@@ -26,22 +26,22 @@ pub const Allocator = struct {
     /// The returned newly allocated memory is undefined.
     /// `alignment` is guaranteed to be >= 1
     /// `alignment` is guaranteed to be a power of 2
-    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
+    reallocFn: fn (self: *Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
-    freeFn: fn (self: &Allocator, old_mem: []u8) void,
+    freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
-    fn create(self: &Allocator, comptime T: type) !&T {
-        if (@sizeOf(T) == 0) return &{};
+    fn create(self: *Allocator, comptime T: type) !*T {
+        if (@sizeOf(T) == 0) return *{};
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
 
     // TODO once #733 is solved, this will replace create
-    fn construct(self: &Allocator, init: var) t: {
+    fn construct(self: *Allocator, init: var) t: {
         // TODO this is a workaround for type getting parsed as Error!&const T
         const T = @typeOf(init).Child;
-        break :t Error!&T;
+        break :t Error!*T;
     } {
         const T = @typeOf(init).Child;
         if (@sizeOf(T) == 0) return &{};
@@ -51,17 +51,17 @@ pub const Allocator = struct {
         return ptr;
     }
 
-    fn destroy(self: &Allocator, ptr: var) void {
+    fn destroy(self: *Allocator, ptr: var) void {
         self.free(ptr[0..1]);
     }
 
-    fn alloc(self: &Allocator, comptime T: type, n: usize) ![]T {
+    fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
         return self.alignedAlloc(T, @alignOf(T), n);
     }
 
-    fn alignedAlloc(self: &Allocator, comptime T: type, comptime alignment: u29, n: usize) ![]align(alignment) T {
+    fn alignedAlloc(self: *Allocator, comptime T: type, comptime alignment: u29, n: usize) ![]align(alignment) T {
         if (n == 0) {
-            return (&align(alignment) T)(undefined)[0..0];
+            return (*align(alignment) T)(undefined)[0..0];
         }
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
@@ -73,17 +73,17 @@ pub const Allocator = struct {
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
-    fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) ![]T {
+    fn realloc(self: *Allocator, comptime T: type, old_mem: []T, n: usize) ![]T {
         return self.alignedRealloc(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
     }
 
-    fn alignedRealloc(self: &Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) ![]align(alignment) T {
+    fn alignedRealloc(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) ![]align(alignment) T {
         if (old_mem.len == 0) {
             return self.alloc(T, n);
         }
         if (n == 0) {
             self.free(old_mem);
-            return (&align(alignment) T)(undefined)[0..0];
+            return (*align(alignment) T)(undefined)[0..0];
         }
 
         const old_byte_slice = ([]u8)(old_mem);
@@ -102,11 +102,11 @@ pub const Allocator = struct {
     /// Reallocate, but `n` must be less than or equal to `old_mem.len`.
     /// Unlike `realloc`, this function cannot fail.
     /// Shrinking to 0 is the same as calling `free`.
-    fn shrink(self: &Allocator, comptime T: type, old_mem: []T, n: usize) []T {
+    fn shrink(self: *Allocator, comptime T: type, old_mem: []T, n: usize) []T {
         return self.alignedShrink(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
     }
 
-    fn alignedShrink(self: &Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) []align(alignment) T {
+    fn alignedShrink(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) []align(alignment) T {
         if (n == 0) {
             self.free(old_mem);
             return old_mem[0..0];
@@ -123,10 +123,10 @@ pub const Allocator = struct {
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
-    fn free(self: &Allocator, memory: var) void {
+    fn free(self: *Allocator, memory: var) void {
         const bytes = ([]const u8)(memory);
         if (bytes.len == 0) return;
-        const non_const_ptr = @intToPtr(&u8, @ptrToInt(bytes.ptr));
+        const non_const_ptr = @intToPtr(*u8, @ptrToInt(bytes.ptr));
         self.freeFn(self, non_const_ptr[0..bytes.len]);
     }
 };
@@ -186,7 +186,7 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
 }
 
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
-pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) ![]T {
+pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
@@ -457,7 +457,7 @@ pub const SplitIterator = struct {
     split_bytes: []const u8,
     index: usize,
 
-    pub fn next(self: &SplitIterator) ?[]const u8 {
+    pub fn next(self: *SplitIterator) ?[]const u8 {
         // move to beginning of token
         while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
         const start = self.index;
@@ -473,14 +473,14 @@ pub const SplitIterator = struct {
     }
 
     /// Returns a slice of the remaining bytes. Does not affect iterator state.
-    pub fn rest(self: &const SplitIterator) []const u8 {
+    pub fn rest(self: *const SplitIterator) []const u8 {
         // move to beginning of token
         var index: usize = self.index;
         while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
         return self.buffer[index..];
     }
 
-    fn isSplitByte(self: &const SplitIterator, byte: u8) bool {
+    fn isSplitByte(self: *const SplitIterator, byte: u8) bool {
         for (self.split_bytes) |split_byte| {
             if (byte == split_byte) {
                 return true;
@@ -492,7 +492,7 @@ pub const SplitIterator = struct {
 
 /// Naively combines a series of strings with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: &Allocator, sep: u8, strings: ...) ![]u8 {
+pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
     comptime assert(strings.len >= 1);
     var total_strings_len: usize = strings.len; // 1 sep per string
     {
@@ -649,7 +649,7 @@ test "mem.max" {
     assert(max(u8, "abcdefg") == 'g');
 }
 
-pub fn swap(comptime T: type, a: &T, b: &T) void {
+pub fn swap(comptime T: type, a: *T, b: *T) void {
     const tmp = a.*;
     a.* = b.*;
     b.* = tmp;

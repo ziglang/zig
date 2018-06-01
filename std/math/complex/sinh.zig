@@ -15,7 +15,7 @@ pub fn sinh(z: var) Complex(@typeOf(z.re)) {
     };
 }
 
-fn sinh32(z: &const Complex(f32)) Complex(f32) {
+fn sinh32(z: *const Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -78,7 +78,7 @@ fn sinh32(z: &const Complex(f32)) Complex(f32) {
     return Complex(f32).new((x * x) * (y - y), (x + x) * (y - y));
 }
 
-fn sinh64(z: &const Complex(f64)) Complex(f64) {
+fn sinh64(z: *const Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 

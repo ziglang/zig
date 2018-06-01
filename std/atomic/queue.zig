@@ -5,36 +5,36 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 /// Many reader, many writer, non-allocating, thread-safe, lock-free
 pub fn Queue(comptime T: type) type {
     return struct {
-        head: &Node,
-        tail: &Node,
+        head: *Node,
+        tail: *Node,
         root: Node,
 
         pub const Self = this;
 
         pub const Node = struct {
-            next: ?&Node,
+            next: ?*Node,
             data: T,
         };
 
         // TODO: well defined copy elision: https://github.com/ziglang/zig/issues/287
-        pub fn init(self: &Self) void {
+        pub fn init(self: *Self) void {
             self.root.next = null;
             self.head = &self.root;
             self.tail = &self.root;
         }
 
-        pub fn put(self: &Self, node: &Node) void {
+        pub fn put(self: *Self, node: *Node) void {
             node.next = null;
 
-            const tail = @atomicRmw(&Node, &self.tail, AtomicRmwOp.Xchg, node, AtomicOrder.SeqCst);
-            _ = @atomicRmw(?&Node, &tail.next, AtomicRmwOp.Xchg, node, AtomicOrder.SeqCst);
+            const tail = @atomicRmw(*Node, &self.tail, AtomicRmwOp.Xchg, node, AtomicOrder.SeqCst);
+            _ = @atomicRmw(?*Node, &tail.next, AtomicRmwOp.Xchg, node, AtomicOrder.SeqCst);
         }
 
-        pub fn get(self: &Self) ?&Node {
-            var head = @atomicLoad(&Node, &self.head, AtomicOrder.SeqCst);
+        pub fn get(self: *Self) ?*Node {
+            var head = @atomicLoad(*Node, &self.head, AtomicOrder.SeqCst);
             while (true) {
                 const node = head.next ?? return null;
-                head = @cmpxchgWeak(&Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return node;
+                head = @cmpxchgWeak(*Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return node;
             }
         }
     };
@@ -42,8 +42,8 @@ pub fn Queue(comptime T: type) type {
 
 const std = @import("std");
 const Context = struct {
-    allocator: &std.mem.Allocator,
-    queue: &Queue(i32),
+    allocator: *std.mem.Allocator,
+    queue: *Queue(i32),
     put_sum: isize,
     get_sum: isize,
     get_count: usize,
@@ -79,11 +79,11 @@ test "std.atomic.queue" {
         .get_count = 0,
     };
 
-    var putters: [put_thread_count]&std.os.Thread = undefined;
+    var putters: [put_thread_count]*std.os.Thread = undefined;
     for (putters) |*t| {
         t.* = try std.os.spawnThread(&context, startPuts);
     }
-    var getters: [put_thread_count]&std.os.Thread = undefined;
+    var getters: [put_thread_count]*std.os.Thread = undefined;
     for (getters) |*t| {
         t.* = try std.os.spawnThread(&context, startGets);
     }
@@ -98,7 +98,7 @@ test "std.atomic.queue" {
     std.debug.assert(context.get_count == puts_per_thread * put_thread_count);
 }
 
-fn startPuts(ctx: &Context) u8 {
+fn startPuts(ctx: *Context) u8 {
     var put_count: usize = puts_per_thread;
     var r = std.rand.DefaultPrng.init(0xdeadbeef);
     while (put_count != 0) : (put_count -= 1) {
@@ -112,7 +112,7 @@ fn startPuts(ctx: &Context) u8 {
     return 0;
 }
 
-fn startGets(ctx: &Context) u8 {
+fn startGets(ctx: *Context) u8 {
     while (true) {
         while (ctx.queue.get()) |node| {
             std.os.time.sleep(0, 1); // let the os scheduler be our fuzz

@@ -921,7 +921,7 @@ static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCas
     fprintf(irp->f, ")");
 }
 
-static void ir_print_ptr_type_of(IrPrint *irp, IrInstructionPtrTypeOf *instruction) {
+static void ir_print_ptr_type(IrPrint *irp, IrInstructionPtrType *instruction) {
     fprintf(irp->f, "&");
     if (instruction->align_value != nullptr) {
         fprintf(irp->f, "align(");
@@ -1527,8 +1527,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdCanImplicitCast:
             ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);
             break;
-        case IrInstructionIdPtrTypeOf:
-            ir_print_ptr_type_of(irp, (IrInstructionPtrTypeOf *)instruction);
+        case IrInstructionIdPtrType:
+            ir_print_ptr_type(irp, (IrInstructionPtrType *)instruction);
             break;
         case IrInstructionIdDeclRef:
             ir_print_decl_ref(irp, (IrInstructionDeclRef *)instruction);

@@ -196,7 +196,7 @@ pub const Utf8View = struct {
         }
     }
 
-    pub fn iterator(s: &const Utf8View) Utf8Iterator {
+    pub fn iterator(s: *const Utf8View) Utf8Iterator {
         return Utf8Iterator{
             .bytes = s.bytes,
             .i = 0,
@@ -208,7 +208,7 @@ const Utf8Iterator = struct {
     bytes: []const u8,
     i: usize,
 
-    pub fn nextCodepointSlice(it: &Utf8Iterator) ?[]const u8 {
+    pub fn nextCodepointSlice(it: *Utf8Iterator) ?[]const u8 {
         if (it.i >= it.bytes.len) {
             return null;
         }
@@ -219,7 +219,7 @@ const Utf8Iterator = struct {
         return it.bytes[it.i - cp_len .. it.i];
     }
 
-    pub fn nextCodepoint(it: &Utf8Iterator) ?u32 {
+    pub fn nextCodepoint(it: *Utf8Iterator) ?u32 {
         const slice = it.nextCodepointSlice() ?? return null;
 
         switch (slice.len) {

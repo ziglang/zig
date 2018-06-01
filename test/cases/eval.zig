@@ -282,7 +282,7 @@ fn fnWithFloatMode() f32 {
 const SimpleStruct = struct {
     field: i32,
 
-    fn method(self: &const SimpleStruct) i32 {
+    fn method(self: *const SimpleStruct) i32 {
         return self.field + 3;
     }
 };
@@ -367,7 +367,7 @@ test "const global shares pointer with other same one" {
     assertEqualPtrs(&hi1[0], &hi2[0]);
     comptime assert(&hi1[0] == &hi2[0]);
 }
-fn assertEqualPtrs(ptr1: &const u8, ptr2: &const u8) void {
+fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) void {
     assert(ptr1 == ptr2);
 }
 
@@ -418,9 +418,9 @@ test "string literal used as comptime slice is memoized" {
 }
 
 test "comptime slice of undefined pointer of length 0" {
-    const slice1 = (&i32)(undefined)[0..0];
+    const slice1 = (*i32)(undefined)[0..0];
     assert(slice1.len == 0);
-    const slice2 = (&i32)(undefined)[100..100];
+    const slice2 = (*i32)(undefined)[100..100];
     assert(slice2.len == 0);
 }
 
@@ -472,7 +472,7 @@ test "comptime function with mutable pointer is not memoized" {
     }
 }
 
-fn increment(value: &i32) void {
+fn increment(value: *i32) void {
     value.* += 1;
 }
 
@@ -517,7 +517,7 @@ test "comptime slice of pointer preserves comptime var" {
 const SingleFieldStruct = struct {
     x: i32,
 
-    fn read_x(self: &const SingleFieldStruct) i32 {
+    fn read_x(self: *const SingleFieldStruct) i32 {
         return self.x;
     }
 };
@@ -574,5 +574,39 @@ test "comptime modification of const struct field" {
         res.version = 1;
         assert(diamond_info.version == 0);
         assert(res.version == 1);
+    }
+}
+
+test "pointer to type" {
+    comptime {
+        var T: type = i32;
+        assert(T == i32);
+        var ptr = &T;
+        assert(@typeOf(ptr) == *type);
+        ptr.* = f32;
+        assert(T == f32);
+        assert(*T == *f32);
+    }
+}
+
+test "slice of type" {
+    comptime {
+        var types_array = []type{ i32, f64, type };
+        for (types_array) |T, i| {
+            switch (i) {
+                0 => assert(T == i32),
+                1 => assert(T == f64),
+                2 => assert(T == type),
+                else => unreachable,
+            }
+        }
+        for (types_array[0..]) |T, i| {
+            switch (i) {
+                0 => assert(T == i32),
+                1 => assert(T == f64),
+                2 => assert(T == type),
+                else => unreachable,
+            }
+        }
     }
 }

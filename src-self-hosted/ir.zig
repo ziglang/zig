@@ -2,7 +2,7 @@ const Scope = @import("scope.zig").Scope;
 
 pub const Instruction = struct {
     id: Id,
-    scope: &Scope,
+    scope: *Scope,
 
     pub const Id = enum {
         Br,

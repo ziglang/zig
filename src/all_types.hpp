@@ -374,7 +374,7 @@ enum NodeType {
     NodeTypeCharLiteral,
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
-    NodeTypeAddrOfExpr,
+    NodeTypePointerType,
     NodeTypeFnCallExpr,
     NodeTypeArrayAccessExpr,
     NodeTypeSliceExpr,
@@ -616,6 +616,7 @@ enum PrefixOp {
     PrefixOpNegationWrap,
     PrefixOpMaybe,
     PrefixOpUnwrapMaybe,
+    PrefixOpAddrOf,
 };
 
 struct AstNodePrefixOpExpr {
@@ -623,7 +624,7 @@ struct AstNodePrefixOpExpr {
     AstNode *primary_expr;
 };
 
-struct AstNodeAddrOfExpr {
+struct AstNodePointerType {
     AstNode *align_expr;
     BigInt *bit_offset_start;
     BigInt *bit_offset_end;
@@ -899,7 +900,7 @@ struct AstNode {
         AstNodeBinOpExpr bin_op_expr;
         AstNodeCatchExpr unwrap_err_expr;
         AstNodePrefixOpExpr prefix_op_expr;
-        AstNodeAddrOfExpr addr_of_expr;
+        AstNodePointerType pointer_type;
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeSliceExpr slice_expr;
@@ -2053,7 +2054,7 @@ enum IrInstructionId {
     IrInstructionIdTypeInfo,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
-    IrInstructionIdPtrTypeOf,
+    IrInstructionIdPtrType,
     IrInstructionIdAlignCast,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
@@ -2274,8 +2275,6 @@ struct IrInstructionVarPtr {
     IrInstruction base;
 
     VariableTableEntry *var;
-    bool is_const;
-    bool is_volatile;
 };
 
 struct IrInstructionCall {
@@ -2410,6 +2409,17 @@ struct IrInstructionArrayType {
 
     IrInstruction *size;
     IrInstruction *child_type;
+};
+
+struct IrInstructionPtrType {
+    IrInstruction base;
+
+    IrInstruction *align_value;
+    IrInstruction *child_type;
+    uint32_t bit_offset_start;
+    uint32_t bit_offset_end;
+    bool is_const;
+    bool is_volatile;
 };
 
 struct IrInstructionPromiseType {
@@ -2889,17 +2899,6 @@ struct IrInstructionSetEvalBranchQuota {
     IrInstruction base;
 
     IrInstruction *new_quota;
-};
-
-struct IrInstructionPtrTypeOf {
-    IrInstruction base;
-
-    IrInstruction *align_value;
-    IrInstruction *child_type;
-    uint32_t bit_offset_start;
-    uint32_t bit_offset_end;
-    bool is_const;
-    bool is_volatile;
 };
 
 struct IrInstructionAlignCast {
