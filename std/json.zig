@@ -10,7 +10,7 @@ const u256 = @IntType(false, 256);
 
 // A single token slice into the parent string.
 //
-// Use `token.slice()` on the inptu at the current position to get the current slice.
+// Use `token.slice()` on the input at the current position to get the current slice.
 pub const Token = struct {
     id: Id,
     // How many bytes do we skip before counting
