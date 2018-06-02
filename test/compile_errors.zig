@@ -3,6 +3,23 @@ const tests = @import("tests.zig");
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "invalid deref on switch target",
+        \\const NextError = error{NextError};
+        \\const OtherError = error{OutOfMemory};
+        \\
+        \\export fn entry() void {
+        \\    const a: ?NextError!i32 = foo();
+        \\}
+        \\
+        \\fn foo() ?OtherError!i32 {
+        \\    return null;
+        \\}
+    ,
+        ".tmp_source.zig:5:34: error: expected 'NextError!i32', found 'OtherError!i32'",
+        ".tmp_source.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
+    );
+
+    cases.add(
+        "invalid deref on switch target",
         \\comptime {
         \\    var tile = Tile.Empty;
         \\    switch (tile.*) {

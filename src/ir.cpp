@@ -7934,11 +7934,20 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         return ImplicitCastMatchResultReportedError;
     }
 
+    // implicit conversion from ?T to ?U
+    if (expected_type->id == TypeTableEntryIdMaybe && actual_type->id == TypeTableEntryIdMaybe) {
+        ImplicitCastMatchResult res = ir_types_match_with_implicit_cast(ira, expected_type->data.maybe.child_type,
+                actual_type->data.maybe.child_type, value);
+        if (res != ImplicitCastMatchResultNo)
+            return res;
+    }
+
     // implicit conversion from non maybe type to maybe type
-    if (expected_type->id == TypeTableEntryIdMaybe &&
-        ir_types_match_with_implicit_cast(ira, expected_type->data.maybe.child_type, actual_type, value))
-    {
-        return ImplicitCastMatchResultYes;
+    if (expected_type->id == TypeTableEntryIdMaybe) {
+        ImplicitCastMatchResult res = ir_types_match_with_implicit_cast(ira, expected_type->data.maybe.child_type,
+                actual_type, value);
+        if (res != ImplicitCastMatchResultNo)
+            return res;
     }
 
     // implicit conversion from null literal to maybe type
