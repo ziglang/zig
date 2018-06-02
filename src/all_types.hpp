@@ -625,6 +625,7 @@ struct AstNodePrefixOpExpr {
 };
 
 struct AstNodePointerType {
+    Token *star_token;
     AstNode *align_expr;
     BigInt *bit_offset_start;
     BigInt *bit_offset_end;

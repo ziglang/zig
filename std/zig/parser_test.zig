@@ -1,3 +1,10 @@
+test "zig fmt: pointer of unknown length" {
+    try testCanonical(
+        \\fn foo(ptr: [*]u8) void {}
+        \\
+    );
+}
+
 test "zig fmt: spaces around slice operator" {
     try testCanonical(
         \\var a = b[c..d];

@@ -9,13 +9,13 @@ pub const line_sep = switch (builtin.os) {
     else => "\n",
 };
 
-pub fn len(ptr: *const u8) usize {
+pub fn len(ptr: [*]const u8) usize {
     var count: usize = 0;
     while (ptr[count] != 0) : (count += 1) {}
     return count;
 }
 
-pub fn cmp(a: *const u8, b: *const u8) i8 {
+pub fn cmp(a: [*]const u8, b: [*]const u8) i8 {
     var index: usize = 0;
     while (a[index] == b[index] and a[index] != 0) : (index += 1) {}
     if (a[index] > b[index]) {
@@ -27,11 +27,11 @@ pub fn cmp(a: *const u8, b: *const u8) i8 {
     }
 }
 
-pub fn toSliceConst(str: *const u8) []const u8 {
+pub fn toSliceConst(str: [*]const u8) []const u8 {
     return str[0..len(str)];
 }
 
-pub fn toSlice(str: *u8) []u8 {
+pub fn toSlice(str: [*]u8) []u8 {
     return str[0..len(str)];
 }
 

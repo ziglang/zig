@@ -143,6 +143,7 @@ pub const Token = struct {
         FloatLiteral,
         LineComment,
         DocComment,
+        BracketStarBracket,
         Keyword_align,
         Keyword_and,
         Keyword_asm,
@@ -263,6 +264,8 @@ pub const Tokenizer = struct {
         Period,
         Period2,
         SawAtSign,
+        LBracket,
+        LBracketStar,
     };
 
     pub fn next(self: *Tokenizer) Token {
@@ -325,9 +328,7 @@ pub const Tokenizer = struct {
                         break;
                     },
                     '[' => {
-                        result.id = Token.Id.LBracket;
-                        self.index += 1;
-                        break;
+                        state = State.LBracket;
                     },
                     ']' => {
                         result.id = Token.Id.RBracket;
@@ -426,6 +427,28 @@ pub const Tokenizer = struct {
                         self.index -= 1;
                         state = State.Builtin;
                         result.id = Token.Id.Builtin;
+                    },
+                },
+
+                State.LBracket => switch (c) {
+                    '*' => {
+                        state = State.LBracketStar;
+                    },
+                    else => {
+                        result.id = Token.Id.LBracket;
+                        break;
+                    },
+                },
+
+                State.LBracketStar => switch (c) {
+                    ']' => {
+                        result.id = Token.Id.BracketStarBracket;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
 
@@ -1008,6 +1031,7 @@ pub const Tokenizer = struct {
                 State.CharLiteralEscape2,
                 State.CharLiteralEnd,
                 State.StringLiteralBackslash,
+                State.LBracketStar,
                 => {
                     result.id = Token.Id.Invalid;
                 },
@@ -1023,6 +1047,9 @@ pub const Tokenizer = struct {
                 },
                 State.Slash => {
                     result.id = Token.Id.Slash;
+                },
+                State.LBracket => {
+                    result.id = Token.Id.LBracket;
                 },
                 State.Zero => {
                     result.id = Token.Id.IntegerLiteral;
@@ -1140,6 +1167,15 @@ pub const Tokenizer = struct {
 
 test "tokenizer" {
     testTokenize("test", []Token.Id{Token.Id.Keyword_test});
+}
+
+test "tokenizer - unknown length pointer" {
+    testTokenize(
+        \\[*]u8
+    , []Token.Id{
+        Token.Id.BracketStarBracket,
+        Token.Id.Identifier,
+    });
 }
 
 test "tokenizer - char literal with hex escape" {

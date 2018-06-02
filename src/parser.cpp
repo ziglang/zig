@@ -1174,6 +1174,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
 
 static AstNode *ast_parse_pointer_type(ParseContext *pc, size_t *token_index, Token *star_tok) {
     AstNode *node = ast_create_node(pc, NodeTypePointerType, star_tok);
+    node->data.pointer_type.star_token = star_tok;
 
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdKeywordAlign) {
@@ -1211,11 +1212,11 @@ static AstNode *ast_parse_pointer_type(ParseContext *pc, size_t *token_index, To
 
 /*
 PrefixOpExpression = PrefixOp ErrorSetExpr | SuffixOpExpression
-PrefixOp = "!" | "-" | "~" | ("*" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
+PrefixOp = "!" | "-" | "~" | (("*" | "[*]") option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdStar) {
+    if (token->id == TokenIdStar || token->id == TokenIdBracketStarBracket) {
         *token_index += 1;
         return ast_parse_pointer_type(pc, token_index, token);
     }
