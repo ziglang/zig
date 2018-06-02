@@ -728,18 +728,21 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         }
     };
 
+    var fmt_errors = false;
     for (flags.positionals.toSliceConst()) |file_path| {
         var file = try os.File.openRead(allocator, file_path);
         defer file.close();
 
         const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
             try stderr.print("unable to open '{}': {}", file_path, err);
+            fmt_errors = true;
             continue;
         };
         defer allocator.free(source_code);
 
         var tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing file '{}': {}\n", file_path, err);
+            fmt_errors = true;
             continue;
         };
         defer tree.deinit();
@@ -752,6 +755,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
             try errmsg.printToFile(&stderr_file, msg, color);
         }
         if (tree.errors.len != 0) {
+            fmt_errors = true;
             continue;
         }
 
@@ -763,6 +767,10 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
             try stderr.print("{}\n", file_path);
             try baf.finish();
         }
+    }
+
+    if (fmt_errors) {
+        os.exit(1);
     }
 }
 
