@@ -28,6 +28,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
 static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
+    assert(node != nullptr);
     if (node->owner->c_import_node != nullptr) {
         // if this happens, then translate_c generated code that
         // failed semantic analysis, which isn't supposed to happen
@@ -478,7 +479,7 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     TypeTableEntry *awaiter_handle_type = get_maybe_type(g, g->builtin_types.entry_promise);
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
 
-    ZigList<const char *> field_names = {};
+    ZigList<const char *> field_names = {0};
     field_names.append(AWAITER_HANDLE_FIELD_NAME);
     field_names.append(RESULT_FIELD_NAME);
     field_names.append(RESULT_PTR_FIELD_NAME);
@@ -488,7 +489,7 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
         field_names.append(RETURN_ADDRESSES_FIELD_NAME);
     }
 
-    ZigList<TypeTableEntry *> field_types = {};
+    ZigList<TypeTableEntry *> field_types = {0};
     field_types.append(awaiter_handle_type);
     field_types.append(return_type);
     field_types.append(result_ptr_type);
@@ -1848,10 +1849,10 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     }
 
     assert(!struct_type->data.structure.zero_bits_loop_flag);
-    assert(struct_type->data.structure.fields);
     assert(decl_node->type == NodeTypeContainerDecl);
 
     size_t field_count = struct_type->data.structure.src_field_count;
+    assert(struct_type->data.structure.fields != nullptr || field_count == 0);
 
     size_t gen_field_count = struct_type->data.structure.gen_field_count;
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(gen_field_count);
@@ -1964,7 +1965,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
         struct_type->di_type = replacement_di_type;
         return;
     }
-    assert(struct_type->di_type);
+    assert(struct_type->di_type != nullptr || field_count == 0);
 
 
     // the count may have been adjusting from packing bit fields
@@ -1976,7 +1977,8 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     // if you hit this assert then probably this type or a related type didn't
     // get ensure_complete_type called on it before using it with something that
     // requires a complete type
-    assert(LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref) > 0);
+    assert(LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref) > 0 ||
+           field_count == 0);
 
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
 
@@ -4238,6 +4240,7 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_b
 }
 
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
+    assert(g != nullptr);
     TypeTableEntry **common_entry = get_int_type_ptr(g, is_signed, size_in_bits);
     if (common_entry)
         return *common_entry;
@@ -4326,7 +4329,7 @@ static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
 Buf *get_linux_libc_lib_path(const char *o_file) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
-    ZigList<const char *> args = {};
+    ZigList<const char *> args = {0};
     args.append(buf_ptr(buf_sprintf("-print-file-name=%s", o_file)));
     Termination term;
     Buf *out_stderr = buf_alloc();
@@ -4352,7 +4355,7 @@ Buf *get_linux_libc_lib_path(const char *o_file) {
 Buf *get_linux_libc_include_path(void) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
-    ZigList<const char *> args = {};
+    ZigList<const char *> args = {0};
     args.append("-E");
     args.append("-Wp,-v");
     args.append("-xc");
@@ -4368,7 +4371,7 @@ Buf *get_linux_libc_include_path(void) {
         zig_panic("unable to determine libc include path: executing C compiler command failed");
     }
     char *prev_newline = buf_ptr(out_stderr);
-    ZigList<const char *> search_paths = {};
+    ZigList<const char *> search_paths = {0};
     bool found_search_paths = false;
     for (;;) {
         char *newline = strchr(prev_newline, '\n');

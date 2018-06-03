@@ -4363,7 +4363,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMTypeRef *alloc_fn_arg_types = allocate<LLVMTypeRef>(LLVMCountParamTypes(alloc_raw_fn_type_ref));
     LLVMGetParamTypes(alloc_raw_fn_type_ref, alloc_fn_arg_types);
 
-    ZigList<LLVMTypeRef> arg_types = {};
+    ZigList<LLVMTypeRef> arg_types = {0};
     arg_types.append(alloc_fn_type_ref);
     if (g->have_err_ret_tracing) {
         arg_types.append(alloc_fn_arg_types[1]);
@@ -4415,10 +4415,10 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef alignment_val = LLVMConstInt(g->builtin_types.entry_u29->type_ref,
             get_coro_frame_align_bytes(g), false);
 
-    ZigList<LLVMValueRef> args = {};
+    ZigList<LLVMValueRef> args = {0};
     args.append(sret_ptr);
     if (g->have_err_ret_tracing) {
-        args.append(stack_trace_val);
+        args.append(stack_trace_val);  // NOLINT
     }
     args.append(allocator_val);
     args.append(coro_size);
@@ -4463,7 +4463,7 @@ static LLVMValueRef ir_render_coro_alloc_helper(CodeGen *g, IrExecutable *execut
     size_t err_code_ptr_arg_index = get_async_err_code_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
     size_t allocator_arg_index = get_async_allocator_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
 
-    ZigList<LLVMValueRef> params = {};
+    ZigList<LLVMValueRef> params = {0};
     params.append(alloc_fn);
     uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, g->cur_fn);
     if (err_ret_trace_arg_index != UINT32_MAX) {
@@ -5922,20 +5922,20 @@ static const uint8_t int_sizes_in_bits[] = {
 };
 
 struct CIntTypeInfo {
-    CIntType id;
     const char *name;
+    CIntType id;
     bool is_signed;
 };
 
 static const CIntTypeInfo c_int_type_infos[] = {
-    {CIntTypeShort, "c_short", true},
-    {CIntTypeUShort, "c_ushort", false},
-    {CIntTypeInt, "c_int", true},
-    {CIntTypeUInt, "c_uint", false},
-    {CIntTypeLong, "c_long", true},
-    {CIntTypeULong, "c_ulong", false},
-    {CIntTypeLongLong, "c_longlong", true},
-    {CIntTypeULongLong, "c_ulonglong", false},
+    {"c_short", CIntTypeShort, true},
+    {"c_ushort", CIntTypeUShort, false},
+    {"c_int", CIntTypeInt, true},
+    {"c_uint", CIntTypeUInt, false},
+    {"c_long", CIntTypeLong, true},
+    {"c_ulong", CIntTypeULong, false},
+    {"c_longlong", CIntTypeLongLong, true},
+    {"c_ulonglong", CIntTypeULongLong, false},
 };
 
 static const bool is_signed_list[] = { false, true, };
