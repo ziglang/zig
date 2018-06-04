@@ -1,6 +1,6 @@
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) void {
+pub fn build(b: *Builder) void {
     const main = b.addTest("main.zig");
     main.setBuildMode(b.standardReleaseOptions());
 

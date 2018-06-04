@@ -20,7 +20,7 @@ pub const ChildProcess = struct {
     pub handle: if (is_windows) windows.HANDLE else void,
     pub thread_handle: if (is_windows) windows.HANDLE else void,
 
-    pub allocator: &mem.Allocator,
+    pub allocator: *mem.Allocator,
 
     pub stdin: ?os.File,
     pub stdout: ?os.File,
@@ -31,7 +31,7 @@ pub const ChildProcess = struct {
     pub argv: []const []const u8,
 
     /// Leave as null to use the current env map using the supplied allocator.
-    pub env_map: ?&const BufMap,
+    pub env_map: ?*const BufMap,
 
     pub stdin_behavior: StdIo,
     pub stdout_behavior: StdIo,
@@ -47,7 +47,7 @@ pub const ChildProcess = struct {
     pub cwd: ?[]const u8,
 
     err_pipe: if (is_windows) void else [2]i32,
-    llnode: if (is_windows) void else LinkedList(&ChildProcess).Node,
+    llnode: if (is_windows) void else LinkedList(*ChildProcess).Node,
 
     pub const SpawnError = error{
         ProcessFdQuotaExceeded,
@@ -84,7 +84,7 @@ pub const ChildProcess = struct {
 
     /// First argument in argv is the executable.
     /// On success must call deinit.
-    pub fn init(argv: []const []const u8, allocator: &mem.Allocator) !&ChildProcess {
+    pub fn init(argv: []const []const u8, allocator: *mem.Allocator) !*ChildProcess {
         const child = try allocator.create(ChildProcess);
         errdefer allocator.destroy(child);
 
@@ -114,14 +114,14 @@ pub const ChildProcess = struct {
         return child;
     }
 
-    pub fn setUserName(self: &ChildProcess, name: []const u8) !void {
+    pub fn setUserName(self: *ChildProcess, name: []const u8) !void {
         const user_info = try os.getUserInfo(name);
         self.uid = user_info.uid;
         self.gid = user_info.gid;
     }
 
     /// On success must call `kill` or `wait`.
-    pub fn spawn(self: &ChildProcess) !void {
+    pub fn spawn(self: *ChildProcess) !void {
         if (is_windows) {
             return self.spawnWindows();
         } else {
@@ -129,13 +129,13 @@ pub const ChildProcess = struct {
         }
     }
 
-    pub fn spawnAndWait(self: &ChildProcess) !Term {
+    pub fn spawnAndWait(self: *ChildProcess) !Term {
         try self.spawn();
         return self.wait();
     }
 
     /// Forcibly terminates child process and then cleans up all resources.
-    pub fn kill(self: &ChildProcess) !Term {
+    pub fn kill(self: *ChildProcess) !Term {
         if (is_windows) {
             return self.killWindows(1);
         } else {
@@ -143,7 +143,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    pub fn killWindows(self: &ChildProcess, exit_code: windows.UINT) !Term {
+    pub fn killWindows(self: *ChildProcess, exit_code: windows.UINT) !Term {
         if (self.term) |term| {
             self.cleanupStreams();
             return term;
@@ -159,7 +159,7 @@ pub const ChildProcess = struct {
         return ??self.term;
     }
 
-    pub fn killPosix(self: &ChildProcess) !Term {
+    pub fn killPosix(self: *ChildProcess) !Term {
         if (self.term) |term| {
             self.cleanupStreams();
             return term;
@@ -179,7 +179,7 @@ pub const ChildProcess = struct {
     }
 
     /// Blocks until child process terminates and then cleans up all resources.
-    pub fn wait(self: &ChildProcess) !Term {
+    pub fn wait(self: *ChildProcess) !Term {
         if (is_windows) {
             return self.waitWindows();
         } else {
@@ -195,7 +195,7 @@ pub const ChildProcess = struct {
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    pub fn exec(allocator: &mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, env_map: ?&const BufMap, max_output_size: usize) !ExecResult {
+    pub fn exec(allocator: *mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, env_map: ?*const BufMap, max_output_size: usize) !ExecResult {
         const child = try ChildProcess.init(argv, allocator);
         defer child.deinit();
 
@@ -225,7 +225,7 @@ pub const ChildProcess = struct {
         };
     }
 
-    fn waitWindows(self: &ChildProcess) !Term {
+    fn waitWindows(self: *ChildProcess) !Term {
         if (self.term) |term| {
             self.cleanupStreams();
             return term;
@@ -235,7 +235,7 @@ pub const ChildProcess = struct {
         return ??self.term;
     }
 
-    fn waitPosix(self: &ChildProcess) !Term {
+    fn waitPosix(self: *ChildProcess) !Term {
         if (self.term) |term| {
             self.cleanupStreams();
             return term;
@@ -245,11 +245,11 @@ pub const ChildProcess = struct {
         return ??self.term;
     }
 
-    pub fn deinit(self: &ChildProcess) void {
+    pub fn deinit(self: *ChildProcess) void {
         self.allocator.destroy(self);
     }
 
-    fn waitUnwrappedWindows(self: &ChildProcess) !void {
+    fn waitUnwrappedWindows(self: *ChildProcess) !void {
         const result = os.windowsWaitSingle(self.handle, windows.INFINITE);
 
         self.term = (SpawnError!Term)(x: {
@@ -267,7 +267,7 @@ pub const ChildProcess = struct {
         return result;
     }
 
-    fn waitUnwrapped(self: &ChildProcess) void {
+    fn waitUnwrapped(self: *ChildProcess) void {
         var status: i32 = undefined;
         while (true) {
             const err = posix.getErrno(posix.waitpid(self.pid, &status, 0));
@@ -283,11 +283,11 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn handleWaitResult(self: &ChildProcess, status: i32) void {
+    fn handleWaitResult(self: *ChildProcess, status: i32) void {
         self.term = self.cleanupAfterWait(status);
     }
 
-    fn cleanupStreams(self: &ChildProcess) void {
+    fn cleanupStreams(self: *ChildProcess) void {
         if (self.stdin) |*stdin| {
             stdin.close();
             self.stdin = null;
@@ -302,7 +302,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn cleanupAfterWait(self: &ChildProcess, status: i32) !Term {
+    fn cleanupAfterWait(self: *ChildProcess, status: i32) !Term {
         defer {
             os.close(self.err_pipe[0]);
             os.close(self.err_pipe[1]);
@@ -335,7 +335,7 @@ pub const ChildProcess = struct {
             Term{ .Unknown = status };
     }
 
-    fn spawnPosix(self: &ChildProcess) !void {
+    fn spawnPosix(self: *ChildProcess) !void {
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try makePipe() else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
@@ -387,15 +387,12 @@ pub const ChildProcess = struct {
         const pid_err = posix.getErrno(pid_result);
         if (pid_err > 0) {
             return switch (pid_err) {
-                posix.EAGAIN,
-                posix.ENOMEM,
-                posix.ENOSYS => error.SystemResources,
+                posix.EAGAIN, posix.ENOMEM, posix.ENOSYS => error.SystemResources,
                 else => os.unexpectedErrorPosix(pid_err),
             };
         }
         if (pid_result == 0) {
             // we are the child
-
             setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
             setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
             setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
@@ -435,7 +432,7 @@ pub const ChildProcess = struct {
 
         self.pid = pid;
         self.err_pipe = err_pipe;
-        self.llnode = LinkedList(&ChildProcess).Node.init(self);
+        self.llnode = LinkedList(*ChildProcess).Node.init(self);
         self.term = null;
 
         if (self.stdin_behavior == StdIo.Pipe) {
@@ -449,7 +446,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn spawnWindows(self: &ChildProcess) !void {
+    fn spawnWindows(self: *ChildProcess) !void {
         const saAttr = windows.SECURITY_ATTRIBUTES{
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
@@ -642,12 +639,11 @@ pub const ChildProcess = struct {
     }
 };
 
-fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?&u8, lpStartupInfo: &windows.STARTUPINFOA, lpProcessInformation: &windows.PROCESS_INFORMATION) !void {
-    if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0, @ptrCast(?&c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0) {
+fn windowsCreateProcess(app_name: [*]u8, cmd_line: [*]u8, envp_ptr: ?[*]u8, cwd_ptr: ?[*]u8, lpStartupInfo: *windows.STARTUPINFOA, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
+    if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0, @ptrCast(?*c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
-            windows.ERROR.FILE_NOT_FOUND,
-            windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
+            windows.ERROR.FILE_NOT_FOUND, windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
             windows.ERROR.INVALID_PARAMETER => unreachable,
             windows.ERROR.INVALID_NAME => error.InvalidName,
             else => os.unexpectedErrorWindows(err),
@@ -657,7 +653,7 @@ fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?
 
 /// Caller must dealloc.
 /// Guarantees a null byte at result[result.len].
-fn windowsCreateCommandLine(allocator: &mem.Allocator, argv: []const []const u8) ![]u8 {
+fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8) ![]u8 {
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -702,7 +698,7 @@ fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) void {
 // a namespace field lookup
 const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
 
-fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) !void {
+fn windowsMakePipe(rd: *windows.HANDLE, wr: *windows.HANDLE, sattr: *const SECURITY_ATTRIBUTES) !void {
     if (windows.CreatePipe(rd, wr, sattr, 0) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
@@ -720,7 +716,7 @@ fn windowsSetHandleInfo(h: windows.HANDLE, mask: windows.DWORD, flags: windows.D
     }
 }
 
-fn windowsMakePipeIn(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) !void {
+fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const SECURITY_ATTRIBUTES) !void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     try windowsMakePipe(&rd_h, &wr_h, sattr);
@@ -730,7 +726,7 @@ fn windowsMakePipeIn(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const S
     wr.* = wr_h;
 }
 
-fn windowsMakePipeOut(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) !void {
+fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const SECURITY_ATTRIBUTES) !void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     try windowsMakePipe(&rd_h, &wr_h, sattr);
@@ -745,15 +741,14 @@ fn makePipe() ![2]i32 {
     const err = posix.getErrno(posix.pipe(&fds));
     if (err > 0) {
         return switch (err) {
-            posix.EMFILE,
-            posix.ENFILE => error.SystemResources,
+            posix.EMFILE, posix.ENFILE => error.SystemResources,
             else => os.unexpectedErrorPosix(err),
         };
     }
     return fds;
 }
 
-fn destroyPipe(pipe: &const [2]i32) void {
+fn destroyPipe(pipe: *const [2]i32) void {
     os.close((pipe.*)[0]);
     os.close((pipe.*)[1]);
 }

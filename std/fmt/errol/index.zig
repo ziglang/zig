@@ -21,7 +21,7 @@ pub const RoundMode = enum {
 
 /// Round a FloatDecimal as returned by errol3 to the specified fractional precision.
 /// All digits after the specified precision should be considered invalid.
-pub fn roundToPrecision(float_decimal: &FloatDecimal, precision: usize, mode: RoundMode) void {
+pub fn roundToPrecision(float_decimal: *FloatDecimal, precision: usize, mode: RoundMode) void {
     // The round digit refers to the index which we should look at to determine
     // whether we need to round to match the specified precision.
     var round_digit: usize = 0;
@@ -59,8 +59,8 @@ pub fn roundToPrecision(float_decimal: &FloatDecimal, precision: usize, mode: Ro
                 float_decimal.exp += 1;
 
                 // Re-size the buffer to use the reserved leading byte.
-                const one_before = @intToPtr(&u8, @ptrToInt(&float_decimal.digits[0]) - 1);
-                float_decimal.digits = one_before[0..float_decimal.digits.len + 1];
+                const one_before = @intToPtr(*u8, @ptrToInt(&float_decimal.digits[0]) - 1);
+                float_decimal.digits = one_before[0 .. float_decimal.digits.len + 1];
                 float_decimal.digits[0] = '1';
                 return;
             }
@@ -84,7 +84,7 @@ pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
     const i = tableLowerBound(bits);
     if (i < enum3.len and enum3[i] == bits) {
         const data = enum3_data[i];
-        const digits = buffer[1..data.str.len + 1];
+        const digits = buffer[1 .. data.str.len + 1];
         mem.copy(u8, digits, data.str);
         return FloatDecimal{
             .digits = digits,
@@ -98,7 +98,6 @@ pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
 /// Uncorrected Errol3 double to ASCII conversion.
 fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     // check if in integer or fixed range
-
     if (val > 9.007199254740992e15 and val < 3.40282366920938e+38) {
         return errolInt(val, buffer);
     } else if (val >= 16.0 and val < 9.007199254740992e15) {
@@ -218,7 +217,7 @@ fn tableLowerBound(k: u64) usize {
 ///   @in: The HP number.
 ///   @val: The double.
 ///   &returns: The HP number.
-fn hpProd(in: &const HP, val: f64) HP {
+fn hpProd(in: *const HP, val: f64) HP {
     var hi: f64 = undefined;
     var lo: f64 = undefined;
     split(in.val, &hi, &lo);
@@ -240,7 +239,7 @@ fn hpProd(in: &const HP, val: f64) HP {
 ///   @val: The double.
 ///   @hi: The high bits.
 ///   @lo: The low bits.
-fn split(val: f64, hi: &f64, lo: &f64) void {
+fn split(val: f64, hi: *f64, lo: *f64) void {
     hi.* = gethi(val);
     lo.* = val - hi.*;
 }
@@ -253,7 +252,7 @@ fn gethi(in: f64) f64 {
 
 /// Normalize the number by factoring in the error.
 ///   @hp: The float pair.
-fn hpNormalize(hp: &HP) void {
+fn hpNormalize(hp: *HP) void {
     // Required to avoid segfaults causing buffer overrun during errol3 digit output termination.
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
@@ -265,7 +264,7 @@ fn hpNormalize(hp: &HP) void {
 
 /// Divide the high-precision number by ten.
 ///   @hp: The high-precision number
-fn hpDiv10(hp: &HP) void {
+fn hpDiv10(hp: *HP) void {
     var val = hp.val;
 
     hp.val /= 10.0;
@@ -281,7 +280,7 @@ fn hpDiv10(hp: &HP) void {
 
 /// Multiply the high-precision number by ten.
 ///   @hp: The high-precision number
-fn hpMul10(hp: &HP) void {
+fn hpMul10(hp: *HP) void {
     const val = hp.val;
 
     hp.val *= 10.0;
@@ -420,7 +419,7 @@ fn fpprev(val: f64) f64 {
     return @bitCast(f64, @bitCast(u64, val) -% 1);
 }
 
-pub const c_digits_lut = []u8 {
+pub const c_digits_lut = []u8{
     '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6',
     '0', '7', '0', '8', '0', '9', '1', '0', '1', '1', '1', '2', '1', '3',
     '1', '4', '1', '5', '1', '6', '1', '7', '1', '8', '1', '9', '2', '0',

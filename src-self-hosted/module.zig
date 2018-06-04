@@ -10,9 +10,10 @@ const Target = @import("target.zig").Target;
 const warn = std.debug.warn;
 const Token = std.zig.Token;
 const ArrayList = std.ArrayList;
+const errmsg = @import("errmsg.zig");
 
 pub const Module = struct {
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     name: Buffer,
     root_src_path: ?[]const u8,
     module: llvm.ModuleRef,
@@ -52,10 +53,10 @@ pub const Module = struct {
     windows_subsystem_windows: bool,
     windows_subsystem_console: bool,
 
-    link_libs_list: ArrayList(&LinkLib),
-    libc_link_lib: ?&LinkLib,
+    link_libs_list: ArrayList(*LinkLib),
+    libc_link_lib: ?*LinkLib,
 
-    err_color: ErrColor,
+    err_color: errmsg.Color,
 
     verbose_tokenize: bool,
     verbose_ast_tree: bool,
@@ -87,12 +88,6 @@ pub const Module = struct {
         Obj,
     };
 
-    pub const ErrColor = enum {
-        Auto,
-        Off,
-        On,
-    };
-
     pub const LinkLib = struct {
         name: []const u8,
         path: ?[]const u8,
@@ -111,19 +106,19 @@ pub const Module = struct {
     pub const CliPkg = struct {
         name: []const u8,
         path: []const u8,
-        children: ArrayList(&CliPkg),
-        parent: ?&CliPkg,
+        children: ArrayList(*CliPkg),
+        parent: ?*CliPkg,
 
-        pub fn init(allocator: &mem.Allocator, name: []const u8, path: []const u8, parent: ?&CliPkg) !&CliPkg {
+        pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
             var pkg = try allocator.create(CliPkg);
             pkg.name = name;
             pkg.path = path;
-            pkg.children = ArrayList(&CliPkg).init(allocator);
+            pkg.children = ArrayList(*CliPkg).init(allocator);
             pkg.parent = parent;
             return pkg;
         }
 
-        pub fn deinit(self: &CliPkg) void {
+        pub fn deinit(self: *CliPkg) void {
             for (self.children.toSliceConst()) |child| {
                 child.deinit();
             }
@@ -131,7 +126,7 @@ pub const Module = struct {
         }
     };
 
-    pub fn create(allocator: &mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: &const Target, kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) !&Module {
+    pub fn create(allocator: *mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: *const Target, kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) !*Module {
         var name_buffer = try Buffer.init(allocator, name);
         errdefer name_buffer.deinit();
 
@@ -193,9 +188,9 @@ pub const Module = struct {
             .link_objects = [][]const u8{},
             .windows_subsystem_windows = false,
             .windows_subsystem_console = false,
-            .link_libs_list = ArrayList(&LinkLib).init(allocator),
+            .link_libs_list = ArrayList(*LinkLib).init(allocator),
             .libc_link_lib = null,
-            .err_color = ErrColor.Auto,
+            .err_color = errmsg.Color.Auto,
             .darwin_frameworks = [][]const u8{},
             .darwin_version_min = DarwinVersionMin.None,
             .test_filters = [][]const u8{},
@@ -205,11 +200,11 @@ pub const Module = struct {
         return module_ptr;
     }
 
-    fn dump(self: &Module) void {
+    fn dump(self: *Module) void {
         c.LLVMDumpModule(self.module);
     }
 
-    pub fn destroy(self: &Module) void {
+    pub fn destroy(self: *Module) void {
         c.LLVMDisposeBuilder(self.builder);
         c.LLVMDisposeModule(self.module);
         c.LLVMContextDispose(self.context);
@@ -218,7 +213,7 @@ pub const Module = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn build(self: &Module) !void {
+    pub fn build(self: *Module) !void {
         if (self.llvm_argv.len != 0) {
             var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(self.allocator, [][]const []const u8{
                 [][]const u8{"zig (LLVM option parsing)"},
@@ -255,7 +250,7 @@ pub const Module = struct {
         const out_stream = &stderr_file_out_stream.stream;
 
         warn("====fmt:====\n");
-        try std.zig.render(self.allocator, out_stream, &tree);
+        _ = try std.zig.render(self.allocator, out_stream, &tree);
 
         warn("====ir:====\n");
         warn("TODO\n\n");
@@ -264,12 +259,12 @@ pub const Module = struct {
         self.dump();
     }
 
-    pub fn link(self: &Module, out_file: ?[]const u8) !void {
+    pub fn link(self: *Module, out_file: ?[]const u8) !void {
         warn("TODO link");
         return error.Todo;
     }
 
-    pub fn addLinkLib(self: &Module, name: []const u8, provided_explicitly: bool) !&LinkLib {
+    pub fn addLinkLib(self: *Module, name: []const u8, provided_explicitly: bool) !*LinkLib {
         const is_libc = mem.eql(u8, name, "c");
 
         if (is_libc) {

@@ -24,15 +24,15 @@ pub fn main() !void {
     const mb_per_sec = bytes_per_sec / (1024 * 1024);
 
     var stdout_file = try std.io.getStdOut();
-    const stdout = &std.io.FileOutStream.init(&stdout_file).stream;
+    const stdout = *std.io.FileOutStream.init(*stdout_file).stream;
     try stdout.print("{.3} MB/s, {} KB used \n", mb_per_sec, memory_used / 1024);
 }
 
 fn testOnce() usize {
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    var allocator = &fixed_buf_alloc.allocator;
+    var allocator = *fixed_buf_alloc.allocator;
     var tokenizer = Tokenizer.init(source);
-    var parser = Parser.init(&tokenizer, allocator, "(memory buffer)");
+    var parser = Parser.init(*tokenizer, allocator, "(memory buffer)");
     _ = parser.parse() catch @panic("parse failure");
     return fixed_buf_alloc.end_index;
 }

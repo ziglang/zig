@@ -15,8 +15,8 @@ const BytesToHash = 1024 * MiB;
 
 pub fn main() !void {
     var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = std.io.FileOutStream.init(&stdout_file);
-    const stdout = &stdout_out_stream.stream;
+    var stdout_out_stream = std.io.FileOutStream.init(*stdout_file);
+    const stdout = *stdout_out_stream.stream;
 
     var block: [HashFunction.block_size]u8 = undefined;
     std.mem.set(u8, block[0..], 0);

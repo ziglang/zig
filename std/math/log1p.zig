@@ -143,8 +143,7 @@ fn log1p_64(x: f64) f64 {
             c = 0;
             f = x;
         }
-    }
-    else if (hx >= 0x7FF00000) {
+    } else if (hx >= 0x7FF00000) {
         return x;
     }
 

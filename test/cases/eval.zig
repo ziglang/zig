@@ -72,12 +72,12 @@ const Point = struct {
     x: i32,
     y: i32,
 };
-const static_point_list = []Point {
+const static_point_list = []Point{
     makePoint(1, 2),
     makePoint(3, 4),
 };
 fn makePoint(x: i32, y: i32) Point {
-    return Point {
+    return Point{
         .x = x,
         .y = y,
     };
@@ -92,13 +92,11 @@ pub const Vec3 = struct {
     data: [3]f32,
 };
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
-    return Vec3 {
-        .data = []f32 {
-            x,
-            y,
-            z,
-        },
-    };
+    return Vec3{ .data = []f32{
+        x,
+        y,
+        z,
+    } };
 }
 
 test "constant expressions" {
@@ -117,22 +115,22 @@ const Vertex = struct {
     g: f32,
     b: f32,
 };
-const vertices = []Vertex {
-    Vertex {
+const vertices = []Vertex{
+    Vertex{
         .x = -0.6,
         .y = -0.4,
         .r = 1.0,
         .g = 0.0,
         .b = 0.0,
     },
-    Vertex {
+    Vertex{
         .x = 0.6,
         .y = -0.4,
         .r = 0.0,
         .g = 1.0,
         .b = 0.0,
     },
-    Vertex {
+    Vertex{
         .x = 0.0,
         .y = 0.6,
         .r = 0.0,
@@ -149,7 +147,7 @@ const StInitStrFoo = struct {
     x: i32,
     y: bool,
 };
-var st_init_str_foo = StInitStrFoo {
+var st_init_str_foo = StInitStrFoo{
     .x = 13,
     .y = true,
 };
@@ -158,7 +156,7 @@ test "statically initalized array literal" {
     const y: [4]u8 = st_init_arr_lit_x;
     assert(y[3] == 4);
 }
-const st_init_arr_lit_x = []u8 {
+const st_init_arr_lit_x = []u8{
     1,
     2,
     3,
@@ -217,19 +215,19 @@ test "inlined block and runtime block phi" {
 
 const CmdFn = struct {
     name: []const u8,
-    func: fn(i32) i32,
+    func: fn (i32) i32,
 };
 
-const cmd_fns = []CmdFn {
-    CmdFn {
+const cmd_fns = []CmdFn{
+    CmdFn{
         .name = "one",
         .func = one,
     },
-    CmdFn {
+    CmdFn{
         .name = "two",
         .func = two,
     },
-    CmdFn {
+    CmdFn{
         .name = "three",
         .func = three,
     },
@@ -284,14 +282,12 @@ fn fnWithFloatMode() f32 {
 const SimpleStruct = struct {
     field: i32,
 
-    fn method(self: &const SimpleStruct) i32 {
+    fn method(self: *const SimpleStruct) i32 {
         return self.field + 3;
     }
 };
 
-var simple_struct = SimpleStruct {
-    .field = 1234,
-};
+var simple_struct = SimpleStruct{ .field = 1234 };
 
 const bound_fn = simple_struct.method;
 
@@ -341,9 +337,7 @@ const Foo = struct {
     name: []const u8,
 };
 
-var foo_contents = Foo {
-    .name = "a",
-};
+var foo_contents = Foo{ .name = "a" };
 const foo_ref = &foo_contents;
 
 test "create global array with for loop" {
@@ -373,7 +367,7 @@ test "const global shares pointer with other same one" {
     assertEqualPtrs(&hi1[0], &hi2[0]);
     comptime assert(&hi1[0] == &hi2[0]);
 }
-fn assertEqualPtrs(ptr1: &const u8, ptr2: &const u8) void {
+fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) void {
     assert(ptr1 == ptr2);
 }
 
@@ -424,9 +418,9 @@ test "string literal used as comptime slice is memoized" {
 }
 
 test "comptime slice of undefined pointer of length 0" {
-    const slice1 = (&i32)(undefined)[0..0];
+    const slice1 = (*i32)(undefined)[0..0];
     assert(slice1.len == 0);
-    const slice2 = (&i32)(undefined)[100..100];
+    const slice2 = (*i32)(undefined)[100..100];
     assert(slice2.len == 0);
 }
 
@@ -478,7 +472,7 @@ test "comptime function with mutable pointer is not memoized" {
     }
 }
 
-fn increment(value: &i32) void {
+fn increment(value: *i32) void {
     value.* += 1;
 }
 
@@ -523,15 +517,13 @@ test "comptime slice of pointer preserves comptime var" {
 const SingleFieldStruct = struct {
     x: i32,
 
-    fn read_x(self: &const SingleFieldStruct) i32 {
+    fn read_x(self: *const SingleFieldStruct) i32 {
         return self.x;
     }
 };
 test "const ptr to comptime mutable data is not memoized" {
     comptime {
-        var foo = SingleFieldStruct {
-            .x = 1,
-        };
+        var foo = SingleFieldStruct{ .x = 1 };
         assert(foo.read_x() == 1);
         foo.x = 2;
         assert(foo.read_x() == 2);
@@ -574,9 +566,7 @@ pub const Info = struct {
     version: u8,
 };
 
-pub const diamond_info = Info {
-    .version = 0,
-};
+pub const diamond_info = Info{ .version = 0 };
 
 test "comptime modification of const struct field" {
     comptime {
@@ -584,5 +574,39 @@ test "comptime modification of const struct field" {
         res.version = 1;
         assert(diamond_info.version == 0);
         assert(res.version == 1);
+    }
+}
+
+test "pointer to type" {
+    comptime {
+        var T: type = i32;
+        assert(T == i32);
+        var ptr = &T;
+        assert(@typeOf(ptr) == *type);
+        ptr.* = f32;
+        assert(T == f32);
+        assert(*T == *f32);
+    }
+}
+
+test "slice of type" {
+    comptime {
+        var types_array = []type{ i32, f64, type };
+        for (types_array) |T, i| {
+            switch (i) {
+                0 => assert(T == i32),
+                1 => assert(T == f64),
+                2 => assert(T == type),
+                else => unreachable,
+            }
+        }
+        for (types_array[0..]) |T, i| {
+            switch (i) {
+                0 => assert(T == i32),
+                1 => assert(T == f64),
+                2 => assert(T == type),
+                else => unreachable,
+            }
+        }
     }
 }

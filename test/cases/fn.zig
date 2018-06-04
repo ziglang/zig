@@ -66,14 +66,14 @@ test "implicit cast function unreachable return" {
     wantsFnWithVoid(fnWithUnreachable);
 }
 
-fn wantsFnWithVoid(f: fn() void) void {}
+fn wantsFnWithVoid(f: fn () void) void {}
 
 fn fnWithUnreachable() noreturn {
     unreachable;
 }
 
 test "function pointers" {
-    const fns = []@typeOf(fn1) {
+    const fns = []@typeOf(fn1){
         fn1,
         fn2,
         fn3,

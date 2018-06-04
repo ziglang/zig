@@ -9,12 +9,12 @@ const builtin = @import("builtin");
 const want_modification_safety = builtin.mode != builtin.Mode.ReleaseFast;
 const debug_u32 = if (want_modification_safety) u32 else void;
 
-pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32, comptime eql: fn(a: K, b: K) bool) type {
+pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u32, comptime eql: fn (a: K, b: K) bool) type {
     return struct {
         entries: []Entry,
         size: usize,
         max_distance_from_start_index: usize,
-        allocator: &Allocator,
+        allocator: *Allocator,
         // this is used to detect bugs where a hashtable is edited while an iterator is running.
         modification_count: debug_u32,
 
@@ -28,7 +28,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
         };
 
         pub const Iterator = struct {
-            hm: &const Self,
+            hm: *const Self,
             // how many items have we returned
             count: usize,
             // iterator through the entry array
@@ -36,7 +36,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             // used to detect concurrent modification
             initial_modification_count: debug_u32,
 
-            pub fn next(it: &Iterator) ?&Entry {
+            pub fn next(it: *Iterator) ?*Entry {
                 if (want_modification_safety) {
                     assert(it.initial_modification_count == it.hm.modification_count); // concurrent modification
                 }
@@ -53,7 +53,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             }
 
             // Reset the iterator to the initial index
-            pub fn reset(it: &Iterator) void {
+            pub fn reset(it: *Iterator) void {
                 it.count = 0;
                 it.index = 0;
                 // Resetting the modification count too
@@ -61,7 +61,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             }
         };
 
-        pub fn init(allocator: &Allocator) Self {
+        pub fn init(allocator: *Allocator) Self {
             return Self{
                 .entries = []Entry{},
                 .allocator = allocator,
@@ -71,11 +71,11 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             };
         }
 
-        pub fn deinit(hm: &const Self) void {
+        pub fn deinit(hm: *const Self) void {
             hm.allocator.free(hm.entries);
         }
 
-        pub fn clear(hm: &Self) void {
+        pub fn clear(hm: *Self) void {
             for (hm.entries) |*entry| {
                 entry.used = false;
             }
@@ -84,12 +84,12 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             hm.incrementModificationCount();
         }
 
-        pub fn count(hm: &const Self) usize {
+        pub fn count(hm: *const Self) usize {
             return hm.size;
         }
 
         /// Returns the value that was already there.
-        pub fn put(hm: &Self, key: K, value: &const V) !?V {
+        pub fn put(hm: *Self, key: K, value: *const V) !?V {
             if (hm.entries.len == 0) {
                 try hm.initCapacity(16);
             }
@@ -111,18 +111,18 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             return hm.internalPut(key, value);
         }
 
-        pub fn get(hm: &const Self, key: K) ?&Entry {
+        pub fn get(hm: *const Self, key: K) ?*Entry {
             if (hm.entries.len == 0) {
                 return null;
             }
             return hm.internalGet(key);
         }
 
-        pub fn contains(hm: &const Self, key: K) bool {
+        pub fn contains(hm: *const Self, key: K) bool {
             return hm.get(key) != null;
         }
 
-        pub fn remove(hm: &Self, key: K) ?&Entry {
+        pub fn remove(hm: *Self, key: K) ?*Entry {
             if (hm.entries.len == 0) return null;
             hm.incrementModificationCount();
             const start_index = hm.keyToIndex(key);
@@ -154,7 +154,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             return null;
         }
 
-        pub fn iterator(hm: &const Self) Iterator {
+        pub fn iterator(hm: *const Self) Iterator {
             return Iterator{
                 .hm = hm,
                 .count = 0,
@@ -163,7 +163,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             };
         }
 
-        fn initCapacity(hm: &Self, capacity: usize) !void {
+        fn initCapacity(hm: *Self, capacity: usize) !void {
             hm.entries = try hm.allocator.alloc(Entry, capacity);
             hm.size = 0;
             hm.max_distance_from_start_index = 0;
@@ -172,14 +172,14 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             }
         }
 
-        fn incrementModificationCount(hm: &Self) void {
+        fn incrementModificationCount(hm: *Self) void {
             if (want_modification_safety) {
                 hm.modification_count +%= 1;
             }
         }
 
         /// Returns the value that was already there.
-        fn internalPut(hm: &Self, orig_key: K, orig_value: &const V) ?V {
+        fn internalPut(hm: *Self, orig_key: K, orig_value: *const V) ?V {
             var key = orig_key;
             var value = orig_value.*;
             const start_index = hm.keyToIndex(key);
@@ -231,7 +231,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             unreachable; // put into a full map
         }
 
-        fn internalGet(hm: &const Self, key: K) ?&Entry {
+        fn internalGet(hm: *const Self, key: K) ?*Entry {
             const start_index = hm.keyToIndex(key);
             {
                 var roll_over: usize = 0;
@@ -246,7 +246,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K) u32
             return null;
         }
 
-        fn keyToIndex(hm: &const Self, key: K) usize {
+        fn keyToIndex(hm: *const Self, key: K) usize {
             return usize(hash(key)) % hm.entries.len;
         }
     };

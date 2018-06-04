@@ -7,7 +7,7 @@ const os = std.os;
 const warn = std.debug.warn;
 
 /// Caller must free result
-pub fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) ![]u8 {
+pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![]u8 {
     const test_zig_dir = try os.path.join(allocator, test_path, "lib", "zig");
     errdefer allocator.free(test_zig_dir);
 
@@ -21,7 +21,7 @@ pub fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) ![
 }
 
 /// Caller must free result
-pub fn findZigLibDir(allocator: &mem.Allocator) ![]u8 {
+pub fn findZigLibDir(allocator: *mem.Allocator) ![]u8 {
     const self_exe_path = try os.selfExeDirPath(allocator);
     defer allocator.free(self_exe_path);
 
@@ -42,7 +42,7 @@ pub fn findZigLibDir(allocator: &mem.Allocator) ![]u8 {
     return error.FileNotFound;
 }
 
-pub fn resolveZigLibDir(allocator: &mem.Allocator) ![]u8 {
+pub fn resolveZigLibDir(allocator: *mem.Allocator) ![]u8 {
     return findZigLibDir(allocator) catch |err| {
         warn(
             \\Unable to find zig lib directory: {}.

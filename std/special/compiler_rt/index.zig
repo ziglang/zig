@@ -78,7 +78,7 @@ const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
     if (is_test) {
         std.debug.panic("{}", msg);
@@ -92,10 +92,10 @@ pub fn setXmm0(comptime T: type, value: T) void {
     const aligned_value: T align(16) = value;
     asm volatile (
         \\movaps (%[ptr]), %%xmm0
-    
-        : 
+            :
         : [ptr] "r" (&aligned_value)
-        : "xmm0");
+        : "xmm0"
+    );
 }
 
 extern fn __udivdi3(a: u64, b: u64) u64 {
@@ -159,7 +159,8 @@ fn isArmArch() bool {
         builtin.Arch.armebv6t2,
         builtin.Arch.armebv5,
         builtin.Arch.armebv5te,
-        builtin.Arch.armebv4t => true,
+        builtin.Arch.armebv4t,
+        => true,
         else => false,
     };
 }
@@ -174,7 +175,10 @@ nakedcc fn __aeabi_uidivmod() void {
         \\ ldr     r1, [sp]
         \\ add     sp, sp, #4
         \\ pop     { pc }
-    ::: "r2", "r1");
+            :
+        :
+        : "r2", "r1"
+    );
 }
 
 // _chkstk (_alloca) routine - probe stack between %esp and (%esp-%eax) in 4k increments,
@@ -280,7 +284,7 @@ nakedcc fn ___chkstk_ms() align(4) void {
     );
 }
 
-extern fn __udivmodsi4(a: u32, b: u32, rem: &u32) u32 {
+extern fn __udivmodsi4(a: u32, b: u32, rem: *u32) u32 {
     @setRuntimeSafety(is_test);
 
     const d = __udivsi3(a, b);

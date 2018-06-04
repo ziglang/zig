@@ -5,7 +5,7 @@ const reflection = this;
 test "reflection: array, pointer, nullable, error union type child" {
     comptime {
         assert(([10]u8).Child == u8);
-        assert((&u8).Child == u8);
+        assert((*u8).Child == u8);
         assert((error!u8).Payload == u8);
         assert((?u8).Child == u8);
     }
@@ -59,7 +59,7 @@ test "reflection: enum member types and names" {
 }
 
 test "reflection: @field" {
-    var f = Foo {
+    var f = Foo{
         .one = 42,
         .two = true,
         .three = void{},

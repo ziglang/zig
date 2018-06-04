@@ -1,10 +1,10 @@
-extern "c" fn __error() &c_int;
-pub extern "c" fn _NSGetExecutablePath(buf: &u8, bufsize: &u32) c_int;
+extern "c" fn __error() *c_int;
+pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
 
-pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: &u8, buf_len: usize, basep: &i64) usize;
+pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize;
 
 pub extern "c" fn mach_absolute_time() u64;
-pub extern "c" fn mach_timebase_info(tinfo: ?&mach_timebase_info_data) void;
+pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;
 
 pub use @import("../os/darwin_errno.zig");
 
@@ -60,7 +60,7 @@ pub const sigset_t = u32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    handler: extern fn(c_int) void,
+    handler: extern fn (c_int) void,
     sa_mask: sigset_t,
     sa_flags: c_int,
 };

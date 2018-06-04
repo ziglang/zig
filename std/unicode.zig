@@ -58,6 +58,7 @@ pub fn utf8Encode(c: u32, out: []u8) !u3 {
 }
 
 const Utf8DecodeError = Utf8Decode2Error || Utf8Decode3Error || Utf8Decode4Error;
+
 /// Decodes the UTF-8 codepoint encoded in the given slice of bytes.
 /// bytes.len must be equal to utf8ByteSequenceLength(bytes[0]) catch unreachable.
 /// If you already know the length at comptime, you can call one of
@@ -150,7 +151,9 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
                 return false;
             }
 
-            if (utf8Decode(s[i..i+cp_len])) |_| {} else |_| { return false; }
+            if (utf8Decode(s[i .. i + cp_len])) |_| {} else |_| {
+                return false;
+            }
             i += cp_len;
         } else |err| {
             return false;
@@ -179,9 +182,7 @@ pub const Utf8View = struct {
     }
 
     pub fn initUnchecked(s: []const u8) Utf8View {
-        return Utf8View {
-            .bytes = s,
-        };
+        return Utf8View{ .bytes = s };
     }
 
     pub fn initComptime(comptime s: []const u8) Utf8View {
@@ -191,12 +192,12 @@ pub const Utf8View = struct {
             error.InvalidUtf8 => {
                 @compileError("invalid utf8");
                 unreachable;
-            }
+            },
         }
     }
 
-    pub fn iterator(s: &const Utf8View) Utf8Iterator {
-        return Utf8Iterator {
+    pub fn iterator(s: *const Utf8View) Utf8Iterator {
+        return Utf8Iterator{
             .bytes = s.bytes,
             .i = 0,
         };
@@ -207,7 +208,7 @@ const Utf8Iterator = struct {
     bytes: []const u8,
     i: usize,
 
-    pub fn nextCodepointSlice(it: &Utf8Iterator) ?[]const u8 {
+    pub fn nextCodepointSlice(it: *Utf8Iterator) ?[]const u8 {
         if (it.i >= it.bytes.len) {
             return null;
         }
@@ -215,10 +216,10 @@ const Utf8Iterator = struct {
         const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
 
         it.i += cp_len;
-        return it.bytes[it.i-cp_len..it.i];
+        return it.bytes[it.i - cp_len .. it.i];
     }
 
-    pub fn nextCodepoint(it: &Utf8Iterator) ?u32 {
+    pub fn nextCodepoint(it: *Utf8Iterator) ?u32 {
         const slice = it.nextCodepointSlice() ?? return null;
 
         switch (slice.len) {
@@ -304,9 +305,12 @@ test "utf8 view bad" {
 fn testUtf8ViewBad() void {
     // Compile-time error.
     // const s3 = Utf8View.initComptime("\xfe\xf2");
-
     const s = Utf8View.init("hel\xadlo");
-    if (s) |_| { unreachable; } else |err| { debug.assert(err == error.InvalidUtf8); }
+    if (s) |_| {
+        unreachable;
+    } else |err| {
+        debug.assert(err == error.InvalidUtf8);
+    }
 }
 
 test "utf8 view ok" {

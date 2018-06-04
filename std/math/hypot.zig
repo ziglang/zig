@@ -52,7 +52,7 @@ fn hypot32(x: f32, y: f32) f32 {
     return z * math.sqrt(f32(f64(x) * x + f64(y) * y));
 }
 
-fn sq(hi: &f64, lo: &f64, x: f64) void {
+fn sq(hi: *f64, lo: *f64, x: f64) void {
     const split: f64 = 0x1.0p27 + 1.0;
     const xc = x * split;
     const xh = x - xc + xc;

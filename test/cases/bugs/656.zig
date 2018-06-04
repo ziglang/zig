@@ -14,10 +14,8 @@ test "nullable if after an if in a switch prong of a switch with 2 prongs in an 
 }
 
 fn foo(a: bool, b: bool) void {
-    var prefix_op = PrefixOp {
-        .AddrOf = Value {
-            .align_expr = 1234,
-        },
+    var prefix_op = PrefixOp{
+        .AddrOf = Value{ .align_expr = 1234 },
     };
     if (a) {} else {
         switch (prefix_op) {

@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 
 test "continue in for loop" {
-    const array = []i32 {
+    const array = []i32{
         1,
         2,
         3,
@@ -35,34 +35,12 @@ fn mangleString(s: []u8) void {
 }
 
 test "basic for loop" {
-    const expected_result = []u8 {
-        9,
-        8,
-        7,
-        6,
-        0,
-        1,
-        2,
-        3,
-        9,
-        8,
-        7,
-        6,
-        0,
-        1,
-        2,
-        3,
-    };
+    const expected_result = []u8{ 9, 8, 7, 6, 0, 1, 2, 3, 9, 8, 7, 6, 0, 1, 2, 3 };
 
     var buffer: [expected_result.len]u8 = undefined;
     var buf_index: usize = 0;
 
-    const array = []u8 {
-        9,
-        8,
-        7,
-        6,
-    };
+    const array = []u8{ 9, 8, 7, 6 };
     for (array) |item| {
         buffer[buf_index] = item;
         buf_index += 1;

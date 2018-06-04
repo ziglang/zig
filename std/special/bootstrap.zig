@@ -5,7 +5,7 @@ const root = @import("@root");
 const std = @import("std");
 const builtin = @import("builtin");
 
-var argc_ptr: &usize = undefined;
+var argc_ptr: [*]usize = undefined;
 
 comptime {
     const strong_linkage = builtin.GlobalLinkage.Strong;
@@ -27,10 +27,14 @@ extern fn zen_start() noreturn {
 nakedcc fn _start() noreturn {
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
-            argc_ptr = asm ("lea (%%rsp), %[argc]" : [argc] "=r" (-> &usize));
+            argc_ptr = asm ("lea (%%rsp), %[argc]"
+                : [argc] "=r" (-> [*]usize)
+            );
         },
         builtin.Arch.i386 => {
-            argc_ptr = asm ("lea (%%esp), %[argc]" : [argc] "=r" (-> &usize));
+            argc_ptr = asm ("lea (%%esp), %[argc]"
+                : [argc] "=r" (-> [*]usize)
+            );
         },
         else => @compileError("unsupported arch"),
     }
@@ -45,15 +49,17 @@ extern fn WinMainCRTStartup() noreturn {
     std.os.windows.ExitProcess(callMain());
 }
 
+// TODO https://github.com/ziglang/zig/issues/265
 fn posixCallMainAndExit() noreturn {
     const argc = argc_ptr.*;
-    const argv = @ptrCast(&&u8, &argc_ptr[1]);
-    const envp_nullable = @ptrCast(&?&u8, &argv[argc + 1]);
+    const argv = @ptrCast([*][*]u8, argc_ptr + 1);
+
+    const envp_nullable = @ptrCast([*]?[*]u8, argv + argc + 1);
     var envp_count: usize = 0;
     while (envp_nullable[envp_count]) |_| : (envp_count += 1) {}
-    const envp = @ptrCast(&&u8, envp_nullable)[0..envp_count];
+    const envp = @ptrCast([*][*]u8, envp_nullable)[0..envp_count];
     if (builtin.os == builtin.Os.linux) {
-        const auxv = &@ptrCast(&usize, envp.ptr)[envp_count + 1];
+        const auxv = @ptrCast([*]usize, envp.ptr + envp_count + 1);
         var i: usize = 0;
         while (auxv[i] != 0) : (i += 2) {
             if (auxv[i] < std.os.linux_aux_raw.len) std.os.linux_aux_raw[auxv[i]] = auxv[i + 1];
@@ -64,16 +70,16 @@ fn posixCallMainAndExit() noreturn {
     std.os.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
-fn callMainWithArgs(argc: usize, argv: &&u8, envp: []&u8) u8 {
+fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.ArgIteratorPosix.raw = argv[0..argc];
     std.os.posix_environ_raw = envp;
     return callMain();
 }
 
-extern fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) i32 {
+extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
-    const envp = @ptrCast(&&u8, c_envp)[0..env_count];
+    const envp = @ptrCast([*][*]u8, c_envp)[0..env_count];
     return callMainWithArgs(usize(c_argc), c_argv, envp);
 }
 

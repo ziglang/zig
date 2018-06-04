@@ -17,14 +17,14 @@ const Foo = struct {
     d: i32,
 };
 
-const foo = Foo {
+const foo = Foo{
     .a = true,
     .b = 0.123,
     .c = 1234,
     .d = -10,
 };
 
-fn testParentFieldPtr(c: &const i32) void {
+fn testParentFieldPtr(c: *const i32) void {
     assert(c == &foo.c);
 
     const base = @fieldParentPtr(Foo, "c", c);
@@ -32,7 +32,7 @@ fn testParentFieldPtr(c: &const i32) void {
     assert(&base.c == c);
 }
 
-fn testParentFieldPtrFirst(a: &const bool) void {
+fn testParentFieldPtrFirst(a: *const bool) void {
     assert(a == &foo.a);
 
     const base = @fieldParentPtr(Foo, "a", a);

@@ -81,9 +81,7 @@ test "y_array_with_several_null" {
 }
 
 test "y_array_with_trailing_space" {
-    ok(
-        "[2] "
-    );
+    ok("[2] ");
 }
 
 test "y_number_0e+1" {
@@ -579,9 +577,7 @@ test "y_structure_true_in_array" {
 }
 
 test "y_structure_whitespace_array" {
-    ok(
-        " [] "
-    );
+    ok(" [] ");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -695,7 +691,6 @@ test "n_array_newlines_unclosed" {
         \\,1,
     );
 }
-
 
 test "n_array_number_and_comma" {
     err(
@@ -971,7 +966,6 @@ test "n_number_invalid-utf-8-in-int" {
     );
 }
 
-
 test "n_number_++" {
     err(
         \\[++1234]
@@ -1228,7 +1222,7 @@ test "n_object_unterminated-value" {
     err(
         \\{"a":"a
     );
-        }
+}
 
 test "n_object_with_single_string" {
     err(
@@ -1243,9 +1237,7 @@ test "n_object_with_trailing_garbage" {
 }
 
 test "n_single_space" {
-    err(
-        " "
-    );
+    err(" ");
 }
 
 test "n_string_1_surrogate_then_escape" {
@@ -1279,9 +1271,7 @@ test "n_string_accentuated_char_no_quotes" {
 }
 
 test "n_string_backslash_00" {
-    err(
-        \\["\ "]
-    );
+    err("[\"\x00\"]");
 }
 
 test "n_string_escaped_backslash_bad" {
@@ -1291,9 +1281,7 @@ test "n_string_escaped_backslash_bad" {
 }
 
 test "n_string_escaped_ctrl_char_tab" {
-    err(
-        \\["\	"]
-    );
+    err("\x5b\x22\x5c\x09\x22\x5d");
 }
 
 test "n_string_escaped_emoji" {
@@ -1416,9 +1404,7 @@ test "n_string_with_trailing_garbage" {
 }
 
 test "n_structure_100000_opening_arrays" {
-    err(
-        "[" ** 100000
-    );
+    err("[" ** 100000);
 }
 
 test "n_structure_angle_bracket_." {
@@ -1558,9 +1544,7 @@ test "n_structure_open_array_comma" {
 }
 
 test "n_structure_open_array_object" {
-    err(
-        "[{\"\":" ** 50000
-    );
+    err("[{\"\":" ** 50000);
 }
 
 test "n_structure_open_array_open_object" {
@@ -1900,9 +1884,7 @@ test "i_string_UTF8_surrogate_U+D800" {
 }
 
 test "i_structure_500_nested_arrays" {
-    any(
-        ("[" ** 500) ++ ("]" ** 500)
-    );
+    any(("[" ** 500) ++ ("]" ** 500));
 }
 
 test "i_structure_UTF-8_BOM_empty_object" {

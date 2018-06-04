@@ -12,7 +12,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const Random = std.rand.Random;
 
-pub fn next_f64(random: &Random, comptime tables: &const ZigTable) f64 {
+pub fn next_f64(random: *Random, comptime tables: *const ZigTable) f64 {
     while (true) {
         // We manually construct a float from parts as we can avoid an extra random lookup here by
         // using the unused exponent for the lookup table entry.
@@ -56,16 +56,22 @@ pub const ZigTable = struct {
     f: [257]f64,
 
     // probability density function used as a fallback
-    pdf: fn(f64) f64,
+    pdf: fn (f64) f64,
     // whether the distribution is symmetric
     is_symmetric: bool,
     // fallback calculation in the case we are in the 0 block
-    zero_case: fn(&Random, f64) f64,
+    zero_case: fn (*Random, f64) f64,
 };
 
 // zigNorInit
-fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, comptime f: fn(f64) f64,
-       comptime f_inv: fn(f64) f64, comptime zero_case: fn(&Random, f64) f64) ZigTable {
+fn ZigTableGen(
+    comptime is_symmetric: bool,
+    comptime r: f64,
+    comptime v: f64,
+    comptime f: fn (f64) f64,
+    comptime f_inv: fn (f64) f64,
+    comptime zero_case: fn (*Random, f64) f64,
+) ZigTable {
     var tables: ZigTable = undefined;
 
     tables.is_symmetric = is_symmetric;
@@ -98,9 +104,13 @@ pub const NormDist = blk: {
 const norm_r = 3.6541528853610088;
 const norm_v = 0.00492867323399;
 
-fn norm_f(x: f64) f64 { return math.exp(-x * x / 2.0); }
-fn norm_f_inv(y: f64) f64 { return math.sqrt(-2.0 * math.ln(y)); }
-fn norm_zero_case(random: &Random, u: f64) f64 {
+fn norm_f(x: f64) f64 {
+    return math.exp(-x * x / 2.0);
+}
+fn norm_f_inv(y: f64) f64 {
+    return math.sqrt(-2.0 * math.ln(y));
+}
+fn norm_zero_case(random: *Random, u: f64) f64 {
     var x: f64 = 1;
     var y: f64 = 0;
 
@@ -133,9 +143,15 @@ pub const ExpDist = blk: {
 const exp_r = 7.69711747013104972;
 const exp_v = 0.0039496598225815571993;
 
-fn exp_f(x: f64) f64 { return math.exp(-x); }
-fn exp_f_inv(y: f64) f64 { return -math.ln(y); }
-fn exp_zero_case(random: &Random, _: f64) f64 { return exp_r - math.ln(random.float(f64)); }
+fn exp_f(x: f64) f64 {
+    return math.exp(-x);
+}
+fn exp_f_inv(y: f64) f64 {
+    return -math.ln(y);
+}
+fn exp_zero_case(random: *Random, _: f64) f64 {
+    return exp_r - math.ln(random.float(f64));
+}
 
 test "ziggurant exp dist sanity" {
     var prng = std.rand.DefaultPrng.init(0);

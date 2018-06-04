@@ -10,11 +10,9 @@ const S = struct {
 const assert = @import("std").debug.assert;
 
 test "bug 394 fixed" {
-    const x = S {
+    const x = S{
         .x = 3,
-        .y = E {
-            .B = 1,
-        },
+        .y = E{ .B = 1 },
     };
     assert(x.x == 3);
 }

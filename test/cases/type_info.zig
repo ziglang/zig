@@ -37,7 +37,7 @@ test "type info: pointer type info" {
 }
 
 fn testPointer() void {
-    const u32_ptr_info = @typeInfo(&u32);
+    const u32_ptr_info = @typeInfo(*u32);
     assert(TypeId(u32_ptr_info) == TypeId.Pointer);
     assert(u32_ptr_info.Pointer.is_const == false);
     assert(u32_ptr_info.Pointer.is_volatile == false);
@@ -103,7 +103,7 @@ test "type info: error set, error union info" {
 }
 
 fn testErrorSet() void {
-    const TestErrorSet = error {
+    const TestErrorSet = error{
         First,
         Second,
         Third,
@@ -169,14 +169,14 @@ fn testUnion() void {
     assert(notag_union_info.Union.fields[1].field_type == u32);
 
     const TestExternUnion = extern union {
-        foo: &c_void,
+        foo: *c_void,
     };
 
     const extern_union_info = @typeInfo(TestExternUnion);
     assert(extern_union_info.Union.layout == TypeInfo.ContainerLayout.Extern);
     assert(extern_union_info.Union.tag_type == @typeOf(undefined));
     assert(extern_union_info.Union.fields[0].enum_field == null);
-    assert(extern_union_info.Union.fields[0].field_type == &c_void);
+    assert(extern_union_info.Union.fields[0].field_type == *c_void);
 }
 
 test "type info: struct info" {
@@ -190,13 +190,13 @@ fn testStruct() void {
     assert(struct_info.Struct.layout == TypeInfo.ContainerLayout.Packed);
     assert(struct_info.Struct.fields.len == 3);
     assert(struct_info.Struct.fields[1].offset == null);
-    assert(struct_info.Struct.fields[2].field_type == &TestStruct);
+    assert(struct_info.Struct.fields[2].field_type == *TestStruct);
     assert(struct_info.Struct.defs.len == 2);
     assert(struct_info.Struct.defs[0].is_pub);
     assert(!struct_info.Struct.defs[0].data.Fn.is_extern);
     assert(struct_info.Struct.defs[0].data.Fn.lib_name == null);
     assert(struct_info.Struct.defs[0].data.Fn.return_type == void);
-    assert(struct_info.Struct.defs[0].data.Fn.fn_type == fn(&const TestStruct)void);
+    assert(struct_info.Struct.defs[0].data.Fn.fn_type == fn (*const TestStruct) void);
 }
 
 const TestStruct = packed struct {
@@ -204,9 +204,9 @@ const TestStruct = packed struct {
 
     fieldA: usize,
     fieldB: void,
-    fieldC: &Self,
+    fieldC: *Self,
 
-    pub fn foo(self: &const Self) void {}
+    pub fn foo(self: *const Self) void {}
 };
 
 test "type info: function type info" {
@@ -227,9 +227,16 @@ fn testFunction() void {
     const test_instance: TestStruct = undefined;
     const bound_fn_info = @typeInfo(@typeOf(test_instance.foo));
     assert(TypeId(bound_fn_info) == TypeId.BoundFn);
-    assert(bound_fn_info.BoundFn.args[0].arg_type == &const TestStruct);
+    assert(bound_fn_info.BoundFn.args[0].arg_type == *const TestStruct);
 }
 
 fn foo(comptime a: usize, b: bool, args: ...) usize {
     return 0;
+}
+
+test "typeInfo with comptime parameter in struct fn def" {
+    const S = struct {
+        pub fn func(comptime x: f32) void {}
+    };
+    comptime var info = @typeInfo(S);
 }

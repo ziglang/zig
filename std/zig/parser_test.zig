@@ -1,3 +1,43 @@
+test "zig fmt: pointer of unknown length" {
+    try testCanonical(
+        \\fn foo(ptr: [*]u8) void {}
+        \\
+    );
+}
+
+test "zig fmt: spaces around slice operator" {
+    try testCanonical(
+        \\var a = b[c..d];
+        \\var a = b[c + 1 .. d];
+        \\var a = b[c + 1 ..];
+        \\var a = b[c .. d + 1];
+        \\var a = b[c.a..d.e];
+        \\
+    );
+}
+
+test "zig fmt: async call in if condition" {
+    try testCanonical(
+        \\comptime {
+        \\    if (async<a> b()) {
+        \\        a();
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: 2nd arg multiline string" {
+    try testCanonical(
+        \\comptime {
+        \\    cases.addAsm("hello world linux x86_64",
+        \\        \\.text
+        \\    , "Hello, world!\n");
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: if condition wraps" {
     try testTransform(
         \\comptime {
@@ -496,7 +536,7 @@ test "zig fmt: line comment after doc comment" {
 test "zig fmt: float literal with exponent" {
     try testCanonical(
         \\test "bit field alignment" {
-        \\    assert(@typeOf(&blah.b) == &align(1:3:6) const u3);
+        \\    assert(@typeOf(&blah.b) == *align(1:3:6) const u3);
         \\}
         \\
     );
@@ -774,7 +814,7 @@ test "zig fmt: doc comments before struct field" {
         \\pub const Allocator = struct {
         \\    /// Allocate byte_count bytes and return them in a slice, with the
         \\    /// slice's pointer aligned at least to alignment bytes.
-        \\    allocFn: fn() void,
+        \\    allocFn: fn () void,
         \\};
         \\
     );
@@ -999,7 +1039,7 @@ test "zig fmt: extern declaration" {
 }
 
 test "zig fmt: alignment" {
-        try testCanonical(
+    try testCanonical(
         \\var foo: c_int align(1);
         \\
     );
@@ -1007,7 +1047,7 @@ test "zig fmt: alignment" {
 
 test "zig fmt: C main" {
     try testCanonical(
-        \\fn main(argc: c_int, argv: &&u8) c_int {
+        \\fn main(argc: c_int, argv: **u8) c_int {
         \\    const a = b;
         \\}
         \\
@@ -1016,7 +1056,7 @@ test "zig fmt: C main" {
 
 test "zig fmt: return" {
     try testCanonical(
-        \\fn foo(argc: c_int, argv: &&u8) c_int {
+        \\fn foo(argc: c_int, argv: **u8) c_int {
         \\    return 0;
         \\}
         \\
@@ -1029,26 +1069,26 @@ test "zig fmt: return" {
 
 test "zig fmt: pointer attributes" {
     try testCanonical(
-        \\extern fn f1(s: &align(&u8) u8) c_int;
-        \\extern fn f2(s: &&align(1) &const &volatile u8) c_int;
-        \\extern fn f3(s: &align(1) const &align(1) volatile &const volatile u8) c_int;
-        \\extern fn f4(s: &align(1) const volatile u8) c_int;
+        \\extern fn f1(s: *align(*u8) u8) c_int;
+        \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
+        \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
+        \\extern fn f4(s: *align(1) const volatile u8) c_int;
         \\
     );
 }
 
 test "zig fmt: slice attributes" {
     try testCanonical(
-        \\extern fn f1(s: &align(&u8) u8) c_int;
-        \\extern fn f2(s: &&align(1) &const &volatile u8) c_int;
-        \\extern fn f3(s: &align(1) const &align(1) volatile &const volatile u8) c_int;
-        \\extern fn f4(s: &align(1) const volatile u8) c_int;
+        \\extern fn f1(s: *align(*u8) u8) c_int;
+        \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
+        \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
+        \\extern fn f4(s: *align(1) const volatile u8) c_int;
         \\
     );
 }
 
 test "zig fmt: test declaration" {
-     try testCanonical(
+    try testCanonical(
         \\test "test name" {
         \\    const a = 1;
         \\    var b = 1;
@@ -1179,18 +1219,18 @@ test "zig fmt: var type" {
 
 test "zig fmt: functions" {
     try testCanonical(
-        \\extern fn puts(s: &const u8) c_int;
-        \\extern "c" fn puts(s: &const u8) c_int;
-        \\export fn puts(s: &const u8) c_int;
-        \\inline fn puts(s: &const u8) c_int;
-        \\pub extern fn puts(s: &const u8) c_int;
-        \\pub extern "c" fn puts(s: &const u8) c_int;
-        \\pub export fn puts(s: &const u8) c_int;
-        \\pub inline fn puts(s: &const u8) c_int;
-        \\pub extern fn puts(s: &const u8) align(2 + 2) c_int;
-        \\pub extern "c" fn puts(s: &const u8) align(2 + 2) c_int;
-        \\pub export fn puts(s: &const u8) align(2 + 2) c_int;
-        \\pub inline fn puts(s: &const u8) align(2 + 2) c_int;
+        \\extern fn puts(s: *const u8) c_int;
+        \\extern "c" fn puts(s: *const u8) c_int;
+        \\export fn puts(s: *const u8) c_int;
+        \\inline fn puts(s: *const u8) c_int;
+        \\pub extern fn puts(s: *const u8) c_int;
+        \\pub extern "c" fn puts(s: *const u8) c_int;
+        \\pub export fn puts(s: *const u8) c_int;
+        \\pub inline fn puts(s: *const u8) c_int;
+        \\pub extern fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub extern "c" fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
+        \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
         \\
     );
 }
@@ -1265,8 +1305,8 @@ test "zig fmt: struct declaration" {
         \\    f1: u8,
         \\    pub f3: u8,
         \\
-        \\    fn method(self: &Self) Self {
-        \\        return *self;
+        \\    fn method(self: *Self) Self {
+        \\        return self.*;
         \\    }
         \\
         \\    f2: u8,
@@ -1290,7 +1330,7 @@ test "zig fmt: struct declaration" {
 }
 
 test "zig fmt: enum declaration" {
-      try testCanonical(
+    try testCanonical(
         \\const E = enum {
         \\    Ok,
         \\    SomethingElse = 0,
@@ -1318,7 +1358,7 @@ test "zig fmt: enum declaration" {
 }
 
 test "zig fmt: union declaration" {
-      try testCanonical(
+    try testCanonical(
         \\const U = union {
         \\    Int: u8,
         \\    Float: f32,
@@ -1679,10 +1719,10 @@ test "zig fmt: fn type" {
         \\    return i + 1;
         \\}
         \\
-        \\const a: fn(u8) u8 = undefined;
-        \\const b: extern fn(u8) u8 = undefined;
-        \\const c: nakedcc fn(u8) u8 = undefined;
-        \\const ap: fn(u8) u8 = a;
+        \\const a: fn (u8) u8 = undefined;
+        \\const b: extern fn (u8) u8 = undefined;
+        \\const c: nakedcc fn (u8) u8 = undefined;
+        \\const ap: fn (u8) u8 = a;
         \\
     );
 }
@@ -1770,7 +1810,7 @@ const io = std.io;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
+fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
     var stderr_file = try io.getStdErr();
     var stderr = &io.FileOutStream.init(&stderr_file).stream;
 
@@ -1807,7 +1847,7 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
     errdefer buffer.deinit();
 
     var buffer_out_stream = io.BufferOutStream.init(&buffer);
-    try std.zig.render(allocator, &buffer_out_stream.stream, &tree);
+    anything_changed.* = try std.zig.render(allocator, &buffer_out_stream.stream, &tree);
     return buffer.toOwnedSlice();
 }
 
@@ -1816,7 +1856,8 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
-        const result_source = try testParse(source, &failing_allocator.allocator);
+        var anything_changed: bool = undefined;
+        const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
         if (!mem.eql(u8, result_source, expected_source)) {
             warn("\n====== expected this output: =========\n");
             warn("{}", expected_source);
@@ -1825,6 +1866,12 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
             warn("\n======================================\n");
             return error.TestFailed;
         }
+        const changes_expected = source.ptr != expected_source.ptr;
+        if (anything_changed != changes_expected) {
+            warn("std.zig.render returned {} instead of {}\n", anything_changed, changes_expected);
+            return error.TestFailed;
+        }
+        std.debug.assert(anything_changed == changes_expected);
         failing_allocator.allocator.free(result_source);
         break :x failing_allocator.index;
     };
@@ -1833,15 +1880,21 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
-        if (testParse(source, &failing_allocator.allocator)) |_| {
+        var anything_changed: bool = undefined;
+        if (testParse(source, &failing_allocator.allocator, &anything_changed)) |_| {
             return error.NondeterministicMemoryUsage;
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    warn("\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
-                        fail_index, needed_alloc_count,
-                        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
-                        failing_allocator.index, failing_allocator.deallocations);
+                    warn(
+                        "\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
+                        fail_index,
+                        needed_alloc_count,
+                        failing_allocator.allocated_bytes,
+                        failing_allocator.freed_bytes,
+                        failing_allocator.index,
+                        failing_allocator.deallocations,
+                    );
                     return error.MemoryLeakDetected;
                 }
             },
@@ -1854,4 +1907,3 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
 fn testCanonical(source: []const u8) !void {
     return testTransform(source, source);
 }
-

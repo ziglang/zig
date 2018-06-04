@@ -38,11 +38,11 @@ ATTRIBUTE_NORETURN
 ATTRIBUTE_PRINTF(1, 2)
 void zig_panic(const char *format, ...);
 
-ATTRIBUTE_COLD
-ATTRIBUTE_NORETURN
-static inline void zig_unreachable(void) {
-    zig_panic("unreachable");
-}
+#ifdef WIN32
+#define __func__ __FUNCTION__
+#endif
+
+#define zig_unreachable() zig_panic("unreachable: %s:%s:%d", __FILE__, __func__, __LINE__)
 
 #if defined(_MSC_VER)
 static inline int clzll(unsigned long long mask) {

@@ -53,8 +53,7 @@ fn atan2_32(y: f32, x: f32) f32 {
 
     if (iy == 0) {
         switch (m) {
-            0,
-            1 => return y, // atan(+-0, +...)
+            0, 1 => return y, // atan(+-0, +...)
             2 => return pi, // atan(+0, -...)
             3 => return -pi, // atan(-0, -...)
             else => unreachable,
@@ -144,8 +143,7 @@ fn atan2_64(y: f64, x: f64) f64 {
 
     if (iy | ly == 0) {
         switch (m) {
-            0,
-            1 => return y, // atan(+-0, +...)
+            0, 1 => return y, // atan(+-0, +...)
             2 => return pi, // atan(+0, -...)
             3 => return -pi, // atan(-0, -...)
             else => unreachable,

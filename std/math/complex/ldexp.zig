@@ -14,7 +14,7 @@ pub fn ldexp_cexp(z: var, expt: i32) Complex(@typeOf(z.re)) {
     };
 }
 
-fn frexp_exp32(x: f32, expt: &i32) f32 {
+fn frexp_exp32(x: f32, expt: *i32) f32 {
     const k = 235; // reduction constant
     const kln2 = 162.88958740; // k * ln2
 
@@ -24,7 +24,7 @@ fn frexp_exp32(x: f32, expt: &i32) f32 {
     return @bitCast(f32, (hx & 0x7fffff) | ((0x7f + 127) << 23));
 }
 
-fn ldexp_cexp32(z: &const Complex(f32), expt: i32) Complex(f32) {
+fn ldexp_cexp32(z: *const Complex(f32), expt: i32) Complex(f32) {
     var ex_expt: i32 = undefined;
     const exp_x = frexp_exp32(z.re, &ex_expt);
     const exptf = expt + ex_expt;
@@ -38,7 +38,7 @@ fn ldexp_cexp32(z: &const Complex(f32), expt: i32) Complex(f32) {
     return Complex(f32).new(math.cos(z.im) * exp_x * scale1 * scale2, math.sin(z.im) * exp_x * scale1 * scale2);
 }
 
-fn frexp_exp64(x: f64, expt: &i32) f64 {
+fn frexp_exp64(x: f64, expt: *i32) f64 {
     const k = 1799; // reduction constant
     const kln2 = 1246.97177782734161156; // k * ln2
 
@@ -54,7 +54,7 @@ fn frexp_exp64(x: f64, expt: &i32) f64 {
     return @bitCast(f64, (u64(high_word) << 32) | lx);
 }
 
-fn ldexp_cexp64(z: &const Complex(f64), expt: i32) Complex(f64) {
+fn ldexp_cexp64(z: *const Complex(f64), expt: i32) Complex(f64) {
     var ex_expt: i32 = undefined;
     const exp_x = frexp_exp64(z.re, &ex_expt);
     const exptf = i64(expt + ex_expt);

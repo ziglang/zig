@@ -21,11 +21,11 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
 
         /// Node inside the linked list wrapping the actual data.
         pub const Node = struct {
-            prev: ?&Node,
-            next: ?&Node,
+            prev: ?*Node,
+            next: ?*Node,
             data: T,
 
-            pub fn init(value: &const T) Node {
+            pub fn init(value: *const T) Node {
                 return Node{
                     .prev = null,
                     .next = null,
@@ -38,14 +38,14 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
                 return Node.init({});
             }
 
-            pub fn toData(node: &Node) &ParentType {
+            pub fn toData(node: *Node) *ParentType {
                 comptime assert(isIntrusive());
                 return @fieldParentPtr(ParentType, field_name, node);
             }
         };
 
-        first: ?&Node,
-        last: ?&Node,
+        first: ?*Node,
+        last: ?*Node,
         len: usize,
 
         /// Initialize a linked list.
@@ -69,7 +69,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Arguments:
         ///     node: Pointer to a node in the list.
         ///     new_node: Pointer to the new node to insert.
-        pub fn insertAfter(list: &Self, node: &Node, new_node: &Node) void {
+        pub fn insertAfter(list: *Self, node: *Node, new_node: *Node) void {
             new_node.prev = node;
             if (node.next) |next_node| {
                 // Intermediate node.
@@ -90,7 +90,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Arguments:
         ///     node: Pointer to a node in the list.
         ///     new_node: Pointer to the new node to insert.
-        pub fn insertBefore(list: &Self, node: &Node, new_node: &Node) void {
+        pub fn insertBefore(list: *Self, node: *Node, new_node: *Node) void {
             new_node.next = node;
             if (node.prev) |prev_node| {
                 // Intermediate node.
@@ -110,7 +110,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
-        pub fn append(list: &Self, new_node: &Node) void {
+        pub fn append(list: *Self, new_node: *Node) void {
             if (list.last) |last| {
                 // Insert after last.
                 list.insertAfter(last, new_node);
@@ -124,7 +124,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
-        pub fn prepend(list: &Self, new_node: &Node) void {
+        pub fn prepend(list: *Self, new_node: *Node) void {
             if (list.first) |first| {
                 // Insert before first.
                 list.insertBefore(first, new_node);
@@ -143,7 +143,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Arguments:
         ///     node: Pointer to the node to be removed.
-        pub fn remove(list: &Self, node: &Node) void {
+        pub fn remove(list: *Self, node: *Node) void {
             if (node.prev) |prev_node| {
                 // Intermediate node.
                 prev_node.next = node.next;
@@ -168,7 +168,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the last node in the list.
-        pub fn pop(list: &Self) ?&Node {
+        pub fn pop(list: *Self) ?*Node {
             const last = list.last ?? return null;
             list.remove(last);
             return last;
@@ -178,7 +178,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the first node in the list.
-        pub fn popFirst(list: &Self) ?&Node {
+        pub fn popFirst(list: *Self) ?*Node {
             const first = list.first ?? return null;
             list.remove(first);
             return first;
@@ -191,7 +191,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn allocateNode(list: &Self, allocator: &Allocator) !&Node {
+        pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
             comptime assert(!isIntrusive());
             return allocator.create(Node);
         }
@@ -201,7 +201,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Arguments:
         ///     node: Pointer to the node to deallocate.
         ///     allocator: Dynamic memory allocator.
-        pub fn destroyNode(list: &Self, node: &Node, allocator: &Allocator) void {
+        pub fn destroyNode(list: *Self, node: *Node, allocator: *Allocator) void {
             comptime assert(!isIntrusive());
             allocator.destroy(node);
         }
@@ -214,7 +214,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) !&Node {
+        pub fn createNode(list: *Self, data: *const T, allocator: *Allocator) !*Node {
             comptime assert(!isIntrusive());
             var node = try list.allocateNode(allocator);
             node.* = Node.init(data);

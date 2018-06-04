@@ -30,7 +30,7 @@ fn argInAllowedSet(maybe_set: ?[]const []const u8, arg: []const u8) bool {
 }
 
 // Modifies the current argument index during iteration
-fn readFlagArguments(allocator: &Allocator, args: []const []const u8, required: usize, allowed_set: ?[]const []const u8, index: &usize) !FlagArg {
+fn readFlagArguments(allocator: *Allocator, args: []const []const u8, required: usize, allowed_set: ?[]const []const u8, index: *usize) !FlagArg {
     switch (required) {
         0 => return FlagArg{ .None = undefined }, // TODO: Required to force non-tag but value?
         1 => {
@@ -79,7 +79,7 @@ pub const Args = struct {
     flags: HashMapFlags,
     positionals: ArrayList([]const u8),
 
-    pub fn parse(allocator: &Allocator, comptime spec: []const Flag, args: []const []const u8) !Args {
+    pub fn parse(allocator: *Allocator, comptime spec: []const Flag, args: []const []const u8) !Args {
         var parsed = Args{
             .flags = HashMapFlags.init(allocator),
             .positionals = ArrayList([]const u8).init(allocator),
@@ -143,18 +143,18 @@ pub const Args = struct {
         return parsed;
     }
 
-    pub fn deinit(self: &Args) void {
+    pub fn deinit(self: *Args) void {
         self.flags.deinit();
         self.positionals.deinit();
     }
 
     // e.g. --help
-    pub fn present(self: &Args, name: []const u8) bool {
+    pub fn present(self: *Args, name: []const u8) bool {
         return self.flags.contains(name);
     }
 
     // e.g. --name value
-    pub fn single(self: &Args, name: []const u8) ?[]const u8 {
+    pub fn single(self: *Args, name: []const u8) ?[]const u8 {
         if (self.flags.get(name)) |entry| {
             switch (entry.value) {
                 FlagArg.Single => |inner| {
@@ -168,7 +168,7 @@ pub const Args = struct {
     }
 
     // e.g. --names value1 value2 value3
-    pub fn many(self: &Args, name: []const u8) ?[]const []const u8 {
+    pub fn many(self: *Args, name: []const u8) ?[]const []const u8 {
         if (self.flags.get(name)) |entry| {
             switch (entry.value) {
                 FlagArg.Many => |inner| {

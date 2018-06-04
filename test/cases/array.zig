@@ -34,7 +34,7 @@ test "void arrays" {
 }
 
 test "array literal" {
-    const hex_mult = []u16 {
+    const hex_mult = []u16{
         4096,
         256,
         16,
@@ -54,7 +54,7 @@ test "array dot len const expr" {
 const ArrayDotLenConstExpr = struct {
     y: [some_array.len]u8,
 };
-const some_array = []u8 {
+const some_array = []u8{
     0,
     1,
     2,
@@ -62,7 +62,7 @@ const some_array = []u8 {
 };
 
 test "nested arrays" {
-    const array_of_strings = [][]const u8 {
+    const array_of_strings = [][]const u8{
         "hello",
         "this",
         "is",
@@ -86,9 +86,7 @@ const Str = struct {
     a: []Sub,
 };
 test "set global var array via slice embedded in struct" {
-    var s = Str {
-        .a = s_array[0..],
-    };
+    var s = Str{ .a = s_array[0..] };
 
     s.a[0].b = 1;
     s.a[1].b = 2;
@@ -100,7 +98,7 @@ test "set global var array via slice embedded in struct" {
 }
 
 test "array literal with specified size" {
-    var array = [2]u8 {
+    var array = [2]u8{
         1,
         2,
     };

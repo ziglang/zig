@@ -11,7 +11,7 @@ const max_int_digits = 65;
 /// Renders fmt string with args, calling output with slices of bytes.
 /// If `output` returns an error, the error is returned from `format` and
 /// `output` is not called again.
-pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void, comptime fmt: []const u8, args: ...) Errors!void {
+pub fn format(context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void, comptime fmt: []const u8, args: ...) Errors!void {
     const State = enum {
         Start,
         OpenBrace,
@@ -107,7 +107,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                 '}' => {
                     return output(context, args[next_arg]);
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.BufWidth;
                 },
@@ -127,7 +127,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.IntegerWidth;
                 },
@@ -141,7 +141,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.FloatScientific => switch (c) {
@@ -151,7 +151,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.FloatScientificWidth;
                 },
@@ -165,7 +165,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.Float => switch (c) {
@@ -175,7 +175,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.FloatWidth;
                 },
@@ -189,7 +189,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.BufWidth => switch (c) {
@@ -200,7 +200,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.Character => switch (c) {
@@ -223,7 +223,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     radix = 1024;
                     state = State.BytesBase;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.BytesWidth;
                 },
@@ -236,7 +236,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {
+                '0'...'9' => {
                     width_start = i;
                     state = State.BytesWidth;
                 },
@@ -250,7 +250,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
                     state = State.Start;
                     start_index = i + 1;
                 },
-                '0' ... '9' => {},
+                '0'...'9' => {},
                 else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
         }
@@ -268,7 +268,7 @@ pub fn format(context: var, comptime Errors: type, output: fn(@typeOf(context), 
     }
 }
 
-pub fn formatValue(value: var, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+pub fn formatValue(value: var, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
     const T = @typeOf(value);
     switch (@typeId(T)) {
         builtin.TypeId.Int => {
@@ -317,11 +317,11 @@ pub fn formatValue(value: var, context: var, comptime Errors: type, output: fn(@
     }
 }
 
-pub fn formatAsciiChar(c: u8, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+pub fn formatAsciiChar(c: u8, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
     return output(context, (&c)[0..1]);
 }
 
-pub fn formatBuf(buf: []const u8, width: usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+pub fn formatBuf(buf: []const u8, width: usize, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
     try output(context, buf);
 
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
@@ -334,7 +334,7 @@ pub fn formatBuf(buf: []const u8, width: usize, context: var, comptime Errors: t
 // Print a float in scientific notation to the specified precision. Null uses full precision.
 // It should be the case that every full precision, printed value can be re-parsed back to the
 // same type unambiguously.
-pub fn formatFloatScientific(value: var, maybe_precision: ?usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+pub fn formatFloatScientific(value: var, maybe_precision: ?usize, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
     var x = f64(value);
 
     // Errol doesn't handle these special cases.
@@ -423,7 +423,7 @@ pub fn formatFloatScientific(value: var, maybe_precision: ?usize, context: var, 
 
 // Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
 // By default floats are printed at full precision (no rounding).
-pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
     var x = f64(value);
 
     // Errol doesn't handle these special cases.
@@ -512,7 +512,7 @@ pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, com
         // Remaining fractional portion, zero-padding if insufficient.
         debug.assert(precision >= printed);
         if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
-            try output(context, float_decimal.digits[num_digits_whole_no_pad..num_digits_whole_no_pad + precision - printed]);
+            try output(context, float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
             return;
         } else {
             try output(context, float_decimal.digits[num_digits_whole_no_pad..]);
@@ -562,9 +562,14 @@ pub fn formatFloatDecimal(value: var, maybe_precision: ?usize, context: var, com
     }
 }
 
-pub fn formatBytes(value: var, width: ?usize, comptime radix: usize,
-    context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)Errors!void) Errors!void
-{
+pub fn formatBytes(
+    value: var,
+    width: ?usize,
+    comptime radix: usize,
+    context: var,
+    comptime Errors: type,
+    output: fn (@typeOf(context), []const u8) Errors!void,
+) Errors!void {
     if (value == 0) {
         return output(context, "0B");
     }
@@ -585,16 +590,22 @@ pub fn formatBytes(value: var, width: ?usize, comptime radix: usize,
     }
 
     const buf = switch (radix) {
-        1000 => []u8 { suffix, 'B' },
-        1024 => []u8 { suffix, 'i', 'B' },
+        1000 => []u8{ suffix, 'B' },
+        1024 => []u8{ suffix, 'i', 'B' },
         else => unreachable,
     };
     return output(context, buf);
 }
 
-pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
-    context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)Errors!void) Errors!void
-{
+pub fn formatInt(
+    value: var,
+    base: u8,
+    uppercase: bool,
+    width: usize,
+    context: var,
+    comptime Errors: type,
+    output: fn (@typeOf(context), []const u8) Errors!void,
+) Errors!void {
     if (@typeOf(value).is_signed) {
         return formatIntSigned(value, base, uppercase, width, context, Errors, output);
     } else {
@@ -602,7 +613,7 @@ pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
     }
 }
 
-fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
     const uint = @IntType(false, @typeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
@@ -621,7 +632,7 @@ fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize, context:
     }
 }
 
-fn formatIntUnsigned(value: var, base: u8, uppercase: bool, width: usize, context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8) Errors!void) Errors!void {
+fn formatIntUnsigned(value: var, base: u8, uppercase: bool, width: usize, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
     // max_int_digits accounts for the minus sign. when printing an unsigned
     // number we don't need to do that.
     var buf: [max_int_digits - 1]u8 = undefined;
@@ -650,7 +661,7 @@ fn formatIntUnsigned(value: var, base: u8, uppercase: bool, width: usize, contex
         mem.set(u8, buf[0..index], '0');
         return output(context, buf);
     } else {
-        const padded_buf = buf[index - padding..];
+        const padded_buf = buf[index - padding ..];
         mem.set(u8, padded_buf[0..padding], '0');
         return output(context, padded_buf);
     }
@@ -668,7 +679,7 @@ const FormatIntBuf = struct {
     out_buf: []u8,
     index: usize,
 };
-fn formatIntCallback(context: &FormatIntBuf, bytes: []const u8) (error{}!void) {
+fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error{}!void) {
     mem.copy(u8, context.out_buf[context.index..], bytes);
     context.index += bytes.len;
 }
@@ -717,9 +728,9 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
     const value = switch (c) {
-        '0' ... '9' => c - '0',
-        'A' ... 'Z' => c - 'A' + 10,
-        'a' ... 'z' => c - 'a' + 10,
+        '0'...'9' => c - '0',
+        'A'...'Z' => c - 'A' + 10,
+        'a'...'z' => c - 'a' + 10,
         else => return error.InvalidCharacter,
     };
 
@@ -730,8 +741,8 @@ pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
 
 fn digitToChar(digit: u8, uppercase: bool) u8 {
     return switch (digit) {
-        0 ... 9 => digit + '0',
-        10 ... 35 => digit + ((if (uppercase) u8('A') else u8('a')) - 10),
+        0...9 => digit + '0',
+        10...35 => digit + ((if (uppercase) u8('A') else u8('a')) - 10),
         else => unreachable,
     };
 }
@@ -740,7 +751,7 @@ const BufPrintContext = struct {
     remaining: []u8,
 };
 
-fn bufPrintWrite(context: &BufPrintContext, bytes: []const u8) !void {
+fn bufPrintWrite(context: *BufPrintContext, bytes: []const u8) !void {
     if (context.remaining.len < bytes.len) return error.BufferTooSmall;
     mem.copy(u8, context.remaining, bytes);
     context.remaining = context.remaining[bytes.len..];
@@ -749,18 +760,17 @@ fn bufPrintWrite(context: &BufPrintContext, bytes: []const u8) !void {
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) ![]u8 {
     var context = BufPrintContext{ .remaining = buf };
     try format(&context, error{BufferTooSmall}, bufPrintWrite, fmt, args);
-    return buf[0..buf.len - context.remaining.len];
+    return buf[0 .. buf.len - context.remaining.len];
 }
 
-pub fn allocPrint(allocator: &mem.Allocator, comptime fmt: []const u8, args: ...) ![]u8 {
+pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: ...) ![]u8 {
     var size: usize = 0;
-    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {
-    };
+    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args);
 }
 
-fn countSize(size: &usize, bytes: []const u8) (error{}!void) {
+fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
     size.* += bytes.len;
 }
 
@@ -1043,8 +1053,7 @@ test "fmt.format" {
 fn testFmt(expected: []const u8, comptime template: []const u8, args: ...) !void {
     var buf: [100]u8 = undefined;
     const result = try bufPrint(buf[0..], template, args);
-    if (mem.eql(u8, result, expected))
-        return;
+    if (mem.eql(u8, result, expected)) return;
 
     std.debug.warn("\n====== expected this output: =========\n");
     std.debug.warn("{}", expected);
@@ -1082,10 +1091,7 @@ test "fmt.trim" {
 
 pub fn isWhiteSpace(byte: u8) bool {
     return switch (byte) {
-        ' ',
-        '\t',
-        '\n',
-        '\r' => true,
+        ' ', '\t', '\n', '\r' => true,
         else => false,
     };
 }

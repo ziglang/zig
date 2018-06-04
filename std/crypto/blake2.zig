@@ -49,16 +49,16 @@ fn Blake2s(comptime out_len: usize) type {
         };
 
         const sigma = [10][16]u8{
-            []const u8 { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
-            []const u8 { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
-            []const u8 { 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
-            []const u8 { 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
-            []const u8 { 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
-            []const u8 { 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
-            []const u8 { 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
-            []const u8 { 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
-            []const u8 { 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
-            []const u8 { 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
+            []const u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+            []const u8{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
+            []const u8{ 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
+            []const u8{ 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
+            []const u8{ 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
+            []const u8{ 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
+            []const u8{ 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
+            []const u8{ 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
+            []const u8{ 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
+            []const u8{ 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
         };
 
         h: [8]u32,
@@ -75,7 +75,7 @@ fn Blake2s(comptime out_len: usize) type {
             return s;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             mem.copy(u32, d.h[0..], iv[0..]);
 
             // No key plus default parameters
@@ -90,7 +90,7 @@ fn Blake2s(comptime out_len: usize) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -105,7 +105,7 @@ fn Blake2s(comptime out_len: usize) type {
             // Full middle blocks.
             while (off + 64 <= b.len) : (off += 64) {
                 d.t += 64;
-                d.round(b[off..off + 64], false);
+                d.round(b[off .. off + 64], false);
             }
 
             // Copy any remainder for next pass.
@@ -113,28 +113,28 @@ fn Blake2s(comptime out_len: usize) type {
             d.buf_len += u8(b[off..].len);
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             debug.assert(out.len >= out_len / 8);
 
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
-            const rr = d.h[0..out_len / 32];
+            const rr = d.h[0 .. out_len / 32];
 
             for (rr) |s, j| {
-                mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Little);
+                mem.writeInt(out[4 * j .. 4 * j + 4], s, builtin.Endian.Little);
             }
         }
 
-        fn round(d: &Self, b: []const u8, last: bool) void {
+        fn round(d: *Self, b: []const u8, last: bool) void {
             debug.assert(b.len == 64);
 
             var m: [16]u32 = undefined;
             var v: [16]u32 = undefined;
 
             for (m) |*r, i| {
-                r.* = mem.readIntLE(u32, b[4 * i..4 * i + 4]);
+                r.* = mem.readIntLE(u32, b[4 * i .. 4 * i + 4]);
             }
 
             var k: usize = 0;
@@ -282,222 +282,18 @@ fn Blake2b(comptime out_len: usize) type {
         };
 
         const sigma = [12][16]u8{
-            []const u8{
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-            },
-            []const u8{
-                14,
-                10,
-                4,
-                8,
-                9,
-                15,
-                13,
-                6,
-                1,
-                12,
-                0,
-                2,
-                11,
-                7,
-                5,
-                3,
-            },
-            []const u8{
-                11,
-                8,
-                12,
-                0,
-                5,
-                2,
-                15,
-                13,
-                10,
-                14,
-                3,
-                6,
-                7,
-                1,
-                9,
-                4,
-            },
-            []const u8{
-                7,
-                9,
-                3,
-                1,
-                13,
-                12,
-                11,
-                14,
-                2,
-                6,
-                5,
-                10,
-                4,
-                0,
-                15,
-                8,
-            },
-            []const u8{
-                9,
-                0,
-                5,
-                7,
-                2,
-                4,
-                10,
-                15,
-                14,
-                1,
-                11,
-                12,
-                6,
-                8,
-                3,
-                13,
-            },
-            []const u8{
-                2,
-                12,
-                6,
-                10,
-                0,
-                11,
-                8,
-                3,
-                4,
-                13,
-                7,
-                5,
-                15,
-                14,
-                1,
-                9,
-            },
-            []const u8{
-                12,
-                5,
-                1,
-                15,
-                14,
-                13,
-                4,
-                10,
-                0,
-                7,
-                6,
-                3,
-                9,
-                2,
-                8,
-                11,
-            },
-            []const u8{
-                13,
-                11,
-                7,
-                14,
-                12,
-                1,
-                3,
-                9,
-                5,
-                0,
-                15,
-                4,
-                8,
-                6,
-                2,
-                10,
-            },
-            []const u8{
-                6,
-                15,
-                14,
-                9,
-                11,
-                3,
-                0,
-                8,
-                12,
-                2,
-                13,
-                7,
-                1,
-                4,
-                10,
-                5,
-            },
-            []const u8{
-                10,
-                2,
-                8,
-                4,
-                7,
-                6,
-                1,
-                5,
-                15,
-                11,
-                9,
-                14,
-                3,
-                12,
-                13,
-                0,
-            },
-            []const u8{
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-            },
-            []const u8{
-                14,
-                10,
-                4,
-                8,
-                9,
-                15,
-                13,
-                6,
-                1,
-                12,
-                0,
-                2,
-                11,
-                7,
-                5,
-                3,
-            },
+            []const u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+            []const u8{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
+            []const u8{ 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
+            []const u8{ 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
+            []const u8{ 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
+            []const u8{ 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
+            []const u8{ 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
+            []const u8{ 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
+            []const u8{ 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
+            []const u8{ 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
+            []const u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+            []const u8{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
         };
 
         h: [8]u64,
@@ -514,7 +310,7 @@ fn Blake2b(comptime out_len: usize) type {
             return s;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             mem.copy(u64, d.h[0..], iv[0..]);
 
             // No key plus default parameters
@@ -529,7 +325,7 @@ fn Blake2b(comptime out_len: usize) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -544,7 +340,7 @@ fn Blake2b(comptime out_len: usize) type {
             // Full middle blocks.
             while (off + 128 <= b.len) : (off += 128) {
                 d.t += 128;
-                d.round(b[off..off + 128], false);
+                d.round(b[off .. off + 128], false);
             }
 
             // Copy any remainder for next pass.
@@ -552,26 +348,26 @@ fn Blake2b(comptime out_len: usize) type {
             d.buf_len += u8(b[off..].len);
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
-            const rr = d.h[0..out_len / 64];
+            const rr = d.h[0 .. out_len / 64];
 
             for (rr) |s, j| {
-                mem.writeInt(out[8 * j..8 * j + 8], s, builtin.Endian.Little);
+                mem.writeInt(out[8 * j .. 8 * j + 8], s, builtin.Endian.Little);
             }
         }
 
-        fn round(d: &Self, b: []const u8, last: bool) void {
+        fn round(d: *Self, b: []const u8, last: bool) void {
             debug.assert(b.len == 128);
 
             var m: [16]u64 = undefined;
             var v: [16]u64 = undefined;
 
             for (m) |*r, i| {
-                r.* = mem.readIntLE(u64, b[8 * i..8 * i + 8]);
+                r.* = mem.readIntLE(u64, b[8 * i .. 8 * i + 8]);
             }
 
             var k: usize = 0;

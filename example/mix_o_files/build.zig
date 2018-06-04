@@ -1,6 +1,6 @@
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) void {
+pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addCExecutable("test");

@@ -44,7 +44,7 @@ pub const Md5 = struct {
         return d;
     }
 
-    pub fn reset(d: &Self) void {
+    pub fn reset(d: *Self) void {
         d.s[0] = 0x67452301;
         d.s[1] = 0xEFCDAB89;
         d.s[2] = 0x98BADCFE;
@@ -59,7 +59,7 @@ pub const Md5 = struct {
         d.final(out);
     }
 
-    pub fn update(d: &Self, b: []const u8) void {
+    pub fn update(d: *Self, b: []const u8) void {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -73,7 +73,7 @@ pub const Md5 = struct {
 
         // Full middle blocks.
         while (off + 64 <= b.len) : (off += 64) {
-            d.round(b[off..off + 64]);
+            d.round(b[off .. off + 64]);
         }
 
         // Copy any remainder for next pass.
@@ -84,7 +84,7 @@ pub const Md5 = struct {
         d.total_len +%= b.len;
     }
 
-    pub fn final(d: &Self, out: []u8) void {
+    pub fn final(d: *Self, out: []u8) void {
         debug.assert(out.len >= 16);
 
         // The buffer here will never be completely full.
@@ -112,11 +112,11 @@ pub const Md5 = struct {
         d.round(d.buf[0..]);
 
         for (d.s) |s, j| {
-            mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Little);
+            mem.writeInt(out[4 * j .. 4 * j + 4], s, builtin.Endian.Little);
         }
     }
 
-    fn round(d: &Self, b: []const u8) void {
+    fn round(d: *Self, b: []const u8) void {
         debug.assert(b.len == 64);
 
         var s: [16]u32 = undefined;

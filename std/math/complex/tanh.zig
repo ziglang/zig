@@ -13,7 +13,7 @@ pub fn tanh(z: var) Complex(@typeOf(z.re)) {
     };
 }
 
-fn tanh32(z: &const Complex(f32)) Complex(f32) {
+fn tanh32(z: *const Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -51,7 +51,7 @@ fn tanh32(z: &const Complex(f32)) Complex(f32) {
     return Complex(f32).new((beta * rho * s) / den, t / den);
 }
 
-fn tanh64(z: &const Complex(f64)) Complex(f64) {
+fn tanh64(z: *const Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 
@@ -98,7 +98,7 @@ test "complex.ctanh32" {
     const a = Complex(f32).new(5, 3);
     const c = tanh(a);
 
-    debug.assert(math.approxEq(f32, c.re,  0.999913, epsilon));
+    debug.assert(math.approxEq(f32, c.re, 0.999913, epsilon));
     debug.assert(math.approxEq(f32, c.im, -0.000025, epsilon));
 }
 
@@ -106,6 +106,6 @@ test "complex.ctanh64" {
     const a = Complex(f64).new(5, 3);
     const c = tanh(a);
 
-    debug.assert(math.approxEq(f64, c.re,  0.999913, epsilon));
+    debug.assert(math.approxEq(f64, c.re, 0.999913, epsilon));
     debug.assert(math.approxEq(f64, c.im, -0.000025, epsilon));
 }

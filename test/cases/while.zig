@@ -151,7 +151,7 @@ test "while on nullable with else result follow break prong" {
 test "while on error union with else result follow else prong" {
     const result = while (returnError()) |value| {
         break value;
-    } else|err| 
+    } else |err|
         i32(2);
     assert(result == 2);
 }
@@ -159,7 +159,7 @@ test "while on error union with else result follow else prong" {
 test "while on error union with else result follow break prong" {
     const result = while (returnSuccess(10)) |value| {
         break value;
-    } else|err| 
+    } else |err|
         i32(2);
     assert(result == 10);
 }

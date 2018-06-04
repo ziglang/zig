@@ -19,36 +19,42 @@ pub const Address = struct {
     os_addr: OsAddress,
 
     pub fn initIp4(ip4: u32, port: u16) Address {
-        return Address{ .os_addr = posix.sockaddr{ .in = posix.sockaddr_in{
-            .family = posix.AF_INET,
-            .port = std.mem.endianSwapIfLe(u16, port),
-            .addr = ip4,
-            .zero = []u8{0} ** 8,
-        } } };
-    }
-
-    pub fn initIp6(ip6: &const Ip6Addr, port: u16) Address {
         return Address{
-            .family = posix.AF_INET6,
-            .os_addr = posix.sockaddr{ .in6 = posix.sockaddr_in6{
-                .family = posix.AF_INET6,
-                .port = std.mem.endianSwapIfLe(u16, port),
-                .flowinfo = 0,
-                .addr = ip6.addr,
-                .scope_id = ip6.scope_id,
-            } },
+            .os_addr = posix.sockaddr{
+                .in = posix.sockaddr_in{
+                    .family = posix.AF_INET,
+                    .port = std.mem.endianSwapIfLe(u16, port),
+                    .addr = ip4,
+                    .zero = []u8{0} ** 8,
+                },
+            },
         };
     }
 
-    pub fn initPosix(addr: &const posix.sockaddr) Address {
+    pub fn initIp6(ip6: *const Ip6Addr, port: u16) Address {
+        return Address{
+            .family = posix.AF_INET6,
+            .os_addr = posix.sockaddr{
+                .in6 = posix.sockaddr_in6{
+                    .family = posix.AF_INET6,
+                    .port = std.mem.endianSwapIfLe(u16, port),
+                    .flowinfo = 0,
+                    .addr = ip6.addr,
+                    .scope_id = ip6.scope_id,
+                },
+            },
+        };
+    }
+
+    pub fn initPosix(addr: *const posix.sockaddr) Address {
         return Address{ .os_addr = addr.* };
     }
 
-    pub fn format(self: &const Address, out_stream: var) !void {
+    pub fn format(self: *const Address, out_stream: var) !void {
         switch (self.os_addr.in.family) {
             posix.AF_INET => {
                 const native_endian_port = std.mem.endianSwapIfLe(u16, self.os_addr.in.port);
-                const bytes = ([]const u8)((&self.os_addr.in.addr)[0..1]);
+                const bytes = ([]const u8)((*self.os_addr.in.addr)[0..1]);
                 try out_stream.print("{}.{}.{}.{}:{}", bytes[0], bytes[1], bytes[2], bytes[3], native_endian_port);
             },
             posix.AF_INET6 => {

@@ -27,7 +27,7 @@ test "invake static method in global scope" {
 }
 
 test "void struct fields" {
-    const foo = VoidStructFieldsFoo {
+    const foo = VoidStructFieldsFoo{
         .a = void{},
         .b = 1,
         .c = void{},
@@ -43,7 +43,7 @@ const VoidStructFieldsFoo = struct {
 
 test "structs" {
     var foo: StructFoo = undefined;
-    @memset(@ptrCast(&u8, &foo), 0, @sizeOf(StructFoo));
+    @memset(@ptrCast([*]u8, &foo), 0, @sizeOf(StructFoo));
     foo.a += 1;
     foo.b = foo.a == 1;
     testFoo(foo);
@@ -55,16 +55,16 @@ const StructFoo = struct {
     b: bool,
     c: f32,
 };
-fn testFoo(foo: &const StructFoo) void {
+fn testFoo(foo: *const StructFoo) void {
     assert(foo.b);
 }
-fn testMutation(foo: &StructFoo) void {
+fn testMutation(foo: *StructFoo) void {
     foo.c = 100;
 }
 
 const Node = struct {
     val: Val,
-    next: &Node,
+    next: *Node,
 };
 
 const Val = struct {
@@ -96,62 +96,52 @@ test "struct byval assign" {
 }
 
 fn structInitializer() void {
-    const val = Val {
-        .x = 42,
-    };
+    const val = Val{ .x = 42 };
     assert(val.x == 42);
 }
 
 test "fn call of struct field" {
-    assert(callStructField(Foo {
-        .ptr = aFunc,
-    }) == 13);
+    assert(callStructField(Foo{ .ptr = aFunc }) == 13);
 }
 
 const Foo = struct {
-    ptr: fn() i32,
+    ptr: fn () i32,
 };
 
 fn aFunc() i32 {
     return 13;
 }
 
-fn callStructField(foo: &const Foo) i32 {
+fn callStructField(foo: *const Foo) i32 {
     return foo.ptr();
 }
 
 test "store member function in variable" {
-    const instance = MemberFnTestFoo {
-        .x = 1234,
-    };
+    const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
     assert(result == 1234);
 }
 const MemberFnTestFoo = struct {
     x: i32,
-    fn member(foo: &const MemberFnTestFoo) i32 {
+    fn member(foo: *const MemberFnTestFoo) i32 {
         return foo.x;
     }
 };
 
 test "call member function directly" {
-    const instance = MemberFnTestFoo {
-        .x = 1234,
-    };
+    const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
     assert(result == 1234);
 }
 
 test "member functions" {
-    const r = MemberFnRand {
-        .seed = 1234,
-    };
+    const r = MemberFnRand{ .seed = 1234 };
     assert(r.getSeed() == 1234);
 }
 const MemberFnRand = struct {
     seed: u32,
-    pub fn getSeed(r: &const MemberFnRand) u32 {
+    pub fn getSeed(r: *const MemberFnRand) u32 {
         return r.seed;
     }
 };
@@ -165,7 +155,7 @@ const Bar = struct {
     y: i32,
 };
 fn makeBar(x: i32, y: i32) Bar {
-    return Bar {
+    return Bar{
         .x = x,
         .y = y,
     };
@@ -176,7 +166,7 @@ test "empty struct method call" {
     assert(es.method() == 1234);
 }
 const EmptyStruct = struct {
-    fn method(es: &const EmptyStruct) i32 {
+    fn method(es: *const EmptyStruct) i32 {
         return 1234;
     }
 };
@@ -190,7 +180,7 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 }
 
 test "pass slice of empty struct to fn" {
-    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2 {EmptyStruct2{}}) == 1);
+    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
@@ -202,7 +192,7 @@ const APackedStruct = packed struct {
 };
 
 test "packed struct" {
-    var foo = APackedStruct {
+    var foo = APackedStruct{
         .x = 1,
         .y = 2,
     };
@@ -217,7 +207,7 @@ const BitField1 = packed struct {
     c: u2,
 };
 
-const bit_field_1 = BitField1 {
+const bit_field_1 = BitField1{
     .a = 1,
     .b = 2,
     .c = 3,
@@ -238,15 +228,15 @@ test "bit field access" {
     assert(data.b == 3);
 }
 
-fn getA(data: &const BitField1) u3 {
+fn getA(data: *const BitField1) u3 {
     return data.a;
 }
 
-fn getB(data: &const BitField1) u3 {
+fn getB(data: *const BitField1) u3 {
     return data.b;
 }
 
-fn getC(data: &const BitField1) u2 {
+fn getC(data: *const BitField1) u2 {
     return data.c;
 }
 
@@ -267,7 +257,7 @@ test "packed struct 24bits" {
         assert(@sizeOf(Foo96Bits) == 12);
     }
 
-    var value = Foo96Bits {
+    var value = Foo96Bits{
         .a = 0,
         .b = 0,
         .c = 0,
@@ -310,9 +300,9 @@ test "packed array 24bits" {
         assert(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
     }
 
-    var bytes = []u8 {0} ** (@sizeOf(FooArray24Bits) + 1);
+    var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
     bytes[bytes.len - 1] = 0xaa;
-    const ptr = &([]FooArray24Bits)(bytes[0..bytes.len - 1])[0];
+    const ptr = &([]FooArray24Bits)(bytes[0 .. bytes.len - 1])[0];
     assert(ptr.a == 0);
     assert(ptr.b[0].field == 0);
     assert(ptr.b[1].field == 0);
@@ -360,7 +350,7 @@ test "aligned array of packed struct" {
         assert(@sizeOf(FooArrayOfAligned) == 2 * 2);
     }
 
-    var bytes = []u8 {0xbb} ** @sizeOf(FooArrayOfAligned);
+    var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
     const ptr = &([]FooArrayOfAligned)(bytes[0..bytes.len])[0];
 
     assert(ptr.a[0].a == 0xbb);
@@ -370,11 +360,11 @@ test "aligned array of packed struct" {
 }
 
 test "runtime struct initialization of bitfield" {
-    const s1 = Nibbles {
+    const s1 = Nibbles{
         .x = x1,
         .y = x1,
     };
-    const s2 = Nibbles {
+    const s2 = Nibbles{
         .x = u4(x2),
         .y = u4(x2),
     };
@@ -406,8 +396,8 @@ const Bitfields = packed struct {
 test "native bit field understands endianness" {
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 = undefined;
-    @memcpy(&bytes[0], @ptrCast(&u8, &all), 8);
-    var bitfields = @ptrCast(&Bitfields, &bytes[0]).*;
+    @memcpy(bytes[0..].ptr, @ptrCast([*]u8, &all), 8);
+    var bitfields = @ptrCast(*Bitfields, bytes[0..].ptr).*;
 
     assert(bitfields.f1 == 0x1111);
     assert(bitfields.f2 == 0x2222);
@@ -425,7 +415,7 @@ test "align 1 field before self referential align 8 field as slice return type" 
 
 const Expr = union(enum) {
     Literal: u8,
-    Question: &Expr,
+    Question: *Expr,
 };
 
 fn alloc(comptime T: type) []T {

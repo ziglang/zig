@@ -42,13 +42,13 @@ pub const Symbol = struct {
     name: []const u8,
     address: u64,
 
-    fn addressLessThan(lhs: &const Symbol, rhs: &const Symbol) bool {
+    fn addressLessThan(lhs: *const Symbol, rhs: *const Symbol) bool {
         return lhs.address < rhs.address;
     }
 };
 
 pub const SymbolTable = struct {
-    allocator: &mem.Allocator,
+    allocator: *mem.Allocator,
     symbols: []const Symbol,
     strings: []const u8,
 
@@ -56,17 +56,17 @@ pub const SymbolTable = struct {
     // Ideally we'd use _mh_execute_header because it's always at 0x100000000
     // in the image but as it's located in a different section than executable
     // code, its displacement is different.
-    pub fn deinit(self: &SymbolTable) void {
+    pub fn deinit(self: *SymbolTable) void {
         self.allocator.free(self.symbols);
-        self.symbols = []const Symbol {};
+        self.symbols = []const Symbol{};
 
         self.allocator.free(self.strings);
-        self.strings = []const u8 {};
+        self.strings = []const u8{};
     }
 
-    pub fn search(self: &const SymbolTable, address: usize) ?&const Symbol {
+    pub fn search(self: *const SymbolTable, address: usize) ?*const Symbol {
         var min: usize = 0;
-        var max: usize = self.symbols.len - 1;  // Exclude sentinel.
+        var max: usize = self.symbols.len - 1; // Exclude sentinel.
         while (min < max) {
             const mid = min + (max - min) / 2;
             const curr = &self.symbols[mid];
@@ -83,7 +83,7 @@ pub const SymbolTable = struct {
     }
 };
 
-pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable {
+pub fn loadSymbols(allocator: *mem.Allocator, in: *io.FileInStream) !SymbolTable {
     var file = in.file;
     try file.seekTo(0);
 
@@ -118,10 +118,11 @@ pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable
     try in.stream.readNoEof(strings);
 
     var nsyms: usize = 0;
-    for (syms) |sym| if (isSymbol(sym)) nsyms += 1;
+    for (syms) |sym|
+        if (isSymbol(sym)) nsyms += 1;
     if (nsyms == 0) return error.MissingDebugInfo;
 
-    var symbols = try allocator.alloc(Symbol, nsyms + 1);  // Room for sentinel.
+    var symbols = try allocator.alloc(Symbol, nsyms + 1); // Room for sentinel.
     errdefer allocator.free(symbols);
 
     var pie_slide: usize = 0;
@@ -132,7 +133,7 @@ pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable
         const end = ??mem.indexOfScalarPos(u8, strings, start, 0);
         const name = strings[start..end];
         const address = sym.n_value;
-        symbols[nsym] = Symbol { .name = name, .address = address };
+        symbols[nsym] = Symbol{ .name = name, .address = address };
         nsym += 1;
         if (is_pie and mem.eql(u8, name, "_SymbolTable_deinit")) {
             pie_slide = @ptrToInt(SymbolTable.deinit) - address;
@@ -145,26 +146,27 @@ pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable
     // Insert the sentinel.  Since we don't know where the last function ends,
     // we arbitrarily limit it to the start address + 4 KB.
     const top = symbols[nsyms - 1].address + 4096;
-    symbols[nsyms] = Symbol { .name = "", .address = top };
+    symbols[nsyms] = Symbol{ .name = "", .address = top };
 
     if (pie_slide != 0) {
-        for (symbols) |*symbol| symbol.address += pie_slide;
+        for (symbols) |*symbol|
+            symbol.address += pie_slide;
     }
 
-    return SymbolTable {
+    return SymbolTable{
         .allocator = allocator,
         .symbols = symbols,
         .strings = strings,
     };
 }
 
-fn readNoEof(in: &io.FileInStream, comptime T: type, result: []T) !void {
+fn readNoEof(in: *io.FileInStream, comptime T: type, result: []T) !void {
     return in.stream.readNoEof(([]u8)(result));
 }
-fn readOneNoEof(in: &io.FileInStream, comptime T: type, result: &T) !void {
+fn readOneNoEof(in: *io.FileInStream, comptime T: type, result: *T) !void {
     return readNoEof(in, T, result[0..1]);
 }
 
-fn isSymbol(sym: &const Nlist64) bool {
+fn isSymbol(sym: *const Nlist64) bool {
     return sym.n_value != 0 and sym.n_desc == 0;
 }
