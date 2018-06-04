@@ -43,7 +43,7 @@ const VoidStructFieldsFoo = struct {
 
 test "structs" {
     var foo: StructFoo = undefined;
-    @memset(@ptrCast(*u8, &foo), 0, @sizeOf(StructFoo));
+    @memset(@ptrCast([*]u8, &foo), 0, @sizeOf(StructFoo));
     foo.a += 1;
     foo.b = foo.a == 1;
     testFoo(foo);
@@ -396,8 +396,8 @@ const Bitfields = packed struct {
 test "native bit field understands endianness" {
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 = undefined;
-    @memcpy(&bytes[0], @ptrCast(*u8, &all), 8);
-    var bitfields = @ptrCast(*Bitfields, &bytes[0]).*;
+    @memcpy(bytes[0..].ptr, @ptrCast([*]u8, &all), 8);
+    var bitfields = @ptrCast(*Bitfields, bytes[0..].ptr).*;
 
     assert(bitfields.f1 == 0x1111);
     assert(bitfields.f2 == 0x2222);

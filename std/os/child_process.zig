@@ -639,7 +639,7 @@ pub const ChildProcess = struct {
     }
 };
 
-fn windowsCreateProcess(app_name: *u8, cmd_line: *u8, envp_ptr: ?*u8, cwd_ptr: ?*u8, lpStartupInfo: *windows.STARTUPINFOA, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
+fn windowsCreateProcess(app_name: [*]u8, cmd_line: [*]u8, envp_ptr: ?[*]u8, cwd_ptr: ?[*]u8, lpStartupInfo: *windows.STARTUPINFOA, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
     if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0, @ptrCast(?*c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0) {
         const err = windows.GetLastError();
         return switch (err) {

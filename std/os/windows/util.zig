@@ -42,7 +42,7 @@ pub const WriteError = error{
 };
 
 pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) WriteError!void {
-    if (windows.WriteFile(handle, @ptrCast(*const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
+    if (windows.WriteFile(handle, @ptrCast([*]const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.INVALID_USER_BUFFER => WriteError.SystemResources,

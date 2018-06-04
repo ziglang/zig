@@ -381,14 +381,14 @@ TypeTableEntry *get_promise_type(CodeGen *g, TypeTableEntry *result_type) {
 }
 
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
-        bool is_volatile, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count)
+        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count)
 {
     assert(!type_is_invalid(child_type));
 
     TypeId type_id = {};
     TypeTableEntry **parent_pointer = nullptr;
     uint32_t abi_alignment = get_abi_alignment(g, child_type);
-    if (unaligned_bit_count != 0 || is_volatile || byte_alignment != abi_alignment) {
+    if (unaligned_bit_count != 0 || is_volatile || byte_alignment != abi_alignment || ptr_len != PtrLenSingle) {
         type_id.id = TypeTableEntryIdPointer;
         type_id.data.pointer.child_type = child_type;
         type_id.data.pointer.is_const = is_const;
@@ -396,6 +396,7 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
         type_id.data.pointer.alignment = byte_alignment;
         type_id.data.pointer.bit_offset = bit_offset;
         type_id.data.pointer.unaligned_bit_count = unaligned_bit_count;
+        type_id.data.pointer.ptr_len = ptr_len;
 
         auto existing_entry = g->type_table.maybe_get(type_id);
         if (existing_entry)
@@ -414,16 +415,17 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
     entry->is_copyable = true;
 
+    const char *star_str = ptr_len == PtrLenSingle ? "*" : "[*]";
     const char *const_str = is_const ? "const " : "";
     const char *volatile_str = is_volatile ? "volatile " : "";
     buf_resize(&entry->name, 0);
     if (unaligned_bit_count == 0 && byte_alignment == abi_alignment) {
-        buf_appendf(&entry->name, "*%s%s%s", const_str, volatile_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "%s%s%s%s", star_str, const_str, volatile_str, buf_ptr(&child_type->name));
     } else if (unaligned_bit_count == 0) {
-        buf_appendf(&entry->name, "*align(%" PRIu32 ") %s%s%s", byte_alignment,
+        buf_appendf(&entry->name, "%salign(%" PRIu32 ") %s%s%s", star_str, byte_alignment,
                 const_str, volatile_str, buf_ptr(&child_type->name));
     } else {
-        buf_appendf(&entry->name, "*align(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s", byte_alignment,
+        buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s", star_str, byte_alignment,
                 bit_offset, bit_offset + unaligned_bit_count, const_str, volatile_str, buf_ptr(&child_type->name));
     }
 
@@ -433,7 +435,9 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
 
     if (!entry->zero_bits) {
         assert(byte_alignment > 0);
-        if (is_const || is_volatile || unaligned_bit_count != 0 || byte_alignment != abi_alignment) {
+        if (is_const || is_volatile || unaligned_bit_count != 0 || byte_alignment != abi_alignment ||
+            ptr_len != PtrLenSingle)
+        {
             TypeTableEntry *peer_type = get_pointer_to_type(g, child_type, false);
             entry->type_ref = peer_type->type_ref;
             entry->di_type = peer_type->di_type;
@@ -451,6 +455,7 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
         entry->di_type = g->builtin_types.entry_void->di_type;
     }
 
+    entry->data.pointer.ptr_len = ptr_len;
     entry->data.pointer.child_type = child_type;
     entry->data.pointer.is_const = is_const;
     entry->data.pointer.is_volatile = is_volatile;
@@ -467,7 +472,8 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
 }
 
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
-    return get_pointer_to_type_extra(g, child_type, is_const, false, get_abi_alignment(g, child_type), 0, 0);
+    return get_pointer_to_type_extra(g, child_type, is_const, false, PtrLenSingle,
+            get_abi_alignment(g, child_type), 0, 0);
 }
 
 TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) {
@@ -757,6 +763,7 @@ static void slice_type_common_init(CodeGen *g, TypeTableEntry *pointer_type, Typ
 
 TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *ptr_type) {
     assert(ptr_type->id == TypeTableEntryIdPointer);
+    assert(ptr_type->data.pointer.ptr_len == PtrLenUnknown);
 
     TypeTableEntry **parent_pointer = &ptr_type->data.pointer.slice_parent;
     if (*parent_pointer) {
@@ -768,14 +775,16 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *ptr_type) {
 
     // replace the & with [] to go from a ptr type name to a slice type name
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "[]%s", buf_ptr(&ptr_type->name) + 1);
+    size_t name_offset = (ptr_type->data.pointer.ptr_len == PtrLenSingle) ? 1 : 3;
+    buf_appendf(&entry->name, "[]%s", buf_ptr(&ptr_type->name) + name_offset);
 
     TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
-    uint32_t abi_alignment;
+    uint32_t abi_alignment = get_abi_alignment(g, child_type);
     if (ptr_type->data.pointer.is_const || ptr_type->data.pointer.is_volatile ||
-        ptr_type->data.pointer.alignment != (abi_alignment = get_abi_alignment(g, child_type)))
+        ptr_type->data.pointer.alignment != abi_alignment)
     {
-        TypeTableEntry *peer_ptr_type = get_pointer_to_type(g, child_type, false);
+        TypeTableEntry *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
+                PtrLenUnknown, abi_alignment, 0, 0);
         TypeTableEntry *peer_slice_type = get_slice_type(g, peer_ptr_type);
 
         slice_type_common_init(g, ptr_type, entry);
@@ -799,9 +808,11 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *ptr_type) {
         if (child_ptr_type->data.pointer.is_const || child_ptr_type->data.pointer.is_volatile ||
             child_ptr_type->data.pointer.alignment != get_abi_alignment(g, grand_child_type))
         {
-            TypeTableEntry *bland_child_ptr_type = get_pointer_to_type(g, grand_child_type, false);
+            TypeTableEntry *bland_child_ptr_type = get_pointer_to_type_extra(g, grand_child_type, false, false,
+                    PtrLenUnknown, get_abi_alignment(g, grand_child_type), 0, 0);
             TypeTableEntry *bland_child_slice = get_slice_type(g, bland_child_ptr_type);
-            TypeTableEntry *peer_ptr_type = get_pointer_to_type(g, bland_child_slice, false);
+            TypeTableEntry *peer_ptr_type = get_pointer_to_type_extra(g, bland_child_slice, false, false,
+                    PtrLenUnknown, get_abi_alignment(g, bland_child_slice), 0, 0);
             TypeTableEntry *peer_slice_type = get_slice_type(g, peer_ptr_type);
 
             entry->type_ref = peer_slice_type->type_ref;
@@ -1284,7 +1295,8 @@ static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_
 }
 
 static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **out_buffer) {
-    TypeTableEntry *ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
     TypeTableEntry *str_type = get_slice_type(g, ptr_type);
     IrInstruction *instr = analyze_const_value(g, scope, node, str_type, nullptr);
     if (type_is_invalid(instr->value.type))
@@ -2954,7 +2966,8 @@ static void typecheck_panic_fn(CodeGen *g, FnTableEntry *panic_fn) {
     if (fn_type_id->param_count != 2) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
-    TypeTableEntry *const_u8_ptr = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *const_u8_ptr = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
     TypeTableEntry *const_u8_slice = get_slice_type(g, const_u8_ptr);
     if (fn_type_id->param_info[0].type != const_u8_slice) {
         return wrong_panic_prototype(g, proto_node, fn_type);
@@ -4994,7 +5007,9 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
 
     // then make the pointer point to it
     const_val->special = ConstValSpecialStatic;
-    const_val->type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    // TODO make this `[*]null u8` instead of `[*]u8`
+    const_val->type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
     const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
     const_val->data.x_ptr.data.base_array.array_val = array_val;
     const_val->data.x_ptr.data.base_array.elem_index = 0;
@@ -5135,7 +5150,9 @@ void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *arr
 {
     assert(array_val->type->id == TypeTableEntryIdArray);
 
-    TypeTableEntry *ptr_type = get_pointer_to_type(g, array_val->type->data.array.child_type, is_const);
+    TypeTableEntry *ptr_type = get_pointer_to_type_extra(g, array_val->type->data.array.child_type,
+            is_const, false, PtrLenUnknown, get_abi_alignment(g, array_val->type->data.array.child_type),
+            0, 0);
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_slice_type(g, ptr_type);
@@ -5759,6 +5776,7 @@ uint32_t type_id_hash(TypeId x) {
             return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
         case TypeTableEntryIdPointer:
             return hash_ptr(x.data.pointer.child_type) +
+                ((x.data.pointer.ptr_len == PtrLenSingle) ? (uint32_t)1120226602 : (uint32_t)3200913342) +
                 (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
                 (x.data.pointer.is_volatile ? (uint32_t)536730450 : (uint32_t)1685612214) +
                 (((uint32_t)x.data.pointer.alignment) ^ (uint32_t)0x777fbe0e) +
@@ -5807,6 +5825,7 @@ bool type_id_eql(TypeId a, TypeId b) {
 
         case TypeTableEntryIdPointer:
             return a.data.pointer.child_type == b.data.pointer.child_type &&
+                a.data.pointer.ptr_len == b.data.pointer.ptr_len &&
                 a.data.pointer.is_const == b.data.pointer.is_const &&
                 a.data.pointer.is_volatile == b.data.pointer.is_volatile &&
                 a.data.pointer.alignment == b.data.pointer.alignment &&

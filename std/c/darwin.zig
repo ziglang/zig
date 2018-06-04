@@ -1,7 +1,7 @@
 extern "c" fn __error() *c_int;
-pub extern "c" fn _NSGetExecutablePath(buf: *u8, bufsize: *u32) c_int;
+pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
 
-pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: *u8, buf_len: usize, basep: *i64) usize;
+pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize;
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;

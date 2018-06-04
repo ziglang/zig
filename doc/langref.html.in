@@ -458,7 +458,7 @@ test "string literals" {
 
     // A C string literal is a null terminated pointer.
     const null_terminated_bytes = c"hello";
-    assert(@typeOf(null_terminated_bytes) == *const u8);
+    assert(@typeOf(null_terminated_bytes) == [*]const u8);
     assert(null_terminated_bytes[5] == 0);
 }
       {#code_end#}
@@ -547,7 +547,7 @@ const c_string_literal =
 ;
       {#code_end#}
       <p>
-      In this example the variable <code>c_string_literal</code> has type <code>*const char</code> and
+      In this example the variable <code>c_string_literal</code> has type <code>[*]const char</code> and
       has a terminating null byte.
       </p>
       {#see_also|@embedFile#}
@@ -1288,7 +1288,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 // array literal
-const message = []u8{'h', 'e', 'l', 'l', 'o'};
+const message = []u8{ 'h', 'e', 'l', 'l', 'o' };
 
 // get the size of an array
 comptime {
@@ -1324,11 +1324,11 @@ test "modify an array" {
 
 // array concatenation works if the values are known
 // at compile time
-const part_one = []i32{1, 2, 3, 4};
-const part_two = []i32{5, 6, 7, 8};
+const part_one = []i32{ 1, 2, 3, 4 };
+const part_two = []i32{ 5, 6, 7, 8 };
 const all_of_it = part_one ++ part_two;
 comptime {
-    assert(mem.eql(i32, all_of_it, []i32{1,2,3,4,5,6,7,8}));
+    assert(mem.eql(i32, all_of_it, []i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
 }
 
 // remember that string literals are arrays
@@ -1357,7 +1357,7 @@ comptime {
 var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (initial_value) |*pt, i| {
-        pt.* = Point {
+        pt.* = Point{
             .x = i32(i),
             .y = i32(i) * 2,
         };
@@ -1377,7 +1377,7 @@ test "compile-time array initalization" {
 // call a function to initialize an array
 var more_points = []Point{makePoint(3)} ** 10;
 fn makePoint(x: i32) Point {
-    return Point {
+    return Point{
         .x = x,
         .y = x * 2,
     };
@@ -1414,25 +1414,24 @@ test "address of syntax" {
 }
 
 test "pointer array access" {
-    // Pointers do not support pointer arithmetic. If you
-    // need such a thing, use array index syntax:
+    // Taking an address of an individual element gives a
+    // pointer to a single item. This kind of pointer
+    // does not support pointer arithmetic.
 
     var array = []u8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    const ptr = &array[1];
+    const ptr = &array[2];
+    assert(@typeOf(ptr) == *u8);
 
     assert(array[2] == 3);
-    ptr[1] += 1;
+    ptr.* += 1;
     assert(array[2] == 4);
 }
 
 test "pointer slicing" {
     // In Zig, we prefer using slices over null-terminated pointers.
-    // You can turn a pointer into a slice using slice syntax:
+    // You can turn an array into a slice using slice syntax:
     var array = []u8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    const ptr = &array[1];
-    const slice = ptr[1..3];
-
-    assert(slice.ptr == &ptr[1]);
+    const slice = array[2..4];
     assert(slice.len == 2);
 
     // Slices have bounds checking and are therefore protected
@@ -1622,18 +1621,27 @@ fn foo(bytes: []u8) u32 {
 const assert = @import("std").debug.assert;
 
 test "basic slices" {
-    var array = []i32{1, 2, 3, 4};
+    var array = []i32{ 1, 2, 3, 4 };
     // A slice is a pointer and a length. The difference between an array and
     // a slice is that the array's length is part of the type and known at
     // compile-time, whereas the slice's length is known at runtime.
     // Both can be accessed with the `len` field.
     const slice = array[0..array.len];
-    assert(slice.ptr == &array[0]);
+    assert(&slice[0] == &array[0]);
     assert(slice.len == array.len);
+
+    // Using the address-of operator on a slice gives a pointer to a single
+    // item, while using the `ptr` field gives an unknown length pointer.
+    assert(@typeOf(slice.ptr) == [*]i32);
+    assert(@typeOf(&slice[0]) == *i32);
+    assert(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
     // of bounds, you'll get a safety check failure:
     slice[10] += 1;
+
+    // Note that `slice.ptr` does not invoke safety checking, while `&slice[0]`
+    // asserts that the slice has len >= 1.
 }
       {#code_end#}
       <p>This is one reason we prefer slices to pointers.</p>
@@ -5937,7 +5945,7 @@ pub const __zig_test_fn_slice = {}; // overwritten later
       {#header_open|C String Literals#}
       {#code_begin|exe#}
       {#link_libc#}
-extern fn puts(*const u8) void;
+extern fn puts([*]const u8) void;
 
 pub fn main() void {
     puts(c"this has a null terminator");

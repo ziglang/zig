@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "indexing single-item pointer",
+        \\export fn entry(ptr: *i32) i32 {
+        \\    return ptr[1];
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: indexing not allowed on pointer to single item",
+    );
+
+    cases.add(
         "invalid deref on switch target",
         \\const NextError = error{NextError};
         \\const OtherError = error{OutOfMemory};
@@ -1002,7 +1011,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a;
         \\}
     ,
-        ".tmp_source.zig:3:12: error: expected type 'i32', found '*const u8'",
+        ".tmp_source.zig:3:12: error: expected type 'i32', found '[*]const u8'",
     );
 
     cases.add(
@@ -2442,13 +2451,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\var s_buffer: [10]u8 = undefined;
         \\pub fn pass(in: []u8) []u8 {
         \\    var out = &s_buffer;
-        \\    out[0].* = in[0];
+        \\    out.*.* = in[0];
         \\    return out.*[0..1];
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(pass)); }
     ,
-        ".tmp_source.zig:4:11: error: attempt to dereference non pointer type '[10]u8'",
+        ".tmp_source.zig:4:10: error: attempt to dereference non pointer type '[10]u8'",
     );
 
     cases.add(

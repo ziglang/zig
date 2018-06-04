@@ -625,7 +625,13 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypePointerType:
             {
                 if (!grouped) fprintf(ar->f, "(");
-                fprintf(ar->f, "*");
+                const char *star = "[*]";
+                if (node->data.pointer_type.star_token != nullptr &&
+                    (node->data.pointer_type.star_token->id == TokenIdStar || node->data.pointer_type.star_token->id == TokenIdStarStar))
+                {
+                    star = "*";
+                }
+                fprintf(ar->f, "%s", star);
                 if (node->data.pointer_type.align_expr != nullptr) {
                     fprintf(ar->f, "align(");
                     render_node_grouped(ar, node->data.pointer_type.align_expr);

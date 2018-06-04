@@ -134,20 +134,7 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
         },
         Os.zen => {
-            const randomness = []u8{
-                42,
-                1,
-                7,
-                12,
-                22,
-                17,
-                99,
-                16,
-                26,
-                87,
-                41,
-                45,
-            };
+            const randomness = []u8{ 42, 1, 7, 12, 22, 17, 99, 16, 26, 87, 41, 45 };
             var i: usize = 0;
             while (i < buf.len) : (i += 1) {
                 if (i > randomness.len) return error.Unknown;
@@ -238,7 +225,7 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
     var index: usize = 0;
     while (index < buf.len) {
         const want_to_read = math.min(buf.len - index, usize(max_buf_len));
-        const rc = posix.read(fd, &buf[index], want_to_read);
+        const rc = posix.read(fd, buf.ptr + index, want_to_read);
         const err = posix.getErrno(rc);
         if (err > 0) {
             return switch (err) {
@@ -278,7 +265,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
     var index: usize = 0;
     while (index < bytes.len) {
         const amt_to_write = math.min(bytes.len - index, usize(max_bytes_len));
-        const rc = posix.write(fd, &bytes[index], amt_to_write);
+        const rc = posix.write(fd, bytes.ptr + index, amt_to_write);
         const write_err = posix.getErrno(rc);
         if (write_err > 0) {
             return switch (write_err) {
@@ -328,7 +315,8 @@ pub fn posixOpen(allocator: *Allocator, file_path: []const u8, flags: u32, perm:
     return posixOpenC(path_with_null.ptr, flags, perm);
 }
 
-pub fn posixOpenC(file_path: *const u8, flags: u32, perm: usize) !i32 {
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
     while (true) {
         const result = posix.open(file_path, flags, perm);
         const err = posix.getErrno(result);
@@ -374,19 +362,19 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
     }
 }
 
-pub fn createNullDelimitedEnvMap(allocator: *Allocator, env_map: *const BufMap) ![]?*u8 {
+pub fn createNullDelimitedEnvMap(allocator: *Allocator, env_map: *const BufMap) ![]?[*]u8 {
     const envp_count = env_map.count();
-    const envp_buf = try allocator.alloc(?*u8, envp_count + 1);
-    mem.set(?*u8, envp_buf, null);
+    const envp_buf = try allocator.alloc(?[*]u8, envp_count + 1);
+    mem.set(?[*]u8, envp_buf, null);
     errdefer freeNullDelimitedEnvMap(allocator, envp_buf);
     {
         var it = env_map.iterator();
         var i: usize = 0;
         while (it.next()) |pair| : (i += 1) {
             const env_buf = try allocator.alloc(u8, pair.key.len + pair.value.len + 2);
-            @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
+            @memcpy(env_buf.ptr, pair.key.ptr, pair.key.len);
             env_buf[pair.key.len] = '=';
-            @memcpy(&env_buf[pair.key.len + 1], pair.value.ptr, pair.value.len);
+            @memcpy(env_buf.ptr + pair.key.len + 1, pair.value.ptr, pair.value.len);
             env_buf[env_buf.len - 1] = 0;
 
             envp_buf[i] = env_buf.ptr;
@@ -397,7 +385,7 @@ pub fn createNullDelimitedEnvMap(allocator: *Allocator, env_map: *const BufMap) 
     return envp_buf;
 }
 
-pub fn freeNullDelimitedEnvMap(allocator: *Allocator, envp_buf: []?*u8) void {
+pub fn freeNullDelimitedEnvMap(allocator: *Allocator, envp_buf: []?[*]u8) void {
     for (envp_buf) |env| {
         const env_buf = if (env) |ptr| ptr[0 .. cstr.len(ptr) + 1] else break;
         allocator.free(env_buf);
@@ -411,8 +399,8 @@ pub fn freeNullDelimitedEnvMap(allocator: *Allocator, envp_buf: []?*u8) void {
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: *Allocator) !void {
-    const argv_buf = try allocator.alloc(?*u8, argv.len + 1);
-    mem.set(?*u8, argv_buf, null);
+    const argv_buf = try allocator.alloc(?[*]u8, argv.len + 1);
+    mem.set(?[*]u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
             const arg_buf = if (arg) |ptr| cstr.toSlice(ptr) else break;
@@ -422,7 +410,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: 
     }
     for (argv) |arg, i| {
         const arg_buf = try allocator.alloc(u8, arg.len + 1);
-        @memcpy(&arg_buf[0], arg.ptr, arg.len);
+        @memcpy(arg_buf.ptr, arg.ptr, arg.len);
         arg_buf[arg.len] = 0;
 
         argv_buf[i] = arg_buf.ptr;
@@ -494,7 +482,7 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
 }
 
 pub var linux_aux_raw = []usize{0} ** 38;
-pub var posix_environ_raw: []*u8 = undefined;
+pub var posix_environ_raw: [][*]u8 = undefined;
 
 /// Caller must free result when done.
 pub fn getEnvMap(allocator: *Allocator) !BufMap {
@@ -1311,7 +1299,7 @@ pub const Dir = struct {
             const next_index = self.index + linux_entry.d_reclen;
             self.index = next_index;
 
-            const name = cstr.toSlice(&linux_entry.d_name);
+            const name = cstr.toSlice(@ptrCast([*]u8, &linux_entry.d_name));
 
             // skip . and .. entries
             if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
@@ -1485,12 +1473,12 @@ pub const ArgIteratorPosix = struct {
 
     /// This is marked as public but actually it's only meant to be used
     /// internally by zig's startup code.
-    pub var raw: []*u8 = undefined;
+    pub var raw: [][*]u8 = undefined;
 };
 
 pub const ArgIteratorWindows = struct {
     index: usize,
-    cmd_line: *const u8,
+    cmd_line: [*]const u8,
     in_quote: bool,
     quote_count: usize,
     seen_quote_count: usize,
@@ -1501,7 +1489,7 @@ pub const ArgIteratorWindows = struct {
         return initWithCmdLine(windows.GetCommandLineA());
     }
 
-    pub fn initWithCmdLine(cmd_line: *const u8) ArgIteratorWindows {
+    pub fn initWithCmdLine(cmd_line: [*]const u8) ArgIteratorWindows {
         return ArgIteratorWindows{
             .index = 0,
             .cmd_line = cmd_line,
@@ -1616,7 +1604,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn countQuotes(cmd_line: *const u8) usize {
+    fn countQuotes(cmd_line: [*]const u8) usize {
         var result: usize = 0;
         var backslash_count: usize = 0;
         var index: usize = 0;
@@ -1722,39 +1710,12 @@ pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
 }
 
 test "windows arg parsing" {
-    testWindowsCmdLine(c"a   b\tc d", [][]const u8{
-        "a",
-        "b",
-        "c",
-        "d",
-    });
-    testWindowsCmdLine(c"\"abc\" d e", [][]const u8{
-        "abc",
-        "d",
-        "e",
-    });
-    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8{
-        "a\\\\\\b",
-        "de fg",
-        "h",
-    });
-    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{
-        "a\\\"b",
-        "c",
-        "d",
-    });
-    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{
-        "a\\\\b c",
-        "d",
-        "e",
-    });
-    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{
-        "a",
-        "b",
-        "c",
-        "\"d",
-        "f",
-    });
+    testWindowsCmdLine(c"a   b\tc d", [][]const u8{ "a", "b", "c", "d" });
+    testWindowsCmdLine(c"\"abc\" d e", [][]const u8{ "abc", "d", "e" });
+    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8{ "a\\\\\\b", "de fg", "h" });
+    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{ "a\\\"b", "c", "d" });
+    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{ "a\\\\b c", "d", "e" });
+    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{ "a", "b", "c", "\"d", "f" });
 
     testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [][]const u8{
         ".\\..\\zig-cache\\build",
@@ -1765,7 +1726,7 @@ test "windows arg parsing" {
     });
 }
 
-fn testWindowsCmdLine(input_cmd_line: *const u8, expected_args: []const []const u8) void {
+fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []const u8) void {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
         const arg = ??it.next(debug.global_allocator) catch unreachable;
@@ -2350,7 +2311,7 @@ pub fn posixConnectAsync(sockfd: i32, sockaddr: *const posix.sockaddr) PosixConn
 pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
     var err_code: i32 = undefined;
     var size: u32 = @sizeOf(i32);
-    const rc = posix.getsockopt(sockfd, posix.SOL_SOCKET, posix.SO_ERROR, @ptrCast(*u8, &err_code), &size);
+    const rc = posix.getsockopt(sockfd, posix.SOL_SOCKET, posix.SO_ERROR, @ptrCast([*]u8, &err_code), &size);
     assert(size == 4);
     const err = posix.getErrno(rc);
     switch (err) {
@@ -2401,7 +2362,7 @@ pub const Thread = struct {
         },
         builtin.Os.windows => struct {
             handle: windows.HANDLE,
-            alloc_start: *c_void,
+            alloc_start: [*]c_void,
             heap_handle: windows.HANDLE,
         },
         else => @compileError("Unsupported OS"),
@@ -2500,7 +2461,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         const byte_count = @alignOf(WinThread.OuterContext) + @sizeOf(WinThread.OuterContext);
         const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) ?? return SpawnThreadError.OutOfMemory;
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
-        const bytes = @ptrCast(*u8, bytes_ptr)[0..byte_count];
+        const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
         const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
         outer_context.inner = context;
         outer_context.thread.data.heap_handle = heap_handle;
@@ -2572,7 +2533,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
 
         // align to page
         stack_end -= stack_end % os.page_size;
-        assert(c.pthread_attr_setstack(&attr, @intToPtr(*c_void, stack_addr), stack_end - stack_addr) == 0);
+        assert(c.pthread_attr_setstack(&attr, @intToPtr([*]c_void, stack_addr), stack_end - stack_addr) == 0);
 
         const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
         switch (err) {

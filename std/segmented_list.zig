@@ -87,7 +87,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         const ShelfIndex = std.math.Log2Int(usize);
 
         prealloc_segment: [prealloc_item_count]T,
-        dynamic_segments: []*T,
+        dynamic_segments: [][*]T,
         allocator: *Allocator,
         len: usize,
 
@@ -99,7 +99,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 .allocator = allocator,
                 .len = 0,
                 .prealloc_segment = undefined,
-                .dynamic_segments = []*T{},
+                .dynamic_segments = [][*]T{},
             };
         }
 
@@ -160,11 +160,11 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             const new_cap_shelf_count = shelfCount(new_capacity);
             const old_shelf_count = ShelfIndex(self.dynamic_segments.len);
             if (new_cap_shelf_count > old_shelf_count) {
-                self.dynamic_segments = try self.allocator.realloc(*T, self.dynamic_segments, new_cap_shelf_count);
+                self.dynamic_segments = try self.allocator.realloc([*]T, self.dynamic_segments, new_cap_shelf_count);
                 var i = old_shelf_count;
                 errdefer {
                     self.freeShelves(i, old_shelf_count);
-                    self.dynamic_segments = self.allocator.shrink(*T, self.dynamic_segments, old_shelf_count);
+                    self.dynamic_segments = self.allocator.shrink([*]T, self.dynamic_segments, old_shelf_count);
                 }
                 while (i < new_cap_shelf_count) : (i += 1) {
                     self.dynamic_segments[i] = (try self.allocator.alloc(T, shelfSize(i))).ptr;
@@ -178,7 +178,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 const len = ShelfIndex(self.dynamic_segments.len);
                 self.freeShelves(len, 0);
                 self.allocator.free(self.dynamic_segments);
-                self.dynamic_segments = []*T{};
+                self.dynamic_segments = [][*]T{};
                 return;
             }
 
@@ -190,7 +190,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
 
             self.freeShelves(old_shelf_count, new_cap_shelf_count);
-            self.dynamic_segments = self.allocator.shrink(*T, self.dynamic_segments, new_cap_shelf_count);
+            self.dynamic_segments = self.allocator.shrink([*]T, self.dynamic_segments, new_cap_shelf_count);
         }
 
         pub fn uncheckedAt(self: *Self, index: usize) *T {

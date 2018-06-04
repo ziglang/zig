@@ -12,7 +12,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     var ph_addr: usize = vdso_addr + eh.e_phoff;
     const ph = @intToPtr(*elf.Phdr, ph_addr);
 
-    var maybe_dynv: ?*usize = null;
+    var maybe_dynv: ?[*]usize = null;
     var base: usize = @maxValue(usize);
     {
         var i: usize = 0;
@@ -23,7 +23,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
             const this_ph = @intToPtr(*elf.Phdr, ph_addr);
             switch (this_ph.p_type) {
                 elf.PT_LOAD => base = vdso_addr + this_ph.p_offset - this_ph.p_vaddr,
-                elf.PT_DYNAMIC => maybe_dynv = @intToPtr(*usize, vdso_addr + this_ph.p_offset),
+                elf.PT_DYNAMIC => maybe_dynv = @intToPtr([*]usize, vdso_addr + this_ph.p_offset),
                 else => {},
             }
         }
@@ -31,10 +31,10 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     const dynv = maybe_dynv ?? return 0;
     if (base == @maxValue(usize)) return 0;
 
-    var maybe_strings: ?*u8 = null;
-    var maybe_syms: ?*elf.Sym = null;
-    var maybe_hashtab: ?*linux.Elf_Symndx = null;
-    var maybe_versym: ?*u16 = null;
+    var maybe_strings: ?[*]u8 = null;
+    var maybe_syms: ?[*]elf.Sym = null;
+    var maybe_hashtab: ?[*]linux.Elf_Symndx = null;
+    var maybe_versym: ?[*]u16 = null;
     var maybe_verdef: ?*elf.Verdef = null;
 
     {
@@ -42,10 +42,10 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         while (dynv[i] != 0) : (i += 2) {
             const p = base + dynv[i + 1];
             switch (dynv[i]) {
-                elf.DT_STRTAB => maybe_strings = @intToPtr(*u8, p),
-                elf.DT_SYMTAB => maybe_syms = @intToPtr(*elf.Sym, p),
-                elf.DT_HASH => maybe_hashtab = @intToPtr(*linux.Elf_Symndx, p),
-                elf.DT_VERSYM => maybe_versym = @intToPtr(*u16, p),
+                elf.DT_STRTAB => maybe_strings = @intToPtr([*]u8, p),
+                elf.DT_SYMTAB => maybe_syms = @intToPtr([*]elf.Sym, p),
+                elf.DT_HASH => maybe_hashtab = @intToPtr([*]linux.Elf_Symndx, p),
+                elf.DT_VERSYM => maybe_versym = @intToPtr([*]u16, p),
                 elf.DT_VERDEF => maybe_verdef = @intToPtr(*elf.Verdef, p),
                 else => {},
             }
@@ -65,7 +65,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         if (0 == (u32(1) << u5(syms[i].st_info & 0xf) & OK_TYPES)) continue;
         if (0 == (u32(1) << u5(syms[i].st_info >> 4) & OK_BINDS)) continue;
         if (0 == syms[i].st_shndx) continue;
-        if (!mem.eql(u8, name, cstr.toSliceConst(&strings[syms[i].st_name]))) continue;
+        if (!mem.eql(u8, name, cstr.toSliceConst(strings + syms[i].st_name))) continue;
         if (maybe_versym) |versym| {
             if (!checkver(??maybe_verdef, versym[i], vername, strings))
                 continue;
@@ -76,7 +76,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     return 0;
 }
 
-fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: *u8) bool {
+fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [*]u8) bool {
     var def = def_arg;
     const vsym = @bitCast(u32, vsym_arg) & 0x7fff;
     while (true) {
@@ -87,5 +87,5 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: *
         def = @intToPtr(*elf.Verdef, @ptrToInt(def) + def.vd_next);
     }
     const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
-    return mem.eql(u8, vername, cstr.toSliceConst(&strings[aux.vda_name]));
+    return mem.eql(u8, vername, cstr.toSliceConst(strings + aux.vda_name));
 }

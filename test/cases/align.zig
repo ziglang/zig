@@ -167,54 +167,41 @@ test "@ptrCast preserves alignment of bigger source" {
     assert(@typeOf(ptr) == *align(16) u8);
 }
 
-test "compile-time known array index has best alignment possible" {
+test "runtime known array index has best alignment possible" {
     // take full advantage of over-alignment
-    var array align(4) = []u8{
-        1,
-        2,
-        3,
-        4,
-    };
+    var array align(4) = []u8{ 1, 2, 3, 4 };
     assert(@typeOf(&array[0]) == *align(4) u8);
     assert(@typeOf(&array[1]) == *u8);
     assert(@typeOf(&array[2]) == *align(2) u8);
     assert(@typeOf(&array[3]) == *u8);
 
     // because align is too small but we still figure out to use 2
-    var bigger align(2) = []u64{
-        1,
-        2,
-        3,
-        4,
-    };
+    var bigger align(2) = []u64{ 1, 2, 3, 4 };
     assert(@typeOf(&bigger[0]) == *align(2) u64);
     assert(@typeOf(&bigger[1]) == *align(2) u64);
     assert(@typeOf(&bigger[2]) == *align(2) u64);
     assert(@typeOf(&bigger[3]) == *align(2) u64);
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
-    var smaller align(2) = []u32{
-        1,
-        2,
-        3,
-        4,
-    };
-    testIndex(&smaller[0], 0, *align(2) u32);
-    testIndex(&smaller[0], 1, *align(2) u32);
-    testIndex(&smaller[0], 2, *align(2) u32);
-    testIndex(&smaller[0], 3, *align(2) u32);
+    var smaller align(2) = []u32{ 1, 2, 3, 4 };
+    comptime assert(@typeOf(smaller[0..]) == []align(2) u32);
+    comptime assert(@typeOf(smaller[0..].ptr) == [*]align(2) u32);
+    testIndex(smaller[0..].ptr, 0, *align(2) u32);
+    testIndex(smaller[0..].ptr, 1, *align(2) u32);
+    testIndex(smaller[0..].ptr, 2, *align(2) u32);
+    testIndex(smaller[0..].ptr, 3, *align(2) u32);
 
     // has to use ABI alignment because index known at runtime only
-    testIndex2(&array[0], 0, *u8);
-    testIndex2(&array[0], 1, *u8);
-    testIndex2(&array[0], 2, *u8);
-    testIndex2(&array[0], 3, *u8);
+    testIndex2(array[0..].ptr, 0, *u8);
+    testIndex2(array[0..].ptr, 1, *u8);
+    testIndex2(array[0..].ptr, 2, *u8);
+    testIndex2(array[0..].ptr, 3, *u8);
 }
-fn testIndex(smaller: *align(2) u32, index: usize, comptime T: type) void {
-    assert(@typeOf(&smaller[index]) == T);
+fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) void {
+    comptime assert(@typeOf(&smaller[index]) == T);
 }
-fn testIndex2(ptr: *align(4) u8, index: usize, comptime T: type) void {
-    assert(@typeOf(&ptr[index]) == T);
+fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) void {
+    comptime assert(@typeOf(&ptr[index]) == T);
 }
 
 test "alignstack" {

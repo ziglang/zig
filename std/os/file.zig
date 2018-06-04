@@ -313,7 +313,7 @@ pub const File = struct {
         if (is_posix) {
             var index: usize = 0;
             while (index < buffer.len) {
-                const amt_read = posix.read(self.handle, &buffer[index], buffer.len - index);
+                const amt_read = posix.read(self.handle, buffer.ptr + index, buffer.len - index);
                 const read_err = posix.getErrno(amt_read);
                 if (read_err > 0) {
                     switch (read_err) {
@@ -334,7 +334,7 @@ pub const File = struct {
             while (index < buffer.len) {
                 const want_read_count = windows.DWORD(math.min(windows.DWORD(@maxValue(windows.DWORD)), buffer.len - index));
                 var amt_read: windows.DWORD = undefined;
-                if (windows.ReadFile(self.handle, @ptrCast(*c_void, &buffer[index]), want_read_count, &amt_read, null) == 0) {
+                if (windows.ReadFile(self.handle, @ptrCast([*]c_void, buffer.ptr + index), want_read_count, &amt_read, null) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
                         windows.ERROR.OPERATION_ABORTED => continue,

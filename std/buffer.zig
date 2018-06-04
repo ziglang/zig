@@ -122,7 +122,7 @@ pub const Buffer = struct {
     }
 
     /// For passing to C functions.
-    pub fn ptr(self: *const Buffer) *u8 {
+    pub fn ptr(self: *const Buffer) [*]u8 {
         return self.list.items.ptr;
     }
 };

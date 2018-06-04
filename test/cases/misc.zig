@@ -171,8 +171,8 @@ test "memcpy and memset intrinsics" {
     var foo: [20]u8 = undefined;
     var bar: [20]u8 = undefined;
 
-    @memset(&foo[0], 'A', foo.len);
-    @memcpy(&bar[0], &foo[0], bar.len);
+    @memset(foo[0..].ptr, 'A', foo.len);
+    @memcpy(bar[0..].ptr, foo[0..].ptr, bar.len);
 
     if (bar[11] != 'A') unreachable;
 }
@@ -194,7 +194,7 @@ test "slicing" {
     if (slice.len != 5) unreachable;
 
     const ptr = &slice[0];
-    if (ptr[0] != 1234) unreachable;
+    if (ptr.* != 1234) unreachable;
 
     var slice_rest = array[10..];
     if (slice_rest.len != 10) unreachable;
@@ -464,8 +464,9 @@ test "array 2D const double ptr" {
 }
 
 fn testArray2DConstDoublePtr(ptr: *const f32) void {
-    assert(ptr[0] == 1.0);
-    assert(ptr[1] == 2.0);
+    const ptr2 = @ptrCast([*]const f32, ptr);
+    assert(ptr2[0] == 1.0);
+    assert(ptr2[1] == 2.0);
 }
 
 const Tid = builtin.TypeId;

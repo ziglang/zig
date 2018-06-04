@@ -1225,6 +1225,7 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
         AstNode *child_node = ast_parse_pointer_type(pc, token_index, token);
         child_node->column += 1;
         AstNode *parent_node = ast_create_node(pc, NodeTypePointerType, token);
+        parent_node->data.pointer_type.star_token = token;
         parent_node->data.pointer_type.op_expr = child_node;
         return parent_node;
     }

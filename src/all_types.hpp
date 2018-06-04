@@ -974,8 +974,14 @@ struct FnTypeId {
 uint32_t fn_type_id_hash(FnTypeId*);
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 
+enum PtrLen {
+    PtrLenUnknown,
+    PtrLenSingle,
+};
+
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
+    PtrLen ptr_len;
     bool is_const;
     bool is_volatile;
     uint32_t alignment;
@@ -1397,6 +1403,7 @@ struct TypeId {
     union {
         struct {
             TypeTableEntry *child_type;
+            PtrLen ptr_len;
             bool is_const;
             bool is_volatile;
             uint32_t alignment;
@@ -2268,6 +2275,7 @@ struct IrInstructionElemPtr {
 
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
+    PtrLen ptr_len;
     bool is_const;
     bool safety_check_on;
 };
@@ -2419,6 +2427,7 @@ struct IrInstructionPtrType {
     IrInstruction *child_type;
     uint32_t bit_offset_start;
     uint32_t bit_offset_end;
+    PtrLen ptr_len;
     bool is_const;
     bool is_volatile;
 };

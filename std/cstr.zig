@@ -57,7 +57,7 @@ pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![]u8 {
 pub const NullTerminated2DArray = struct {
     allocator: *mem.Allocator,
     byte_count: usize,
-    ptr: ?*?*u8,
+    ptr: ?[*]?[*]u8,
 
     /// Takes N lists of strings, concatenates the lists together, and adds a null terminator
     /// Caller must deinit result
@@ -79,12 +79,12 @@ pub const NullTerminated2DArray = struct {
         errdefer allocator.free(buf);
 
         var write_index = index_size;
-        const index_buf = ([]?*u8)(buf);
+        const index_buf = ([]?[*]u8)(buf);
 
         var i: usize = 0;
         for (slices) |slice| {
             for (slice) |inner| {
-                index_buf[i] = &buf[write_index];
+                index_buf[i] = buf.ptr + write_index;
                 i += 1;
                 mem.copy(u8, buf[write_index..], inner);
                 write_index += inner.len;
@@ -97,12 +97,12 @@ pub const NullTerminated2DArray = struct {
         return NullTerminated2DArray{
             .allocator = allocator,
             .byte_count = byte_count,
-            .ptr = @ptrCast(?*?*u8, buf.ptr),
+            .ptr = @ptrCast(?[*]?[*]u8, buf.ptr),
         };
     }
 
     pub fn deinit(self: *NullTerminated2DArray) void {
-        const buf = @ptrCast(*u8, self.ptr);
+        const buf = @ptrCast([*]u8, self.ptr);
         self.allocator.free(buf[0..self.byte_count]);
     }
 };

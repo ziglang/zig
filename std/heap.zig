@@ -18,11 +18,11 @@ var c_allocator_state = Allocator{
 
 fn cAlloc(self: *Allocator, n: usize, alignment: u29) ![]u8 {
     assert(alignment <= @alignOf(c_longdouble));
-    return if (c.malloc(n)) |buf| @ptrCast(*u8, buf)[0..n] else error.OutOfMemory;
+    return if (c.malloc(n)) |buf| @ptrCast([*]u8, buf)[0..n] else error.OutOfMemory;
 }
 
 fn cRealloc(self: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
+    const old_ptr = @ptrCast([*]c_void, old_mem.ptr);
     if (c.realloc(old_ptr, new_size)) |buf| {
         return @ptrCast(*u8, buf)[0..new_size];
     } else if (new_size <= old_mem.len) {
@@ -33,7 +33,7 @@ fn cRealloc(self: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![
 }
 
 fn cFree(self: *Allocator, old_mem: []u8) void {
-    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
+    const old_ptr = @ptrCast([*]c_void, old_mem.ptr);
     c.free(old_ptr);
 }
 
@@ -74,7 +74,7 @@ pub const DirectAllocator = struct {
                 const addr = p.mmap(null, alloc_size, p.PROT_READ | p.PROT_WRITE, p.MAP_PRIVATE | p.MAP_ANONYMOUS, -1, 0);
                 if (addr == p.MAP_FAILED) return error.OutOfMemory;
 
-                if (alloc_size == n) return @intToPtr(*u8, addr)[0..n];
+                if (alloc_size == n) return @intToPtr([*]u8, addr)[0..n];
 
                 var aligned_addr = addr & ~usize(alignment - 1);
                 aligned_addr += alignment;
@@ -93,7 +93,7 @@ pub const DirectAllocator = struct {
                 //It is impossible that there is an unoccupied page at the top of our
                 //  mmap.
 
-                return @intToPtr(*u8, aligned_addr)[0..n];
+                return @intToPtr([*]u8, aligned_addr)[0..n];
             },
             Os.windows => {
                 const amt = n + alignment + @sizeOf(usize);
@@ -109,7 +109,7 @@ pub const DirectAllocator = struct {
                 const adjusted_addr = root_addr + march_forward_bytes;
                 const record_addr = adjusted_addr + n;
                 @intToPtr(*align(1) usize, record_addr).* = root_addr;
-                return @intToPtr(*u8, adjusted_addr)[0..n];
+                return @intToPtr([*]u8, adjusted_addr)[0..n];
             },
             else => @compileError("Unsupported OS"),
         }
@@ -140,7 +140,7 @@ pub const DirectAllocator = struct {
                 const old_adjusted_addr = @ptrToInt(old_mem.ptr);
                 const old_record_addr = old_adjusted_addr + old_mem.len;
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
-                const old_ptr = @intToPtr(os.windows.LPVOID, root_addr);
+                const old_ptr = @intToPtr([*]c_void, root_addr);
                 const amt = new_size + alignment + @sizeOf(usize);
                 const new_ptr = os.windows.HeapReAlloc(??self.heap_handle, 0, old_ptr, amt) ?? blk: {
                     if (new_size > old_mem.len) return error.OutOfMemory;
@@ -154,7 +154,7 @@ pub const DirectAllocator = struct {
                 assert(new_adjusted_addr % alignment == 0);
                 const new_record_addr = new_adjusted_addr + new_size;
                 @intToPtr(*align(1) usize, new_record_addr).* = new_root_addr;
-                return @intToPtr(*u8, new_adjusted_addr)[0..new_size];
+                return @intToPtr([*]u8, new_adjusted_addr)[0..new_size];
             },
             else => @compileError("Unsupported OS"),
         }
@@ -170,7 +170,7 @@ pub const DirectAllocator = struct {
             Os.windows => {
                 const record_addr = @ptrToInt(bytes.ptr) + bytes.len;
                 const root_addr = @intToPtr(*align(1) usize, record_addr).*;
-                const ptr = @intToPtr(os.windows.LPVOID, root_addr);
+                const ptr = @intToPtr([*]c_void, root_addr);
                 _ = os.windows.HeapFree(??self.heap_handle, 0, ptr);
             },
             else => @compileError("Unsupported OS"),

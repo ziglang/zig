@@ -10,7 +10,7 @@ pub extern "advapi32" stdcallcc fn CryptAcquireContextA(
 
 pub extern "advapi32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlags: DWORD) BOOL;
 
-pub extern "advapi32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: *BYTE) BOOL;
+pub extern "advapi32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: [*]BYTE) BOOL;
 
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
 
@@ -61,7 +61,7 @@ pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) BOOL;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) noreturn;
 
-pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsA(penv: LPCH) BOOL;
+pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsA(penv: [*]u8) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetCommandLineA() LPSTR;
 
@@ -69,7 +69,7 @@ pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out
 
 pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPSTR) DWORD;
 
-pub extern "kernel32" stdcallcc fn GetEnvironmentStringsA() ?LPCH;
+pub extern "kernel32" stdcallcc fn GetEnvironmentStringsA() ?[*]u8;
 
 pub extern "kernel32" stdcallcc fn GetEnvironmentVariableA(lpName: LPCSTR, lpBuffer: LPSTR, nSize: DWORD) DWORD;
 
@@ -101,17 +101,17 @@ pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(?*FILETIME) void;
 
 pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
 pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
-pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void, dwBytes: SIZE_T) ?*c_void;
-pub extern "kernel32" stdcallcc fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) SIZE_T;
-pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) BOOL;
+pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: [*]c_void, dwBytes: SIZE_T) ?[*]c_void;
+pub extern "kernel32" stdcallcc fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: [*]const c_void) SIZE_T;
+pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: [*]const c_void) BOOL;
 pub extern "kernel32" stdcallcc fn HeapCompact(hHeap: HANDLE, dwFlags: DWORD) SIZE_T;
 pub extern "kernel32" stdcallcc fn HeapSummary(hHeap: HANDLE, dwFlags: DWORD, lpSummary: LPHEAP_SUMMARY) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) ?HANDLE;
 
-pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) ?*c_void;
+pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) ?[*]c_void;
 
-pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) BOOL;
+pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: [*]c_void) BOOL;
 
 pub extern "kernel32" stdcallcc fn MoveFileExA(
     lpExistingFileName: LPCSTR,
@@ -127,7 +127,7 @@ pub extern "kernel32" stdcallcc fn PathFileExists(pszPath: ?LPCTSTR) BOOL;
 
 pub extern "kernel32" stdcallcc fn ReadFile(
     in_hFile: HANDLE,
-    out_lpBuffer: *c_void,
+    out_lpBuffer: [*]c_void,
     in_nNumberOfBytesToRead: DWORD,
     out_lpNumberOfBytesRead: *DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
@@ -150,7 +150,7 @@ pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMillis
 
 pub extern "kernel32" stdcallcc fn WriteFile(
     in_hFile: HANDLE,
-    in_lpBuffer: *const c_void,
+    in_lpBuffer: [*]const c_void,
     in_nNumberOfBytesToWrite: DWORD,
     out_lpNumberOfBytesWritten: ?*DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
@@ -178,16 +178,16 @@ pub const HMODULE = *@OpaqueType();
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;
-pub const LPCSTR = *const CHAR;
-pub const LPCTSTR = *const TCHAR;
+pub const LPCSTR = [*]const CHAR;
+pub const LPCTSTR = [*]const TCHAR;
 pub const LPCVOID = *const c_void;
 pub const LPDWORD = *DWORD;
-pub const LPSTR = *CHAR;
+pub const LPSTR = [*]CHAR;
 pub const LPTSTR = if (UNICODE) LPWSTR else LPSTR;
 pub const LPVOID = *c_void;
-pub const LPWSTR = *WCHAR;
+pub const LPWSTR = [*]WCHAR;
 pub const PVOID = *c_void;
-pub const PWSTR = *WCHAR;
+pub const PWSTR = [*]WCHAR;
 pub const SIZE_T = usize;
 pub const TCHAR = if (UNICODE) WCHAR else u8;
 pub const UINT = c_uint;
