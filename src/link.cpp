@@ -167,7 +167,7 @@ static void add_rpath(LinkJob *lj, Buf *rpath) {
 static Buf *try_dynamic_linker_path(const char *ld_name) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
-    ZigList<const char *> args = {};
+    ZigList<const char *> args = {0};
     args.append(buf_ptr(buf_sprintf("-print-file-name=%s", ld_name)));
     Termination term;
     Buf *out_stderr = buf_alloc();

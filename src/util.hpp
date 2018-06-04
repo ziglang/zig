@@ -65,6 +65,9 @@ static inline int clzll(unsigned long long mask) {
 
 template<typename T>
 ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
+    if (count == 0) {
+        return nullptr;
+    }
     T *ptr = reinterpret_cast<T*>(malloc(count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
@@ -73,6 +76,9 @@ ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
 
 template<typename T>
 ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
+    if (count == 0) {
+        return nullptr;
+    }
     T *ptr = reinterpret_cast<T*>(calloc(count, sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
@@ -92,21 +98,20 @@ static inline void safe_memcpy(T *dest, const T *src, size_t count) {
 }
 
 template<typename T>
-static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
-    T *ptr = reinterpret_cast<T*>(realloc(old, new_count * sizeof(T)));
-    if (!ptr)
-        zig_panic("allocation failed");
-    if (new_count > old_count) {
-        memset(&ptr[old_count], 0, (new_count - old_count) * sizeof(T));
-    }
-    return ptr;
-}
-
-template<typename T>
 static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count) {
     T *ptr = reinterpret_cast<T*>(realloc(old, new_count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
+    return ptr;
+}
+
+template<typename T>
+static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
+    T* ptr = reallocate_nonzero(old, old_count, new_count);
+    assert(ptr != nullptr);
+    if (new_count > old_count) {
+        memset(&ptr[old_count], 0, (new_count - old_count) * sizeof(T));
+    }
     return ptr;
 }
 

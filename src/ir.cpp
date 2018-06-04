@@ -7649,7 +7649,7 @@ static TypeTableEntry *get_error_set_intersection(IrAnalyze *ira, TypeTableEntry
         assert(errors[error_entry->value] == nullptr);
         errors[error_entry->value] = error_entry;
     }
-    ZigList<ErrorTableEntry *> intersection_list = {};
+    ZigList<ErrorTableEntry *> intersection_list = {0};
 
     TypeTableEntry *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
     buf_resize(&err_set_type->name, 0);

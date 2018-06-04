@@ -33,6 +33,7 @@ static inline size_t buf_len(Buf *buf) {
 }
 
 static inline char *buf_ptr(Buf *buf) {
+    assert(buf != nullptr);
     assert(buf->list.length);
     return buf->list.items;
 }
