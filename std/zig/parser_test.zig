@@ -1,3 +1,29 @@
+test "zig fmt: comment to disable/enable zig fmt first" {
+    try testCanonical(
+        \\// Test trailing comma syntax
+        \\// zig fmt: off
+        \\
+        \\const struct_trailing_comma = struct { x: i32, y: i32, };
+    );
+}
+
+test "zig fmt: comment to disable/enable zig fmt" {
+    try testTransform(
+        \\const  a  =  b;
+        \\// zig fmt: off
+        \\const  c  =  d;
+        \\// zig fmt: on
+        \\const  e  =  f;
+    ,
+        \\const a = b;
+        \\// zig fmt: off
+        \\const  c  =  d;
+        \\// zig fmt: on
+        \\const e = f;
+        \\
+    );
+}
+
 test "zig fmt: pointer of unknown length" {
     try testCanonical(
         \\fn foo(ptr: [*]u8) void {}

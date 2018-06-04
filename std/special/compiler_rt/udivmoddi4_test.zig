@@ -1,3 +1,5 @@
+// Disable formatting to avoid unnecessary source repository bloat.
+// zig fmt: off
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 const assert = @import("std").debug.assert;
 

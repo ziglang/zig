@@ -82,8 +82,45 @@ fn renderRoot(
 
     var start_col: usize = 0;
     var it = tree.root_node.decls.iterator(0);
-    while (it.next()) |decl| {
-        try renderTopLevelDecl(allocator, stream, tree, 0, &start_col, decl.*);
+    while (true) {
+        var decl = (it.next() ?? return).*;
+        // look for zig fmt: off comment
+        var start_token_index = decl.firstToken();
+        zig_fmt_loop: while (start_token_index != 0) {
+            start_token_index -= 1;
+            const start_token = tree.tokens.at(start_token_index);
+            switch (start_token.id) {
+                Token.Id.LineComment => {},
+                Token.Id.DocComment => continue,
+                else => break,
+            }
+            if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(start_token)[2..], " "), "zig fmt: off")) {
+                var end_token_index = start_token_index;
+                while (true) {
+                    end_token_index += 1;
+                    const end_token = tree.tokens.at(end_token_index);
+                    switch (end_token.id) {
+                        Token.Id.LineComment => {},
+                        Token.Id.Eof => {
+                            const start = tree.tokens.at(start_token_index + 1).start;
+                            try stream.write(tree.source[start..]);
+                            return;
+                        },
+                        else => continue,
+                    }
+                    if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(end_token)[2..], " "), "zig fmt: on")) {
+                        const start = tree.tokens.at(start_token_index + 1).start;
+                        try stream.print("{}\n", tree.source[start..end_token.end]);
+                        while (tree.tokens.at(decl.firstToken()).start < end_token.end) {
+                            decl = (it.next() ?? return).*;
+                        }
+                        break :zig_fmt_loop;
+                    }
+                }
+            }
+        }
+
+        try renderTopLevelDecl(allocator, stream, tree, 0, &start_col, decl);
         if (it.peek()) |next_decl| {
             try renderExtraNewline(tree, stream, &start_col, next_decl.*);
         }
