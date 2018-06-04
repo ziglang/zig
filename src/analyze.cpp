@@ -1860,7 +1860,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     }
 
     assert(!struct_type->data.structure.zero_bits_loop_flag);
-    assert(struct_type->data.structure.fields);
+    assert(struct_type->data.structure.fields || struct_type->data.structure.src_field_count == 0);
     assert(decl_node->type == NodeTypeContainerDecl);
 
     size_t field_count = struct_type->data.structure.src_field_count;
@@ -2677,8 +2677,8 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
             return;
         }
         tag_type = enum_type;
+        abi_alignment_so_far = get_abi_alignment(g, enum_type); // this populates src_field_count
         covered_enum_fields = allocate<bool>(enum_type->data.enumeration.src_field_count);
-        abi_alignment_so_far = get_abi_alignment(g, enum_type);
     } else {
         tag_type = nullptr;
         abi_alignment_so_far = 0;
