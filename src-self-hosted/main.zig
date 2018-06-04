@@ -730,15 +730,37 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
     var fmt_errors = false;
     for (flags.positionals.toSliceConst()) |file_path| {
-        var file = try os.File.openRead(allocator, file_path);
-        defer file.close();
-
-        const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
+        var file = os.File.openRead(allocator, file_path) catch |err| {
             try stderr.print("unable to open '{}': {}", file_path, err);
             fmt_errors = true;
             continue;
         };
+        defer file.close();
+        const size = try file.getEndPos();
+
+        var adaptater = io.FileInStream.init(&file);
+
+        var source_code: []u8 = undefined;
+        var start_index: usize = 0;
+
+        if(size < 16){
+            source_code = try allocator.alloc(u8, size);
+        }
+        else {
+            source_code = try allocator.alloc(u8, 16);
+            start_index = try adaptater.stream.read(source_code);
+            if(mem.eql(u8, source_code, "// zig fmt: skip")){
+                try stderr.print("won't format {}\n", file_path);
+                allocator.free(source_code);
+                continue;
+            }
+            else{
+                source_code = try allocator.realloc(u8, source_code, size);
+            }
+        }
         defer allocator.free(source_code);
+
+        _ = try adaptater.stream.read(source_code[start_index..]);
 
         var tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing file '{}': {}\n", file_path, err);
