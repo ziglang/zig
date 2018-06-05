@@ -107,6 +107,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
 static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction, VariableTableEntry *var);
 static TypeTableEntry *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op);
 static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LVal lval);
+static TypeTableEntry *adjust_ptr_align(CodeGen *g, TypeTableEntry *ptr_type, uint32_t new_align);
 
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == TypeTableEntryIdPointer);
@@ -6849,7 +6850,11 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *free_fn = ir_build_load_ptr(irb, scope, node, free_fn_ptr);
         IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
         IrInstruction *coro_mem_ptr_maybe = ir_build_coro_free(irb, scope, node, coro_id, irb->exec->coro_handle);
-        IrInstruction *coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, coro_mem_ptr_maybe);
+        IrInstruction *u8_ptr_type_unknown_len = ir_build_const_type(irb, scope, node,
+                get_pointer_to_type_extra(irb->codegen, irb->codegen->builtin_types.entry_u8,
+                    false, false, PtrLenUnknown, get_abi_alignment(irb->codegen, irb->codegen->builtin_types.entry_u8),
+                    0, 0));
+        IrInstruction *coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type_unknown_len, coro_mem_ptr_maybe);
         IrInstruction *coro_mem_ptr_ref = ir_build_ref(irb, scope, node, coro_mem_ptr, true, false);
         IrInstruction *coro_size_ptr = ir_build_var_ptr(irb, scope, node, coro_size_var);
         IrInstruction *coro_size = ir_build_load_ptr(irb, scope, node, coro_size_ptr);
@@ -8729,6 +8734,7 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
         case CastOpNoCast:
             zig_unreachable();
         case CastOpErrSet:
+        case CastOpBitCast:
             zig_panic("TODO");
         case CastOpNoop:
             {
@@ -9750,6 +9756,49 @@ static IrInstruction *ir_analyze_err_to_int(IrAnalyze *ira, IrInstruction *sourc
     return result;
 }
 
+static IrInstruction *ir_analyze_ptr_to_array(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target,
+        TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdPointer);
+    wanted_type = adjust_ptr_align(ira->codegen, wanted_type, target->value.type->data.pointer.alignment);
+    TypeTableEntry *array_type = wanted_type->data.pointer.child_type;
+    assert(array_type->id == TypeTableEntryIdArray);
+    assert(array_type->data.array.len == 1);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        assert(val->type->id == TypeTableEntryIdPointer);
+        ConstExprValue *pointee = const_ptr_pointee(ira->codegen, val);
+        if (pointee->special != ConstValSpecialRuntime) {
+            ConstExprValue *array_val = create_const_vals(1);
+            array_val->special = ConstValSpecialStatic;
+            array_val->type = array_type;
+            array_val->data.x_array.special = ConstArraySpecialNone;
+            array_val->data.x_array.s_none.elements = pointee;
+            array_val->data.x_array.s_none.parent.id = ConstParentIdScalar;
+            array_val->data.x_array.s_none.parent.data.p_scalar.scalar_val = pointee;
+
+            IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
+                    source_instr->scope, source_instr->source_node);
+            const_instruction->base.value.type = wanted_type;
+            const_instruction->base.value.special = ConstValSpecialStatic;
+            const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialRef;
+            const_instruction->base.value.data.x_ptr.data.ref.pointee = array_val;
+            const_instruction->base.value.data.x_ptr.mut = val->data.x_ptr.mut;
+            return &const_instruction->base;
+        }
+    }
+
+    // pointer to array and pointer to single item are represented the same way at runtime
+    IrInstruction *result = ir_build_cast(&ira->new_irb, target->scope, target->source_node,
+            wanted_type, target, CastOpBitCast);
+    result->value.type = wanted_type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     TypeTableEntry *wanted_type, IrInstruction *value)
 {
@@ -10155,6 +10204,30 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             }
         }
     }
+
+    // explicit cast from *T to *[1]T
+    if (wanted_type->id == TypeTableEntryIdPointer && wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+        actual_type->id == TypeTableEntryIdPointer && actual_type->data.pointer.ptr_len == PtrLenSingle)
+    {
+        TypeTableEntry *array_type = wanted_type->data.pointer.child_type;
+        if (array_type->id == TypeTableEntryIdArray && array_type->data.array.len == 1 &&
+            types_match_const_cast_only(ira, array_type->data.array.child_type,
+            actual_type->data.pointer.child_type, source_node).id == ConstCastResultIdOk)
+        {
+            if (wanted_type->data.pointer.alignment > actual_type->data.pointer.alignment) {
+                ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("cast increases pointer alignment"));
+                add_error_note(ira->codegen, msg, value->source_node,
+                        buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&actual_type->name),
+                            actual_type->data.pointer.alignment));
+                add_error_note(ira->codegen, msg, source_instr->source_node,
+                        buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&wanted_type->name),
+                            wanted_type->data.pointer.alignment));
+                return ira->codegen->invalid_instruction;
+            }
+            return ir_analyze_ptr_to_array(ira, source_instr, value, wanted_type);
+        }
+    }
+
 
     // explicit cast from undefined to anything
     if (actual_type->id == TypeTableEntryIdUndefLit) {
@@ -13162,11 +13235,13 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(array_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    ConstExprValue *orig_array_ptr_val = &array_ptr->value;
+
     IrInstruction *elem_index = elem_ptr_instruction->elem_index->other;
     if (type_is_invalid(elem_index->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *ptr_type = array_ptr->value.type;
+    TypeTableEntry *ptr_type = orig_array_ptr_val->type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *array_type = ptr_type->data.pointer.child_type;
@@ -13177,7 +13252,18 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
 
     if (type_is_invalid(array_type)) {
         return array_type;
-    } else if (array_type->id == TypeTableEntryIdArray) {
+    } else if (array_type->id == TypeTableEntryIdArray ||
+        (array_type->id == TypeTableEntryIdPointer &&
+         array_type->data.pointer.ptr_len == PtrLenSingle &&
+         array_type->data.pointer.child_type->id == TypeTableEntryIdArray))
+    {
+        if (array_type->id == TypeTableEntryIdPointer) {
+            array_type = array_type->data.pointer.child_type;
+            ptr_type = ptr_type->data.pointer.child_type;
+            if (orig_array_ptr_val->special != ConstValSpecialRuntime) {
+                orig_array_ptr_val = const_ptr_pointee(ira->codegen, orig_array_ptr_val);
+            }
+        }
         if (array_type->data.array.len == 0) {
             ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                     buf_sprintf("index 0 outside array of size 0"));
@@ -13205,7 +13291,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     } else if (array_type->id == TypeTableEntryIdPointer) {
         if (array_type->data.pointer.ptr_len == PtrLenSingle) {
             ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
-                    buf_sprintf("indexing not allowed on pointer to single item"));
+                    buf_sprintf("index of single-item pointer"));
             return ira->codegen->builtin_types.entry_invalid;
         }
         return_type = adjust_ptr_len(ira->codegen, array_type, elem_ptr_instruction->ptr_len);
@@ -13294,9 +13380,9 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         }
 
         ConstExprValue *array_ptr_val;
-        if (array_ptr->value.special != ConstValSpecialRuntime &&
-            (array_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar || array_type->id == TypeTableEntryIdArray) &&
-            (array_ptr_val = const_ptr_pointee(ira->codegen, &array_ptr->value)) &&
+        if (orig_array_ptr_val->special != ConstValSpecialRuntime &&
+            (orig_array_ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar || array_type->id == TypeTableEntryIdArray) &&
+            (array_ptr_val = const_ptr_pointee(ira->codegen, orig_array_ptr_val)) &&
             array_ptr_val->special != ConstValSpecialRuntime &&
             (array_type->id != TypeTableEntryIdPointer ||
                 array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr))
@@ -13401,7 +13487,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             } else if (array_type->id == TypeTableEntryIdArray) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
                 out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
-                out_val->data.x_ptr.mut = array_ptr->value.data.x_ptr.mut;
+                out_val->data.x_ptr.mut = orig_array_ptr_val->data.x_ptr.mut;
                 out_val->data.x_ptr.data.base_array.array_val = array_ptr_val;
                 out_val->data.x_ptr.data.base_array.elem_index = index;
                 return return_type;
@@ -17406,14 +17492,29 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             byte_alignment, 0, 0);
         return_type = get_slice_type(ira->codegen, slice_ptr_type);
     } else if (array_type->id == TypeTableEntryIdPointer) {
-        TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.pointer.child_type,
-                array_type->data.pointer.is_const, array_type->data.pointer.is_volatile,
-                PtrLenUnknown,
-                array_type->data.pointer.alignment, 0, 0);
-        return_type = get_slice_type(ira->codegen, slice_ptr_type);
-        if (!end) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
-            return ira->codegen->builtin_types.entry_invalid;
+        if (array_type->data.pointer.ptr_len == PtrLenSingle) {
+            TypeTableEntry *main_type = array_type->data.pointer.child_type;
+            if (main_type->id == TypeTableEntryIdArray) {
+                TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen,
+                        main_type->data.pointer.child_type,
+                        array_type->data.pointer.is_const, array_type->data.pointer.is_volatile,
+                        PtrLenUnknown,
+                        array_type->data.pointer.alignment, 0, 0);
+                return_type = get_slice_type(ira->codegen, slice_ptr_type);
+            } else {
+                ir_add_error(ira, &instruction->base, buf_sprintf("slice of single-item pointer"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        } else {
+            TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.pointer.child_type,
+                    array_type->data.pointer.is_const, array_type->data.pointer.is_volatile,
+                    PtrLenUnknown,
+                    array_type->data.pointer.alignment, 0, 0);
+            return_type = get_slice_type(ira->codegen, slice_ptr_type);
+            if (!end) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
         }
     } else if (is_slice(array_type)) {
         TypeTableEntry *ptr_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
@@ -17433,12 +17534,24 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         size_t abs_offset;
         size_t rel_end;
         bool ptr_is_undef = false;
-        if (array_type->id == TypeTableEntryIdArray) {
-            array_val = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
-            abs_offset = 0;
-            rel_end = array_type->data.array.len;
-            parent_ptr = nullptr;
+        if (array_type->id == TypeTableEntryIdArray ||
+            (array_type->id == TypeTableEntryIdPointer && array_type->data.pointer.ptr_len == PtrLenSingle))
+        {
+            if (array_type->id == TypeTableEntryIdPointer) {
+                TypeTableEntry *child_array_type = array_type->data.pointer.child_type;
+                assert(child_array_type->id == TypeTableEntryIdArray);
+                parent_ptr = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
+                array_val = const_ptr_pointee(ira->codegen, parent_ptr);
+                rel_end = child_array_type->data.array.len;
+                abs_offset = 0;
+            } else {
+                array_val = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
+                rel_end = array_type->data.array.len;
+                parent_ptr = nullptr;
+                abs_offset = 0;
+            }
         } else if (array_type->id == TypeTableEntryIdPointer) {
+            assert(array_type->data.pointer.ptr_len == PtrLenUnknown);
             parent_ptr = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
             if (parent_ptr->special == ConstValSpecialUndef) {
                 array_val = nullptr;
@@ -17537,7 +17650,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         if (array_val) {
             size_t index = abs_offset + start_scalar;
             bool is_const = slice_is_const(return_type);
-            init_const_ptr_array(ira->codegen, ptr_val, array_val, index, is_const);
+            init_const_ptr_array(ira->codegen, ptr_val, array_val, index, is_const, PtrLenUnknown);
             if (array_type->id == TypeTableEntryIdArray) {
                 ptr_val->data.x_ptr.mut = ptr_ptr->value.data.x_ptr.mut;
             } else if (is_slice(array_type)) {

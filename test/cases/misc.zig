@@ -274,7 +274,7 @@ test "generic malloc free" {
 }
 var some_mem: [100]u8 = undefined;
 fn memAlloc(comptime T: type, n: usize) error![]T {
-    return @ptrCast(*T, &some_mem[0])[0..n];
+    return @ptrCast([*]T, &some_mem[0])[0..n];
 }
 fn memFree(comptime T: type, memory: []T) void {}
 
@@ -588,7 +588,7 @@ var global_ptr = &gdt[0];
 
 // can't really run this test but we can make sure it has no compile error
 // and generates code
-const vram = @intToPtr(*volatile u8, 0x20000000)[0..0x8000];
+const vram = @intToPtr([*]volatile u8, 0x20000000)[0..0x8000];
 export fn writeToVRam() void {
     vram[0] = 'X';
 }

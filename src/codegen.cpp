@@ -2574,6 +2574,8 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
                 add_error_range_check(g, wanted_type, g->err_tag_type, expr_val);
             }
             return expr_val;
+        case CastOpBitCast:
+            return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
     }
     zig_unreachable();
 }
@@ -2884,7 +2886,13 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
 
     bool safety_check_on = ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on;
 
-    if (array_type->id == TypeTableEntryIdArray) {
+    if (array_type->id == TypeTableEntryIdArray ||
+        (array_type->id == TypeTableEntryIdPointer && array_type->data.pointer.ptr_len == PtrLenSingle))
+    {
+        if (array_type->id == TypeTableEntryIdPointer) {
+            assert(array_type->data.pointer.child_type->id == TypeTableEntryIdArray);
+            array_type = array_type->data.pointer.child_type;
+        }
         if (safety_check_on) {
             LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                     array_type->data.array.len, false);
@@ -3794,7 +3802,12 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
 
     bool want_runtime_safety = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base);
 
-    if (array_type->id == TypeTableEntryIdArray) {
+    if (array_type->id == TypeTableEntryIdArray ||
+        (array_type->id == TypeTableEntryIdPointer && array_type->data.pointer.ptr_len == PtrLenSingle))
+    {
+        if (array_type->id == TypeTableEntryIdPointer) {
+            array_type = array_type->data.pointer.child_type;
+        }
         LLVMValueRef start_val = ir_llvm_value(g, instruction->start);
         LLVMValueRef end_val;
         if (instruction->end) {
@@ -3835,6 +3848,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
 
         return tmp_struct_ptr;
     } else if (array_type->id == TypeTableEntryIdPointer) {
+        assert(array_type->data.pointer.ptr_len == PtrLenUnknown);
         LLVMValueRef start_val = ir_llvm_value(g, instruction->start);
         LLVMValueRef end_val = ir_llvm_value(g, instruction->end);
 
@@ -4812,7 +4826,7 @@ static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
 
 static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *struct_const_val, size_t field_index);
 static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *array_const_val, size_t index);
-static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *array_const_val);
+static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *union_const_val);
 
 static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent *parent) {
     switch (parent->id) {
@@ -4828,6 +4842,10 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent 
                     parent->data.p_array.elem_index);
         case ConstParentIdUnion:
             return gen_const_ptr_union_recursive(g, parent->data.p_union.union_val);
+        case ConstParentIdScalar:
+            render_const_val(g, parent->data.p_scalar.scalar_val, "");
+            render_const_val_global(g, parent->data.p_scalar.scalar_val, "");
+            return parent->data.p_scalar.scalar_val->global_refs->llvm_global;
     }
     zig_unreachable();
 }
@@ -4853,7 +4871,8 @@ static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *ar
         };
         return LLVMConstInBoundsGEP(base_ptr, indices, 2);
     } else {
-        zig_unreachable();
+        assert(parent->id == ConstParentIdScalar);
+        return base_ptr;
     }
 }
 

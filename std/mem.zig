@@ -31,14 +31,16 @@ pub const Allocator = struct {
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
-    fn create(self: *Allocator, comptime T: type) !*T {
+    /// Call destroy with the result
+    pub fn create(self: *Allocator, comptime T: type) !*T {
         if (@sizeOf(T) == 0) return *{};
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
 
-    // TODO once #733 is solved, this will replace create
-    fn construct(self: *Allocator, init: var) t: {
+    /// Call destroy with the result
+    /// TODO once #733 is solved, this will replace create
+    pub fn construct(self: *Allocator, init: var) t: {
         // TODO this is a workaround for type getting parsed as Error!&const T
         const T = @typeOf(init).Child;
         break :t Error!*T;
@@ -51,17 +53,19 @@ pub const Allocator = struct {
         return ptr;
     }
 
-    fn destroy(self: *Allocator, ptr: var) void {
-        self.free(ptr[0..1]);
+    /// `ptr` should be the return value of `construct` or `create`
+    pub fn destroy(self: *Allocator, ptr: var) void {
+        const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
+        self.freeFn(self, non_const_ptr[0..@sizeOf(@typeOf(ptr).Child)]);
     }
 
-    fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
+    pub fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
         return self.alignedAlloc(T, @alignOf(T), n);
     }
 
-    fn alignedAlloc(self: *Allocator, comptime T: type, comptime alignment: u29, n: usize) ![]align(alignment) T {
+    pub fn alignedAlloc(self: *Allocator, comptime T: type, comptime alignment: u29, n: usize) ![]align(alignment) T {
         if (n == 0) {
-            return (*align(alignment) T)(undefined)[0..0];
+            return ([*]align(alignment) T)(undefined)[0..0];
         }
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
@@ -73,17 +77,17 @@ pub const Allocator = struct {
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
-    fn realloc(self: *Allocator, comptime T: type, old_mem: []T, n: usize) ![]T {
+    pub fn realloc(self: *Allocator, comptime T: type, old_mem: []T, n: usize) ![]T {
         return self.alignedRealloc(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
     }
 
-    fn alignedRealloc(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) ![]align(alignment) T {
+    pub fn alignedRealloc(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) ![]align(alignment) T {
         if (old_mem.len == 0) {
             return self.alloc(T, n);
         }
         if (n == 0) {
             self.free(old_mem);
-            return (*align(alignment) T)(undefined)[0..0];
+            return ([*]align(alignment) T)(undefined)[0..0];
         }
 
         const old_byte_slice = ([]u8)(old_mem);
@@ -102,11 +106,11 @@ pub const Allocator = struct {
     /// Reallocate, but `n` must be less than or equal to `old_mem.len`.
     /// Unlike `realloc`, this function cannot fail.
     /// Shrinking to 0 is the same as calling `free`.
-    fn shrink(self: *Allocator, comptime T: type, old_mem: []T, n: usize) []T {
+    pub fn shrink(self: *Allocator, comptime T: type, old_mem: []T, n: usize) []T {
         return self.alignedShrink(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
     }
 
-    fn alignedShrink(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) []align(alignment) T {
+    pub fn alignedShrink(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) []align(alignment) T {
         if (n == 0) {
             self.free(old_mem);
             return old_mem[0..0];
@@ -123,10 +127,10 @@ pub const Allocator = struct {
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
-    fn free(self: *Allocator, memory: var) void {
+    pub fn free(self: *Allocator, memory: var) void {
         const bytes = ([]const u8)(memory);
         if (bytes.len == 0) return;
-        const non_const_ptr = @intToPtr(*u8, @ptrToInt(bytes.ptr));
+        const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         self.freeFn(self, non_const_ptr[0..bytes.len]);
     }
 };
