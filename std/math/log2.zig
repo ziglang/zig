@@ -14,7 +14,7 @@ const TypeId = builtin.TypeId;
 pub fn log2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => {
+        TypeId.ComptimeFloat => {
             return @typeOf(1.0)(log2_64(x));
         },
         TypeId.Float => {
@@ -24,7 +24,7 @@ pub fn log2(x: var) @typeOf(x) {
                 else => @compileError("log2 not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.IntLiteral => comptime {
+        TypeId.ComptimeInt => comptime {
             var result = 0;
             var x_shifted = x;
             while (b: {
