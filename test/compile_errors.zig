@@ -2,6 +2,13 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "unknown length pointer to opaque",
+        \\export const T = [*]@OpaqueType();
+    ,
+        ".tmp_source.zig:1:18: error: unknown-length pointer to opaque",
+    );
+
+    cases.add(
         "error when evaluating return type",
         \\const Foo = struct {
         \\    map: i32(i32),

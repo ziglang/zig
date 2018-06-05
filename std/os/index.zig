@@ -2362,7 +2362,7 @@ pub const Thread = struct {
         },
         builtin.Os.windows => struct {
             handle: windows.HANDLE,
-            alloc_start: [*]c_void,
+            alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
         else => @compileError("Unsupported OS"),
@@ -2533,7 +2533,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
 
         // align to page
         stack_end -= stack_end % os.page_size;
-        assert(c.pthread_attr_setstack(&attr, @intToPtr([*]c_void, stack_addr), stack_end - stack_addr) == 0);
+        assert(c.pthread_attr_setstack(&attr, @intToPtr(*c_void, stack_addr), stack_end - stack_addr) == 0);
 
         const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
         switch (err) {

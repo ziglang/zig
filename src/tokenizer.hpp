@@ -170,6 +170,8 @@ struct Token {
         TokenCharLit char_lit;
     } data;
 };
+// work around conflicting name Token which is also found in libclang
+typedef Token ZigToken;
 
 struct Tokenization {
     ZigList<Token> *tokens;

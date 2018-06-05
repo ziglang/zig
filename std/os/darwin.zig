@@ -327,7 +327,7 @@ pub fn raise(sig: i32) usize {
 }
 
 pub fn read(fd: i32, buf: [*]u8, nbyte: usize) usize {
-    return errnoWrap(c.read(fd, @ptrCast([*]c_void, buf), nbyte));
+    return errnoWrap(c.read(fd, @ptrCast(*c_void, buf), nbyte));
 }
 
 pub fn stat(noalias path: [*]const u8, noalias buf: *stat) usize {
@@ -335,17 +335,17 @@ pub fn stat(noalias path: [*]const u8, noalias buf: *stat) usize {
 }
 
 pub fn write(fd: i32, buf: [*]const u8, nbyte: usize) usize {
-    return errnoWrap(c.write(fd, @ptrCast([*]const c_void, buf), nbyte));
+    return errnoWrap(c.write(fd, @ptrCast(*const c_void, buf), nbyte));
 }
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
-    const ptr_result = c.mmap(@ptrCast([*]c_void, address), length, @bitCast(c_int, c_uint(prot)), @bitCast(c_int, c_uint(flags)), fd, offset);
+    const ptr_result = c.mmap(@ptrCast(*c_void, address), length, @bitCast(c_int, c_uint(prot)), @bitCast(c_int, c_uint(flags)), fd, offset);
     const isize_result = @bitCast(isize, @ptrToInt(ptr_result));
     return errnoWrap(isize_result);
 }
 
 pub fn munmap(address: usize, length: usize) usize {
-    return errnoWrap(c.munmap(@intToPtr([*]c_void, address), length));
+    return errnoWrap(c.munmap(@intToPtr(*c_void, address), length));
 }
 
 pub fn unlink(path: [*]const u8) usize {

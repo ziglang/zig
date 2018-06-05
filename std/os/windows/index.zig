@@ -101,17 +101,17 @@ pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(?*FILETIME) void;
 
 pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
 pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
-pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: [*]c_void, dwBytes: SIZE_T) ?[*]c_void;
-pub extern "kernel32" stdcallcc fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: [*]const c_void) SIZE_T;
-pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: [*]const c_void) BOOL;
+pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void, dwBytes: SIZE_T) ?*c_void;
+pub extern "kernel32" stdcallcc fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) SIZE_T;
+pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) BOOL;
 pub extern "kernel32" stdcallcc fn HeapCompact(hHeap: HANDLE, dwFlags: DWORD) SIZE_T;
 pub extern "kernel32" stdcallcc fn HeapSummary(hHeap: HANDLE, dwFlags: DWORD, lpSummary: LPHEAP_SUMMARY) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) ?HANDLE;
 
-pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) ?[*]c_void;
+pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) ?*c_void;
 
-pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: [*]c_void) BOOL;
+pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) BOOL;
 
 pub extern "kernel32" stdcallcc fn MoveFileExA(
     lpExistingFileName: LPCSTR,
@@ -127,7 +127,7 @@ pub extern "kernel32" stdcallcc fn PathFileExists(pszPath: ?LPCTSTR) BOOL;
 
 pub extern "kernel32" stdcallcc fn ReadFile(
     in_hFile: HANDLE,
-    out_lpBuffer: [*]c_void,
+    out_lpBuffer: *c_void,
     in_nNumberOfBytesToRead: DWORD,
     out_lpNumberOfBytesRead: *DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
@@ -150,7 +150,7 @@ pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMillis
 
 pub extern "kernel32" stdcallcc fn WriteFile(
     in_hFile: HANDLE,
-    in_lpBuffer: [*]const c_void,
+    in_lpBuffer: *const c_void,
     in_nNumberOfBytesToWrite: DWORD,
     out_lpNumberOfBytesWritten: ?*DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,

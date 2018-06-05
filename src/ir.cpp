@@ -4620,11 +4620,8 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
 
 static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypePointerType);
-    // The null check here is for C imports which don't set a token on the AST node. We could potentially
-    // update that code to create a fake token and then remove this check.
-    PtrLen ptr_len = (node->data.pointer_type.star_token != nullptr &&
-            (node->data.pointer_type.star_token->id == TokenIdStar ||
-             node->data.pointer_type.star_token->id == TokenIdStarStar)) ? PtrLenSingle : PtrLenUnknown;
+    PtrLen ptr_len = (node->data.pointer_type.star_token->id == TokenIdStar ||
+             node->data.pointer_type.star_token->id == TokenIdStarStar) ? PtrLenSingle : PtrLenUnknown;
     bool is_const = node->data.pointer_type.is_const;
     bool is_volatile = node->data.pointer_type.is_volatile;
     AstNode *expr_node = node->data.pointer_type.op_expr;
@@ -18972,6 +18969,9 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstruc
 
     if (child_type->id == TypeTableEntryIdUnreachable) {
         ir_add_error(ira, &instruction->base, buf_sprintf("pointer to noreturn not allowed"));
+        return ira->codegen->builtin_types.entry_invalid;
+    } else if (child_type->id == TypeTableEntryIdOpaque && instruction->ptr_len == PtrLenUnknown) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("unknown-length pointer to opaque"));
         return ira->codegen->builtin_types.entry_invalid;
     }
 

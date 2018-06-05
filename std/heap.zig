@@ -22,7 +22,7 @@ fn cAlloc(self: *Allocator, n: usize, alignment: u29) ![]u8 {
 }
 
 fn cRealloc(self: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-    const old_ptr = @ptrCast([*]c_void, old_mem.ptr);
+    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
     if (c.realloc(old_ptr, new_size)) |buf| {
         return @ptrCast([*]u8, buf)[0..new_size];
     } else if (new_size <= old_mem.len) {
@@ -33,7 +33,7 @@ fn cRealloc(self: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![
 }
 
 fn cFree(self: *Allocator, old_mem: []u8) void {
-    const old_ptr = @ptrCast([*]c_void, old_mem.ptr);
+    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
     c.free(old_ptr);
 }
 
@@ -140,7 +140,7 @@ pub const DirectAllocator = struct {
                 const old_adjusted_addr = @ptrToInt(old_mem.ptr);
                 const old_record_addr = old_adjusted_addr + old_mem.len;
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
-                const old_ptr = @intToPtr([*]c_void, root_addr);
+                const old_ptr = @intToPtr(*c_void, root_addr);
                 const amt = new_size + alignment + @sizeOf(usize);
                 const new_ptr = os.windows.HeapReAlloc(??self.heap_handle, 0, old_ptr, amt) ?? blk: {
                     if (new_size > old_mem.len) return error.OutOfMemory;
@@ -170,7 +170,7 @@ pub const DirectAllocator = struct {
             Os.windows => {
                 const record_addr = @ptrToInt(bytes.ptr) + bytes.len;
                 const root_addr = @intToPtr(*align(1) usize, record_addr).*;
-                const ptr = @intToPtr([*]c_void, root_addr);
+                const ptr = @intToPtr(*c_void, root_addr);
                 _ = os.windows.HeapFree(??self.heap_handle, 0, ptr);
             },
             else => @compileError("Unsupported OS"),
