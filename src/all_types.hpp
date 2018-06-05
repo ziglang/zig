@@ -1162,7 +1162,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdComptimeFloat,
     TypeTableEntryIdComptimeInt,
     TypeTableEntryIdUndefLit,
-    TypeTableEntryIdNullLit,
+    TypeTableEntryIdNull,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdErrorSet,

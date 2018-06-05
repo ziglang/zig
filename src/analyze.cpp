@@ -235,7 +235,7 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
@@ -271,7 +271,7 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
@@ -1336,7 +1336,7 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdNamespace:
@@ -1377,7 +1377,7 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdNamespace:
@@ -1512,7 +1512,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                 return g->builtin_types.entry_invalid;
             case TypeTableEntryIdUnreachable:
             case TypeTableEntryIdUndefLit:
-            case TypeTableEntryIdNullLit:
+            case TypeTableEntryIdNull:
             case TypeTableEntryIdArgTuple:
             case TypeTableEntryIdOpaque:
                 add_node_error(g, param_node->data.param_decl.type,
@@ -1600,7 +1600,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             zig_unreachable();
 
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
             add_node_error(g, fn_proto->return_type,
@@ -3338,7 +3338,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
             return g->builtin_types.entry_invalid;
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
@@ -3485,7 +3485,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
         {
             add_node_error(g, source_node, buf_sprintf("unable to infer variable type"));
             implicit_type = g->builtin_types.entry_invalid;
-        } else if (implicit_type->id == TypeTableEntryIdNullLit) {
+        } else if (implicit_type->id == TypeTableEntryIdNull) {
             add_node_error(g, source_node, buf_sprintf("unable to infer variable type"));
             implicit_type = g->builtin_types.entry_invalid;
         } else if (implicit_type->id == TypeTableEntryIdMetaType && !is_const) {
@@ -3733,7 +3733,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
@@ -3782,7 +3782,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
@@ -4286,7 +4286,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -4674,7 +4674,7 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             return 223048345;
         case TypeTableEntryIdUndefLit:
             return 162837799;
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
             return 844854567;
         case TypeTableEntryIdArray:
             // TODO better hashing algorithm
@@ -4757,7 +4757,7 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdFn:
@@ -4822,7 +4822,7 @@ static bool return_type_is_cacheable(TypeTableEntry *return_type) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdFn:
@@ -4933,7 +4933,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -5412,7 +5412,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             return true;
         case TypeTableEntryIdUndefLit:
             zig_panic("TODO");
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
             zig_panic("TODO");
         case TypeTableEntryIdMaybe:
             if (a->data.x_maybe == nullptr || b->data.x_maybe == nullptr) {
@@ -5646,7 +5646,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 buf_appendf(buf, "}");
                 return;
             }
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
             {
                 buf_appendf(buf, "null");
                 return;
@@ -5764,7 +5764,7 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
@@ -5810,7 +5810,7 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdPromise:
         case TypeTableEntryIdErrorSet:
@@ -5932,7 +5932,7 @@ static const TypeTableEntryId all_type_ids[] = {
     TypeTableEntryIdComptimeFloat,
     TypeTableEntryIdComptimeInt,
     TypeTableEntryIdUndefLit,
-    TypeTableEntryIdNullLit,
+    TypeTableEntryIdNull,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdErrorSet,
@@ -5986,7 +5986,7 @@ size_t type_id_index(TypeTableEntry *entry) {
             return 10;
         case TypeTableEntryIdUndefLit:
             return 11;
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
             return 12;
         case TypeTableEntryIdMaybe:
             return 13;
@@ -6044,8 +6044,8 @@ const char *type_id_name(TypeTableEntryId id) {
             return "ComptimeInt";
         case TypeTableEntryIdUndefLit:
             return "UndefinedLiteral";
-        case TypeTableEntryIdNullLit:
-            return "NullLiteral";
+        case TypeTableEntryIdNull:
+            return "Null";
         case TypeTableEntryIdMaybe:
             return "Nullable";
         case TypeTableEntryIdErrorUnion:

@@ -4919,7 +4919,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdNamespace:
@@ -5365,7 +5365,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -6032,7 +6032,7 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_undef = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNullLit);
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNull);
         buf_init_from_str(&entry->name, "(null)");
         entry->zero_bits = true;
         g->builtin_types.entry_null = entry;
@@ -6500,7 +6500,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    ComptimeFloat: void,\n"
             "    ComptimeInt: void,\n"
             "    UndefinedLiteral: void,\n"
-            "    NullLiteral: void,\n"
+            "    Null: void,\n"
             "    Nullable: Nullable,\n"
             "    ErrorUnion: ErrorUnion,\n"
             "    ErrorSet: ErrorSet,\n"
@@ -7075,7 +7075,7 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, TypeTableEntry 
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -7260,7 +7260,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdPromise:
             zig_unreachable();
@@ -7413,7 +7413,7 @@ static void gen_h_file(CodeGen *g) {
             case TypeTableEntryIdComptimeInt:
             case TypeTableEntryIdArray:
             case TypeTableEntryIdUndefLit:
-            case TypeTableEntryIdNullLit:
+            case TypeTableEntryIdNull:
             case TypeTableEntryIdErrorUnion:
             case TypeTableEntryIdErrorSet:
             case TypeTableEntryIdNamespace:

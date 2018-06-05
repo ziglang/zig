@@ -7960,7 +7960,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
 
     // implicit conversion from null literal to maybe type
     if (expected_type->id == TypeTableEntryIdMaybe &&
-        actual_type->id == TypeTableEntryIdNullLit)
+        actual_type->id == TypeTableEntryIdNull)
     {
         return ImplicitCastMatchResultYes;
     }
@@ -8190,7 +8190,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         }
     }
 
-    bool any_are_null = (prev_inst->value.type->id == TypeTableEntryIdNullLit);
+    bool any_are_null = (prev_inst->value.type->id == TypeTableEntryIdNull);
     bool convert_to_const_slice = false;
     for (size_t i = 1; i < instruction_count; i += 1) {
         IrInstruction *cur_inst = instructions[i];
@@ -8469,12 +8469,12 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             }
         }
 
-        if (prev_type->id == TypeTableEntryIdNullLit) {
+        if (prev_type->id == TypeTableEntryIdNull) {
             prev_inst = cur_inst;
             continue;
         }
 
-        if (cur_type->id == TypeTableEntryIdNullLit) {
+        if (cur_type->id == TypeTableEntryIdNull) {
             any_are_null = true;
             continue;
         }
@@ -8677,7 +8677,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to make error union out of number literal"));
                 return ira->codegen->builtin_types.entry_invalid;
-            } else if (prev_inst->value.type->id == TypeTableEntryIdNullLit) {
+            } else if (prev_inst->value.type->id == TypeTableEntryIdNull) {
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to make error union out of null literal"));
                 return ira->codegen->builtin_types.entry_invalid;
@@ -8685,7 +8685,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type);
             }
         }
-    } else if (any_are_null && prev_inst->value.type->id != TypeTableEntryIdNullLit) {
+    } else if (any_are_null && prev_inst->value.type->id != TypeTableEntryIdNull) {
         if (prev_inst->value.type->id == TypeTableEntryIdComptimeInt ||
             prev_inst->value.type->id == TypeTableEntryIdComptimeFloat)
         {
@@ -10004,7 +10004,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     // explicit cast from null literal to maybe type
     if (wanted_type->id == TypeTableEntryIdMaybe &&
-        actual_type->id == TypeTableEntryIdNullLit)
+        actual_type->id == TypeTableEntryIdNull)
     {
         return ir_analyze_null_to_maybe(ira, source_instr, value, wanted_type);
     }
@@ -10061,7 +10061,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     {
         TypeTableEntry *wanted_child_type = wanted_type->data.error_union.payload_type->data.maybe.child_type;
         if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node).id == ConstCastResultIdOk ||
-            actual_type->id == TypeTableEntryIdNullLit ||
+            actual_type->id == TypeTableEntryIdNull ||
             actual_type->id == TypeTableEntryIdComptimeInt ||
             actual_type->id == TypeTableEntryIdComptimeFloat)
         {
@@ -10627,19 +10627,19 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     IrBinOp op_id = bin_op_instruction->op_id;
     bool is_equality_cmp = (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
     if (is_equality_cmp &&
-        ((op1->value.type->id == TypeTableEntryIdNullLit && op2->value.type->id == TypeTableEntryIdMaybe) ||
-        (op2->value.type->id == TypeTableEntryIdNullLit && op1->value.type->id == TypeTableEntryIdMaybe) ||
-        (op1->value.type->id == TypeTableEntryIdNullLit && op2->value.type->id == TypeTableEntryIdNullLit)))
+        ((op1->value.type->id == TypeTableEntryIdNull && op2->value.type->id == TypeTableEntryIdMaybe) ||
+        (op2->value.type->id == TypeTableEntryIdNull && op1->value.type->id == TypeTableEntryIdMaybe) ||
+        (op1->value.type->id == TypeTableEntryIdNull && op2->value.type->id == TypeTableEntryIdNull)))
     {
-        if (op1->value.type->id == TypeTableEntryIdNullLit && op2->value.type->id == TypeTableEntryIdNullLit) {
+        if (op1->value.type->id == TypeTableEntryIdNull && op2->value.type->id == TypeTableEntryIdNull) {
             ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base);
             out_val->data.x_bool = (op_id == IrBinOpCmpEq);
             return ira->codegen->builtin_types.entry_bool;
         }
         IrInstruction *maybe_op;
-        if (op1->value.type->id == TypeTableEntryIdNullLit) {
+        if (op1->value.type->id == TypeTableEntryIdNull) {
             maybe_op = op2;
-        } else if (op2->value.type->id == TypeTableEntryIdNullLit) {
+        } else if (op2->value.type->id == TypeTableEntryIdNull) {
             maybe_op = op1;
         } else {
             zig_unreachable();
@@ -10796,7 +10796,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdUnion:
@@ -11645,7 +11645,7 @@ static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdBlock:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdOpaque:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdNamespace:
@@ -11913,7 +11913,7 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
                 case TypeTableEntryIdComptimeFloat:
                 case TypeTableEntryIdComptimeInt:
                 case TypeTableEntryIdUndefLit:
-                case TypeTableEntryIdNullLit:
+                case TypeTableEntryIdNull:
                 case TypeTableEntryIdMaybe:
                 case TypeTableEntryIdErrorUnion:
                 case TypeTableEntryIdErrorSet:
@@ -11937,7 +11937,7 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
@@ -12901,7 +12901,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
@@ -13152,7 +13152,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
 
     if (resolved_type->id == TypeTableEntryIdComptimeFloat ||
         resolved_type->id == TypeTableEntryIdComptimeInt ||
-        resolved_type->id == TypeTableEntryIdNullLit ||
+        resolved_type->id == TypeTableEntryIdNull ||
         resolved_type->id == TypeTableEntryIdUndefLit)
     {
         ir_add_error_node(ira, phi_instruction->base.source_node,
@@ -14216,7 +14216,7 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -14480,7 +14480,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
             zig_unreachable();
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
@@ -14588,7 +14588,7 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
             zig_unreachable();
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
@@ -14657,7 +14657,7 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
             zig_unreachable();
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
@@ -14713,7 +14713,7 @@ static TypeTableEntry *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrIn
 
         ir_build_test_nonnull_from(&ira->new_irb, &instruction->base, value);
         return ira->codegen->builtin_types.entry_bool;
-    } else if (type_entry->id == TypeTableEntryIdNullLit) {
+    } else if (type_entry->id == TypeTableEntryIdNull) {
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
         out_val->data.x_bool = false;
         return ira->codegen->builtin_types.entry_bool;
@@ -15100,7 +15100,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -15621,7 +15621,7 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
@@ -16283,7 +16283,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdArgTuple:
@@ -17879,7 +17879,7 @@ static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -18613,7 +18613,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdVoid:
@@ -18680,7 +18680,7 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
         case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdVoid:
@@ -18761,7 +18761,7 @@ static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
             ir_add_error(ira, dest_type_value,
                     buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
@@ -18787,7 +18787,7 @@ static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNull:
             ir_add_error(ira, dest_type_value,
                     buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
