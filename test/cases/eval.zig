@@ -418,9 +418,9 @@ test "string literal used as comptime slice is memoized" {
 }
 
 test "comptime slice of undefined pointer of length 0" {
-    const slice1 = (*i32)(undefined)[0..0];
+    const slice1 = ([*]i32)(undefined)[0..0];
     assert(slice1.len == 0);
-    const slice2 = (*i32)(undefined)[100..100];
+    const slice2 = ([*]i32)(undefined)[100..100];
     assert(slice2.len == 0);
 }
 
@@ -508,7 +508,7 @@ test "comptime slice of slice preserves comptime var" {
 test "comptime slice of pointer preserves comptime var" {
     comptime {
         var buff: [10]u8 = undefined;
-        var a = &buff[0];
+        var a = buff[0..].ptr;
         a[0..1][0] = 1;
         assert(buff[0..][0..][0] == 1);
     }

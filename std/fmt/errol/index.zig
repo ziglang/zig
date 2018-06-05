@@ -59,7 +59,7 @@ pub fn roundToPrecision(float_decimal: *FloatDecimal, precision: usize, mode: Ro
                 float_decimal.exp += 1;
 
                 // Re-size the buffer to use the reserved leading byte.
-                const one_before = @intToPtr(*u8, @ptrToInt(&float_decimal.digits[0]) - 1);
+                const one_before = @intToPtr([*]u8, @ptrToInt(&float_decimal.digits[0]) - 1);
                 float_decimal.digits = one_before[0 .. float_decimal.digits.len + 1];
                 float_decimal.digits[0] = '1';
                 return;

@@ -2,12 +2,21 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "slicing single-item pointer",
+        \\export fn entry(ptr: *i32) void {
+        \\    const slice = ptr[0..2];
+        \\}
+    ,
+        ".tmp_source.zig:2:22: error: slice of single-item pointer",
+    );
+
+    cases.add(
         "indexing single-item pointer",
         \\export fn entry(ptr: *i32) i32 {
         \\    return ptr[1];
         \\}
     ,
-        ".tmp_source.zig:2:15: error: indexing not allowed on pointer to single item",
+        ".tmp_source.zig:2:15: error: index of single-item pointer",
     );
 
     cases.add(
@@ -144,10 +153,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "comptime slice of undefined pointer non-zero len",
         \\export fn entry() void {
-        \\    const slice = (*i32)(undefined)[0..1];
+        \\    const slice = ([*]i32)(undefined)[0..1];
         \\}
     ,
-        ".tmp_source.zig:2:36: error: non-zero length slice of undefined pointer",
+        ".tmp_source.zig:2:38: error: non-zero length slice of undefined pointer",
     );
 
     cases.add(
@@ -3129,14 +3138,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var foo = Foo { .a = 1, .b = 10 };
         \\    foo.b += 1;
-        \\    bar((&foo.b)[0..1]);
+        \\    bar((*[1]u32)(&foo.b)[0..]);
         \\}
         \\
         \\fn bar(x: []u32) void {
         \\    x[0] += 1;
         \\}
     ,
-        ".tmp_source.zig:9:17: error: expected type '[]u32', found '[]align(1) u32'",
+        ".tmp_source.zig:9:18: error: cast increases pointer alignment",
+        ".tmp_source.zig:9:23: note: '*align(1) u32' has alignment 1",
+        ".tmp_source.zig:9:18: note: '*[1]u32' has alignment 4",
     );
 
     cases.add(

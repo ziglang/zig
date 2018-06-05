@@ -164,7 +164,7 @@ fn readNoEof(in: *io.FileInStream, comptime T: type, result: []T) !void {
     return in.stream.readNoEof(([]u8)(result));
 }
 fn readOneNoEof(in: *io.FileInStream, comptime T: type, result: *T) !void {
-    return readNoEof(in, T, result[0..1]);
+    return readNoEof(in, T, (*[1]T)(result)[0..]);
 }
 
 fn isSymbol(sym: *const Nlist64) bool {

@@ -1240,7 +1240,7 @@ pub const Dir = struct {
             const next_index = self.index + darwin_entry.d_reclen;
             self.index = next_index;
 
-            const name = (&darwin_entry.d_name)[0..darwin_entry.d_namlen];
+            const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
 
             // skip . and .. entries
             if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
@@ -1704,7 +1704,7 @@ pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
     }
-    const unaligned_allocated_buf = @ptrCast(*const u8, args_alloc.ptr)[0..total_bytes];
+    const unaligned_allocated_buf = @ptrCast([*]const u8, args_alloc.ptr)[0..total_bytes];
     const aligned_allocated_buf = @alignCast(@alignOf([]u8), unaligned_allocated_buf);
     return allocator.free(aligned_allocated_buf);
 }

@@ -5158,7 +5158,8 @@ void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *arr
     const_val->type = get_slice_type(g, ptr_type);
     const_val->data.x_struct.fields = create_const_vals(2);
 
-    init_const_ptr_array(g, &const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const);
+    init_const_ptr_array(g, &const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const,
+            PtrLenUnknown);
     init_const_usize(g, &const_val->data.x_struct.fields[slice_len_index], len);
 }
 
@@ -5169,21 +5170,24 @@ ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t
 }
 
 void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
-        size_t elem_index, bool is_const)
+        size_t elem_index, bool is_const, PtrLen ptr_len)
 {
     assert(array_val->type->id == TypeTableEntryIdArray);
     TypeTableEntry *child_type = array_val->type->data.array.child_type;
 
     const_val->special = ConstValSpecialStatic;
-    const_val->type = get_pointer_to_type(g, child_type, is_const);
+    const_val->type = get_pointer_to_type_extra(g, child_type, is_const, false,
+            ptr_len, get_abi_alignment(g, child_type), 0, 0);
     const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
     const_val->data.x_ptr.data.base_array.array_val = array_val;
     const_val->data.x_ptr.data.base_array.elem_index = elem_index;
 }
 
-ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const) {
+ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const,
+        PtrLen ptr_len)
+{
     ConstExprValue *const_val = create_const_vals(1);
-    init_const_ptr_array(g, const_val, array_val, elem_index, is_const);
+    init_const_ptr_array(g, const_val, array_val, elem_index, is_const, ptr_len);
     return const_val;
 }
 
