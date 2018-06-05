@@ -8142,7 +8142,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit undefined literal to anything
-    if (actual_type->id == TypeTableEntryIdUndefLit) {
+    if (actual_type->id == TypeTableEntryIdUndefined) {
         return ImplicitCastMatchResultYes;
     }
 
@@ -8546,11 +8546,11 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             continue;
         }
 
-        if (cur_type->id == TypeTableEntryIdUndefLit) {
+        if (cur_type->id == TypeTableEntryIdUndefined) {
             continue;
         }
 
-        if (prev_type->id == TypeTableEntryIdUndefLit) {
+        if (prev_type->id == TypeTableEntryIdUndefined) {
             prev_inst = cur_inst;
             continue;
         }
@@ -10230,7 +10230,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
 
     // explicit cast from undefined to anything
-    if (actual_type->id == TypeTableEntryIdUndefLit) {
+    if (actual_type->id == TypeTableEntryIdUndefined) {
         return ir_analyze_undefined_to_anything(ira, source_instr, value, wanted_type);
     }
 
@@ -10795,7 +10795,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
@@ -11643,7 +11643,7 @@ static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
             return VarClassRequiredAny;
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdOpaque:
@@ -11912,7 +11912,7 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
                 case TypeTableEntryIdUnreachable:
                 case TypeTableEntryIdComptimeFloat:
                 case TypeTableEntryIdComptimeInt:
-                case TypeTableEntryIdUndefLit:
+                case TypeTableEntryIdUndefined:
                 case TypeTableEntryIdNull:
                 case TypeTableEntryIdMaybe:
                 case TypeTableEntryIdErrorUnion:
@@ -11936,7 +11936,7 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdArray:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
@@ -12900,7 +12900,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
@@ -13153,7 +13153,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
     if (resolved_type->id == TypeTableEntryIdComptimeFloat ||
         resolved_type->id == TypeTableEntryIdComptimeInt ||
         resolved_type->id == TypeTableEntryIdNull ||
-        resolved_type->id == TypeTableEntryIdUndefLit)
+        resolved_type->id == TypeTableEntryIdUndefined)
     {
         ir_add_error_node(ira, phi_instruction->base.source_node,
                 buf_sprintf("unable to infer expression type"));
@@ -14215,7 +14215,7 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
             zig_unreachable(); // handled above
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -14479,7 +14479,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdInvalid: // handled above
             zig_unreachable();
         case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdArgTuple:
@@ -14587,7 +14587,7 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case TypeTableEntryIdInvalid: // handled above
             zig_unreachable();
         case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdArgTuple:
@@ -14656,7 +14656,7 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case TypeTableEntryIdInvalid: // handled above
             zig_unreachable();
         case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdComptimeFloat:
@@ -15099,7 +15099,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdBlock:
@@ -15620,7 +15620,7 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
@@ -16282,7 +16282,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -17878,7 +17878,7 @@ static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -18612,7 +18612,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdPromise:
             zig_unreachable();
@@ -18679,7 +18679,7 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
         case TypeTableEntryIdPromise:
             zig_unreachable();
@@ -18760,7 +18760,7 @@ static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
             ir_add_error(ira, dest_type_value,
                     buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
@@ -18786,7 +18786,7 @@ static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdComptimeFloat:
         case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
             ir_add_error(ira, dest_type_value,
                     buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));

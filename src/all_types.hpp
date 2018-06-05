@@ -1161,7 +1161,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdStruct,
     TypeTableEntryIdComptimeFloat,
     TypeTableEntryIdComptimeInt,
-    TypeTableEntryIdUndefLit,
+    TypeTableEntryIdUndefined,
     TypeTableEntryIdNull,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
