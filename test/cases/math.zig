@@ -329,14 +329,14 @@ fn testShrExact(x: u8) void {
     assert(shifted == 0b00101101);
 }
 
-test "big number addition" {
+test "comptime_int addition" {
     comptime {
         assert(35361831660712422535336160538497375248 + 101752735581729509668353361206450473702 == 137114567242441932203689521744947848950);
         assert(594491908217841670578297176641415611445982232488944558774612 + 390603545391089362063884922208143568023166603618446395589768 == 985095453608931032642182098849559179469148836107390954364380);
     }
 }
 
-test "big number multiplication" {
+test "comptime_int multiplication" {
     comptime {
         assert(
             45960427431263824329884196484953148229 * 128339149605334697009938835852565949723 == 5898522172026096622534201617172456926982464453350084962781392314016180490567,
@@ -347,13 +347,13 @@ test "big number multiplication" {
     }
 }
 
-test "big number shifting" {
+test "comptime_int shifting" {
     comptime {
         assert((u128(1) << 127) == 0x80000000000000000000000000000000);
     }
 }
 
-test "big number multi-limb shift and mask" {
+test "comptime_int multi-limb shift and mask" {
     comptime {
         var a = 0xefffffffa0000001eeeeeeefaaaaaaab;
 
@@ -370,7 +370,7 @@ test "big number multi-limb shift and mask" {
     }
 }
 
-test "big number multi-limb partial shift right" {
+test "comptime_int multi-limb partial shift right" {
     comptime {
         var a = 0x1ffffffffeeeeeeee;
         a >>= 16;
@@ -391,7 +391,7 @@ fn test_xor() void {
     assert(0xFF ^ 0xFF == 0x00);
 }
 
-test "big number xor" {
+test "comptime_int xor" {
     comptime {
         assert(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0x00000000000000000000000000000000 == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
         assert(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0x0000000000000000FFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
@@ -448,4 +448,16 @@ test "@sqrt" {
 
 fn testSqrt(comptime T: type, x: T) void {
     assert(@sqrt(T, x * x) == x);
+}
+
+test "comptime_int param and return" {
+    const a = comptimeAdd(35361831660712422535336160538497375248, 101752735581729509668353361206450473702);
+    assert(a == 137114567242441932203689521744947848950);
+
+    const b = comptimeAdd(594491908217841670578297176641415611445982232488944558774612, 390603545391089362063884922208143568023166603618446395589768);
+    assert(b == 985095453608931032642182098849559179469148836107390954364380);
+}
+
+fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int {
+    return a + b;
 }

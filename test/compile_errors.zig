@@ -1539,7 +1539,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn foo() *const i32 { return y; }
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:3:30: error: expected type '*const i32', found '*const (integer literal)'",
+        ".tmp_source.zig:3:30: error: expected type '*const i32', found '*const comptime_int'",
     );
 
     cases.add(
@@ -1555,7 +1555,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const x = 2 == 2.0;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:1:11: error: integer value 2 cannot be implicitly casted to type '(float literal)'",
+        ".tmp_source.zig:1:11: error: integer value 2 cannot be implicitly casted to type 'comptime_float'",
     );
 
     cases.add(
@@ -2189,7 +2189,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(block_aligned_stuff)); }
     ,
-        ".tmp_source.zig:3:60: error: unable to perform binary not operation on type '(integer literal)'",
+        ".tmp_source.zig:3:60: error: unable to perform binary not operation on type 'comptime_int'",
     );
 
     cases.addCase(x: {
@@ -3269,10 +3269,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    fn bar(self: *const Foo) void {}
         \\};
     ,
-        ".tmp_source.zig:4:4: error: variable of type '*(integer literal)' must be const or comptime",
+        ".tmp_source.zig:4:4: error: variable of type '*comptime_int' must be const or comptime",
         ".tmp_source.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
-        ".tmp_source.zig:8:4: error: variable of type '(integer literal)' must be const or comptime",
-        ".tmp_source.zig:9:4: error: variable of type '(float literal)' must be const or comptime",
+        ".tmp_source.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
+        ".tmp_source.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
         ".tmp_source.zig:10:4: error: variable of type '(block)' must be const or comptime",
         ".tmp_source.zig:11:4: error: variable of type '(null)' must be const or comptime",
         ".tmp_source.zig:12:4: error: variable of type 'Opaque' must be const or comptime",

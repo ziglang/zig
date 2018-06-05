@@ -501,8 +501,8 @@ test "@typeId" {
         assert(@typeId(*f32) == Tid.Pointer);
         assert(@typeId([2]u8) == Tid.Array);
         assert(@typeId(AStruct) == Tid.Struct);
-        assert(@typeId(@typeOf(1)) == Tid.IntLiteral);
-        assert(@typeId(@typeOf(1.0)) == Tid.FloatLiteral);
+        assert(@typeId(@typeOf(1)) == Tid.ComptimeInt);
+        assert(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
         assert(@typeId(@typeOf(undefined)) == Tid.UndefinedLiteral);
         assert(@typeId(@typeOf(null)) == Tid.NullLiteral);
         assert(@typeId(?i32) == Tid.Nullable);
