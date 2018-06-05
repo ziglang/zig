@@ -795,6 +795,12 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::UnknownAny:
                     case BuiltinType::BuiltinFn:
                     case BuiltinType::ARCUnbridgedCast:
+                    case BuiltinType::ShortAccum:
+                    case BuiltinType::Accum:
+                    case BuiltinType::LongAccum:
+                    case BuiltinType::UShortAccum:
+                    case BuiltinType::UAccum:
+                    case BuiltinType::ULongAccum:
 
                     case BuiltinType::OCLImage1dRO:
                     case BuiltinType::OCLImage1dArrayRO:
@@ -2409,6 +2415,12 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::OCLClkEvent:
                 case BuiltinType::OCLQueue:
                 case BuiltinType::OCLReserveID:
+                case BuiltinType::ShortAccum:
+                case BuiltinType::Accum:
+                case BuiltinType::LongAccum:
+                case BuiltinType::UShortAccum:
+                case BuiltinType::UAccum:
+                case BuiltinType::ULongAccum:
                     return res;
             }
             break;
