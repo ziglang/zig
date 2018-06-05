@@ -1565,7 +1565,7 @@ var foo: u8 align(4) = 100;
 test "global variable alignment" {
     assert(@typeOf(&foo).alignment == 4);
     assert(@typeOf(&foo) == *align(4) u8);
-    const slice = (&foo)[0..1];
+    const slice = (*[1]u8)(&foo)[0..];
     assert(@typeOf(slice) == []align(4) u8);
 }
 
@@ -1671,7 +1671,7 @@ test "using slices for strings" {
 
 test "slice pointer" {
     var array: [10]u8 = undefined;
-    const ptr = &array[0];
+    const ptr = &array;
 
     // You can use slicing syntax to convert a pointer into a slice:
     const slice = ptr[0..5];
@@ -4893,10 +4893,10 @@ pub const TypeId = enum {
     Pointer,
     Array,
     Struct,
-    FloatLiteral,
-    IntLiteral,
-    UndefinedLiteral,
-    NullLiteral,
+    ComptimeFloat,
+    ComptimeInt,
+    Undefined,
+    Null,
     Nullable,
     ErrorUnion,
     Error,
@@ -4927,10 +4927,10 @@ pub const TypeInfo = union(TypeId) {
     Pointer: Pointer,
     Array: Array,
     Struct: Struct,
-    FloatLiteral: void,
-    IntLiteral: void,
-    UndefinedLiteral: void,
-    NullLiteral: void,
+    ComptimeFloat: void,
+    ComptimeInt: void,
+    Undefined: void,
+    Null: void,
     Nullable: Nullable,
     ErrorUnion: ErrorUnion,
     ErrorSet: ErrorSet,
@@ -5685,10 +5685,10 @@ pub const TypeId = enum {
     Pointer,
     Array,
     Struct,
-    FloatLiteral,
-    IntLiteral,
-    UndefinedLiteral,
-    NullLiteral,
+    ComptimeFloat,
+    ComptimeInt,
+    Undefined,
+    Null,
     Nullable,
     ErrorUnion,
     ErrorSet,
@@ -5713,10 +5713,10 @@ pub const TypeInfo = union(TypeId) {
     Pointer: Pointer,
     Array: Array,
     Struct: Struct,
-    FloatLiteral: void,
-    IntLiteral: void,
-    UndefinedLiteral: void,
-    NullLiteral: void,
+    ComptimeFloat: void,
+    ComptimeInt: void,
+    Undefined: void,
+    Null: void,
     Nullable: Nullable,
     ErrorUnion: ErrorUnion,
     ErrorSet: ErrorSet,
@@ -6004,9 +6004,12 @@ const c = @cImport({
       {#code_begin|syntax#}
 const base64 = @import("std").base64;
 
-export fn decode_base_64(dest_ptr: *u8, dest_len: usize,
-    source_ptr: *const u8, source_len: usize) usize
-{
+export fn decode_base_64(
+    dest_ptr: [*]u8,
+    dest_len: usize,
+    source_ptr: [*]const u8,
+    source_len: usize,
+) usize {
     const src = source_ptr[0..source_len];
     const dest = dest_ptr[0..dest_len];
     const base64_decoder = base64.standard_decoder_unsafe;

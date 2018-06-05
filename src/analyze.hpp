@@ -152,8 +152,9 @@ ConstExprValue *create_const_ptr_hard_coded_addr(CodeGen *g, TypeTableEntry *poi
         size_t addr, bool is_const);
 
 void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
-        size_t elem_index, bool is_const);
-ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const);
+        size_t elem_index, bool is_const, PtrLen ptr_len);
+ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index,
+        bool is_const, PtrLen ptr_len);
 
 void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
         size_t start, size_t len, bool is_const);

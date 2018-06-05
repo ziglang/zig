@@ -14,7 +14,7 @@ const TypeId = builtin.TypeId;
 pub fn ln(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => {
+        TypeId.ComptimeFloat => {
             return @typeOf(1.0)(ln_64(x));
         },
         TypeId.Float => {
@@ -24,7 +24,7 @@ pub fn ln(x: var) @typeOf(x) {
                 else => @compileError("ln not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.IntLiteral => {
+        TypeId.ComptimeInt => {
             return @typeOf(1)(math.floor(ln_64(f64(x))));
         },
         TypeId.Int => {

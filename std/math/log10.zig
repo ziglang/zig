@@ -14,7 +14,7 @@ const TypeId = builtin.TypeId;
 pub fn log10(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => {
+        TypeId.ComptimeFloat => {
             return @typeOf(1.0)(log10_64(x));
         },
         TypeId.Float => {
@@ -24,7 +24,7 @@ pub fn log10(x: var) @typeOf(x) {
                 else => @compileError("log10 not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.IntLiteral => {
+        TypeId.ComptimeInt => {
             return @typeOf(1)(math.floor(log10_64(f64(x))));
         },
         TypeId.Int => {

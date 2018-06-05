@@ -83,6 +83,7 @@ enum ConstParentId {
     ConstParentIdStruct,
     ConstParentIdArray,
     ConstParentIdUnion,
+    ConstParentIdScalar,
 };
 
 struct ConstParent {
@@ -100,6 +101,9 @@ struct ConstParent {
         struct {
             ConstExprValue *union_val;
         } p_union;
+        struct {
+            ConstExprValue *scalar_val;
+        } p_scalar;
     } data;
 };
 
@@ -578,6 +582,7 @@ enum CastOp {
     CastOpBytesToSlice,
     CastOpNumLitToConcrete,
     CastOpErrSet,
+    CastOpBitCast,
 };
 
 struct AstNodeFnCallExpr {
@@ -1154,10 +1159,10 @@ enum TypeTableEntryId {
     TypeTableEntryIdPointer,
     TypeTableEntryIdArray,
     TypeTableEntryIdStruct,
-    TypeTableEntryIdNumLitFloat,
-    TypeTableEntryIdNumLitInt,
-    TypeTableEntryIdUndefLit,
-    TypeTableEntryIdNullLit,
+    TypeTableEntryIdComptimeFloat,
+    TypeTableEntryIdComptimeInt,
+    TypeTableEntryIdUndefined,
+    TypeTableEntryIdNull,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdErrorSet,

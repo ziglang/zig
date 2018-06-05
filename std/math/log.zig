@@ -9,15 +9,15 @@ pub fn log(comptime T: type, base: T, x: T) T {
         return math.log2(x);
     } else if (base == 10) {
         return math.log10(x);
-    } else if ((@typeId(T) == TypeId.Float or @typeId(T) == TypeId.FloatLiteral) and base == math.e) {
+    } else if ((@typeId(T) == TypeId.Float or @typeId(T) == TypeId.ComptimeFloat) and base == math.e) {
         return math.ln(x);
     }
 
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => {
+        TypeId.ComptimeFloat => {
             return @typeOf(1.0)(math.ln(f64(x)) / math.ln(f64(base)));
         },
-        TypeId.IntLiteral => {
+        TypeId.ComptimeInt => {
             return @typeOf(1)(math.floor(math.ln(f64(x)) / math.ln(f64(base))));
         },
         builtin.TypeId.Int => {
