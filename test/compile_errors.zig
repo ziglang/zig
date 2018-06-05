@@ -2,6 +2,22 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "error when evaluating return type",
+        \\const Foo = struct {
+        \\    map: i32(i32),
+        \\
+        \\    fn init() Foo {
+        \\        return undefined;
+        \\    }
+        \\};
+        \\export fn entry() void {
+        \\    var rule_set = try Foo.init();
+        \\}
+    ,
+        ".tmp_source.zig:2:13: error: invalid cast from type 'type' to 'i32'",
+    );
+
+    cases.add(
         "slicing single-item pointer",
         \\export fn entry(ptr: *i32) void {
         \\    const slice = ptr[0..2];
