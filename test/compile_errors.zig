@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "attempted implicit cast from T to [*]const T",
+        \\export fn entry() void {
+        \\    const x: [*]const bool = true;
+        \\}
+    ,
+        ".tmp_source.zig:2:30: error: expected type '[*]const bool', found 'bool'",
+    );
+
+    cases.add(
         "dereference unknown length pointer",
         \\export fn entry(x: [*]i32) i32 {
         \\    return x.*;
