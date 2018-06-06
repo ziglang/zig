@@ -29,3 +29,6 @@ parts:
     configflags:
       - -DCMAKE_BUILD_TYPE=Release
       - -DCMAKE_INSTALL_PREFIX=/
+    prime:
+      - bin/zig
+      - lib/zig/*
