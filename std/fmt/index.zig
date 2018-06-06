@@ -97,7 +97,11 @@ pub fn formatType(
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     const T = @typeOf(value);
-    switch (@typeId(T)) {
+    if (T == error) {
+        try output(context, "error.");
+        return output(context, @errorName(value));
+    }
+    switch (@typeInfo(T)) {
         builtin.TypeId.Int, builtin.TypeId.Float => {
             return formatValue(value, fmt, context, Errors, output);
         },
@@ -125,12 +129,13 @@ pub fn formatType(
             try output(context, "error.");
             return output(context, @errorName(value));
         },
-        builtin.TypeId.Pointer => {
-            switch (@typeId(T.Child)) {
-                builtin.TypeId.Array => {
-                    if (T.Child.Child == u8) {
+        builtin.TypeId.Pointer => |ptr_info| switch (ptr_info.size) {
+            builtin.TypeInfo.Pointer.Size.One => switch (@typeInfo(ptr_info.child)) {
+                builtin.TypeId.Array => |info| {
+                    if (info.child == u8) {
                         return formatText(value, fmt, context, Errors, output);
                     }
+                    return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
                     const has_cust_fmt = comptime cf: {
@@ -154,14 +159,16 @@ pub fn formatType(
                     return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
                 },
                 else => return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value)),
-            }
+            },
+            builtin.TypeInfo.Pointer.Size.Many => {
+                return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+            },
+            builtin.TypeInfo.Pointer.Size.Slice => {
+                const casted_value = ([]const u8)(value);
+                return output(context, casted_value);
+            },
         },
-        else => if (@canImplicitCast([]const u8, value)) {
-            const casted_value = ([]const u8)(value);
-            return output(context, casted_value);
-        } else {
-            @compileError("Unable to format type '" ++ @typeName(T) ++ "'");
-        },
+        else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
 

@@ -16222,8 +16222,7 @@ static bool ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
     return true;
 }
 
-static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *type_entry)
-{
+static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *type_entry) {
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
 
@@ -16248,37 +16247,66 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
         enum_field_val->data.x_struct.fields = inner_fields;
     };
 
-    const auto create_ptr_like_type_info = [ira](const char *name, TypeTableEntry *ptr_type_entry) {
+    const auto create_ptr_like_type_info = [ira](TypeTableEntry *ptr_type_entry) {
+        TypeTableEntry *attrs_type;
+        uint32_t size_enum_index;
+        if (is_slice(ptr_type_entry)) {
+            attrs_type = ptr_type_entry->data.structure.fields[slice_ptr_index].type_entry;
+            size_enum_index = 2;
+        } else if (ptr_type_entry->id == TypeTableEntryIdPointer) {
+            attrs_type = ptr_type_entry;
+            size_enum_index = (ptr_type_entry->data.pointer.ptr_len == PtrLenSingle) ? 0 : 1;
+        } else {
+            zig_unreachable();
+        }
+
+        TypeTableEntry *type_info_pointer_type = ir_type_info_get_type(ira, "Pointer");
+        ensure_complete_type(ira->codegen, type_info_pointer_type);
+        assert(!type_is_invalid(type_info_pointer_type));
+
         ConstExprValue *result = create_const_vals(1);
         result->special = ConstValSpecialStatic;
-        result->type = ir_type_info_get_type(ira, name);
+        result->type = type_info_pointer_type;
 
-        ConstExprValue *fields = create_const_vals(4);
+        ConstExprValue *fields = create_const_vals(5);
         result->data.x_struct.fields = fields;
 
-        // is_const: bool
-        ensure_field_index(result->type, "is_const", 0);
+        // size: Size
+        ensure_field_index(result->type, "size", 0);
+        TypeTableEntry *type_info_pointer_size_type = ir_type_info_get_type(ira, "Size", type_info_pointer_type);
+        ensure_complete_type(ira->codegen, type_info_pointer_size_type);
+        assert(!type_is_invalid(type_info_pointer_size_type));
         fields[0].special = ConstValSpecialStatic;
-        fields[0].type = ira->codegen->builtin_types.entry_bool;
-        fields[0].data.x_bool = ptr_type_entry->data.pointer.is_const;
-        // is_volatile: bool
-        ensure_field_index(result->type, "is_volatile", 1);
+        fields[0].type = type_info_pointer_size_type;
+        bigint_init_unsigned(&fields[0].data.x_enum_tag, size_enum_index);
+
+        // is_const: bool
+        ensure_field_index(result->type, "is_const", 1);
         fields[1].special = ConstValSpecialStatic;
         fields[1].type = ira->codegen->builtin_types.entry_bool;
-        fields[1].data.x_bool = ptr_type_entry->data.pointer.is_volatile;
-        // alignment: u32
-        ensure_field_index(result->type, "alignment", 2);
+        fields[1].data.x_bool = attrs_type->data.pointer.is_const;
+        // is_volatile: bool
+        ensure_field_index(result->type, "is_volatile", 2);
         fields[2].special = ConstValSpecialStatic;
-        fields[2].type = ira->codegen->builtin_types.entry_u32;
-        bigint_init_unsigned(&fields[2].data.x_bigint, ptr_type_entry->data.pointer.alignment);
-        // child: type
-        ensure_field_index(result->type, "child", 3);
+        fields[2].type = ira->codegen->builtin_types.entry_bool;
+        fields[2].data.x_bool = attrs_type->data.pointer.is_volatile;
+        // alignment: u32
+        ensure_field_index(result->type, "alignment", 3);
         fields[3].special = ConstValSpecialStatic;
-        fields[3].type = ira->codegen->builtin_types.entry_type;
-        fields[3].data.x_type = ptr_type_entry->data.pointer.child_type;
+        fields[3].type = ira->codegen->builtin_types.entry_u32;
+        bigint_init_unsigned(&fields[3].data.x_bigint, attrs_type->data.pointer.alignment);
+        // child: type
+        ensure_field_index(result->type, "child", 4);
+        fields[4].special = ConstValSpecialStatic;
+        fields[4].type = ira->codegen->builtin_types.entry_type;
+        fields[4].data.x_type = attrs_type->data.pointer.child_type;
 
         return result;
     };
+
+    if (type_entry == ira->codegen->builtin_types.entry_global_error_set) {
+        zig_panic("TODO implement @typeInfo for global error set");
+    }
 
     ConstExprValue *result = nullptr;
     switch (type_entry->id)
@@ -16348,7 +16376,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
             }
         case TypeTableEntryIdPointer:
             {
-                result = create_ptr_like_type_info("Pointer", type_entry);
+                result = create_ptr_like_type_info(type_entry);
                 break;
             }
         case TypeTableEntryIdArray:
@@ -16621,15 +16649,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
         case TypeTableEntryIdStruct:
             {
                 if (type_entry->data.structure.is_slice) {
-                    Buf ptr_field_name = BUF_INIT;
-                    buf_init_from_str(&ptr_field_name, "ptr");
-                    TypeTableEntry *ptr_type = type_entry->data.structure.fields_by_name.get(&ptr_field_name)->type_entry;
-                    ensure_complete_type(ira->codegen, ptr_type);
-                    if (type_is_invalid(ptr_type))
-                        return nullptr;
-                    buf_deinit(&ptr_field_name);
-
-                    result = create_ptr_like_type_info("Slice", ptr_type);
+                    result = create_ptr_like_type_info(type_entry);
                     break;
                 }
 

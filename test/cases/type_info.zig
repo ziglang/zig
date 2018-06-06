@@ -39,10 +39,26 @@ test "type info: pointer type info" {
 fn testPointer() void {
     const u32_ptr_info = @typeInfo(*u32);
     assert(TypeId(u32_ptr_info) == TypeId.Pointer);
+    assert(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.One);
     assert(u32_ptr_info.Pointer.is_const == false);
     assert(u32_ptr_info.Pointer.is_volatile == false);
-    assert(u32_ptr_info.Pointer.alignment == 4);
+    assert(u32_ptr_info.Pointer.alignment == @alignOf(u32));
     assert(u32_ptr_info.Pointer.child == u32);
+}
+
+test "type info: unknown length pointer type info" {
+    testUnknownLenPtr();
+    comptime testUnknownLenPtr();
+}
+
+fn testUnknownLenPtr() void {
+    const u32_ptr_info = @typeInfo([*]const volatile f64);
+    assert(TypeId(u32_ptr_info) == TypeId.Pointer);
+    assert(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+    assert(u32_ptr_info.Pointer.is_const == true);
+    assert(u32_ptr_info.Pointer.is_volatile == true);
+    assert(u32_ptr_info.Pointer.alignment == @alignOf(f64));
+    assert(u32_ptr_info.Pointer.child == f64);
 }
 
 test "type info: slice type info" {
@@ -52,11 +68,12 @@ test "type info: slice type info" {
 
 fn testSlice() void {
     const u32_slice_info = @typeInfo([]u32);
-    assert(TypeId(u32_slice_info) == TypeId.Slice);
-    assert(u32_slice_info.Slice.is_const == false);
-    assert(u32_slice_info.Slice.is_volatile == false);
-    assert(u32_slice_info.Slice.alignment == 4);
-    assert(u32_slice_info.Slice.child == u32);
+    assert(TypeId(u32_slice_info) == TypeId.Pointer);
+    assert(u32_slice_info.Pointer.size == TypeInfo.Pointer.Size.Slice);
+    assert(u32_slice_info.Pointer.is_const == false);
+    assert(u32_slice_info.Pointer.is_volatile == false);
+    assert(u32_slice_info.Pointer.alignment == 4);
+    assert(u32_slice_info.Pointer.child == u32);
 }
 
 test "type info: array type info" {
@@ -149,11 +166,11 @@ fn testUnion() void {
     assert(TypeId(typeinfo_info) == TypeId.Union);
     assert(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     assert(typeinfo_info.Union.tag_type == TypeId);
-    assert(typeinfo_info.Union.fields.len == 26);
+    assert(typeinfo_info.Union.fields.len == 25);
     assert(typeinfo_info.Union.fields[4].enum_field != null);
     assert((??typeinfo_info.Union.fields[4].enum_field).value == 4);
     assert(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
-    assert(typeinfo_info.Union.defs.len == 21);
+    assert(typeinfo_info.Union.defs.len == 20);
 
     const TestNoTagUnion = union {
         Foo: void,

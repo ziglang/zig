@@ -5981,7 +5981,7 @@ size_t type_id_index(TypeTableEntry *entry) {
             return 7;
         case TypeTableEntryIdStruct:
             if (entry->data.structure.is_slice)
-                return 25;
+                return 6;
             return 8;
         case TypeTableEntryIdComptimeFloat:
             return 9;

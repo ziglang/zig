@@ -6481,7 +6481,6 @@ static void define_builtin_compile_vars(CodeGen *g) {
             const TypeTableEntryId id = type_id_at_index(i);
             buf_appendf(contents, "    %s,\n", type_id_name(id));
         }
-        buf_appendf(contents, "    Slice,\n");
         buf_appendf(contents, "};\n\n");
     }
     {
@@ -6494,7 +6493,6 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    Int: Int,\n"
             "    Float: Float,\n"
             "    Pointer: Pointer,\n"
-            "    Slice: Slice,\n"
             "    Array: Array,\n"
             "    Struct: Struct,\n"
             "    ComptimeFloat: void,\n"
@@ -6524,13 +6522,18 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    };\n"
             "\n"
             "    pub const Pointer = struct {\n"
+            "        size: Size,\n"
             "        is_const: bool,\n"
             "        is_volatile: bool,\n"
             "        alignment: u32,\n"
             "        child: type,\n"
-            "    };\n"
             "\n"
-            "    pub const Slice = Pointer;\n"
+            "        pub const Size = enum {\n"
+            "            One,\n"
+            "            Many,\n"
+            "            Slice,\n"
+            "        };\n"
+            "    };\n"
             "\n"
             "    pub const Array = struct {\n"
             "        len: usize,\n"
