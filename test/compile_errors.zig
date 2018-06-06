@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "field access of unknown length pointer",
+        \\const Foo = extern struct {
+        \\    a: i32,
+        \\};
+        \\
+        \\export fn entry(foo: [*]Foo) void {
+        \\    foo.a += 1;
+        \\}
+    ,
+        ".tmp_source.zig:6:8: error: type '[*]Foo' does not support field access",
+    );
+
+    cases.add(
         "unknown length pointer to opaque",
         \\export const T = [*]@OpaqueType();
     ,
