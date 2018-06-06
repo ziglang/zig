@@ -306,7 +306,14 @@ test "math.rotl" {
 }
 
 pub fn Log2Int(comptime T: type) type {
-    return @IntType(false, log2(T.bit_count));
+    // comptime ceil log2
+    comptime var count: usize = 0;
+    comptime var s = T.bit_count - 1;
+    inline while (s != 0) : (s >>= 1) {
+        count += 1;
+    }
+
+    return @IntType(false, count);
 }
 
 test "math overflow functions" {
