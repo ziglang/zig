@@ -16,7 +16,7 @@ pub fn exp(z: var) Complex(@typeOf(z.re)) {
     };
 }
 
-fn exp32(z: &const Complex(f32)) Complex(f32) {
+fn exp32(z: *const Complex(f32)) Complex(f32) {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const exp_overflow = 0x42b17218; // max_exp * ln2 ~= 88.72283955
@@ -63,7 +63,7 @@ fn exp32(z: &const Complex(f32)) Complex(f32) {
     }
 }
 
-fn exp64(z: &const Complex(f64)) Complex(f64) {
+fn exp64(z: *const Complex(f64)) Complex(f64) {
     const exp_overflow = 0x40862e42; // high bits of max_exp * ln2 ~= 710
     const cexp_overflow = 0x4096b8e4; // (max_exp - min_denorm_exp) * ln2
 

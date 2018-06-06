@@ -10,7 +10,7 @@ const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const io = std.io;
 
-pub fn build(b: &Builder) !void {
+pub fn build(b: *Builder) !void {
     const mode = b.standardReleaseOptions();
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
@@ -132,7 +132,7 @@ pub fn build(b: &Builder) !void {
     test_step.dependOn(tests.addGenHTests(b, test_filter));
 }
 
-fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) void {
+fn dependOnLib(lib_exe_obj: *std.build.LibExeObjStep, dep: *const LibraryDep) void {
     for (dep.libdirs.toSliceConst()) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
@@ -147,7 +147,7 @@ fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) vo
     }
 }
 
-fn addCppLib(b: &Builder, lib_exe_obj: &std.build.LibExeObjStep, cmake_binary_dir: []const u8, lib_name: []const u8) void {
+fn addCppLib(b: *Builder, lib_exe_obj: *std.build.LibExeObjStep, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
     lib_exe_obj.addObjectFile(os.path.join(b.allocator, cmake_binary_dir, "zig_cpp", b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())) catch unreachable);
 }
@@ -159,7 +159,7 @@ const LibraryDep = struct {
     includes: ArrayList([]const u8),
 };
 
-fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
+fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
     const libs_output = try b.exec([][]const u8{
         llvm_config_exe,
         "--libs",
@@ -217,7 +217,7 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
     return result;
 }
 
-pub fn installStdLib(b: &Builder, stdlib_files: []const u8) void {
+pub fn installStdLib(b: *Builder, stdlib_files: []const u8) void {
     var it = mem.split(stdlib_files, ";");
     while (it.next()) |stdlib_file| {
         const src_path = os.path.join(b.allocator, "std", stdlib_file) catch unreachable;
@@ -226,7 +226,7 @@ pub fn installStdLib(b: &Builder, stdlib_files: []const u8) void {
     }
 }
 
-pub fn installCHeaders(b: &Builder, c_header_files: []const u8) void {
+pub fn installCHeaders(b: *Builder, c_header_files: []const u8) void {
     var it = mem.split(c_header_files, ";");
     while (it.next()) |c_header_file| {
         const src_path = os.path.join(b.allocator, "c_headers", c_header_file) catch unreachable;
@@ -235,7 +235,7 @@ pub fn installCHeaders(b: &Builder, c_header_files: []const u8) void {
     }
 }
 
-fn nextValue(index: &usize, build_info: []const u8) []const u8 {
+fn nextValue(index: *usize, build_info: []const u8) []const u8 {
     const start = index.*;
     while (true) : (index.* += 1) {
         switch (build_info[index.*]) {

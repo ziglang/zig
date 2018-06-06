@@ -4,12 +4,12 @@ const AtomicOrder = builtin.AtomicOrder;
 /// Many reader, many writer, non-allocating, thread-safe, lock-free
 pub fn Stack(comptime T: type) type {
     return struct {
-        root: ?&Node,
+        root: ?*Node,
 
         pub const Self = this;
 
         pub const Node = struct {
-            next: ?&Node,
+            next: ?*Node,
             data: T,
         };
 
@@ -19,36 +19,36 @@ pub fn Stack(comptime T: type) type {
 
         /// push operation, but only if you are the first item in the stack. if you did not succeed in
         /// being the first item in the stack, returns the other item that was there.
-        pub fn pushFirst(self: &Self, node: &Node) ?&Node {
+        pub fn pushFirst(self: *Self, node: *Node) ?*Node {
             node.next = null;
-            return @cmpxchgStrong(?&Node, &self.root, null, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst);
+            return @cmpxchgStrong(?*Node, &self.root, null, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst);
         }
 
-        pub fn push(self: &Self, node: &Node) void {
-            var root = @atomicLoad(?&Node, &self.root, AtomicOrder.SeqCst);
+        pub fn push(self: *Self, node: *Node) void {
+            var root = @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst);
             while (true) {
                 node.next = root;
-                root = @cmpxchgWeak(?&Node, &self.root, root, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? break;
+                root = @cmpxchgWeak(?*Node, &self.root, root, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? break;
             }
         }
 
-        pub fn pop(self: &Self) ?&Node {
-            var root = @atomicLoad(?&Node, &self.root, AtomicOrder.SeqCst);
+        pub fn pop(self: *Self) ?*Node {
+            var root = @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst);
             while (true) {
-                root = @cmpxchgWeak(?&Node, &self.root, root, (root ?? return null).next, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return root;
+                root = @cmpxchgWeak(?*Node, &self.root, root, (root ?? return null).next, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return root;
             }
         }
 
-        pub fn isEmpty(self: &Self) bool {
-            return @atomicLoad(?&Node, &self.root, AtomicOrder.SeqCst) == null;
+        pub fn isEmpty(self: *Self) bool {
+            return @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst) == null;
         }
     };
 }
 
 const std = @import("std");
 const Context = struct {
-    allocator: &std.mem.Allocator,
-    stack: &Stack(i32),
+    allocator: *std.mem.Allocator,
+    stack: *Stack(i32),
     put_sum: isize,
     get_sum: isize,
     get_count: usize,
@@ -82,11 +82,11 @@ test "std.atomic.stack" {
         .get_count = 0,
     };
 
-    var putters: [put_thread_count]&std.os.Thread = undefined;
+    var putters: [put_thread_count]*std.os.Thread = undefined;
     for (putters) |*t| {
         t.* = try std.os.spawnThread(&context, startPuts);
     }
-    var getters: [put_thread_count]&std.os.Thread = undefined;
+    var getters: [put_thread_count]*std.os.Thread = undefined;
     for (getters) |*t| {
         t.* = try std.os.spawnThread(&context, startGets);
     }
@@ -101,7 +101,7 @@ test "std.atomic.stack" {
     std.debug.assert(context.get_count == puts_per_thread * put_thread_count);
 }
 
-fn startPuts(ctx: &Context) u8 {
+fn startPuts(ctx: *Context) u8 {
     var put_count: usize = puts_per_thread;
     var r = std.rand.DefaultPrng.init(0xdeadbeef);
     while (put_count != 0) : (put_count -= 1) {
@@ -115,7 +115,7 @@ fn startPuts(ctx: &Context) u8 {
     return 0;
 }
 
-fn startGets(ctx: &Context) u8 {
+fn startGets(ctx: *Context) u8 {
     while (true) {
         while (ctx.stack.pop()) |node| {
             std.os.time.sleep(0, 1); // let the os scheduler be our fuzz

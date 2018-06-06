@@ -55,18 +55,18 @@ that counts as "freestanding" for the purposes of this table.
 |i386         | OK           | planned | OK      | planned | planned |
 |x86_64       | OK           | OK      | OK      | OK      | planned |
 |arm          | OK           | planned | planned | N/A     | planned |
-|aarch64      | OK           | planned | planned | planned | planned |
-|bpf          | OK           | planned | planned | N/A     | planned |
-|hexagon      | OK           | planned | planned | N/A     | planned |
-|mips         | OK           | planned | planned | N/A     | planned |
-|powerpc      | OK           | planned | planned | N/A     | planned |
-|r600         | OK           | planned | planned | N/A     | planned |
-|amdgcn       | OK           | planned | planned | N/A     | planned |
-|sparc        | OK           | planned | planned | N/A     | planned |
-|s390x        | OK           | planned | planned | N/A     | planned |
-|thumb        | OK           | planned | planned | N/A     | planned |
-|spir         | OK           | planned | planned | N/A     | planned |
-|lanai        | OK           | planned | planned | N/A     | planned |
+|aarch64      | OK           | planned | N/A     | planned | planned |
+|bpf          | OK           | planned | N/A     | N/A     | planned |
+|hexagon      | OK           | planned | N/A     | N/A     | planned |
+|mips         | OK           | planned | N/A     | N/A     | planned |
+|powerpc      | OK           | planned | N/A     | N/A     | planned |
+|r600         | OK           | planned | N/A     | N/A     | planned |
+|amdgcn       | OK           | planned | N/A     | N/A     | planned |
+|sparc        | OK           | planned | N/A     | N/A     | planned |
+|s390x        | OK           | planned | N/A     | N/A     | planned |
+|thumb        | OK           | planned | N/A     | N/A     | planned |
+|spir         | OK           | planned | N/A     | N/A     | planned |
+|lanai        | OK           | planned | N/A     | N/A     | planned |
 
 ## Community
 

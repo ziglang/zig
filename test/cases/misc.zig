@@ -171,8 +171,8 @@ test "memcpy and memset intrinsics" {
     var foo: [20]u8 = undefined;
     var bar: [20]u8 = undefined;
 
-    @memset(&foo[0], 'A', foo.len);
-    @memcpy(&bar[0], &foo[0], bar.len);
+    @memset(foo[0..].ptr, 'A', foo.len);
+    @memcpy(bar[0..].ptr, foo[0..].ptr, bar.len);
 
     if (bar[11] != 'A') unreachable;
 }
@@ -194,7 +194,7 @@ test "slicing" {
     if (slice.len != 5) unreachable;
 
     const ptr = &slice[0];
-    if (ptr[0] != 1234) unreachable;
+    if (ptr.* != 1234) unreachable;
 
     var slice_rest = array[10..];
     if (slice_rest.len != 10) unreachable;
@@ -252,20 +252,20 @@ test "multiline C string" {
 }
 
 test "type equality" {
-    assert(&const u8 != &u8);
+    assert(*const u8 != *u8);
 }
 
 const global_a: i32 = 1234;
-const global_b: &const i32 = &global_a;
-const global_c: &const f32 = @ptrCast(&const f32, global_b);
+const global_b: *const i32 = &global_a;
+const global_c: *const f32 = @ptrCast(*const f32, global_b);
 test "compile time global reinterpret" {
-    const d = @ptrCast(&const i32, global_c);
+    const d = @ptrCast(*const i32, global_c);
     assert(d.* == 1234);
 }
 
 test "explicit cast maybe pointers" {
-    const a: ?&i32 = undefined;
-    const b: ?&f32 = @ptrCast(?&f32, a);
+    const a: ?*i32 = undefined;
+    const b: ?*f32 = @ptrCast(?*f32, a);
 }
 
 test "generic malloc free" {
@@ -274,7 +274,7 @@ test "generic malloc free" {
 }
 var some_mem: [100]u8 = undefined;
 fn memAlloc(comptime T: type, n: usize) error![]T {
-    return @ptrCast(&T, &some_mem[0])[0..n];
+    return @ptrCast([*]T, &some_mem[0])[0..n];
 }
 fn memFree(comptime T: type, memory: []T) void {}
 
@@ -357,7 +357,7 @@ const test3_foo = Test3Foo{
     },
 };
 const test3_bar = Test3Foo{ .Two = 13 };
-fn test3_1(f: &const Test3Foo) void {
+fn test3_1(f: *const Test3Foo) void {
     switch (f.*) {
         Test3Foo.Three => |pt| {
             assert(pt.x == 3);
@@ -366,7 +366,7 @@ fn test3_1(f: &const Test3Foo) void {
         else => unreachable,
     }
 }
-fn test3_2(f: &const Test3Foo) void {
+fn test3_2(f: *const Test3Foo) void {
     switch (f.*) {
         Test3Foo.Two => |x| {
             assert(x == 13);
@@ -393,7 +393,7 @@ test "pointer comparison" {
     const b = &a;
     assert(ptrEql(b, b));
 }
-fn ptrEql(a: &const []const u8, b: &const []const u8) bool {
+fn ptrEql(a: *const []const u8, b: *const []const u8) bool {
     return a == b;
 }
 
@@ -446,13 +446,13 @@ fn testPointerToVoidReturnType() error!void {
     return a.*;
 }
 const test_pointer_to_void_return_type_x = void{};
-fn testPointerToVoidReturnType2() &const void {
+fn testPointerToVoidReturnType2() *const void {
     return &test_pointer_to_void_return_type_x;
 }
 
 test "non const ptr to aliased type" {
     const int = i32;
-    assert(?&int == ?&i32);
+    assert(?*int == ?*i32);
 }
 
 test "array 2D const double ptr" {
@@ -463,9 +463,10 @@ test "array 2D const double ptr" {
     testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
 }
 
-fn testArray2DConstDoublePtr(ptr: &const f32) void {
-    assert(ptr[0] == 1.0);
-    assert(ptr[1] == 2.0);
+fn testArray2DConstDoublePtr(ptr: *const f32) void {
+    const ptr2 = @ptrCast([*]const f32, ptr);
+    assert(ptr2[0] == 1.0);
+    assert(ptr2[1] == 2.0);
 }
 
 const Tid = builtin.TypeId;
@@ -497,13 +498,13 @@ test "@typeId" {
         assert(@typeId(u64) == Tid.Int);
         assert(@typeId(f32) == Tid.Float);
         assert(@typeId(f64) == Tid.Float);
-        assert(@typeId(&f32) == Tid.Pointer);
+        assert(@typeId(*f32) == Tid.Pointer);
         assert(@typeId([2]u8) == Tid.Array);
         assert(@typeId(AStruct) == Tid.Struct);
-        assert(@typeId(@typeOf(1)) == Tid.IntLiteral);
-        assert(@typeId(@typeOf(1.0)) == Tid.FloatLiteral);
-        assert(@typeId(@typeOf(undefined)) == Tid.UndefinedLiteral);
-        assert(@typeId(@typeOf(null)) == Tid.NullLiteral);
+        assert(@typeId(@typeOf(1)) == Tid.ComptimeInt);
+        assert(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
+        assert(@typeId(@typeOf(undefined)) == Tid.Undefined);
+        assert(@typeId(@typeOf(null)) == Tid.Null);
         assert(@typeId(?i32) == Tid.Nullable);
         assert(@typeId(error!i32) == Tid.ErrorUnion);
         assert(@typeId(error) == Tid.ErrorSet);
@@ -511,7 +512,7 @@ test "@typeId" {
         assert(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
         assert(@typeId(AUnionEnum) == Tid.Union);
         assert(@typeId(AUnion) == Tid.Union);
-        assert(@typeId(fn() void) == Tid.Fn);
+        assert(@typeId(fn () void) == Tid.Fn);
         assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
         assert(@typeId(@typeOf(x: {
             break :x this;
@@ -540,7 +541,7 @@ test "@typeName" {
     };
     comptime {
         assert(mem.eql(u8, @typeName(i64), "i64"));
-        assert(mem.eql(u8, @typeName(&usize), "&usize"));
+        assert(mem.eql(u8, @typeName(*usize), "*usize"));
         // https://github.com/ziglang/zig/issues/675
         assert(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
         assert(mem.eql(u8, @typeName(Struct), "Struct"));
@@ -555,7 +556,7 @@ fn TypeFromFn(comptime T: type) type {
 
 test "volatile load and store" {
     var number: i32 = 1234;
-    const ptr = (&volatile i32)(&number);
+    const ptr = (*volatile i32)(&number);
     ptr.* += 1;
     assert(ptr.* == 1235);
 }
@@ -587,28 +588,28 @@ var global_ptr = &gdt[0];
 
 // can't really run this test but we can make sure it has no compile error
 // and generates code
-const vram = @intToPtr(&volatile u8, 0x20000000)[0..0x8000];
+const vram = @intToPtr([*]volatile u8, 0x20000000)[0..0x8000];
 export fn writeToVRam() void {
     vram[0] = 'X';
 }
 
 test "pointer child field" {
-    assert((&u32).Child == u32);
+    assert((*u32).Child == u32);
 }
 
 const OpaqueA = @OpaqueType();
 const OpaqueB = @OpaqueType();
 test "@OpaqueType" {
-    assert(&OpaqueA != &OpaqueB);
+    assert(*OpaqueA != *OpaqueB);
     assert(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
     assert(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
     var x: i32 = 1234;
-    _ = hereIsAnOpaqueType(@ptrCast(&OpaqueA, &x));
+    _ = hereIsAnOpaqueType(@ptrCast(*OpaqueA, &x));
 }
-fn hereIsAnOpaqueType(ptr: &OpaqueA) &OpaqueA {
+fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
     var a = ptr;
     return a;
 }
@@ -692,7 +693,7 @@ test "packed struct, enum, union parameters in extern function" {
     }, PackedUnion{ .a = 1 }, PackedEnum.A);
 }
 
-export fn testPackedStuff(a: &const PackedStruct, b: &const PackedUnion, c: PackedEnum) void {}
+export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: PackedEnum) void {}
 
 test "slicing zero length array" {
     const s1 = ""[0..];
@@ -703,8 +704,8 @@ test "slicing zero length array" {
     assert(mem.eql(u32, s2, []u32{}));
 }
 
-const addr1 = @ptrCast(&const u8, emptyFn);
+const addr1 = @ptrCast(*const u8, emptyFn);
 test "comptime cast fn to ptr" {
-    const addr2 = @ptrCast(&const u8, emptyFn);
+    const addr2 = @ptrCast(*const u8, emptyFn);
     comptime assert(addr1 == addr2);
 }

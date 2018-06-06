@@ -309,7 +309,7 @@ pub fn isatty(fd: i32) bool {
     return c.isatty(fd) != 0;
 }
 
-pub fn fstat(fd: i32, buf: &c.Stat) usize {
+pub fn fstat(fd: i32, buf: *c.Stat) usize {
     return errnoWrap(c.@"fstat$INODE64"(fd, buf));
 }
 
@@ -317,7 +317,8 @@ pub fn lseek(fd: i32, offset: isize, whence: c_int) usize {
     return errnoWrap(c.lseek(fd, offset, whence));
 }
 
-pub fn open(path: &const u8, flags: u32, mode: usize) usize {
+// TODO https://github.com/ziglang/zig/issues/265 on the whole file
+pub fn open(path: [*]const u8, flags: u32, mode: usize) usize {
     return errnoWrap(c.open(path, @bitCast(c_int, flags), mode));
 }
 
@@ -325,79 +326,79 @@ pub fn raise(sig: i32) usize {
     return errnoWrap(c.raise(sig));
 }
 
-pub fn read(fd: i32, buf: &u8, nbyte: usize) usize {
-    return errnoWrap(c.read(fd, @ptrCast(&c_void, buf), nbyte));
+pub fn read(fd: i32, buf: [*]u8, nbyte: usize) usize {
+    return errnoWrap(c.read(fd, @ptrCast(*c_void, buf), nbyte));
 }
 
-pub fn stat(noalias path: &const u8, noalias buf: &stat) usize {
+pub fn stat(noalias path: [*]const u8, noalias buf: *stat) usize {
     return errnoWrap(c.stat(path, buf));
 }
 
-pub fn write(fd: i32, buf: &const u8, nbyte: usize) usize {
-    return errnoWrap(c.write(fd, @ptrCast(&const c_void, buf), nbyte));
+pub fn write(fd: i32, buf: [*]const u8, nbyte: usize) usize {
+    return errnoWrap(c.write(fd, @ptrCast(*const c_void, buf), nbyte));
 }
 
-pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
-    const ptr_result = c.mmap(@ptrCast(&c_void, address), length, @bitCast(c_int, c_uint(prot)), @bitCast(c_int, c_uint(flags)), fd, offset);
+pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
+    const ptr_result = c.mmap(@ptrCast(*c_void, address), length, @bitCast(c_int, c_uint(prot)), @bitCast(c_int, c_uint(flags)), fd, offset);
     const isize_result = @bitCast(isize, @ptrToInt(ptr_result));
     return errnoWrap(isize_result);
 }
 
 pub fn munmap(address: usize, length: usize) usize {
-    return errnoWrap(c.munmap(@intToPtr(&c_void, address), length));
+    return errnoWrap(c.munmap(@intToPtr(*c_void, address), length));
 }
 
-pub fn unlink(path: &const u8) usize {
+pub fn unlink(path: [*]const u8) usize {
     return errnoWrap(c.unlink(path));
 }
 
-pub fn getcwd(buf: &u8, size: usize) usize {
+pub fn getcwd(buf: [*]u8, size: usize) usize {
     return if (c.getcwd(buf, size) == null) @bitCast(usize, -isize(c._errno().*)) else 0;
 }
 
-pub fn waitpid(pid: i32, status: &i32, options: u32) usize {
+pub fn waitpid(pid: i32, status: *i32, options: u32) usize {
     comptime assert(i32.bit_count == c_int.bit_count);
-    return errnoWrap(c.waitpid(pid, @ptrCast(&c_int, status), @bitCast(c_int, options)));
+    return errnoWrap(c.waitpid(pid, @ptrCast(*c_int, status), @bitCast(c_int, options)));
 }
 
 pub fn fork() usize {
     return errnoWrap(c.fork());
 }
 
-pub fn access(path: &const u8, mode: u32) usize {
+pub fn access(path: [*]const u8, mode: u32) usize {
     return errnoWrap(c.access(path, mode));
 }
 
-pub fn pipe(fds: &[2]i32) usize {
+pub fn pipe(fds: *[2]i32) usize {
     comptime assert(i32.bit_count == c_int.bit_count);
-    return errnoWrap(c.pipe(@ptrCast(&c_int, fds)));
+    return errnoWrap(c.pipe(@ptrCast(*[2]c_int, fds)));
 }
 
-pub fn getdirentries64(fd: i32, buf_ptr: &u8, buf_len: usize, basep: &i64) usize {
+pub fn getdirentries64(fd: i32, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize {
     return errnoWrap(@bitCast(isize, c.__getdirentries64(fd, buf_ptr, buf_len, basep)));
 }
 
-pub fn mkdir(path: &const u8, mode: u32) usize {
+pub fn mkdir(path: [*]const u8, mode: u32) usize {
     return errnoWrap(c.mkdir(path, mode));
 }
 
-pub fn symlink(existing: &const u8, new: &const u8) usize {
+pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
     return errnoWrap(c.symlink(existing, new));
 }
 
-pub fn rename(old: &const u8, new: &const u8) usize {
+pub fn rename(old: [*]const u8, new: [*]const u8) usize {
     return errnoWrap(c.rename(old, new));
 }
 
-pub fn rmdir(path: &const u8) usize {
+pub fn rmdir(path: [*]const u8) usize {
     return errnoWrap(c.rmdir(path));
 }
 
-pub fn chdir(path: &const u8) usize {
+pub fn chdir(path: [*]const u8) usize {
     return errnoWrap(c.chdir(path));
 }
 
-pub fn execve(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8) usize {
+pub fn execve(path: [*]const u8, argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8) usize {
     return errnoWrap(c.execve(path, argv, envp));
 }
 
@@ -405,19 +406,19 @@ pub fn dup2(old: i32, new: i32) usize {
     return errnoWrap(c.dup2(old, new));
 }
 
-pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) usize {
+pub fn readlink(noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
     return errnoWrap(c.readlink(path, buf_ptr, buf_len));
 }
 
-pub fn gettimeofday(tv: ?&timeval, tz: ?&timezone) usize {
+pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return errnoWrap(c.gettimeofday(tv, tz));
 }
 
-pub fn nanosleep(req: &const timespec, rem: ?&timespec) usize {
+pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
     return errnoWrap(c.nanosleep(req, rem));
 }
 
-pub fn realpath(noalias filename: &const u8, noalias resolved_name: &u8) usize {
+pub fn realpath(noalias filename: [*]const u8, noalias resolved_name: [*]u8) usize {
     return if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(c._errno().*)) else 0;
 }
 
@@ -429,26 +430,26 @@ pub fn setregid(rgid: u32, egid: u32) usize {
     return errnoWrap(c.setregid(rgid, egid));
 }
 
-pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) usize {
+pub fn sigprocmask(flags: u32, noalias set: *const sigset_t, noalias oldset: ?*sigset_t) usize {
     return errnoWrap(c.sigprocmask(@bitCast(c_int, flags), set, oldset));
 }
 
-pub fn sigaction(sig: u5, noalias act: &const Sigaction, noalias oact: ?&Sigaction) usize {
+pub fn sigaction(sig: u5, noalias act: *const Sigaction, noalias oact: ?*Sigaction) usize {
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
     var cact = c.Sigaction{
-        .handler = @ptrCast(extern fn(c_int) void, act.handler),
+        .handler = @ptrCast(extern fn (c_int) void, act.handler),
         .sa_flags = @bitCast(c_int, act.flags),
         .sa_mask = act.mask,
     };
     var coact: c.Sigaction = undefined;
-    const result = errnoWrap(c.sigaction(sig, &cact, &coact));
+    const result = errnoWrap(c.sigaction(sig, *cact, *coact));
     if (result != 0) {
         return result;
     }
     if (oact) |old| {
         old.* = Sigaction{
-            .handler = @ptrCast(extern fn(i32) void, coact.handler),
+            .handler = @ptrCast(extern fn (i32) void, coact.handler),
             .flags = @bitCast(u32, coact.sa_flags),
             .mask = coact.sa_mask,
         };
@@ -468,12 +469,12 @@ pub const sockaddr = c.sockaddr;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {
-    handler: extern fn(i32) void,
+    handler: extern fn (i32) void,
     mask: sigset_t,
     flags: u32,
 };
 
-pub fn sigaddset(set: &sigset_t, signo: u5) void {
+pub fn sigaddset(set: *sigset_t, signo: u5) void {
     set.* |= u32(1) << (signo - 1);
 }
 

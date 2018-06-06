@@ -8,7 +8,7 @@ fn Point(comptime T: type) type {
         x: T,
         y: T,
 
-        fn addOne(self: &Self) void {
+        fn addOne(self: *Self) void {
             self.x += 1;
             self.y += 1;
         }

@@ -93,7 +93,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             return d;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             d.s[0] = params.iv0;
             d.s[1] = params.iv1;
             d.s[2] = params.iv2;
@@ -112,7 +112,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -126,7 +126,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
 
             // Full middle blocks.
             while (off + 64 <= b.len) : (off += 64) {
-                d.round(b[off..off + 64]);
+                d.round(b[off .. off + 64]);
             }
 
             // Copy any remainder for next pass.
@@ -136,7 +136,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             d.total_len += b.len;
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             debug.assert(out.len >= params.out_len / 8);
 
             // The buffer here will never be completely full.
@@ -164,14 +164,14 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             d.round(d.buf[0..]);
 
             // May truncate for possible 224 output
-            const rr = d.s[0..params.out_len / 32];
+            const rr = d.s[0 .. params.out_len / 32];
 
             for (rr) |s, j| {
-                mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Big);
+                mem.writeInt(out[4 * j .. 4 * j + 4], s, builtin.Endian.Big);
             }
         }
 
-        fn round(d: &Self, b: []const u8) void {
+        fn round(d: *Self, b: []const u8) void {
             debug.assert(b.len == 64);
 
             var s: [64]u32 = undefined;
@@ -434,7 +434,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             return d;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             d.s[0] = params.iv0;
             d.s[1] = params.iv1;
             d.s[2] = params.iv2;
@@ -453,7 +453,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -467,7 +467,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
 
             // Full middle blocks.
             while (off + 128 <= b.len) : (off += 128) {
-                d.round(b[off..off + 128]);
+                d.round(b[off .. off + 128]);
             }
 
             // Copy any remainder for next pass.
@@ -477,7 +477,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             d.total_len += b.len;
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             debug.assert(out.len >= params.out_len / 8);
 
             // The buffer here will never be completely full.
@@ -505,14 +505,14 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             d.round(d.buf[0..]);
 
             // May truncate for possible 384 output
-            const rr = d.s[0..params.out_len / 64];
+            const rr = d.s[0 .. params.out_len / 64];
 
             for (rr) |s, j| {
-                mem.writeInt(out[8 * j..8 * j + 8], s, builtin.Endian.Big);
+                mem.writeInt(out[8 * j .. 8 * j + 8], s, builtin.Endian.Big);
             }
         }
 
-        fn round(d: &Self, b: []const u8) void {
+        fn round(d: *Self, b: []const u8) void {
             debug.assert(b.len == 128);
 
             var s: [80]u64 = undefined;

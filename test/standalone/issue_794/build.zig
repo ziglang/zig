@@ -1,6 +1,6 @@
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) void {
+pub fn build(b: *Builder) void {
     const test_artifact = b.addTest("main.zig");
     test_artifact.addIncludeDir("a_directory");
 

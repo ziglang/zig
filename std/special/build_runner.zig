@@ -71,7 +71,7 @@ pub fn main() !void {
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0..name_end];
-                const option_value = option_contents[name_end + 1..];
+                const option_value = option_contents[name_end + 1 ..];
                 if (builder.addUserInputOption(option_name, option_value))
                     return usageAndErr(&builder, false, try stderr_stream);
             } else {
@@ -129,7 +129,7 @@ pub fn main() !void {
     };
 }
 
-fn runBuild(builder: &Builder) error!void {
+fn runBuild(builder: *Builder) error!void {
     switch (@typeId(@typeOf(root.build).ReturnType)) {
         builtin.TypeId.Void => root.build(builder),
         builtin.TypeId.ErrorUnion => try root.build(builder),
@@ -137,7 +137,7 @@ fn runBuild(builder: &Builder) error!void {
     }
 }
 
-fn usage(builder: &Builder, already_ran_build: bool, out_stream: var) !void {
+fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.setInstallPrefix(null);
@@ -195,7 +195,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: var) !void {
     );
 }
 
-fn usageAndErr(builder: &Builder, already_ran_build: bool, out_stream: var) error {
+fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) error {
     usage(builder, already_ran_build, out_stream) catch {};
     return error.InvalidArgs;
 }

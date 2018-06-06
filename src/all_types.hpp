@@ -83,6 +83,7 @@ enum ConstParentId {
     ConstParentIdStruct,
     ConstParentIdArray,
     ConstParentIdUnion,
+    ConstParentIdScalar,
 };
 
 struct ConstParent {
@@ -100,6 +101,9 @@ struct ConstParent {
         struct {
             ConstExprValue *union_val;
         } p_union;
+        struct {
+            ConstExprValue *scalar_val;
+        } p_scalar;
     } data;
 };
 
@@ -374,7 +378,7 @@ enum NodeType {
     NodeTypeCharLiteral,
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
-    NodeTypeAddrOfExpr,
+    NodeTypePointerType,
     NodeTypeFnCallExpr,
     NodeTypeArrayAccessExpr,
     NodeTypeSliceExpr,
@@ -578,6 +582,7 @@ enum CastOp {
     CastOpBytesToSlice,
     CastOpNumLitToConcrete,
     CastOpErrSet,
+    CastOpBitCast,
 };
 
 struct AstNodeFnCallExpr {
@@ -616,6 +621,7 @@ enum PrefixOp {
     PrefixOpNegationWrap,
     PrefixOpMaybe,
     PrefixOpUnwrapMaybe,
+    PrefixOpAddrOf,
 };
 
 struct AstNodePrefixOpExpr {
@@ -623,7 +629,8 @@ struct AstNodePrefixOpExpr {
     AstNode *primary_expr;
 };
 
-struct AstNodeAddrOfExpr {
+struct AstNodePointerType {
+    Token *star_token;
     AstNode *align_expr;
     BigInt *bit_offset_start;
     BigInt *bit_offset_end;
@@ -899,7 +906,7 @@ struct AstNode {
         AstNodeBinOpExpr bin_op_expr;
         AstNodeCatchExpr unwrap_err_expr;
         AstNodePrefixOpExpr prefix_op_expr;
-        AstNodeAddrOfExpr addr_of_expr;
+        AstNodePointerType pointer_type;
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeSliceExpr slice_expr;
@@ -972,8 +979,14 @@ struct FnTypeId {
 uint32_t fn_type_id_hash(FnTypeId*);
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 
+enum PtrLen {
+    PtrLenUnknown,
+    PtrLenSingle,
+};
+
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
+    PtrLen ptr_len;
     bool is_const;
     bool is_volatile;
     uint32_t alignment;
@@ -1146,10 +1159,10 @@ enum TypeTableEntryId {
     TypeTableEntryIdPointer,
     TypeTableEntryIdArray,
     TypeTableEntryIdStruct,
-    TypeTableEntryIdNumLitFloat,
-    TypeTableEntryIdNumLitInt,
-    TypeTableEntryIdUndefLit,
-    TypeTableEntryIdNullLit,
+    TypeTableEntryIdComptimeFloat,
+    TypeTableEntryIdComptimeInt,
+    TypeTableEntryIdUndefined,
+    TypeTableEntryIdNull,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdErrorSet,
@@ -1395,6 +1408,7 @@ struct TypeId {
     union {
         struct {
             TypeTableEntry *child_type;
+            PtrLen ptr_len;
             bool is_const;
             bool is_volatile;
             uint32_t alignment;
@@ -2053,7 +2067,7 @@ enum IrInstructionId {
     IrInstructionIdTypeInfo,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
-    IrInstructionIdPtrTypeOf,
+    IrInstructionIdPtrType,
     IrInstructionIdAlignCast,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
@@ -2266,6 +2280,7 @@ struct IrInstructionElemPtr {
 
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
+    PtrLen ptr_len;
     bool is_const;
     bool safety_check_on;
 };
@@ -2274,8 +2289,6 @@ struct IrInstructionVarPtr {
     IrInstruction base;
 
     VariableTableEntry *var;
-    bool is_const;
-    bool is_volatile;
 };
 
 struct IrInstructionCall {
@@ -2410,6 +2423,18 @@ struct IrInstructionArrayType {
 
     IrInstruction *size;
     IrInstruction *child_type;
+};
+
+struct IrInstructionPtrType {
+    IrInstruction base;
+
+    IrInstruction *align_value;
+    IrInstruction *child_type;
+    uint32_t bit_offset_start;
+    uint32_t bit_offset_end;
+    PtrLen ptr_len;
+    bool is_const;
+    bool is_volatile;
 };
 
 struct IrInstructionPromiseType {
@@ -2889,17 +2914,6 @@ struct IrInstructionSetEvalBranchQuota {
     IrInstruction base;
 
     IrInstruction *new_quota;
-};
-
-struct IrInstructionPtrTypeOf {
-    IrInstruction base;
-
-    IrInstruction *align_value;
-    IrInstruction *child_type;
-    uint32_t bit_offset_start;
-    uint32_t bit_offset_end;
-    bool is_const;
-    bool is_volatile;
 };
 
 struct IrInstructionAlignCast {

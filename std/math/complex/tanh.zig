@@ -13,7 +13,7 @@ pub fn tanh(z: var) Complex(@typeOf(z.re)) {
     };
 }
 
-fn tanh32(z: &const Complex(f32)) Complex(f32) {
+fn tanh32(z: *const Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -51,7 +51,7 @@ fn tanh32(z: &const Complex(f32)) Complex(f32) {
     return Complex(f32).new((beta * rho * s) / den, t / den);
 }
 
-fn tanh64(z: &const Complex(f64)) Complex(f64) {
+fn tanh64(z: *const Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 

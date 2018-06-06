@@ -75,7 +75,7 @@ fn Blake2s(comptime out_len: usize) type {
             return s;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             mem.copy(u32, d.h[0..], iv[0..]);
 
             // No key plus default parameters
@@ -90,7 +90,7 @@ fn Blake2s(comptime out_len: usize) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -105,7 +105,7 @@ fn Blake2s(comptime out_len: usize) type {
             // Full middle blocks.
             while (off + 64 <= b.len) : (off += 64) {
                 d.t += 64;
-                d.round(b[off..off + 64], false);
+                d.round(b[off .. off + 64], false);
             }
 
             // Copy any remainder for next pass.
@@ -113,28 +113,28 @@ fn Blake2s(comptime out_len: usize) type {
             d.buf_len += u8(b[off..].len);
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             debug.assert(out.len >= out_len / 8);
 
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
-            const rr = d.h[0..out_len / 32];
+            const rr = d.h[0 .. out_len / 32];
 
             for (rr) |s, j| {
-                mem.writeInt(out[4 * j..4 * j + 4], s, builtin.Endian.Little);
+                mem.writeInt(out[4 * j .. 4 * j + 4], s, builtin.Endian.Little);
             }
         }
 
-        fn round(d: &Self, b: []const u8, last: bool) void {
+        fn round(d: *Self, b: []const u8, last: bool) void {
             debug.assert(b.len == 64);
 
             var m: [16]u32 = undefined;
             var v: [16]u32 = undefined;
 
             for (m) |*r, i| {
-                r.* = mem.readIntLE(u32, b[4 * i..4 * i + 4]);
+                r.* = mem.readIntLE(u32, b[4 * i .. 4 * i + 4]);
             }
 
             var k: usize = 0;
@@ -310,7 +310,7 @@ fn Blake2b(comptime out_len: usize) type {
             return s;
         }
 
-        pub fn reset(d: &Self) void {
+        pub fn reset(d: *Self) void {
             mem.copy(u64, d.h[0..], iv[0..]);
 
             // No key plus default parameters
@@ -325,7 +325,7 @@ fn Blake2b(comptime out_len: usize) type {
             d.final(out);
         }
 
-        pub fn update(d: &Self, b: []const u8) void {
+        pub fn update(d: *Self, b: []const u8) void {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -340,7 +340,7 @@ fn Blake2b(comptime out_len: usize) type {
             // Full middle blocks.
             while (off + 128 <= b.len) : (off += 128) {
                 d.t += 128;
-                d.round(b[off..off + 128], false);
+                d.round(b[off .. off + 128], false);
             }
 
             // Copy any remainder for next pass.
@@ -348,26 +348,26 @@ fn Blake2b(comptime out_len: usize) type {
             d.buf_len += u8(b[off..].len);
         }
 
-        pub fn final(d: &Self, out: []u8) void {
+        pub fn final(d: *Self, out: []u8) void {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
-            const rr = d.h[0..out_len / 64];
+            const rr = d.h[0 .. out_len / 64];
 
             for (rr) |s, j| {
-                mem.writeInt(out[8 * j..8 * j + 8], s, builtin.Endian.Little);
+                mem.writeInt(out[8 * j .. 8 * j + 8], s, builtin.Endian.Little);
             }
         }
 
-        fn round(d: &Self, b: []const u8, last: bool) void {
+        fn round(d: *Self, b: []const u8, last: bool) void {
             debug.assert(b.len == 128);
 
             var m: [16]u64 = undefined;
             var v: [16]u64 = undefined;
 
             for (m) |*r, i| {
-                r.* = mem.readIntLE(u64, b[8 * i..8 * i + 8]);
+                r.* = mem.readIntLE(u64, b[8 * i .. 8 * i + 8]);
             }
 
             var k: usize = 0;

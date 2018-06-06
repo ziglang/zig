@@ -134,20 +134,7 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
         },
         Os.zen => {
-            const randomness = []u8{
-                42,
-                1,
-                7,
-                12,
-                22,
-                17,
-                99,
-                16,
-                26,
-                87,
-                41,
-                45,
-            };
+            const randomness = []u8{ 42, 1, 7, 12, 22, 17, 99, 16, 26, 87, 41, 45 };
             var i: usize = 0;
             while (i < buf.len) : (i += 1) {
                 if (i > randomness.len) return error.Unknown;
@@ -238,7 +225,7 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
     var index: usize = 0;
     while (index < buf.len) {
         const want_to_read = math.min(buf.len - index, usize(max_buf_len));
-        const rc = posix.read(fd, &buf[index], want_to_read);
+        const rc = posix.read(fd, buf.ptr + index, want_to_read);
         const err = posix.getErrno(rc);
         if (err > 0) {
             return switch (err) {
@@ -278,7 +265,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
     var index: usize = 0;
     while (index < bytes.len) {
         const amt_to_write = math.min(bytes.len - index, usize(max_bytes_len));
-        const rc = posix.write(fd, &bytes[index], amt_to_write);
+        const rc = posix.write(fd, bytes.ptr + index, amt_to_write);
         const write_err = posix.getErrno(rc);
         if (write_err > 0) {
             return switch (write_err) {
@@ -321,14 +308,15 @@ pub const PosixOpenError = error{
 /// ::file_path needs to be copied in memory to add a null terminating byte.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(allocator: &Allocator, file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
+pub fn posixOpen(allocator: *Allocator, file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
     const path_with_null = try cstr.addNullByte(allocator, file_path);
     defer allocator.free(path_with_null);
 
     return posixOpenC(path_with_null.ptr, flags, perm);
 }
 
-pub fn posixOpenC(file_path: &const u8, flags: u32, perm: usize) !i32 {
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
     while (true) {
         const result = posix.open(file_path, flags, perm);
         const err = posix.getErrno(result);
@@ -374,19 +362,19 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
     }
 }
 
-pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) ![]?&u8 {
+pub fn createNullDelimitedEnvMap(allocator: *Allocator, env_map: *const BufMap) ![]?[*]u8 {
     const envp_count = env_map.count();
-    const envp_buf = try allocator.alloc(?&u8, envp_count + 1);
-    mem.set(?&u8, envp_buf, null);
+    const envp_buf = try allocator.alloc(?[*]u8, envp_count + 1);
+    mem.set(?[*]u8, envp_buf, null);
     errdefer freeNullDelimitedEnvMap(allocator, envp_buf);
     {
         var it = env_map.iterator();
         var i: usize = 0;
         while (it.next()) |pair| : (i += 1) {
             const env_buf = try allocator.alloc(u8, pair.key.len + pair.value.len + 2);
-            @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
+            @memcpy(env_buf.ptr, pair.key.ptr, pair.key.len);
             env_buf[pair.key.len] = '=';
-            @memcpy(&env_buf[pair.key.len + 1], pair.value.ptr, pair.value.len);
+            @memcpy(env_buf.ptr + pair.key.len + 1, pair.value.ptr, pair.value.len);
             env_buf[env_buf.len - 1] = 0;
 
             envp_buf[i] = env_buf.ptr;
@@ -397,9 +385,9 @@ pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) 
     return envp_buf;
 }
 
-pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) void {
+pub fn freeNullDelimitedEnvMap(allocator: *Allocator, envp_buf: []?[*]u8) void {
     for (envp_buf) |env| {
-        const env_buf = if (env) |ptr| ptr[0..cstr.len(ptr) + 1] else break;
+        const env_buf = if (env) |ptr| ptr[0 .. cstr.len(ptr) + 1] else break;
         allocator.free(env_buf);
     }
     allocator.free(envp_buf);
@@ -410,9 +398,9 @@ pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) void {
 /// pointers after the args and after the environment variables.
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
-pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap, allocator: &Allocator) !void {
-    const argv_buf = try allocator.alloc(?&u8, argv.len + 1);
-    mem.set(?&u8, argv_buf, null);
+pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: *Allocator) !void {
+    const argv_buf = try allocator.alloc(?[*]u8, argv.len + 1);
+    mem.set(?[*]u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
             const arg_buf = if (arg) |ptr| cstr.toSlice(ptr) else break;
@@ -422,7 +410,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap, allocator: 
     }
     for (argv) |arg, i| {
         const arg_buf = try allocator.alloc(u8, arg.len + 1);
-        @memcpy(&arg_buf[0], arg.ptr, arg.len);
+        @memcpy(arg_buf.ptr, arg.ptr, arg.len);
         arg_buf[arg.len] = 0;
 
         argv_buf[i] = arg_buf.ptr;
@@ -449,7 +437,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap, allocator: 
     while (it.next()) |search_path| {
         mem.copy(u8, path_buf, search_path);
         path_buf[search_path.len] = '/';
-        mem.copy(u8, path_buf[search_path.len + 1..], exe_path);
+        mem.copy(u8, path_buf[search_path.len + 1 ..], exe_path);
         path_buf[search_path.len + exe_path.len + 1] = 0;
         err = posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr));
         assert(err > 0);
@@ -494,10 +482,10 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
 }
 
 pub var linux_aux_raw = []usize{0} ** 38;
-pub var posix_environ_raw: []&u8 = undefined;
+pub var posix_environ_raw: [][*]u8 = undefined;
 
 /// Caller must free result when done.
-pub fn getEnvMap(allocator: &Allocator) !BufMap {
+pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
@@ -532,7 +520,7 @@ pub fn getEnvMap(allocator: &Allocator) !BufMap {
 
             var end_i: usize = line_i;
             while (ptr[end_i] != 0) : (end_i += 1) {}
-            const value = ptr[line_i + 1..end_i];
+            const value = ptr[line_i + 1 .. end_i];
 
             try result.set(key, value);
         }
@@ -549,7 +537,7 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
 
         var end_i: usize = line_i;
         while (ptr[end_i] != 0) : (end_i += 1) {}
-        const this_value = ptr[line_i + 1..end_i];
+        const this_value = ptr[line_i + 1 .. end_i];
 
         return this_value;
     }
@@ -557,7 +545,7 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
 }
 
 /// Caller must free returned memory.
-pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) ![]u8 {
+pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) ![]u8 {
     if (is_windows) {
         const key_with_null = try cstr.addNullByte(allocator, key);
         defer allocator.free(key_with_null);
@@ -591,7 +579,7 @@ pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) ![]u8 {
 }
 
 /// Caller must free the returned memory.
-pub fn getCwd(allocator: &Allocator) ![]u8 {
+pub fn getCwd(allocator: *Allocator) ![]u8 {
     switch (builtin.os) {
         Os.windows => {
             var buf = try allocator.alloc(u8, 256);
@@ -640,7 +628,7 @@ test "os.getCwd" {
 
 pub const SymLinkError = PosixSymLinkError || WindowsSymLinkError;
 
-pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) SymLinkError!void {
+pub fn symLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) SymLinkError!void {
     if (is_windows) {
         return symLinkWindows(allocator, existing_path, new_path);
     } else {
@@ -653,7 +641,7 @@ pub const WindowsSymLinkError = error{
     Unexpected,
 };
 
-pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) WindowsSymLinkError!void {
+pub fn symLinkWindows(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) WindowsSymLinkError!void {
     const existing_with_null = try cstr.addNullByte(allocator, existing_path);
     defer allocator.free(existing_with_null);
     const new_with_null = try cstr.addNullByte(allocator, new_path);
@@ -683,7 +671,7 @@ pub const PosixSymLinkError = error{
     Unexpected,
 };
 
-pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) PosixSymLinkError!void {
+pub fn symLinkPosix(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) PosixSymLinkError!void {
     const full_buf = try allocator.alloc(u8, existing_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
@@ -691,7 +679,7 @@ pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: 
     mem.copy(u8, existing_buf, existing_path);
     existing_buf[existing_path.len] = 0;
 
-    const new_buf = full_buf[existing_path.len + 1..];
+    const new_buf = full_buf[existing_path.len + 1 ..];
     mem.copy(u8, new_buf, new_path);
     new_buf[new_path.len] = 0;
 
@@ -718,7 +706,7 @@ pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: 
 // here we replace the standard +/ with -_ so that it can be used in a file name
 const b64_fs_encoder = base64.Base64Encoder.init("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", base64.standard_pad_char);
 
-pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) !void {
+pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
     if (symLink(allocator, existing_path, new_path)) {
         return;
     } else |err| switch (err) {
@@ -735,7 +723,7 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
     tmp_path[dirname.len] = os.path.sep;
     while (true) {
         try getRandomBytes(rand_buf[0..]);
-        b64_fs_encoder.encode(tmp_path[dirname.len + 1..], rand_buf);
+        b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
 
         if (symLink(allocator, existing_path, tmp_path)) {
             return rename(allocator, tmp_path, new_path);
@@ -746,7 +734,7 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
     }
 }
 
-pub fn deleteFile(allocator: &Allocator, file_path: []const u8) !void {
+pub fn deleteFile(allocator: *Allocator, file_path: []const u8) !void {
     if (builtin.os == Os.windows) {
         return deleteFileWindows(allocator, file_path);
     } else {
@@ -754,7 +742,7 @@ pub fn deleteFile(allocator: &Allocator, file_path: []const u8) !void {
     }
 }
 
-pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) !void {
+pub fn deleteFileWindows(allocator: *Allocator, file_path: []const u8) !void {
     const buf = try allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
@@ -772,7 +760,7 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) !void {
     }
 }
 
-pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) !void {
+pub fn deleteFilePosix(allocator: *Allocator, file_path: []const u8) !void {
     const buf = try allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
@@ -803,7 +791,7 @@ pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) !void {
 /// there is a possibility of power loss or application termination leaving temporary files present
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
-pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []const u8) !void {
+pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []const u8) !void {
     var in_file = try os.File.openRead(allocator, source_path);
     defer in_file.close();
 
@@ -825,7 +813,7 @@ pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []con
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
-pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: FileMode) !void {
+pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: FileMode) !void {
     var in_file = try os.File.openRead(allocator, source_path);
     defer in_file.close();
 
@@ -843,7 +831,7 @@ pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: [
 }
 
 pub const AtomicFile = struct {
-    allocator: &Allocator,
+    allocator: *Allocator,
     file: os.File,
     tmp_path: []u8,
     dest_path: []const u8,
@@ -851,7 +839,7 @@ pub const AtomicFile = struct {
 
     /// dest_path must remain valid for the lifetime of AtomicFile
     /// call finish to atomically replace dest_path with contents
-    pub fn init(allocator: &Allocator, dest_path: []const u8, mode: FileMode) !AtomicFile {
+    pub fn init(allocator: *Allocator, dest_path: []const u8, mode: FileMode) !AtomicFile {
         const dirname = os.path.dirname(dest_path);
 
         var rand_buf: [12]u8 = undefined;
@@ -888,7 +876,7 @@ pub const AtomicFile = struct {
     }
 
     /// always call deinit, even after successful finish()
-    pub fn deinit(self: &AtomicFile) void {
+    pub fn deinit(self: *AtomicFile) void {
         if (!self.finished) {
             self.file.close();
             deleteFile(self.allocator, self.tmp_path) catch {};
@@ -897,7 +885,7 @@ pub const AtomicFile = struct {
         }
     }
 
-    pub fn finish(self: &AtomicFile) !void {
+    pub fn finish(self: *AtomicFile) !void {
         assert(!self.finished);
         self.file.close();
         try rename(self.allocator, self.tmp_path, self.dest_path);
@@ -906,7 +894,7 @@ pub const AtomicFile = struct {
     }
 };
 
-pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8) !void {
+pub fn rename(allocator: *Allocator, old_path: []const u8, new_path: []const u8) !void {
     const full_buf = try allocator.alloc(u8, old_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
@@ -914,7 +902,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     mem.copy(u8, old_buf, old_path);
     old_buf[old_path.len] = 0;
 
-    const new_buf = full_buf[old_path.len + 1..];
+    const new_buf = full_buf[old_path.len + 1 ..];
     mem.copy(u8, new_buf, new_path);
     new_buf[new_path.len] = 0;
 
@@ -951,7 +939,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     }
 }
 
-pub fn makeDir(allocator: &Allocator, dir_path: []const u8) !void {
+pub fn makeDir(allocator: *Allocator, dir_path: []const u8) !void {
     if (is_windows) {
         return makeDirWindows(allocator, dir_path);
     } else {
@@ -959,7 +947,7 @@ pub fn makeDir(allocator: &Allocator, dir_path: []const u8) !void {
     }
 }
 
-pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) !void {
+pub fn makeDirWindows(allocator: *Allocator, dir_path: []const u8) !void {
     const path_buf = try cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
@@ -973,7 +961,7 @@ pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) !void {
     }
 }
 
-pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) !void {
+pub fn makeDirPosix(allocator: *Allocator, dir_path: []const u8) !void {
     const path_buf = try cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
@@ -999,7 +987,7 @@ pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) !void {
 
 /// Calls makeDir recursively to make an entire path. Returns success if the path
 /// already exists and is a directory.
-pub fn makePath(allocator: &Allocator, full_path: []const u8) !void {
+pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
     const resolved_path = try path.resolve(allocator, full_path);
     defer allocator.free(resolved_path);
 
@@ -1033,7 +1021,7 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) !void {
 
 /// Returns ::error.DirNotEmpty if the directory is not empty.
 /// To delete a directory recursively, see ::deleteTree
-pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) !void {
+pub fn deleteDir(allocator: *Allocator, dir_path: []const u8) !void {
     const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
@@ -1084,7 +1072,7 @@ const DeleteTreeError = error{
     DirNotEmpty,
     Unexpected,
 };
-pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!void {
+pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
         var got_access_denied = false;
         // First, try deleting the item as a file. This way we don't follow sym links.
@@ -1141,7 +1129,7 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
                 const full_entry_path = full_entry_buf.toSlice();
                 mem.copy(u8, full_entry_path, full_path);
                 full_entry_path[full_path.len] = '/';
-                mem.copy(u8, full_entry_path[full_path.len + 1..], entry.name);
+                mem.copy(u8, full_entry_path[full_path.len + 1 ..], entry.name);
 
                 try deleteTree(allocator, full_entry_path);
             }
@@ -1153,7 +1141,7 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
 pub const Dir = struct {
     fd: i32,
     darwin_seek: darwin_seek_t,
-    allocator: &Allocator,
+    allocator: *Allocator,
     buf: []u8,
     index: usize,
     end_index: usize,
@@ -1180,7 +1168,7 @@ pub const Dir = struct {
         };
     };
 
-    pub fn open(allocator: &Allocator, dir_path: []const u8) !Dir {
+    pub fn open(allocator: *Allocator, dir_path: []const u8) !Dir {
         const fd = switch (builtin.os) {
             Os.windows => @compileError("TODO support Dir.open for windows"),
             Os.linux => try posixOpen(allocator, dir_path, posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC, 0),
@@ -1206,14 +1194,14 @@ pub const Dir = struct {
         };
     }
 
-    pub fn close(self: &Dir) void {
+    pub fn close(self: *Dir) void {
         self.allocator.free(self.buf);
         os.close(self.fd);
     }
 
     /// Memory such as file names referenced in this returned entry becomes invalid
     /// with subsequent calls to next, as well as when this ::Dir is deinitialized.
-    pub fn next(self: &Dir) !?Entry {
+    pub fn next(self: *Dir) !?Entry {
         switch (builtin.os) {
             Os.linux => return self.nextLinux(),
             Os.macosx, Os.ios => return self.nextDarwin(),
@@ -1222,7 +1210,7 @@ pub const Dir = struct {
         }
     }
 
-    fn nextDarwin(self: &Dir) !?Entry {
+    fn nextDarwin(self: *Dir) !?Entry {
         start_over: while (true) {
             if (self.index >= self.end_index) {
                 if (self.buf.len == 0) {
@@ -1248,11 +1236,11 @@ pub const Dir = struct {
                     break;
                 }
             }
-            const darwin_entry = @ptrCast(&align(1) posix.dirent, &self.buf[self.index]);
+            const darwin_entry = @ptrCast(*align(1) posix.dirent, &self.buf[self.index]);
             const next_index = self.index + darwin_entry.d_reclen;
             self.index = next_index;
 
-            const name = (&darwin_entry.d_name)[0..darwin_entry.d_namlen];
+            const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
 
             // skip . and .. entries
             if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
@@ -1277,11 +1265,11 @@ pub const Dir = struct {
         }
     }
 
-    fn nextWindows(self: &Dir) !?Entry {
+    fn nextWindows(self: *Dir) !?Entry {
         @compileError("TODO support Dir.next for windows");
     }
 
-    fn nextLinux(self: &Dir) !?Entry {
+    fn nextLinux(self: *Dir) !?Entry {
         start_over: while (true) {
             if (self.index >= self.end_index) {
                 if (self.buf.len == 0) {
@@ -1307,11 +1295,11 @@ pub const Dir = struct {
                     break;
                 }
             }
-            const linux_entry = @ptrCast(&align(1) posix.dirent, &self.buf[self.index]);
+            const linux_entry = @ptrCast(*align(1) posix.dirent, &self.buf[self.index]);
             const next_index = self.index + linux_entry.d_reclen;
             self.index = next_index;
 
-            const name = cstr.toSlice(&linux_entry.d_name);
+            const name = cstr.toSlice(@ptrCast([*]u8, &linux_entry.d_name));
 
             // skip . and .. entries
             if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
@@ -1337,7 +1325,7 @@ pub const Dir = struct {
     }
 };
 
-pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) !void {
+pub fn changeCurDir(allocator: *Allocator, dir_path: []const u8) !void {
     const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
@@ -1361,7 +1349,7 @@ pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) !void {
 }
 
 /// Read value of a symbolic link.
-pub fn readLink(allocator: &Allocator, pathname: []const u8) ![]u8 {
+pub fn readLink(allocator: *Allocator, pathname: []const u8) ![]u8 {
     const path_buf = try allocator.alloc(u8, pathname.len + 1);
     defer allocator.free(path_buf);
 
@@ -1468,7 +1456,7 @@ pub const ArgIteratorPosix = struct {
         };
     }
 
-    pub fn next(self: &ArgIteratorPosix) ?[]const u8 {
+    pub fn next(self: *ArgIteratorPosix) ?[]const u8 {
         if (self.index == self.count) return null;
 
         const s = raw[self.index];
@@ -1476,7 +1464,7 @@ pub const ArgIteratorPosix = struct {
         return cstr.toSlice(s);
     }
 
-    pub fn skip(self: &ArgIteratorPosix) bool {
+    pub fn skip(self: *ArgIteratorPosix) bool {
         if (self.index == self.count) return false;
 
         self.index += 1;
@@ -1485,12 +1473,12 @@ pub const ArgIteratorPosix = struct {
 
     /// This is marked as public but actually it's only meant to be used
     /// internally by zig's startup code.
-    pub var raw: []&u8 = undefined;
+    pub var raw: [][*]u8 = undefined;
 };
 
 pub const ArgIteratorWindows = struct {
     index: usize,
-    cmd_line: &const u8,
+    cmd_line: [*]const u8,
     in_quote: bool,
     quote_count: usize,
     seen_quote_count: usize,
@@ -1501,7 +1489,7 @@ pub const ArgIteratorWindows = struct {
         return initWithCmdLine(windows.GetCommandLineA());
     }
 
-    pub fn initWithCmdLine(cmd_line: &const u8) ArgIteratorWindows {
+    pub fn initWithCmdLine(cmd_line: [*]const u8) ArgIteratorWindows {
         return ArgIteratorWindows{
             .index = 0,
             .cmd_line = cmd_line,
@@ -1512,7 +1500,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) ?(NextError![]u8) {
+    pub fn next(self: *ArgIteratorWindows, allocator: *Allocator) ?(NextError![]u8) {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
@@ -1526,7 +1514,7 @@ pub const ArgIteratorWindows = struct {
         return self.internalNext(allocator);
     }
 
-    pub fn skip(self: &ArgIteratorWindows) bool {
+    pub fn skip(self: *ArgIteratorWindows) bool {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
@@ -1565,7 +1553,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) NextError![]u8 {
+    fn internalNext(self: *ArgIteratorWindows, allocator: *Allocator) NextError![]u8 {
         var buf = try Buffer.initSize(allocator, 0);
         defer buf.deinit();
 
@@ -1609,14 +1597,14 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn emitBackslashes(self: &ArgIteratorWindows, buf: &Buffer, emit_count: usize) !void {
+    fn emitBackslashes(self: *ArgIteratorWindows, buf: *Buffer, emit_count: usize) !void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
             try buf.appendByte('\\');
         }
     }
 
-    fn countQuotes(cmd_line: &const u8) usize {
+    fn countQuotes(cmd_line: [*]const u8) usize {
         var result: usize = 0;
         var backslash_count: usize = 0;
         var index: usize = 0;
@@ -1649,7 +1637,7 @@ pub const ArgIterator = struct {
     pub const NextError = ArgIteratorWindows.NextError;
 
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIterator, allocator: &Allocator) ?(NextError![]u8) {
+    pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![]u8) {
         if (builtin.os == Os.windows) {
             return self.inner.next(allocator);
         } else {
@@ -1658,13 +1646,13 @@ pub const ArgIterator = struct {
     }
 
     /// If you only are targeting posix you can call this and not need an allocator.
-    pub fn nextPosix(self: &ArgIterator) ?[]const u8 {
+    pub fn nextPosix(self: *ArgIterator) ?[]const u8 {
         return self.inner.next();
     }
 
     /// Parse past 1 argument without capturing it.
     /// Returns `true` if skipped an arg, `false` if we are at the end.
-    pub fn skip(self: &ArgIterator) bool {
+    pub fn skip(self: *ArgIterator) bool {
         return self.inner.skip();
     }
 };
@@ -1674,7 +1662,7 @@ pub fn args() ArgIterator {
 }
 
 /// Caller must call freeArgs on result.
-pub fn argsAlloc(allocator: &mem.Allocator) ![]const []u8 {
+pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
     // TODO refactor to only make 1 allocation.
     var it = args();
     var contents = try Buffer.initSize(allocator, 0);
@@ -1711,50 +1699,23 @@ pub fn argsAlloc(allocator: &mem.Allocator) ![]const []u8 {
     return result_slice_list;
 }
 
-pub fn argsFree(allocator: &mem.Allocator, args_alloc: []const []u8) void {
+pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
     }
-    const unaligned_allocated_buf = @ptrCast(&const u8, args_alloc.ptr)[0..total_bytes];
+    const unaligned_allocated_buf = @ptrCast([*]const u8, args_alloc.ptr)[0..total_bytes];
     const aligned_allocated_buf = @alignCast(@alignOf([]u8), unaligned_allocated_buf);
     return allocator.free(aligned_allocated_buf);
 }
 
 test "windows arg parsing" {
-    testWindowsCmdLine(c"a   b\tc d", [][]const u8{
-        "a",
-        "b",
-        "c",
-        "d",
-    });
-    testWindowsCmdLine(c"\"abc\" d e", [][]const u8{
-        "abc",
-        "d",
-        "e",
-    });
-    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8{
-        "a\\\\\\b",
-        "de fg",
-        "h",
-    });
-    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{
-        "a\\\"b",
-        "c",
-        "d",
-    });
-    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{
-        "a\\\\b c",
-        "d",
-        "e",
-    });
-    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{
-        "a",
-        "b",
-        "c",
-        "\"d",
-        "f",
-    });
+    testWindowsCmdLine(c"a   b\tc d", [][]const u8{ "a", "b", "c", "d" });
+    testWindowsCmdLine(c"\"abc\" d e", [][]const u8{ "abc", "d", "e" });
+    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8{ "a\\\\\\b", "de fg", "h" });
+    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{ "a\\\"b", "c", "d" });
+    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{ "a\\\\b c", "d", "e" });
+    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{ "a", "b", "c", "\"d", "f" });
 
     testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [][]const u8{
         ".\\..\\zig-cache\\build",
@@ -1765,7 +1726,7 @@ test "windows arg parsing" {
     });
 }
 
-fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const u8) void {
+fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []const u8) void {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
         const arg = ??it.next(debug.global_allocator) catch unreachable;
@@ -1832,7 +1793,7 @@ test "openSelfExe" {
 /// This function may return an error if the current executable
 /// was deleted after spawning.
 /// Caller owns returned memory.
-pub fn selfExePath(allocator: &mem.Allocator) ![]u8 {
+pub fn selfExePath(allocator: *mem.Allocator) ![]u8 {
     switch (builtin.os) {
         Os.linux => {
             // If the currently executing binary has been deleted,
@@ -1875,7 +1836,7 @@ pub fn selfExePath(allocator: &mem.Allocator) ![]u8 {
 
 /// Get the directory path that contains the current executable.
 /// Caller owns returned memory.
-pub fn selfExeDirPath(allocator: &mem.Allocator) ![]u8 {
+pub fn selfExeDirPath(allocator: *mem.Allocator) ![]u8 {
     switch (builtin.os) {
         Os.linux => {
             // If the currently executing binary has been deleted,
@@ -2001,7 +1962,7 @@ pub const PosixBindError = error{
 };
 
 /// addr is `&const T` where T is one of the sockaddr
-pub fn posixBind(fd: i32, addr: &const posix.sockaddr) PosixBindError!void {
+pub fn posixBind(fd: i32, addr: *const posix.sockaddr) PosixBindError!void {
     const rc = posix.bind(fd, addr, @sizeOf(posix.sockaddr));
     const err = posix.getErrno(rc);
     switch (err) {
@@ -2096,7 +2057,7 @@ pub const PosixAcceptError = error{
     Unexpected,
 };
 
-pub fn posixAccept(fd: i32, addr: &posix.sockaddr, flags: u32) PosixAcceptError!i32 {
+pub fn posixAccept(fd: i32, addr: *posix.sockaddr, flags: u32) PosixAcceptError!i32 {
     while (true) {
         var sockaddr_size = u32(@sizeOf(posix.sockaddr));
         const rc = posix.accept4(fd, addr, &sockaddr_size, flags);
@@ -2195,7 +2156,7 @@ pub const LinuxEpollCtlError = error{
     Unexpected,
 };
 
-pub fn linuxEpollCtl(epfd: i32, op: u32, fd: i32, event: &linux.epoll_event) LinuxEpollCtlError!void {
+pub fn linuxEpollCtl(epfd: i32, op: u32, fd: i32, event: *linux.epoll_event) LinuxEpollCtlError!void {
     const rc = posix.epoll_ctl(epfd, op, fd, event);
     const err = posix.getErrno(rc);
     switch (err) {
@@ -2288,7 +2249,7 @@ pub const PosixConnectError = error{
     Unexpected,
 };
 
-pub fn posixConnect(sockfd: i32, sockaddr: &const posix.sockaddr) PosixConnectError!void {
+pub fn posixConnect(sockfd: i32, sockaddr: *const posix.sockaddr) PosixConnectError!void {
     while (true) {
         const rc = posix.connect(sockfd, sockaddr, @sizeOf(posix.sockaddr));
         const err = posix.getErrno(rc);
@@ -2319,7 +2280,7 @@ pub fn posixConnect(sockfd: i32, sockaddr: &const posix.sockaddr) PosixConnectEr
 
 /// Same as posixConnect except it is for blocking socket file descriptors.
 /// It expects to receive EINPROGRESS.
-pub fn posixConnectAsync(sockfd: i32, sockaddr: &const posix.sockaddr) PosixConnectError!void {
+pub fn posixConnectAsync(sockfd: i32, sockaddr: *const posix.sockaddr) PosixConnectError!void {
     while (true) {
         const rc = posix.connect(sockfd, sockaddr, @sizeOf(posix.sockaddr));
         const err = posix.getErrno(rc);
@@ -2350,7 +2311,7 @@ pub fn posixConnectAsync(sockfd: i32, sockaddr: &const posix.sockaddr) PosixConn
 pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
     var err_code: i32 = undefined;
     var size: u32 = @sizeOf(i32);
-    const rc = posix.getsockopt(sockfd, posix.SOL_SOCKET, posix.SO_ERROR, @ptrCast(&u8, &err_code), &size);
+    const rc = posix.getsockopt(sockfd, posix.SOL_SOCKET, posix.SO_ERROR, @ptrCast([*]u8, &err_code), &size);
     assert(size == 4);
     const err = posix.getErrno(rc);
     switch (err) {
@@ -2401,13 +2362,13 @@ pub const Thread = struct {
         },
         builtin.Os.windows => struct {
             handle: windows.HANDLE,
-            alloc_start: &c_void,
+            alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
         else => @compileError("Unsupported OS"),
     };
 
-    pub fn wait(self: &const Thread) void {
+    pub fn wait(self: *const Thread) void {
         if (use_pthreads) {
             const err = c.pthread_join(self.data.handle, null);
             switch (err) {
@@ -2473,7 +2434,7 @@ pub const SpawnThreadError = error{
 /// fn startFn(@typeOf(context)) T
 /// where T is u8, noreturn, void, or !void
 /// caller must call wait on the returned thread
-pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread {
+pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread {
     // TODO compile-time call graph analysis to determine stack upper bound
     // https://github.com/ziglang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;
@@ -2491,7 +2452,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
                 if (@sizeOf(Context) == 0) {
                     return startFn({});
                 } else {
-                    return startFn(@ptrCast(&Context, @alignCast(@alignOf(Context), arg)).*);
+                    return startFn(@ptrCast(*Context, @alignCast(@alignOf(Context), arg)).*);
                 }
             }
         };
@@ -2500,13 +2461,13 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
         const byte_count = @alignOf(WinThread.OuterContext) + @sizeOf(WinThread.OuterContext);
         const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) ?? return SpawnThreadError.OutOfMemory;
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
-        const bytes = @ptrCast(&u8, bytes_ptr)[0..byte_count];
+        const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
         const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
         outer_context.inner = context;
         outer_context.thread.data.heap_handle = heap_handle;
         outer_context.thread.data.alloc_start = bytes_ptr;
 
-        const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(&c_void, &outer_context.inner);
+        const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
         outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) ?? {
             const err = windows.GetLastError();
             return switch (err) {
@@ -2521,15 +2482,15 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
             if (@sizeOf(Context) == 0) {
                 return startFn({});
             } else {
-                return startFn(@intToPtr(&const Context, ctx_addr).*);
+                return startFn(@intToPtr(*const Context, ctx_addr).*);
             }
         }
-        extern fn posixThreadMain(ctx: ?&c_void) ?&c_void {
+        extern fn posixThreadMain(ctx: ?*c_void) ?*c_void {
             if (@sizeOf(Context) == 0) {
                 _ = startFn({});
                 return null;
             } else {
-                _ = startFn(@ptrCast(&const Context, @alignCast(@alignOf(Context), ctx)).*);
+                _ = startFn(@ptrCast(*const Context, @alignCast(@alignOf(Context), ctx)).*);
                 return null;
             }
         }
@@ -2548,7 +2509,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
         stack_end -= @sizeOf(Context);
         stack_end -= stack_end % @alignOf(Context);
         assert(stack_end >= stack_addr);
-        const context_ptr = @alignCast(@alignOf(Context), @intToPtr(&Context, stack_end));
+        const context_ptr = @alignCast(@alignOf(Context), @intToPtr(*Context, stack_end));
         context_ptr.* = context;
         arg = stack_end;
     }
@@ -2556,7 +2517,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
     stack_end -= @sizeOf(Thread);
     stack_end -= stack_end % @alignOf(Thread);
     assert(stack_end >= stack_addr);
-    const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(&Thread, stack_end));
+    const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(*Thread, stack_end));
 
     thread_ptr.data.stack_addr = stack_addr;
     thread_ptr.data.stack_len = mmap_len;
@@ -2572,9 +2533,9 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!&Thread
 
         // align to page
         stack_end -= stack_end % os.page_size;
-        assert(c.pthread_attr_setstack(&attr, @intToPtr(&c_void, stack_addr), stack_end - stack_addr) == 0);
+        assert(c.pthread_attr_setstack(&attr, @intToPtr(*c_void, stack_addr), stack_end - stack_addr) == 0);
 
-        const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(&c_void, arg));
+        const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
         switch (err) {
             0 => return thread_ptr,
             posix.EAGAIN => return SpawnThreadError.SystemResources,

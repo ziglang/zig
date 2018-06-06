@@ -78,7 +78,7 @@ const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
     if (is_test) {
         std.debug.panic("{}", msg);
@@ -284,7 +284,7 @@ nakedcc fn ___chkstk_ms() align(4) void {
     );
 }
 
-extern fn __udivmodsi4(a: u32, b: u32, rem: &u32) u32 {
+extern fn __udivmodsi4(a: u32, b: u32, rem: *u32) u32 {
     @setRuntimeSafety(is_test);
 
     const d = __udivsi3(a, b);

@@ -58,10 +58,10 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
             return Self{ .crc = 0xffffffff };
         }
 
-        pub fn update(self: &Self, input: []const u8) void {
+        pub fn update(self: *Self, input: []const u8) void {
             var i: usize = 0;
             while (i + 8 <= input.len) : (i += 8) {
-                const p = input[i..i + 8];
+                const p = input[i .. i + 8];
 
                 // Unrolling this way gives ~50Mb/s increase
                 self.crc ^= (u32(p[0]) << 0);
@@ -86,7 +86,7 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
             }
         }
 
-        pub fn final(self: &Self) u32 {
+        pub fn final(self: *Self) u32 {
             return ~self.crc;
         }
 
@@ -143,14 +143,14 @@ pub fn Crc32SmallWithPoly(comptime poly: u32) type {
             return Self{ .crc = 0xffffffff };
         }
 
-        pub fn update(self: &Self, input: []const u8) void {
+        pub fn update(self: *Self, input: []const u8) void {
             for (input) |b| {
                 self.crc = lookup_table[@truncate(u4, self.crc ^ (b >> 0))] ^ (self.crc >> 4);
                 self.crc = lookup_table[@truncate(u4, self.crc ^ (b >> 4))] ^ (self.crc >> 4);
             }
         }
 
-        pub fn final(self: &Self) u32 {
+        pub fn final(self: *Self) u32 {
             return ~self.crc;
         }
 

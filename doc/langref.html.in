@@ -458,7 +458,7 @@ test "string literals" {
 
     // A C string literal is a null terminated pointer.
     const null_terminated_bytes = c"hello";
-    assert(@typeOf(null_terminated_bytes) == &const u8);
+    assert(@typeOf(null_terminated_bytes) == [*]const u8);
     assert(null_terminated_bytes[5] == 0);
 }
       {#code_end#}
@@ -547,7 +547,7 @@ const c_string_literal =
 ;
       {#code_end#}
       <p>
-      In this example the variable <code>c_string_literal</code> has type <code>&amp;const char</code> and
+      In this example the variable <code>c_string_literal</code> has type <code>[*]const char</code> and
       has a terminating null byte.
       </p>
       {#see_also|@embedFile#}
@@ -1288,7 +1288,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 // array literal
-const message = []u8{'h', 'e', 'l', 'l', 'o'};
+const message = []u8{ 'h', 'e', 'l', 'l', 'o' };
 
 // get the size of an array
 comptime {
@@ -1324,11 +1324,11 @@ test "modify an array" {
 
 // array concatenation works if the values are known
 // at compile time
-const part_one = []i32{1, 2, 3, 4};
-const part_two = []i32{5, 6, 7, 8};
+const part_one = []i32{ 1, 2, 3, 4 };
+const part_two = []i32{ 5, 6, 7, 8 };
 const all_of_it = part_one ++ part_two;
 comptime {
-    assert(mem.eql(i32, all_of_it, []i32{1,2,3,4,5,6,7,8}));
+    assert(mem.eql(i32, all_of_it, []i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
 }
 
 // remember that string literals are arrays
@@ -1357,7 +1357,7 @@ comptime {
 var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (initial_value) |*pt, i| {
-        pt.* = Point {
+        pt.* = Point{
             .x = i32(i),
             .y = i32(i) * 2,
         };
@@ -1377,7 +1377,7 @@ test "compile-time array initalization" {
 // call a function to initialize an array
 var more_points = []Point{makePoint(3)} ** 10;
 fn makePoint(x: i32) Point {
-    return Point {
+    return Point{
         .x = x,
         .y = x * 2,
     };
@@ -1403,36 +1403,35 @@ test "address of syntax" {
     assert(x_ptr.* == 1234);
 
     // When you get the address of a const variable, you get a const pointer.
-    assert(@typeOf(x_ptr) == &const i32);
+    assert(@typeOf(x_ptr) == *const i32);
 
     // If you want to mutate the value, you'd need an address of a mutable variable:
     var y: i32 = 5678;
     const y_ptr = &y;
-    assert(@typeOf(y_ptr) == &i32);
+    assert(@typeOf(y_ptr) == *i32);
     y_ptr.* += 1;
     assert(y_ptr.* == 5679);
 }
 
 test "pointer array access" {
-    // Pointers do not support pointer arithmetic. If you
-    // need such a thing, use array index syntax:
+    // Taking an address of an individual element gives a
+    // pointer to a single item. This kind of pointer
+    // does not support pointer arithmetic.
 
     var array = []u8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    const ptr = &array[1];
+    const ptr = &array[2];
+    assert(@typeOf(ptr) == *u8);
 
     assert(array[2] == 3);
-    ptr[1] += 1;
+    ptr.* += 1;
     assert(array[2] == 4);
 }
 
 test "pointer slicing" {
     // In Zig, we prefer using slices over null-terminated pointers.
-    // You can turn a pointer into a slice using slice syntax:
+    // You can turn an array into a slice using slice syntax:
     var array = []u8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    const ptr = &array[1];
-    const slice = ptr[1..3];
-
-    assert(slice.ptr == &ptr[1]);
+    const slice = array[2..4];
     assert(slice.len == 2);
 
     // Slices have bounds checking and are therefore protected
@@ -1455,7 +1454,7 @@ comptime {
 
 test "@ptrToInt and @intToPtr" {
     // To convert an integer address into a pointer, use @intToPtr:
-    const ptr = @intToPtr(&i32, 0xdeadbeef);
+    const ptr = @intToPtr(*i32, 0xdeadbeef);
 
     // To convert a pointer to an integer, use @ptrToInt:
     const addr = @ptrToInt(ptr);
@@ -1467,7 +1466,7 @@ test "@ptrToInt and @intToPtr" {
 comptime {
     // Zig is able to do this at compile-time, as long as
     // ptr is never dereferenced.
-    const ptr = @intToPtr(&i32, 0xdeadbeef);
+    const ptr = @intToPtr(*i32, 0xdeadbeef);
     const addr = @ptrToInt(ptr);
     assert(@typeOf(addr) == usize);
     assert(addr == 0xdeadbeef);
@@ -1477,17 +1476,17 @@ test "volatile" {
     // In Zig, loads and stores are assumed to not have side effects.
     // If a given load or store should have side effects, such as
     // Memory Mapped Input/Output (MMIO), use `volatile`:
-    const mmio_ptr = @intToPtr(&volatile u8, 0x12345678);
+    const mmio_ptr = @intToPtr(*volatile u8, 0x12345678);
 
     // Now loads and stores with mmio_ptr are guaranteed to all happen
     // and in the same order as in source code.
-    assert(@typeOf(mmio_ptr) == &volatile u8);
+    assert(@typeOf(mmio_ptr) == *volatile u8);
 }
 
 test "nullable pointers" {
     // Pointers cannot be null. If you want a null pointer, use the nullable
     // prefix `?` to make the pointer type nullable.
-    var ptr: ?&i32 = null;
+    var ptr: ?*i32 = null;
 
     var x: i32 = 1;
     ptr = &x;
@@ -1496,7 +1495,7 @@ test "nullable pointers" {
 
     // Nullable pointers are the same size as normal pointers, because pointer
     // value 0 is used as the null value.
-    assert(@sizeOf(?&i32) == @sizeOf(&i32));
+    assert(@sizeOf(?*i32) == @sizeOf(*i32));
 }
 
 test "pointer casting" {
@@ -1504,7 +1503,7 @@ test "pointer casting" {
     // operation that Zig cannot protect you against. Use @ptrCast only when other
     // conversions are not possible.
     const bytes align(@alignOf(u32)) = []u8{0x12, 0x12, 0x12, 0x12};
-    const u32_ptr = @ptrCast(&const u32, &bytes[0]);
+    const u32_ptr = @ptrCast(*const u32, &bytes[0]);
     assert(u32_ptr.* == 0x12121212);
 
     // Even this example is contrived - there are better ways to do the above than
@@ -1518,7 +1517,7 @@ test "pointer casting" {
 
 test "pointer child type" {
     // pointer types have a `child` field which tells you the type they point to.
-    assert((&u32).Child == u32);
+    assert((*u32).Child == u32);
 }
       {#code_end#}
       {#header_open|Alignment#}
@@ -1543,15 +1542,15 @@ const builtin = @import("builtin");
 test "variable alignment" {
     var x: i32 = 1234;
     const align_of_i32 = @alignOf(@typeOf(x));
-    assert(@typeOf(&x) == &i32);
-    assert(&i32 == &align(align_of_i32) i32);
+    assert(@typeOf(&x) == *i32);
+    assert(*i32 == *align(align_of_i32) i32);
     if (builtin.arch == builtin.Arch.x86_64) {
-        assert((&i32).alignment == 4);
+        assert((*i32).alignment == 4);
     }
 }
       {#code_end#}
-      <p>In the same way that a <code>&amp;i32</code> can be implicitly cast to a
-      <code>&amp;const i32</code>, a pointer with a larger alignment can be implicitly
+      <p>In the same way that a <code>*i32</code> can be implicitly cast to a
+      <code>*const i32</code>, a pointer with a larger alignment can be implicitly
       cast to a pointer with a smaller alignment, but not vice versa.
       </p>
       <p>
@@ -1565,8 +1564,8 @@ var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
     assert(@typeOf(&foo).alignment == 4);
-    assert(@typeOf(&foo) == &align(4) u8);
-    const slice = (&foo)[0..1];
+    assert(@typeOf(&foo) == *align(4) u8);
+    const slice = (*[1]u8)(&foo)[0..];
     assert(@typeOf(slice) == []align(4) u8);
 }
 
@@ -1610,7 +1609,7 @@ fn foo(bytes: []u8) u32 {
       <code>u8</code> can alias any memory.
       </p>
       <p>As an example, this code produces undefined behavior:</p>
-      <pre><code class="zig">@ptrCast(&amp;u32, f32(12.34)).*</code></pre>
+      <pre><code class="zig">@ptrCast(*u32, f32(12.34)).*</code></pre>
       <p>Instead, use {#link|@bitCast#}:
       <pre><code class="zig">@bitCast(u32, f32(12.34))</code></pre>
       <p>As an added benefit, the <code>@bitcast</code> version works at compile-time.</p>
@@ -1622,18 +1621,27 @@ fn foo(bytes: []u8) u32 {
 const assert = @import("std").debug.assert;
 
 test "basic slices" {
-    var array = []i32{1, 2, 3, 4};
+    var array = []i32{ 1, 2, 3, 4 };
     // A slice is a pointer and a length. The difference between an array and
     // a slice is that the array's length is part of the type and known at
     // compile-time, whereas the slice's length is known at runtime.
     // Both can be accessed with the `len` field.
     const slice = array[0..array.len];
-    assert(slice.ptr == &array[0]);
+    assert(&slice[0] == &array[0]);
     assert(slice.len == array.len);
+
+    // Using the address-of operator on a slice gives a pointer to a single
+    // item, while using the `ptr` field gives an unknown length pointer.
+    assert(@typeOf(slice.ptr) == [*]i32);
+    assert(@typeOf(&slice[0]) == *i32);
+    assert(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
     // of bounds, you'll get a safety check failure:
     slice[10] += 1;
+
+    // Note that `slice.ptr` does not invoke safety checking, while `&slice[0]`
+    // asserts that the slice has len >= 1.
 }
       {#code_end#}
       <p>This is one reason we prefer slices to pointers.</p>
@@ -1663,7 +1671,7 @@ test "using slices for strings" {
 
 test "slice pointer" {
     var array: [10]u8 = undefined;
-    const ptr = &array[0];
+    const ptr = &array;
 
     // You can use slicing syntax to convert a pointer into a slice:
     const slice = ptr[0..5];
@@ -1736,7 +1744,7 @@ const Vec3 = struct {
         };
     }
 
-    pub fn dot(self: &const Vec3, other: &const Vec3) f32 {
+    pub fn dot(self: *const Vec3, other: *const Vec3) f32 {
         return self.x * other.x + self.y * other.y + self.z * other.z;
     }
 };
@@ -1768,7 +1776,7 @@ test "struct namespaced variable" {
 
 // struct field order is determined by the compiler for optimal performance.
 // however, you can still calculate a struct base pointer given a field pointer:
-fn setYBasedOnX(x: &f32, y: f32) void {
+fn setYBasedOnX(x: *f32, y: f32) void {
     const point = @fieldParentPtr(Point, "x", x);
     point.y = y;
 }
@@ -1786,13 +1794,13 @@ test "field parent pointer" {
 fn LinkedList(comptime T: type) type {
     return struct {
         pub const Node = struct {
-            prev: ?&Node,
-            next: ?&Node,
+            prev: ?*Node,
+            next: ?*Node,
             data: T,
         };
 
-        first: ?&Node,
-        last:  ?&Node,
+        first: ?*Node,
+        last:  ?*Node,
         len:   usize,
     };
 }
@@ -2039,7 +2047,7 @@ const Variant = union(enum) {
     Int: i32,
     Bool: bool,
 
-    fn truthy(self: &const Variant) bool {
+    fn truthy(self: *const Variant) bool {
         return switch (self.*) {
             Variant.Int => |x_int| x_int != 0,
             Variant.Bool => |x_bool| x_bool,
@@ -2786,7 +2794,7 @@ test "pass aggregate type by value to function" {
 }
       {#code_end#}
       <p>
-      Instead, one must use <code>&amp;const</code>. Zig allows implicitly casting something
+      Instead, one must use <code>*const</code>. Zig allows implicitly casting something
       to a const pointer to it:
       </p>
       {#code_begin|test#}
@@ -2794,7 +2802,7 @@ const Foo = struct {
     x: i32,
 };
 
-fn bar(foo: &const Foo) void {}
+fn bar(foo: *const Foo) void {}
 
 test "implicitly cast to const pointer" {
     bar(Foo {.x = 12,});
@@ -3208,16 +3216,16 @@ struct Foo *do_a_thing(void) {
       <p>Zig code</p>
       {#code_begin|syntax#}
 // malloc prototype included for reference
-extern fn malloc(size: size_t) ?&u8;
+extern fn malloc(size: size_t) ?*u8;
 
-fn doAThing() ?&Foo {
+fn doAThing() ?*Foo {
     const ptr = malloc(1234) ?? return null;
     // ...
 }
       {#code_end#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
-        is <code>&u8</code> <em>not</em> <code>?&u8</code>. The <code>??</code> operator
+        is <code>*u8</code> <em>not</em> <code>?*u8</code>. The <code>??</code> operator
         unwrapped the nullable type and therefore <code>ptr</code> is guaranteed to be non-null everywhere
         it is used in the function.
       </p>
@@ -3237,7 +3245,7 @@ fn doAThing() ?&Foo {
         In Zig you can accomplish the same thing:
       </p>
       {#code_begin|syntax#}
-fn doAThing(nullable_foo: ?&Foo) void {
+fn doAThing(nullable_foo: ?*Foo) void {
     // do some stuff
 
     if (nullable_foo) |foo| {
@@ -3713,7 +3721,7 @@ fn List(comptime T: type) type {
       </p>
       {#code_begin|syntax#}
 const Node = struct {
-    next: &Node,
+    next: *Node,
     name: []u8,
 };
       {#code_end#}
@@ -3745,7 +3753,7 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) error!void {
+pub fn printf(self: *OutStream, comptime format: []const u8, args: ...) error!void {
     const State = enum {
         Start,
         OpenBrace,
@@ -3817,7 +3825,7 @@ pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) error!vo
       and emits a function that actually looks like this:
       </p>
       {#code_begin|syntax#}
-pub fn printf(self: &OutStream, arg0: i32, arg1: []const u8) !void {
+pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
     try self.write("here is a string: '");
     try self.printValue(arg0);
     try self.write("' here is a number: ");
@@ -3831,7 +3839,7 @@ pub fn printf(self: &OutStream, arg0: i32, arg1: []const u8) !void {
       on the type:
       </p>
       {#code_begin|syntax#}
-pub fn printValue(self: &OutStream, value: var) !void {
+pub fn printValue(self: *OutStream, value: var) !void {
     const T = @typeOf(value);
     if (@isInteger(T)) {
         return self.printInt(T, value);
@@ -3911,7 +3919,7 @@ pub fn main() void {
       at compile time.
       </p>
       {#header_open|@addWithOverflow#}
-      <pre><code class="zig">@addWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
+      <pre><code class="zig">@addWithOverflow(comptime T: type, a: T, b: T, result: *T) bool</code></pre>
       <p>
       Performs <code>result.* = a + b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
@@ -3919,7 +3927,7 @@ pub fn main() void {
       </p>
       {#header_close#}
       {#header_open|@ArgType#}
-      <pre><code class="zig">@ArgType(comptime T: type, comptime n: usize) -&gt; type</code></pre>
+      <pre><code class="zig">@ArgType(comptime T: type, comptime n: usize) type</code></pre>
       <p>
       This builtin function takes a function type and returns the type of the parameter at index <code>n</code>.
       </p>
@@ -3931,7 +3939,7 @@ pub fn main() void {
       </p>
       {#header_close#}
       {#header_open|@atomicLoad#}
-      <pre><code class="zig">@atomicLoad(comptime T: type, ptr: &amp;const T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
+      <pre><code class="zig">@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: builtin.AtomicOrder) T</code></pre>
       <p>
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
@@ -3950,7 +3958,7 @@ pub fn main() void {
       </p>
       {#header_close#}
       {#header_open|@atomicRmw#}
-      <pre><code class="zig">@atomicRmw(comptime T: type, ptr: &amp;T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) -&gt; T</code></pre>
+      <pre><code class="zig">@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T</code></pre>
       <p>
       This builtin function atomically modifies memory and then returns the previous value.
       </p>
@@ -3969,7 +3977,7 @@ pub fn main() void {
       </p>
       {#header_close#}
       {#header_open|@bitCast#}
-      <pre><code class="zig">@bitCast(comptime DestType: type, value: var) -&gt; DestType</code></pre>
+      <pre><code class="zig">@bitCast(comptime DestType: type, value: var) DestType</code></pre>
       <p>
       Converts a value of one type to another type.
       </p>
@@ -4002,9 +4010,9 @@ pub fn main() void {
 
       {#header_close#}
       {#header_open|@alignCast#}
-      <pre><code class="zig">@alignCast(comptime alignment: u29, ptr: var) -&gt; var</code></pre>
+      <pre><code class="zig">@alignCast(comptime alignment: u29, ptr: var) var</code></pre>
       <p>
-      <code>ptr</code> can be <code>&amp;T</code>, <code>fn()</code>, <code>?&amp;T</code>,
+      <code>ptr</code> can be <code>*T</code>, <code>fn()</code>, <code>?*T</code>,
       <code>?fn()</code>, or <code>[]T</code>. It returns the same type as <code>ptr</code>
       except with the alignment adjusted to the new value.
       </p>
@@ -4013,7 +4021,7 @@ pub fn main() void {
 
       {#header_close#}
       {#header_open|@alignOf#}
-      <pre><code class="zig">@alignOf(comptime T: type) -&gt; (number literal)</code></pre>
+      <pre><code class="zig">@alignOf(comptime T: type) (number literal)</code></pre>
       <p>
       This function returns the number of bytes that this type should be aligned to
       for the current target to match the C ABI. When the child type of a pointer has
@@ -4021,7 +4029,7 @@ pub fn main() void {
       </p>
       <pre><code class="zig">const assert = @import("std").debug.assert;
 comptime {
-    assert(&u32 == &align(@alignOf(u32)) u32);
+    assert(*u32 == *align(@alignOf(u32)) u32);
 }</code></pre>
       <p>
       The result is a target-specific compile time constant. It is guaranteed to be
@@ -4049,7 +4057,7 @@ comptime {
       {#see_also|Import from C Header File|@cInclude|@cImport|@cUndef|void#}
       {#header_close#}
       {#header_open|@cImport#}
-      <pre><code class="zig">@cImport(expression) -&gt; (namespace)</code></pre>
+      <pre><code class="zig">@cImport(expression) (namespace)</code></pre>
       <p>
       This function parses C code and imports the functions, types, variables, and
       compatible macro definitions into the result namespace.
@@ -4095,13 +4103,13 @@ comptime {
       {#see_also|Import from C Header File|@cImport|@cDefine|@cInclude#}
       {#header_close#}
       {#header_open|@canImplicitCast#}
-      <pre><code class="zig">@canImplicitCast(comptime T: type, value) -&gt; bool</code></pre>
+      <pre><code class="zig">@canImplicitCast(comptime T: type, value) bool</code></pre>
       <p>
       Returns whether a value can be implicitly casted to a given type.
       </p>
       {#header_close#}
       {#header_open|@clz#}
-      <pre><code class="zig">@clz(x: T) -&gt; U</code></pre>
+      <pre><code class="zig">@clz(x: T) U</code></pre>
       <p>
       This function counts the number of leading zeroes in <code>x</code> which is an integer
       type <code>T</code>.
@@ -4116,13 +4124,13 @@ comptime {
 
       {#header_close#}
       {#header_open|@cmpxchgStrong#}
-      <pre><code class="zig">@cmpxchgStrong(comptime T: type, ptr: &T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) -&gt; ?T</code></pre>
+      <pre><code class="zig">@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T</code></pre>
       <p>
       This function performs a strong atomic compare exchange operation. It's the equivalent of this code,
       except atomic:
       </p>
       {#code_begin|syntax#}
-fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
+fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_value: T) ?T {
     const old_value = ptr.*;
     if (old_value == expected_value) {
         ptr.* = new_value;
@@ -4143,13 +4151,13 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_v
       {#see_also|Compile Variables|cmpxchgWeak#}
       {#header_close#}
       {#header_open|@cmpxchgWeak#}
-      <pre><code class="zig">@cmpxchgWeak(comptime T: type, ptr: &T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) -&gt; ?T</code></pre>
+      <pre><code class="zig">@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T</code></pre>
       <p>
       This function performs a weak atomic compare exchange operation. It's the equivalent of this code,
       except atomic:
       </p>
       {#code_begin|syntax#}
-fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: &T, expected_value: T, new_value: T) ?T {
+fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_value: T) ?T {
     const old_value = ptr.*;
     if (old_value == expected_value and usuallyTrueButSometimesFalse()) {
         ptr.* = new_value;
@@ -4237,7 +4245,7 @@ test "main" {
       {#code_end#}
       {#header_close#}
       {#header_open|@ctz#}
-      <pre><code class="zig">@ctz(x: T) -&gt; U</code></pre>
+      <pre><code class="zig">@ctz(x: T) U</code></pre>
       <p>
       This function counts the number of trailing zeroes in <code>x</code> which is an integer
       type <code>T</code>.
@@ -4251,7 +4259,7 @@ test "main" {
       </p>
       {#header_close#}
       {#header_open|@divExact#}
-      <pre><code class="zig">@divExact(numerator: T, denominator: T) -&gt; T</code></pre>
+      <pre><code class="zig">@divExact(numerator: T, denominator: T) T</code></pre>
       <p>
       Exact division. Caller guarantees <code>denominator != 0</code> and
       <code>@divTrunc(numerator, denominator) * denominator == numerator</code>.
@@ -4264,7 +4272,7 @@ test "main" {
       {#see_also|@divTrunc|@divFloor#}
       {#header_close#}
       {#header_open|@divFloor#}
-      <pre><code class="zig">@divFloor(numerator: T, denominator: T) -&gt; T</code></pre>
+      <pre><code class="zig">@divFloor(numerator: T, denominator: T) T</code></pre>
       <p>
       Floored division. Rounds toward negative infinity. For unsigned integers it is
       the same as <code>numerator / denominator</code>. Caller guarantees <code>denominator != 0</code> and
@@ -4278,7 +4286,7 @@ test "main" {
       {#see_also|@divTrunc|@divExact#}
       {#header_close#}
       {#header_open|@divTrunc#}
-      <pre><code class="zig">@divTrunc(numerator: T, denominator: T) -&gt; T</code></pre>
+      <pre><code class="zig">@divTrunc(numerator: T, denominator: T) T</code></pre>
       <p>
       Truncated division. Rounds toward zero. For unsigned integers it is
       the same as <code>numerator / denominator</code>. Caller guarantees <code>denominator != 0</code> and
@@ -4292,7 +4300,7 @@ test "main" {
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
       {#header_open|@embedFile#}
-      <pre><code class="zig">@embedFile(comptime path: []const u8) -&gt; [X]u8</code></pre>
+      <pre><code class="zig">@embedFile(comptime path: []const u8) [X]u8</code></pre>
       <p>
       This function returns a compile time constant fixed-size array with length
       equal to the byte count of the file given by <code>path</code>. The contents of the array
@@ -4304,19 +4312,19 @@ test "main" {
       {#see_also|@import#}
       {#header_close#}
       {#header_open|@export#}
-      <pre><code class="zig">@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) -&gt; []const u8</code></pre>
+      <pre><code class="zig">@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) []const u8</code></pre>
       <p>
       Creates a symbol in the output object file.
       </p>
       {#header_close#}
       {#header_open|@tagName#}
-      <pre><code class="zig">@tagName(value: var) -&gt; []const u8</code></pre>
+      <pre><code class="zig">@tagName(value: var) []const u8</code></pre>
       <p>
       Converts an enum value or union value to a slice of bytes representing the name.
       </p>
       {#header_close#}
       {#header_open|@TagType#}
-      <pre><code class="zig">@TagType(T: type) -&gt; type</code></pre>
+      <pre><code class="zig">@TagType(T: type) type</code></pre>
       <p>
       For an enum, returns the integer type that is used to store the enumeration value.
       </p>
@@ -4325,7 +4333,7 @@ test "main" {
       </p>
       {#header_close#}
       {#header_open|@errorName#}
-      <pre><code class="zig">@errorName(err: error) -&gt; []u8</code></pre>
+      <pre><code class="zig">@errorName(err: error) []u8</code></pre>
       <p>
       This function returns the string representation of an error. If an error
       declaration is:
@@ -4341,7 +4349,7 @@ test "main" {
       </p>
       {#header_close#}
       {#header_open|@errorReturnTrace#}
-      <pre><code class="zig">@errorReturnTrace() -&gt; ?&builtin.StackTrace</code></pre>
+      <pre><code class="zig">@errorReturnTrace() ?*builtin.StackTrace</code></pre>
       <p>
       If the binary is built with error return tracing, and this function is invoked in a
       function that calls a function with an error or error union return type, returns a
@@ -4360,7 +4368,7 @@ test "main" {
       {#header_close#}
       {#header_open|@fieldParentPtr#}
       <pre><code class="zig">@fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8,
-    field_ptr: &T) -&gt; &ParentType</code></pre>
+    field_ptr: *T) *ParentType</code></pre>
       <p>
       Given a pointer to a field, returns the base pointer of a struct.
       </p>
@@ -4380,7 +4388,7 @@ test "main" {
       </p>
       {#header_close#}
       {#header_open|@import#}
-      <pre><code class="zig">@import(comptime path: []u8) -&gt; (namespace)</code></pre>
+      <pre><code class="zig">@import(comptime path: []u8) (namespace)</code></pre>
       <p>
       This function finds a zig file corresponding to <code>path</code> and imports all the
       public top level declarations into the resulting namespace.
@@ -4400,7 +4408,7 @@ test "main" {
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
       {#header_open|@inlineCall#}
-      <pre><code class="zig">@inlineCall(function: X, args: ...) -&gt; Y</code></pre>
+      <pre><code class="zig">@inlineCall(function: X, args: ...) Y</code></pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does:
       </p>
@@ -4420,19 +4428,19 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#see_also|@noInlineCall#}
       {#header_close#}
       {#header_open|@intToPtr#}
-      <pre><code class="zig">@intToPtr(comptime DestType: type, int: usize) -&gt; DestType</code></pre>
+      <pre><code class="zig">@intToPtr(comptime DestType: type, int: usize) DestType</code></pre>
       <p>
       Converts an integer to a pointer. To convert the other way, use {#link|@ptrToInt#}.
       </p>
       {#header_close#}
       {#header_open|@IntType#}
-      <pre><code class="zig">@IntType(comptime is_signed: bool, comptime bit_count: u8) -&gt; type</code></pre>
+      <pre><code class="zig">@IntType(comptime is_signed: bool, comptime bit_count: u8) type</code></pre>
       <p>
       This function returns an integer type with the given signness and bit count.
       </p>
       {#header_close#}
       {#header_open|@maxValue#}
-      <pre><code class="zig">@maxValue(comptime T: type) -&gt; (number literal)</code></pre>
+      <pre><code class="zig">@maxValue(comptime T: type) (number literal)</code></pre>
       <p>
       This function returns the maximum value of the integer type <code>T</code>.
       </p>
@@ -4441,7 +4449,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       {#header_close#}
       {#header_open|@memberCount#}
-      <pre><code class="zig">@memberCount(comptime T: type) -&gt; (number literal)</code></pre>
+      <pre><code class="zig">@memberCount(comptime T: type) (number literal)</code></pre>
       <p>
       This function returns the number of members in a struct, enum, or union type.
       </p>
@@ -4453,7 +4461,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       {#header_close#}
       {#header_open|@memberName#}
-      <pre><code class="zig">@memberName(comptime T: type, comptime index: usize) -&gt; [N]u8</code></pre>
+      <pre><code class="zig">@memberName(comptime T: type, comptime index: usize) [N]u8</code></pre>
       <p>Returns the field name of a struct, union, or enum.</p>
       <p>
       The result is a compile time constant.
@@ -4463,15 +4471,15 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       {#header_close#}
       {#header_open|@field#}
-      <pre><code class="zig">@field(lhs: var, comptime field_name: []const u8) -&gt; (field)</code></pre>
+      <pre><code class="zig">@field(lhs: var, comptime field_name: []const u8) (field)</code></pre>
       <p>Preforms field access equivalent to <code>lhs.-&gtfield_name-&lt</code>.</p>
       {#header_close#}
       {#header_open|@memberType#}
-      <pre><code class="zig">@memberType(comptime T: type, comptime index: usize) -&gt; type</code></pre>
+      <pre><code class="zig">@memberType(comptime T: type, comptime index: usize) type</code></pre>
       <p>Returns the field type of a struct or union.</p>
       {#header_close#}
       {#header_open|@memcpy#}
-      <pre><code class="zig">@memcpy(noalias dest: &u8, noalias source: &const u8, byte_count: usize)</code></pre>
+      <pre><code class="zig">@memcpy(noalias dest: *u8, noalias source: *const u8, byte_count: usize)</code></pre>
       <p>
       This function copies bytes from one region of memory to another. <code>dest</code> and
       <code>source</code> are both pointers and must not overlap.
@@ -4489,7 +4497,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
 mem.copy(u8, dest[0...byte_count], source[0...byte_count]);</code></pre>
       {#header_close#}
       {#header_open|@memset#}
-      <pre><code class="zig">@memset(dest: &u8, c: u8, byte_count: usize)</code></pre>
+      <pre><code class="zig">@memset(dest: *u8, c: u8, byte_count: usize)</code></pre>
       <p>
       This function sets a region of memory to <code>c</code>. <code>dest</code> is a pointer.
       </p>
@@ -4506,7 +4514,7 @@ mem.copy(u8, dest[0...byte_count], source[0...byte_count]);</code></pre>
 mem.set(u8, dest, c);</code></pre>
       {#header_close#}
       {#header_open|@minValue#}
-      <pre><code class="zig">@minValue(comptime T: type) -&gt; (number literal)</code></pre>
+      <pre><code class="zig">@minValue(comptime T: type) (number literal)</code></pre>
       <p>
       This function returns the minimum value of the integer type T.
       </p>
@@ -4515,7 +4523,7 @@ mem.set(u8, dest, c);</code></pre>
       </p>
       {#header_close#}
       {#header_open|@mod#}
-      <pre><code class="zig">@mod(numerator: T, denominator: T) -&gt; T</code></pre>
+      <pre><code class="zig">@mod(numerator: T, denominator: T) T</code></pre>
       <p>
       Modulus division. For unsigned integers this is the same as
       <code>numerator % denominator</code>. Caller guarantees <code>denominator &gt; 0</code>.
@@ -4528,7 +4536,7 @@ mem.set(u8, dest, c);</code></pre>
       {#see_also|@rem#}
       {#header_close#}
       {#header_open|@mulWithOverflow#}
-      <pre><code class="zig">@mulWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
+      <pre><code class="zig">@mulWithOverflow(comptime T: type, a: T, b: T, result: *T) bool</code></pre>
       <p>
       Performs <code>result.* = a * b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
@@ -4536,7 +4544,7 @@ mem.set(u8, dest, c);</code></pre>
       </p>
       {#header_close#}
       {#header_open|@newStackCall#}
-      <pre><code class="zig">@newStackCall(new_stack: []u8, function: var, args: ...) -&gt; var</code></pre>
+      <pre><code class="zig">@newStackCall(new_stack: []u8, function: var, args: ...) var</code></pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does. However,
       instead of using the same stack as the caller, the function uses the stack provided in the <code>new_stack</code>
@@ -4572,7 +4580,7 @@ fn targetFunction(x: i32) usize {
       {#code_end#}
       {#header_close#}
       {#header_open|@noInlineCall#}
-      <pre><code class="zig">@noInlineCall(function: var, args: ...) -&gt; var</code></pre>
+      <pre><code class="zig">@noInlineCall(function: var, args: ...) var</code></pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does:
       </p>
@@ -4594,13 +4602,13 @@ fn add(a: i32, b: i32) i32 {
       {#see_also|@inlineCall#}
       {#header_close#}
       {#header_open|@offsetOf#}
-      <pre><code class="zig">@offsetOf(comptime T: type, comptime field_name: [] const u8) -&gt; (number literal)</code></pre>
+      <pre><code class="zig">@offsetOf(comptime T: type, comptime field_name: [] const u8) (number literal)</code></pre>
       <p>
       This function returns the byte offset of a field relative to its containing struct.
       </p>
       {#header_close#}
       {#header_open|@OpaqueType#}
-      <pre><code class="zig">@OpaqueType() -&gt; type</code></pre>
+      <pre><code class="zig">@OpaqueType() type</code></pre>
       <p>
       Creates a new type with an unknown size and alignment.
       </p>
@@ -4608,12 +4616,12 @@ fn add(a: i32, b: i32) i32 {
       This is typically used for type safety when interacting with C code that does not expose struct details.
       Example:
       </p>
-      {#code_begin|test_err|expected type '&Derp', found '&Wat'#}
+      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
 const Derp = @OpaqueType();
 const Wat = @OpaqueType();
 
-extern fn bar(d: &Derp) void;
-export fn foo(w: &Wat) void {
+extern fn bar(d: *Derp) void;
+export fn foo(w: *Wat) void {
     bar(w);
 }
 
@@ -4623,7 +4631,7 @@ test "call foo" {
       {#code_end#}
       {#header_close#}
       {#header_open|@panic#}
-      <pre><code class="zig">@panic(message: []const u8) -&gt; noreturn</code></pre>
+      <pre><code class="zig">@panic(message: []const u8) noreturn</code></pre>
       <p>
       Invokes the panic handler function. By default the panic handler function
       calls the public <code>panic</code> function exposed in the root source file, or
@@ -4639,19 +4647,19 @@ test "call foo" {
       {#see_also|Root Source File#}
       {#header_close#}
       {#header_open|@ptrCast#}
-      <pre><code class="zig">@ptrCast(comptime DestType: type, value: var) -&gt; DestType</code></pre>
+      <pre><code class="zig">@ptrCast(comptime DestType: type, value: var) DestType</code></pre>
       <p>
       Converts a pointer of one type to a pointer of another type.
       </p>
       {#header_close#}
       {#header_open|@ptrToInt#}
-      <pre><code class="zig">@ptrToInt(value: var) -&gt; usize</code></pre>
+      <pre><code class="zig">@ptrToInt(value: var) usize</code></pre>
       <p>
       Converts <code>value</code> to a <code>usize</code> which is the address of the pointer. <code>value</code> can be one of these types:
       </p>
       <ul>
-        <li><code>&amp;T</code></li>
-        <li><code>?&amp;T</code></li>
+        <li><code>*T</code></li>
+        <li><code>?*T</code></li>
         <li><code>fn()</code></li>
         <li><code>?fn()</code></li>
       </ul>
@@ -4659,7 +4667,7 @@ test "call foo" {
 
       {#header_close#}
       {#header_open|@rem#}
-      <pre><code class="zig">@rem(numerator: T, denominator: T) -&gt; T</code></pre>
+      <pre><code class="zig">@rem(numerator: T, denominator: T) T</code></pre>
       <p>
       Remainder division. For unsigned integers this is the same as
       <code>numerator % denominator</code>. Caller guarantees <code>denominator &gt; 0</code>.
@@ -4776,13 +4784,13 @@ pub const FloatMode = enum {
       {#see_also|Compile Variables#}
       {#header_close#}
       {#header_open|@setGlobalSection#}
-      <pre><code class="zig">@setGlobalSection(global_variable_name, comptime section_name: []const u8) -&gt; bool</code></pre>
+      <pre><code class="zig">@setGlobalSection(global_variable_name, comptime section_name: []const u8) bool</code></pre>
       <p>
       Puts the global variable in the specified section.
       </p>
       {#header_close#}
       {#header_open|@shlExact#}
-      <pre><code class="zig">@shlExact(value: T, shift_amt: Log2T) -&gt; T</code></pre>
+      <pre><code class="zig">@shlExact(value: T, shift_amt: Log2T) T</code></pre>
       <p>
       Performs the left shift operation (<code>&lt;&lt;</code>). Caller guarantees
       that the shift will not shift any 1 bits out.
@@ -4794,7 +4802,7 @@ pub const FloatMode = enum {
       {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
       {#header_open|@shlWithOverflow#}
-      <pre><code class="zig">@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: &T) -&gt; bool</code></pre>
+      <pre><code class="zig">@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: *T) bool</code></pre>
       <p>
       Performs <code>result.* = a &lt;&lt; b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
@@ -4807,7 +4815,7 @@ pub const FloatMode = enum {
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
       {#header_open|@shrExact#}
-      <pre><code class="zig">@shrExact(value: T, shift_amt: Log2T) -&gt; T</code></pre>
+      <pre><code class="zig">@shrExact(value: T, shift_amt: Log2T) T</code></pre>
       <p>
       Performs the right shift operation (<code>&gt;&gt;</code>). Caller guarantees
       that the shift will not shift any 1 bits out.
@@ -4819,7 +4827,7 @@ pub const FloatMode = enum {
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
       {#header_open|@sizeOf#}
-      <pre><code class="zig">@sizeOf(comptime T: type) -&gt; (number literal)</code></pre>
+      <pre><code class="zig">@sizeOf(comptime T: type) (number literal)</code></pre>
       <p>
       This function returns the number of bytes it takes to store <code>T</code> in memory.
       </p>
@@ -4828,7 +4836,7 @@ pub const FloatMode = enum {
       </p>
       {#header_close#}
       {#header_open|@sqrt#}
-      <pre><code class="zig">@sqrt(comptime T: type, value: T) -&gt; T</code></pre>
+      <pre><code class="zig">@sqrt(comptime T: type, value: T) T</code></pre>
       <p>
       Performs the square root of a floating point number. Uses a dedicated hardware instruction
       when available. Currently only supports f32 and f64 at runtime. f128 at runtime is TODO.
@@ -4838,7 +4846,7 @@ pub const FloatMode = enum {
       </p>
       {#header_close#}
       {#header_open|@subWithOverflow#}
-      <pre><code class="zig">@subWithOverflow(comptime T: type, a: T, b: T, result: &T) -&gt; bool</code></pre>
+      <pre><code class="zig">@subWithOverflow(comptime T: type, a: T, b: T, result: *T) bool</code></pre>
       <p>
       Performs <code>result.* = a - b</code>. If overflow or underflow occurs,
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
@@ -4846,7 +4854,7 @@ pub const FloatMode = enum {
       </p>
       {#header_close#}
       {#header_open|@truncate#}
-      <pre><code class="zig">@truncate(comptime T: type, integer) -&gt; T</code></pre>
+      <pre><code class="zig">@truncate(comptime T: type, integer) T</code></pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
       integer type.
@@ -4870,7 +4878,7 @@ const b: u8 = @truncate(u8, a);
 
       {#header_close#}
       {#header_open|@typeId#}
-      <pre><code class="zig">@typeId(comptime T: type) -&gt; @import("builtin").TypeId</code></pre>
+      <pre><code class="zig">@typeId(comptime T: type) @import("builtin").TypeId</code></pre>
       <p>
       Returns which kind of type something is. Possible values:
       </p>
@@ -4885,10 +4893,10 @@ pub const TypeId = enum {
     Pointer,
     Array,
     Struct,
-    FloatLiteral,
-    IntLiteral,
-    UndefinedLiteral,
-    NullLiteral,
+    ComptimeFloat,
+    ComptimeInt,
+    Undefined,
+    Null,
     Nullable,
     ErrorUnion,
     Error,
@@ -4904,7 +4912,7 @@ pub const TypeId = enum {
       {#code_end#}
       {#header_close#}
       {#header_open|@typeInfo#}
-      <pre><code class="zig">@typeInfo(comptime T: type) -&gt; @import("builtin").TypeInfo</code></pre>
+      <pre><code class="zig">@typeInfo(comptime T: type) @import("builtin").TypeInfo</code></pre>
       <p>
       Returns information on the type. Returns a value of the following union:
       </p>
@@ -4919,10 +4927,10 @@ pub const TypeInfo = union(TypeId) {
     Pointer: Pointer,
     Array: Array,
     Struct: Struct,
-    FloatLiteral: void,
-    IntLiteral: void,
-    UndefinedLiteral: void,
-    NullLiteral: void,
+    ComptimeFloat: void,
+    ComptimeInt: void,
+    Undefined: void,
+    Null: void,
     Nullable: Nullable,
     ErrorUnion: ErrorUnion,
     ErrorSet: ErrorSet,
@@ -5080,14 +5088,14 @@ pub const TypeInfo = union(TypeId) {
       {#code_end#}
       {#header_close#}
       {#header_open|@typeName#}
-      <pre><code class="zig">@typeName(T: type) -&gt; []u8</code></pre>
+      <pre><code class="zig">@typeName(T: type) []u8</code></pre>
       <p>
       This function returns the string representation of a type.
       </p>
 
       {#header_close#}
       {#header_open|@typeOf#}
-      <pre><code class="zig">@typeOf(expression) -&gt; type</code></pre>
+      <pre><code class="zig">@typeOf(expression) type</code></pre>
       <p>
       This function returns a compile-time constant, which is the type of the
       expression passed as an argument. The expression is evaluated.
@@ -5677,10 +5685,10 @@ pub const TypeId = enum {
     Pointer,
     Array,
     Struct,
-    FloatLiteral,
-    IntLiteral,
-    UndefinedLiteral,
-    NullLiteral,
+    ComptimeFloat,
+    ComptimeInt,
+    Undefined,
+    Null,
     Nullable,
     ErrorUnion,
     ErrorSet,
@@ -5705,10 +5713,10 @@ pub const TypeInfo = union(TypeId) {
     Pointer: Pointer,
     Array: Array,
     Struct: Struct,
-    FloatLiteral: void,
-    IntLiteral: void,
-    UndefinedLiteral: void,
-    NullLiteral: void,
+    ComptimeFloat: void,
+    ComptimeInt: void,
+    Undefined: void,
+    Null: void,
     Nullable: Nullable,
     ErrorUnion: ErrorUnion,
     ErrorSet: ErrorSet,
@@ -5937,7 +5945,7 @@ pub const __zig_test_fn_slice = {}; // overwritten later
       {#header_open|C String Literals#}
       {#code_begin|exe#}
       {#link_libc#}
-extern fn puts(&const u8) void;
+extern fn puts([*]const u8) void;
 
 pub fn main() void {
     puts(c"this has a null terminator");
@@ -5996,9 +6004,12 @@ const c = @cImport({
       {#code_begin|syntax#}
 const base64 = @import("std").base64;
 
-export fn decode_base_64(dest_ptr: &u8, dest_len: usize,
-    source_ptr: &const u8, source_len: usize) usize
-{
+export fn decode_base_64(
+    dest_ptr: [*]u8,
+    dest_len: usize,
+    source_ptr: [*]const u8,
+    source_len: usize,
+) usize {
     const src = source_ptr[0..source_len];
     const dest = dest_ptr[0..dest_len];
     const base64_decoder = base64.standard_decoder_unsafe;
@@ -6028,7 +6039,7 @@ int main(int argc, char **argv) {
       {#code_begin|syntax#}
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) void {
+pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addCExecutable("test");
@@ -6450,7 +6461,7 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | ("*" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
+PrefixOp = "!" | "-" | "~" | (("*" | "[*]") option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
 
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
 
@@ -6544,7 +6555,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo newStackCall",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

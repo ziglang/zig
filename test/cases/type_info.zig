@@ -37,12 +37,28 @@ test "type info: pointer type info" {
 }
 
 fn testPointer() void {
-    const u32_ptr_info = @typeInfo(&u32);
+    const u32_ptr_info = @typeInfo(*u32);
     assert(TypeId(u32_ptr_info) == TypeId.Pointer);
+    assert(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.One);
     assert(u32_ptr_info.Pointer.is_const == false);
     assert(u32_ptr_info.Pointer.is_volatile == false);
-    assert(u32_ptr_info.Pointer.alignment == 4);
+    assert(u32_ptr_info.Pointer.alignment == @alignOf(u32));
     assert(u32_ptr_info.Pointer.child == u32);
+}
+
+test "type info: unknown length pointer type info" {
+    testUnknownLenPtr();
+    comptime testUnknownLenPtr();
+}
+
+fn testUnknownLenPtr() void {
+    const u32_ptr_info = @typeInfo([*]const volatile f64);
+    assert(TypeId(u32_ptr_info) == TypeId.Pointer);
+    assert(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+    assert(u32_ptr_info.Pointer.is_const == true);
+    assert(u32_ptr_info.Pointer.is_volatile == true);
+    assert(u32_ptr_info.Pointer.alignment == @alignOf(f64));
+    assert(u32_ptr_info.Pointer.child == f64);
 }
 
 test "type info: slice type info" {
@@ -52,11 +68,12 @@ test "type info: slice type info" {
 
 fn testSlice() void {
     const u32_slice_info = @typeInfo([]u32);
-    assert(TypeId(u32_slice_info) == TypeId.Slice);
-    assert(u32_slice_info.Slice.is_const == false);
-    assert(u32_slice_info.Slice.is_volatile == false);
-    assert(u32_slice_info.Slice.alignment == 4);
-    assert(u32_slice_info.Slice.child == u32);
+    assert(TypeId(u32_slice_info) == TypeId.Pointer);
+    assert(u32_slice_info.Pointer.size == TypeInfo.Pointer.Size.Slice);
+    assert(u32_slice_info.Pointer.is_const == false);
+    assert(u32_slice_info.Pointer.is_volatile == false);
+    assert(u32_slice_info.Pointer.alignment == 4);
+    assert(u32_slice_info.Pointer.child == u32);
 }
 
 test "type info: array type info" {
@@ -149,11 +166,11 @@ fn testUnion() void {
     assert(TypeId(typeinfo_info) == TypeId.Union);
     assert(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     assert(typeinfo_info.Union.tag_type == TypeId);
-    assert(typeinfo_info.Union.fields.len == 26);
+    assert(typeinfo_info.Union.fields.len == 25);
     assert(typeinfo_info.Union.fields[4].enum_field != null);
     assert((??typeinfo_info.Union.fields[4].enum_field).value == 4);
     assert(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
-    assert(typeinfo_info.Union.defs.len == 21);
+    assert(typeinfo_info.Union.defs.len == 20);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -169,14 +186,14 @@ fn testUnion() void {
     assert(notag_union_info.Union.fields[1].field_type == u32);
 
     const TestExternUnion = extern union {
-        foo: &c_void,
+        foo: *c_void,
     };
 
     const extern_union_info = @typeInfo(TestExternUnion);
     assert(extern_union_info.Union.layout == TypeInfo.ContainerLayout.Extern);
     assert(extern_union_info.Union.tag_type == @typeOf(undefined));
     assert(extern_union_info.Union.fields[0].enum_field == null);
-    assert(extern_union_info.Union.fields[0].field_type == &c_void);
+    assert(extern_union_info.Union.fields[0].field_type == *c_void);
 }
 
 test "type info: struct info" {
@@ -190,13 +207,13 @@ fn testStruct() void {
     assert(struct_info.Struct.layout == TypeInfo.ContainerLayout.Packed);
     assert(struct_info.Struct.fields.len == 3);
     assert(struct_info.Struct.fields[1].offset == null);
-    assert(struct_info.Struct.fields[2].field_type == &TestStruct);
+    assert(struct_info.Struct.fields[2].field_type == *TestStruct);
     assert(struct_info.Struct.defs.len == 2);
     assert(struct_info.Struct.defs[0].is_pub);
     assert(!struct_info.Struct.defs[0].data.Fn.is_extern);
     assert(struct_info.Struct.defs[0].data.Fn.lib_name == null);
     assert(struct_info.Struct.defs[0].data.Fn.return_type == void);
-    assert(struct_info.Struct.defs[0].data.Fn.fn_type == fn(&const TestStruct) void);
+    assert(struct_info.Struct.defs[0].data.Fn.fn_type == fn (*const TestStruct) void);
 }
 
 const TestStruct = packed struct {
@@ -204,9 +221,9 @@ const TestStruct = packed struct {
 
     fieldA: usize,
     fieldB: void,
-    fieldC: &Self,
+    fieldC: *Self,
 
-    pub fn foo(self: &const Self) void {}
+    pub fn foo(self: *const Self) void {}
 };
 
 test "type info: function type info" {
@@ -227,7 +244,7 @@ fn testFunction() void {
     const test_instance: TestStruct = undefined;
     const bound_fn_info = @typeInfo(@typeOf(test_instance.foo));
     assert(TypeId(bound_fn_info) == TypeId.BoundFn);
-    assert(bound_fn_info.BoundFn.args[0].arg_type == &const TestStruct);
+    assert(bound_fn_info.BoundFn.args[0].arg_type == *const TestStruct);
 }
 
 fn foo(comptime a: usize, b: bool, args: ...) usize {

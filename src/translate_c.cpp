@@ -276,11 +276,21 @@ static AstNode *maybe_suppress_result(Context *c, ResultUsed result_used, AstNod
         node);
 }
 
-static AstNode *trans_create_node_addr_of(Context *c, bool is_const, bool is_volatile, AstNode *child_node) {
-    AstNode *node = trans_create_node(c, NodeTypeAddrOfExpr);
-    node->data.addr_of_expr.is_const = is_const;
-    node->data.addr_of_expr.is_volatile = is_volatile;
-    node->data.addr_of_expr.op_expr = child_node;
+static AstNode *trans_create_node_ptr_type(Context *c, bool is_const, bool is_volatile, AstNode *child_node, PtrLen ptr_len) {
+    AstNode *node = trans_create_node(c, NodeTypePointerType);
+    node->data.pointer_type.star_token = allocate<ZigToken>(1);
+    node->data.pointer_type.star_token->id = (ptr_len == PtrLenSingle) ? TokenIdStar: TokenIdBracketStarBracket;
+    node->data.pointer_type.is_const = is_const;
+    node->data.pointer_type.is_const = is_const;
+    node->data.pointer_type.is_volatile = is_volatile;
+    node->data.pointer_type.op_expr = child_node;
+    return node;
+}
+
+static AstNode *trans_create_node_addr_of(Context *c, AstNode *child_node) {
+    AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
+    node->data.prefix_op_expr.prefix_op = PrefixOpAddrOf;
+    node->data.prefix_op_expr.primary_expr = child_node;
     return node;
 }
 
@@ -724,6 +734,30 @@ static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
     }
 }
 
+static bool type_is_opaque(Context *c, const Type *ty, const SourceLocation &source_loc) {
+    switch (ty->getTypeClass()) {
+        case Type::Builtin: {
+            const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+            return builtin_ty->getKind() == BuiltinType::Void;
+        }
+        case Type::Record: {
+            const RecordType *record_ty = static_cast<const RecordType*>(ty);
+            return record_ty->getDecl()->getDefinition() == nullptr;
+        }
+        case Type::Elaborated: {
+            const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
+            return type_is_opaque(c, elaborated_ty->getNamedType().getTypePtr(), source_loc);
+        }
+        case Type::Typedef: {
+            const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
+            const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+            return type_is_opaque(c, typedef_decl->getUnderlyingType().getTypePtr(), source_loc);
+        }
+        default:
+            return false;
+    }
+}
+
 static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
@@ -848,8 +882,10 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     return trans_create_node_prefix_op(c, PrefixOpMaybe, child_node);
                 }
 
-                AstNode *pointer_node = trans_create_node_addr_of(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_node);
+                PtrLen ptr_len = type_is_opaque(c, child_qt.getTypePtr(), source_loc) ? PtrLenSingle : PtrLenUnknown;
+
+                AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                        child_qt.isVolatileQualified(), child_node, ptr_len);
                 return trans_create_node_prefix_op(c, PrefixOpMaybe, pointer_node);
             }
         case Type::Typedef:
@@ -1033,8 +1069,8 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     emit_warning(c, source_loc, "unresolved array element type");
                     return nullptr;
                 }
-                AstNode *pointer_node = trans_create_node_addr_of(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_type_node);
+                AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                        child_qt.isVolatileQualified(), child_type_node, PtrLenUnknown);
                 return pointer_node;
             }
         case Type::BlockPointer:
@@ -1402,7 +1438,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         // const _ref = &lhs;
         AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
         if (lhs == nullptr) return nullptr;
-        AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+        AstNode *addr_of_lhs = trans_create_node_addr_of(c, lhs);
         // TODO: avoid name collisions with generated variable names
         Buf* tmp_var_name = buf_create_from_str("_ref");
         AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
@@ -1476,7 +1512,7 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
         // const _ref = &lhs;
         AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
         if (lhs == nullptr) return nullptr;
-        AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+        AstNode *addr_of_lhs = trans_create_node_addr_of(c, lhs);
         // TODO: avoid name collisions with generated variable names
         Buf* tmp_var_name = buf_create_from_str("_ref");
         AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
@@ -1813,7 +1849,7 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
     // const _ref = &expr;
     AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
     if (expr == nullptr) return nullptr;
-    AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
+    AstNode *addr_of_expr = trans_create_node_addr_of(c, expr);
     // TODO: avoid name collisions with generated variable names
     Buf* ref_var_name = buf_create_from_str("_ref");
     AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
@@ -1868,7 +1904,7 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
     // const _ref = &expr;
     AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
     if (expr == nullptr) return nullptr;
-    AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
+    AstNode *addr_of_expr = trans_create_node_addr_of(c, expr);
     // TODO: avoid name collisions with generated variable names
     Buf* ref_var_name = buf_create_from_str("_ref");
     AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
@@ -1917,7 +1953,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransLValue);
                 if (value_node == nullptr)
                     return value_node;
-                return trans_create_node_addr_of(c, false, false, value_node);
+                return trans_create_node_addr_of(c, value_node);
             }
         case UO_Deref:
             {
@@ -4441,7 +4477,7 @@ static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *t
         } else if (first_tok->id == CTokIdAsterisk) {
             *tok_i += 1;
 
-            node = trans_create_node_addr_of(c, false, false, node);
+            node = trans_create_node_ptr_type(c, false, false, node, PtrLenUnknown);
         } else {
             return node;
         }

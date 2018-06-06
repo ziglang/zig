@@ -29,7 +29,7 @@ fn redupif32(x: f32) f32 {
     return ((x - u * DP1) - u * DP2) - t * DP3;
 }
 
-fn atan32(z: &const Complex(f32)) Complex(f32) {
+fn atan32(z: *const Complex(f32)) Complex(f32) {
     const maxnum = 1.0e38;
 
     const x = z.re;
@@ -78,7 +78,7 @@ fn redupif64(x: f64) f64 {
     return ((x - u * DP1) - u * DP2) - t * DP3;
 }
 
-fn atan64(z: &const Complex(f64)) Complex(f64) {
+fn atan64(z: *const Complex(f64)) Complex(f64) {
     const maxnum = 1.0e308;
 
     const x = z.re;

@@ -14,9 +14,9 @@ const TypeId = builtin.TypeId;
 pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => return T(@sqrt(f64, x)), // TODO upgrade to f128
+        TypeId.ComptimeFloat => return T(@sqrt(f64, x)), // TODO upgrade to f128
         TypeId.Float => return @sqrt(T, x),
-        TypeId.IntLiteral => comptime {
+        TypeId.ComptimeInt => comptime {
             if (x > @maxValue(u128)) {
                 @compileError("sqrt not implemented for comptime_int greater than 128 bits");
             }

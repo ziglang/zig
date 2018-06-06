@@ -115,3 +115,32 @@ test "array len property" {
     var x: [5]i32 = undefined;
     assert(@typeOf(x).len == 5);
 }
+
+test "single-item pointer to array indexing and slicing" {
+    testSingleItemPtrArrayIndexSlice();
+    comptime testSingleItemPtrArrayIndexSlice();
+}
+
+fn testSingleItemPtrArrayIndexSlice() void {
+    var array = "aaaa";
+    doSomeMangling(&array);
+    assert(mem.eql(u8, "azya", array));
+}
+
+fn doSomeMangling(array: *[4]u8) void {
+    array[1] = 'z';
+    array[2..3][0] = 'y';
+}
+
+test "implicit cast single-item pointer" {
+    testImplicitCastSingleItemPtr();
+    comptime testImplicitCastSingleItemPtr();
+}
+
+fn testImplicitCastSingleItemPtr() void {
+    var byte: u8 = 100;
+    const slice = (*[1]u8)(&byte)[0..];
+    slice[0] += 1;
+    assert(byte == 101);
+}
+

@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     if (builtin.is_test) {
         @setCold(true);
         @import("std").debug.panic("{}", msg);
@@ -14,7 +14,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn
     }
 }
 
-export fn memset(dest: ?&u8, c: u8, n: usize) ?&u8 {
+export fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8 {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -24,7 +24,7 @@ export fn memset(dest: ?&u8, c: u8, n: usize) ?&u8 {
     return dest;
 }
 
-export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) ?&u8 {
+export fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8 {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -34,7 +34,7 @@ export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) ?&u8 {
     return dest;
 }
 
-export fn memmove(dest: ?&u8, src: ?&const u8, n: usize) ?&u8 {
+export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8 {
     @setRuntimeSafety(false);
 
     if (@ptrToInt(dest) < @ptrToInt(src)) {

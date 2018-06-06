@@ -38,11 +38,11 @@ ATTRIBUTE_NORETURN
 ATTRIBUTE_PRINTF(1, 2)
 void zig_panic(const char *format, ...);
 
-ATTRIBUTE_COLD
-ATTRIBUTE_NORETURN
-static inline void zig_unreachable(void) {
-    zig_panic("unreachable");
-}
+#ifdef WIN32
+#define __func__ __FUNCTION__
+#endif
+
+#define zig_unreachable() zig_panic("unreachable: %s:%s:%d", __FILE__, __func__, __LINE__)
 
 #if defined(_MSC_VER)
 static inline int clzll(unsigned long long mask) {
@@ -65,6 +65,11 @@ static inline int clzll(unsigned long long mask) {
 
 template<typename T>
 ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
+#ifndef NDEBUG
+    // make behavior when size == 0 portable
+    if (count == 0)
+        return nullptr;
+#endif
     T *ptr = reinterpret_cast<T*>(malloc(count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
@@ -73,6 +78,11 @@ ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
 
 template<typename T>
 ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
+#ifndef NDEBUG
+    // make behavior when size == 0 portable
+    if (count == 0)
+        return nullptr;
+#endif
     T *ptr = reinterpret_cast<T*>(calloc(count, sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
@@ -93,9 +103,7 @@ static inline void safe_memcpy(T *dest, const T *src, size_t count) {
 
 template<typename T>
 static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
-    T *ptr = reinterpret_cast<T*>(realloc(old, new_count * sizeof(T)));
-    if (!ptr)
-        zig_panic("allocation failed");
+    T *ptr = reallocate_nonzero(old, old_count, new_count);
     if (new_count > old_count) {
         memset(&ptr[old_count], 0, (new_count - old_count) * sizeof(T));
     }
@@ -104,6 +112,11 @@ static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
 
 template<typename T>
 static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count) {
+#ifndef NDEBUG
+    // make behavior when size == 0 portable
+    if (new_count == 0 && old == nullptr)
+        return nullptr;
+#endif
     T *ptr = reinterpret_cast<T*>(realloc(old, new_count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");

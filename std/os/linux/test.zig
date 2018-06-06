@@ -35,5 +35,6 @@ test "timer" {
     const events_one: linux.epoll_event = undefined;
     var events = []linux.epoll_event{events_one} ** 8;
 
-    err = linux.epoll_wait(i32(epoll_fd), &events[0], 8, -1);
+    // TODO implicit cast from *[N]T to [*]T
+    err = linux.epoll_wait(i32(epoll_fd), @ptrCast([*]linux.epoll_event, &events), 8, -1);
 }

@@ -14,7 +14,7 @@ const Token = union(enum) {
     Eof,
 };
 
-var global_allocator: &mem.Allocator = undefined;
+var global_allocator: *mem.Allocator = undefined;
 
 fn tokenize(input: []const u8) !ArrayList(Token) {
     const State = enum {
@@ -73,7 +73,7 @@ const ParseError = error{
     OutOfMemory,
 };
 
-fn parse(tokens: &const ArrayList(Token), token_index: &usize) ParseError!Node {
+fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
     const first_token = tokens.items[token_index.*];
     token_index.* += 1;
 
@@ -109,7 +109,7 @@ fn parse(tokens: &const ArrayList(Token), token_index: &usize) ParseError!Node {
     }
 }
 
-fn expandString(input: []const u8, output: &Buffer) !void {
+fn expandString(input: []const u8, output: *Buffer) !void {
     const tokens = try tokenize(input);
     if (tokens.len == 1) {
         return output.resize(0);
@@ -139,7 +139,7 @@ fn expandString(input: []const u8, output: &Buffer) !void {
 
 const ExpandNodeError = error{OutOfMemory};
 
-fn expandNode(node: &const Node, output: &ArrayList(Buffer)) ExpandNodeError!void {
+fn expandNode(node: *const Node, output: *ArrayList(Buffer)) ExpandNodeError!void {
     assert(output.len == 0);
     switch (node.*) {
         Node.Scalar => |scalar| {

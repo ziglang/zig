@@ -8,7 +8,7 @@ pub const Message = struct {
     type: usize,
     payload: usize,
 
-    pub fn from(mailbox_id: &const MailboxId) Message {
+    pub fn from(mailbox_id: *const MailboxId) Message {
         return Message{
             .sender = MailboxId.Undefined,
             .receiver = *mailbox_id,
@@ -17,7 +17,7 @@ pub const Message = struct {
         };
     }
 
-    pub fn to(mailbox_id: &const MailboxId, msg_type: usize) Message {
+    pub fn to(mailbox_id: *const MailboxId, msg_type: usize) Message {
         return Message{
             .sender = MailboxId.This,
             .receiver = *mailbox_id,
@@ -26,7 +26,7 @@ pub const Message = struct {
         };
     }
 
-    pub fn withData(mailbox_id: &const MailboxId, msg_type: usize, payload: usize) Message {
+    pub fn withData(mailbox_id: *const MailboxId, msg_type: usize, payload: usize) Message {
         return Message{
             .sender = MailboxId.This,
             .receiver = *mailbox_id,
@@ -67,7 +67,7 @@ pub const getErrno = @import("linux/index.zig").getErrno;
 use @import("linux/errno.zig");
 
 // TODO: implement this correctly.
-pub fn read(fd: i32, buf: &u8, count: usize) usize {
+pub fn read(fd: i32, buf: *u8, count: usize) usize {
     switch (fd) {
         STDIN_FILENO => {
             var i: usize = 0;
@@ -75,7 +75,7 @@ pub fn read(fd: i32, buf: &u8, count: usize) usize {
                 send(Message.to(Server.Keyboard, 0));
 
                 var message = Message.from(MailboxId.This);
-                receive(&message);
+                receive(*message);
 
                 buf[i] = u8(message.payload);
             }
@@ -86,7 +86,7 @@ pub fn read(fd: i32, buf: &u8, count: usize) usize {
 }
 
 // TODO: implement this correctly.
-pub fn write(fd: i32, buf: &const u8, count: usize) usize {
+pub fn write(fd: i32, buf: *const u8, count: usize) usize {
     switch (fd) {
         STDOUT_FILENO, STDERR_FILENO => {
             var i: usize = 0;
@@ -126,22 +126,22 @@ pub fn exit(status: i32) noreturn {
     unreachable;
 }
 
-pub fn createPort(mailbox_id: &const MailboxId) void {
+pub fn createPort(mailbox_id: *const MailboxId) void {
     _ = switch (*mailbox_id) {
         MailboxId.Port => |id| syscall1(Syscall.createPort, id),
         else => unreachable,
     };
 }
 
-pub fn send(message: &const Message) void {
+pub fn send(message: *const Message) void {
     _ = syscall1(Syscall.send, @ptrToInt(message));
 }
 
-pub fn receive(destination: &Message) void {
+pub fn receive(destination: *Message) void {
     _ = syscall1(Syscall.receive, @ptrToInt(destination));
 }
 
-pub fn subscribeIRQ(irq: u8, mailbox_id: &const MailboxId) void {
+pub fn subscribeIRQ(irq: u8, mailbox_id: *const MailboxId) void {
     _ = syscall2(Syscall.subscribeIRQ, irq, @ptrToInt(mailbox_id));
 }
 
@@ -153,7 +153,7 @@ pub fn map(v_addr: usize, p_addr: usize, size: usize, writable: bool) bool {
     return syscall4(Syscall.map, v_addr, p_addr, size, usize(writable)) != 0;
 }
 
-pub fn createThread(function: fn() void) u16 {
+pub fn createThread(function: fn () void) u16 {
     return u16(syscall1(Syscall.createThread, @ptrToInt(function)));
 }
 

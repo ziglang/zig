@@ -28,15 +28,15 @@ pub const DefaultPrng = Xoroshiro128;
 pub const DefaultCsprng = Isaac64;
 
 pub const Random = struct {
-    fillFn: fn(r: &Random, buf: []u8) void,
+    fillFn: fn (r: *Random, buf: []u8) void,
 
     /// Read random bytes into the specified buffer until fill.
-    pub fn bytes(r: &Random, buf: []u8) void {
+    pub fn bytes(r: *Random, buf: []u8) void {
         r.fillFn(r, buf);
     }
 
     /// Return a random integer/boolean type.
-    pub fn scalar(r: &Random, comptime T: type) T {
+    pub fn scalar(r: *Random, comptime T: type) T {
         var rand_bytes: [@sizeOf(T)]u8 = undefined;
         r.bytes(rand_bytes[0..]);
 
@@ -50,7 +50,7 @@ pub const Random = struct {
 
     /// Get a random unsigned integer with even distribution between `start`
     /// inclusive and `end` exclusive.
-    pub fn range(r: &Random, comptime T: type, start: T, end: T) T {
+    pub fn range(r: *Random, comptime T: type, start: T, end: T) T {
         assert(start <= end);
         if (T.is_signed) {
             const uint = @IntType(false, T.bit_count);
@@ -92,7 +92,7 @@ pub const Random = struct {
     }
 
     /// Return a floating point value evenly distributed in the range [0, 1).
-    pub fn float(r: &Random, comptime T: type) T {
+    pub fn float(r: *Random, comptime T: type) T {
         // Generate a uniform value between [1, 2) and scale down to [0, 1).
         // Note: The lowest mantissa bit is always set to 0 so we only use half the available range.
         switch (T) {
@@ -113,7 +113,7 @@ pub const Random = struct {
     /// Return a floating point value normally distributed with mean = 0, stddev = 1.
     ///
     /// To use different parameters, use: floatNorm(...) * desiredStddev + desiredMean.
-    pub fn floatNorm(r: &Random, comptime T: type) T {
+    pub fn floatNorm(r: *Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.NormDist);
         switch (T) {
             f32 => return f32(value),
@@ -125,7 +125,7 @@ pub const Random = struct {
     /// Return an exponentially distributed float with a rate parameter of 1.
     ///
     /// To use a different rate parameter, use: floatExp(...) / desiredRate.
-    pub fn floatExp(r: &Random, comptime T: type) T {
+    pub fn floatExp(r: *Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.ExpDist);
         switch (T) {
             f32 => return f32(value),
@@ -135,7 +135,7 @@ pub const Random = struct {
     }
 
     /// Shuffle a slice into a random order.
-    pub fn shuffle(r: &Random, comptime T: type, buf: []T) void {
+    pub fn shuffle(r: *Random, comptime T: type, buf: []T) void {
         if (buf.len < 2) {
             return;
         }
@@ -159,7 +159,7 @@ const SplitMix64 = struct {
         return SplitMix64{ .s = seed };
     }
 
-    pub fn next(self: &SplitMix64) u64 {
+    pub fn next(self: *SplitMix64) u64 {
         self.s +%= 0x9e3779b97f4a7c15;
 
         var z = self.s;
@@ -208,7 +208,7 @@ pub const Pcg = struct {
         return pcg;
     }
 
-    fn next(self: &Pcg) u32 {
+    fn next(self: *Pcg) u32 {
         const l = self.s;
         self.s = l *% default_multiplier +% (self.i | 1);
 
@@ -218,13 +218,13 @@ pub const Pcg = struct {
         return (xor_s >> u5(rot)) | (xor_s << u5((0 -% rot) & 31));
     }
 
-    fn seed(self: &Pcg, init_s: u64) void {
+    fn seed(self: *Pcg, init_s: u64) void {
         // Pcg requires 128-bits of seed.
         var gen = SplitMix64.init(init_s);
         self.seedTwo(gen.next(), gen.next());
     }
 
-    fn seedTwo(self: &Pcg, init_s: u64, init_i: u64) void {
+    fn seedTwo(self: *Pcg, init_s: u64, init_i: u64) void {
         self.s = 0;
         self.i = (init_s << 1) | 1;
         self.s = self.s *% default_multiplier +% self.i;
@@ -232,7 +232,7 @@ pub const Pcg = struct {
         self.s = self.s *% default_multiplier +% self.i;
     }
 
-    fn fill(r: &Random, buf: []u8) void {
+    fn fill(r: *Random, buf: []u8) void {
         const self = @fieldParentPtr(Pcg, "random", r);
 
         var i: usize = 0;
@@ -297,7 +297,7 @@ pub const Xoroshiro128 = struct {
         return x;
     }
 
-    fn next(self: &Xoroshiro128) u64 {
+    fn next(self: *Xoroshiro128) u64 {
         const s0 = self.s[0];
         var s1 = self.s[1];
         const r = s0 +% s1;
@@ -310,7 +310,7 @@ pub const Xoroshiro128 = struct {
     }
 
     // Skip 2^64 places ahead in the sequence
-    fn jump(self: &Xoroshiro128) void {
+    fn jump(self: *Xoroshiro128) void {
         var s0: u64 = 0;
         var s1: u64 = 0;
 
@@ -334,7 +334,7 @@ pub const Xoroshiro128 = struct {
         self.s[1] = s1;
     }
 
-    fn seed(self: &Xoroshiro128, init_s: u64) void {
+    fn seed(self: *Xoroshiro128, init_s: u64) void {
         // Xoroshiro requires 128-bits of seed.
         var gen = SplitMix64.init(init_s);
 
@@ -342,7 +342,7 @@ pub const Xoroshiro128 = struct {
         self.s[1] = gen.next();
     }
 
-    fn fill(r: &Random, buf: []u8) void {
+    fn fill(r: *Random, buf: []u8) void {
         const self = @fieldParentPtr(Xoroshiro128, "random", r);
 
         var i: usize = 0;
@@ -435,7 +435,7 @@ pub const Isaac64 = struct {
         return isaac;
     }
 
-    fn step(self: &Isaac64, mix: u64, base: usize, comptime m1: usize, comptime m2: usize) void {
+    fn step(self: *Isaac64, mix: u64, base: usize, comptime m1: usize, comptime m2: usize) void {
         const x = self.m[base + m1];
         self.a = mix +% self.m[base + m2];
 
@@ -446,7 +446,7 @@ pub const Isaac64 = struct {
         self.r[self.r.len - 1 - base - m1] = self.b;
     }
 
-    fn refill(self: &Isaac64) void {
+    fn refill(self: *Isaac64) void {
         const midpoint = self.r.len / 2;
 
         self.c +%= 1;
@@ -475,7 +475,7 @@ pub const Isaac64 = struct {
         self.i = 0;
     }
 
-    fn next(self: &Isaac64) u64 {
+    fn next(self: *Isaac64) u64 {
         if (self.i >= self.r.len) {
             self.refill();
         }
@@ -485,7 +485,7 @@ pub const Isaac64 = struct {
         return value;
     }
 
-    fn seed(self: &Isaac64, init_s: u64, comptime rounds: usize) void {
+    fn seed(self: *Isaac64, init_s: u64, comptime rounds: usize) void {
         // We ignore the multi-pass requirement since we don't currently expose full access to
         // seeding the self.m array completely.
         mem.set(u64, self.m[0..], 0);
@@ -551,7 +551,7 @@ pub const Isaac64 = struct {
         self.i = self.r.len; // trigger refill on first value
     }
 
-    fn fill(r: &Random, buf: []u8) void {
+    fn fill(r: *Random, buf: []u8) void {
         const self = @fieldParentPtr(Isaac64, "random", r);
 
         var i: usize = 0;
@@ -666,7 +666,7 @@ test "Random range" {
     testRange(&prng.random, 10, 14);
 }
 
-fn testRange(r: &Random, start: i32, end: i32) void {
+fn testRange(r: *Random, start: i32, end: i32) void {
     const count = usize(end - start);
     var values_buffer = []bool{false} ** 20;
     const values = values_buffer[0..count];

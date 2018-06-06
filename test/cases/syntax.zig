@@ -1,4 +1,5 @@
 // Test trailing comma syntax
+// zig fmt: off
 
 const struct_trailing_comma = struct { x: i32, y: i32, };
 const struct_no_comma = struct { x: i32, y: i32 };

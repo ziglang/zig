@@ -96,8 +96,8 @@ test "generic struct" {
 fn GenNode(comptime T: type) type {
     return struct {
         value: T,
-        next: ?&GenNode(T),
-        fn getVal(n: &const GenNode(T)) T {
+        next: ?*GenNode(T),
+        fn getVal(n: *const GenNode(T)) T {
             return n.value;
         }
     };
@@ -126,14 +126,14 @@ test "generic fn with implicit cast" {
         13,
     }) == 0);
 }
-fn getByte(ptr: ?&const u8) u8 {
+fn getByte(ptr: ?*const u8) u8 {
     return (??ptr).*;
 }
 fn getFirstByte(comptime T: type, mem: []const T) u8 {
-    return getByte(@ptrCast(&const u8, &mem[0]));
+    return getByte(@ptrCast(*const u8, &mem[0]));
 }
 
-const foos = []fn(var) bool{
+const foos = []fn (var) bool{
     foo1,
     foo2,
 };

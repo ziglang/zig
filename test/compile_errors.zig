@@ -1,6 +1,95 @@
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.CompileErrorContext) void {
+pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add(
+        "attempted implicit cast from T to [*]const T",
+        \\export fn entry() void {
+        \\    const x: [*]const bool = true;
+        \\}
+    ,
+        ".tmp_source.zig:2:30: error: expected type '[*]const bool', found 'bool'",
+    );
+
+    cases.add(
+        "dereference unknown length pointer",
+        \\export fn entry(x: [*]i32) i32 {
+        \\    return x.*;
+        \\}
+    ,
+        ".tmp_source.zig:2:13: error: index syntax required for unknown-length pointer type '[*]i32'",
+    );
+
+    cases.add(
+        "field access of unknown length pointer",
+        \\const Foo = extern struct {
+        \\    a: i32,
+        \\};
+        \\
+        \\export fn entry(foo: [*]Foo) void {
+        \\    foo.a += 1;
+        \\}
+    ,
+        ".tmp_source.zig:6:8: error: type '[*]Foo' does not support field access",
+    );
+
+    cases.add(
+        "unknown length pointer to opaque",
+        \\export const T = [*]@OpaqueType();
+    ,
+        ".tmp_source.zig:1:18: error: unknown-length pointer to opaque",
+    );
+
+    cases.add(
+        "error when evaluating return type",
+        \\const Foo = struct {
+        \\    map: i32(i32),
+        \\
+        \\    fn init() Foo {
+        \\        return undefined;
+        \\    }
+        \\};
+        \\export fn entry() void {
+        \\    var rule_set = try Foo.init();
+        \\}
+    ,
+        ".tmp_source.zig:2:13: error: invalid cast from type 'type' to 'i32'",
+    );
+
+    cases.add(
+        "slicing single-item pointer",
+        \\export fn entry(ptr: *i32) void {
+        \\    const slice = ptr[0..2];
+        \\}
+    ,
+        ".tmp_source.zig:2:22: error: slice of single-item pointer",
+    );
+
+    cases.add(
+        "indexing single-item pointer",
+        \\export fn entry(ptr: *i32) i32 {
+        \\    return ptr[1];
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: index of single-item pointer",
+    );
+
+    cases.add(
+        "invalid deref on switch target",
+        \\const NextError = error{NextError};
+        \\const OtherError = error{OutOfMemory};
+        \\
+        \\export fn entry() void {
+        \\    const a: ?NextError!i32 = foo();
+        \\}
+        \\
+        \\fn foo() ?OtherError!i32 {
+        \\    return null;
+        \\}
+    ,
+        ".tmp_source.zig:5:34: error: expected 'NextError!i32', found 'OtherError!i32'",
+        ".tmp_source.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
+    );
+
     cases.add(
         "invalid deref on switch target",
         \\comptime {
@@ -109,7 +198,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         "@ptrCast discards const qualifier",
         \\export fn entry() void {
         \\    const x: i32 = 1234;
-        \\    const y = @ptrCast(&i32, &x);
+        \\    const y = @ptrCast(*i32, &x);
         \\}
     ,
         ".tmp_source.zig:3:15: error: cast discards const qualifier",
@@ -118,15 +207,15 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add(
         "comptime slice of undefined pointer non-zero len",
         \\export fn entry() void {
-        \\    const slice = (&i32)(undefined)[0..1];
+        \\    const slice = ([*]i32)(undefined)[0..1];
         \\}
     ,
-        ".tmp_source.zig:2:36: error: non-zero length slice of undefined pointer",
+        ".tmp_source.zig:2:38: error: non-zero length slice of undefined pointer",
     );
 
     cases.add(
         "type checking function pointers",
-        \\fn a(b: fn (&const u8) void) void {
+        \\fn a(b: fn (*const u8) void) void {
         \\    b('a');
         \\}
         \\fn c(d: u8) void {
@@ -136,7 +225,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    a(c);
         \\}
     ,
-        ".tmp_source.zig:8:7: error: expected type 'fn(&const u8) void', found 'fn(u8) void'",
+        ".tmp_source.zig:8:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
     );
 
     cases.add(
@@ -594,15 +683,15 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add(
         "attempt to use 0 bit type in extern fn",
-        \\extern fn foo(ptr: extern fn(&void) void) void;
+        \\extern fn foo(ptr: extern fn(*void) void) void;
         \\
         \\export fn entry() void {
         \\    foo(bar);
         \\}
         \\
-        \\extern fn bar(x: &void) void { }
+        \\extern fn bar(x: *void) void { }
     ,
-        ".tmp_source.zig:7:18: error: parameter of type '&void' has 0 bits; not allowed in function with calling convention 'ccc'",
+        ".tmp_source.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
     );
 
     cases.add(
@@ -911,10 +1000,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add(
         "pointer to noreturn",
-        \\fn a() &noreturn {}
+        \\fn a() *noreturn {}
         \\export fn entry() void { _ = a(); }
     ,
-        ".tmp_source.zig:1:9: error: pointer to noreturn not allowed",
+        ".tmp_source.zig:1:8: error: pointer to noreturn not allowed",
     );
 
     cases.add(
@@ -985,7 +1074,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    return a;
         \\}
     ,
-        ".tmp_source.zig:3:12: error: expected type 'i32', found '&const u8'",
+        ".tmp_source.zig:3:12: error: expected type 'i32', found '[*]const u8'",
     );
 
     cases.add(
@@ -1446,7 +1535,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add(
         "switch expression - switch on pointer type with no else",
-        \\fn foo(x: &u8) void {
+        \\fn foo(x: *u8) void {
         \\    switch (x) {
         \\        &y => {},
         \\    }
@@ -1454,7 +1543,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const y: u8 = 100;
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:2:5: error: else prong required when switching on type '&u8'",
+        ".tmp_source.zig:2:5: error: else prong required when switching on type '*u8'",
     );
 
     cases.add(
@@ -1501,10 +1590,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         "address of number literal",
         \\const x = 3;
         \\const y = &x;
-        \\fn foo() &const i32 { return y; }
+        \\fn foo() *const i32 { return y; }
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:3:30: error: expected type '&const i32', found '&const (integer literal)'",
+        ".tmp_source.zig:3:30: error: expected type '*const i32', found '*const comptime_int'",
     );
 
     cases.add(
@@ -1520,7 +1609,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const x = 2 == 2.0;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:1:11: error: integer value 2 cannot be implicitly casted to type '(float literal)'",
+        ".tmp_source.zig:1:11: error: integer value 2 cannot be implicitly casted to type 'comptime_float'",
     );
 
     cases.add(
@@ -1529,10 +1618,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    a: i32,
         \\    b: i32,
         \\
-        \\    fn member_a(foo: &const Foo) i32 {
+        \\    fn member_a(foo: *const Foo) i32 {
         \\        return foo.a;
         \\    }
-        \\    fn member_b(foo: &const Foo) i32 {
+        \\    fn member_b(foo: *const Foo) i32 {
         \\        return foo.b;
         \\    }
         \\};
@@ -1543,7 +1632,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    Foo.member_b,
         \\};
         \\
-        \\fn f(foo: &const Foo, index: usize) void {
+        \\fn f(foo: *const Foo, index: usize) void {
         \\    const result = members[index]();
         \\}
         \\
@@ -1692,11 +1781,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add(
         "assign null to non-nullable pointer",
-        \\const a: &u8 = null;
+        \\const a: *u8 = null;
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:1:16: error: expected type '&u8', found '(null)'",
+        ".tmp_source.zig:1:16: error: expected type '*u8', found '(null)'",
     );
 
     cases.add(
@@ -1806,7 +1895,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    One: void,
         \\    Two: i32,
         \\};
-        \\fn bad_eql_2(a: &const EnumWithData, b: &const EnumWithData) bool {
+        \\fn bad_eql_2(a: *const EnumWithData, b: *const EnumWithData) bool {
         \\    return a.* == b.*;
         \\}
         \\
@@ -2011,9 +2100,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add(
         "wrong number of arguments for method fn call",
         \\const Foo = struct {
-        \\    fn method(self: &const Foo, a: i32) void {}
+        \\    fn method(self: *const Foo, a: i32) void {}
         \\};
-        \\fn f(foo: &const Foo) void {
+        \\fn f(foo: *const Foo) void {
         \\
         \\    foo.method(1, 2);
         \\}
@@ -2062,7 +2151,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add(
         "misspelled type with pointer only reference",
         \\const JasonHM = u8;
-        \\const JasonList = &JsonNode;
+        \\const JasonList = *JsonNode;
         \\
         \\const JsonOA = union(enum) {
         \\    JSONArray: JsonList,
@@ -2113,16 +2202,16 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    derp.init();
         \\}
     ,
-        ".tmp_source.zig:14:5: error: expected type 'i32', found '&const Foo'",
+        ".tmp_source.zig:14:5: error: expected type 'i32', found '*const Foo'",
     );
 
     cases.add(
         "method call with first arg type wrong container",
         \\pub const List = struct {
         \\    len: usize,
-        \\    allocator: &Allocator,
+        \\    allocator: *Allocator,
         \\
-        \\    pub fn init(allocator: &Allocator) List {
+        \\    pub fn init(allocator: *Allocator) List {
         \\        return List {
         \\            .len = 0,
         \\            .allocator = allocator,
@@ -2143,7 +2232,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    x.init();
         \\}
     ,
-        ".tmp_source.zig:23:5: error: expected type '&Allocator', found '&List'",
+        ".tmp_source.zig:23:5: error: expected type '*Allocator', found '*List'",
     );
 
     cases.add(
@@ -2154,7 +2243,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(block_aligned_stuff)); }
     ,
-        ".tmp_source.zig:3:60: error: unable to perform binary not operation on type '(integer literal)'",
+        ".tmp_source.zig:3:60: error: unable to perform binary not operation on type 'comptime_int'",
     );
 
     cases.addCase(x: {
@@ -2308,17 +2397,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    c: u2,
         \\};
         \\
-        \\fn foo(bit_field: &const BitField) u3 {
+        \\fn foo(bit_field: *const BitField) u3 {
         \\    return bar(&bit_field.b);
         \\}
         \\
-        \\fn bar(x: &const u3) u3 {
+        \\fn bar(x: *const u3) u3 {
         \\    return x.*;
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:8:26: error: expected type '&const u3', found '&align(1:3:6) const u3'",
+        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(1:3:6) const u3'",
     );
 
     cases.add(
@@ -2425,13 +2514,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\var s_buffer: [10]u8 = undefined;
         \\pub fn pass(in: []u8) []u8 {
         \\    var out = &s_buffer;
-        \\    out[0].* = in[0];
+        \\    out.*.* = in[0];
         \\    return out.*[0..1];
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(pass)); }
     ,
-        ".tmp_source.zig:4:11: error: attempt to dereference non pointer type '[10]u8'",
+        ".tmp_source.zig:4:10: error: attempt to dereference non pointer type '[10]u8'",
     );
 
     cases.add(
@@ -2441,13 +2530,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    const b = &a;
         \\    return ptrEql(b, b);
         \\}
-        \\fn ptrEql(a: &[]const u8, b: &[]const u8) bool {
+        \\fn ptrEql(a: *[]const u8, b: *[]const u8) bool {
         \\    return true;
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:4:19: error: expected type '&[]const u8', found '&const []const u8'",
+        ".tmp_source.zig:4:19: error: expected type '*[]const u8', found '*const []const u8'",
     );
 
     cases.addCase(x: {
@@ -2493,7 +2582,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add(
         "ptrcast to non-pointer",
-        \\export fn entry(a: &i32) usize {
+        \\export fn entry(a: *i32) usize {
         \\    return @ptrCast(usize, a);
         \\}
     ,
@@ -2542,16 +2631,16 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         "int to ptr of 0 bits",
         \\export fn foo() void {
         \\    var x: usize = 0x1000;
-        \\    var y: &void = @intToPtr(&void, x);
+        \\    var y: *void = @intToPtr(*void, x);
         \\}
     ,
-        ".tmp_source.zig:3:31: error: type '&void' has 0 bits and cannot store information",
+        ".tmp_source.zig:3:30: error: type '*void' has 0 bits and cannot store information",
     );
 
     cases.add(
         "@fieldParentPtr - non struct",
         \\const Foo = i32;
-        \\export fn foo(a: &i32) &Foo {
+        \\export fn foo(a: *i32) *Foo {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
@@ -2563,7 +2652,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const Foo = extern struct {
         \\    derp: i32,
         \\};
-        \\export fn foo(a: &i32) &Foo {
+        \\export fn foo(a: *i32) *Foo {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
@@ -2575,7 +2664,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const Foo = extern struct {
         \\    a: i32,
         \\};
-        \\export fn foo(a: i32) &Foo {
+        \\export fn foo(a: i32) *Foo {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
@@ -2591,7 +2680,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const foo = Foo { .a = 1, .b = 2, };
         \\
         \\comptime {
-        \\    const field_ptr = @intToPtr(&i32, 0x1234);
+        \\    const field_ptr = @intToPtr(*i32, 0x1234);
         \\    const another_foo_ptr = @fieldParentPtr(Foo, "b", field_ptr);
         \\}
     ,
@@ -2682,7 +2771,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add(
         "returning address of local variable - simple",
-        \\export fn foo() &i32 {
+        \\export fn foo() *i32 {
         \\    var a: i32 = undefined;
         \\    return &a;
         \\}
@@ -2692,7 +2781,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add(
         "returning address of local variable - phi",
-        \\export fn foo(c: bool) &i32 {
+        \\export fn foo(c: bool) *i32 {
         \\    var a: i32 = undefined;
         \\    var b: i32 = undefined;
         \\    return if (c) &a else &b;
@@ -3086,11 +3175,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    bar(&foo.b);
         \\}
         \\
-        \\fn bar(x: &u32) void {
+        \\fn bar(x: *u32) void {
         \\    x.* += 1;
         \\}
     ,
-        ".tmp_source.zig:8:13: error: expected type '&u32', found '&align(1) u32'",
+        ".tmp_source.zig:8:13: error: expected type '*u32', found '*align(1) u32'",
     );
 
     cases.add(
@@ -3103,27 +3192,29 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var foo = Foo { .a = 1, .b = 10 };
         \\    foo.b += 1;
-        \\    bar((&foo.b)[0..1]);
+        \\    bar((*[1]u32)(&foo.b)[0..]);
         \\}
         \\
         \\fn bar(x: []u32) void {
         \\    x[0] += 1;
         \\}
     ,
-        ".tmp_source.zig:9:17: error: expected type '[]u32', found '[]align(1) u32'",
+        ".tmp_source.zig:9:18: error: cast increases pointer alignment",
+        ".tmp_source.zig:9:23: note: '*align(1) u32' has alignment 1",
+        ".tmp_source.zig:9:18: note: '*[1]u32' has alignment 4",
     );
 
     cases.add(
         "increase pointer alignment in @ptrCast",
         \\export fn entry() u32 {
         \\    var bytes: [4]u8 = []u8{0x01, 0x02, 0x03, 0x04};
-        \\    const ptr = @ptrCast(&u32, &bytes[0]);
+        \\    const ptr = @ptrCast(*u32, &bytes[0]);
         \\    return ptr.*;
         \\}
     ,
         ".tmp_source.zig:3:17: error: cast increases pointer alignment",
-        ".tmp_source.zig:3:38: note: '&u8' has alignment 1",
-        ".tmp_source.zig:3:27: note: '&u32' has alignment 4",
+        ".tmp_source.zig:3:38: note: '*u8' has alignment 1",
+        ".tmp_source.zig:3:26: note: '*u32' has alignment 4",
     );
 
     cases.add(
@@ -3169,7 +3260,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    return x == 5678;
         \\}
     ,
-        ".tmp_source.zig:4:32: error: expected type '&i32', found '&align(1) i32'",
+        ".tmp_source.zig:4:32: error: expected type '*i32', found '*align(1) i32'",
     );
 
     cases.add(
@@ -3198,20 +3289,20 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add(
         "wrong pointer implicitly casted to pointer to @OpaqueType()",
         \\const Derp = @OpaqueType();
-        \\extern fn bar(d: &Derp) void;
+        \\extern fn bar(d: *Derp) void;
         \\export fn foo() void {
         \\    var x = u8(1);
-        \\    bar(@ptrCast(&c_void, &x));
+        \\    bar(@ptrCast(*c_void, &x));
         \\}
     ,
-        ".tmp_source.zig:5:9: error: expected type '&Derp', found '&c_void'",
+        ".tmp_source.zig:5:9: error: expected type '*Derp', found '*c_void'",
     );
 
     cases.add(
         "non-const variables of things that require const variables",
         \\const Opaque = @OpaqueType();
         \\
-        \\export fn entry(opaque: &Opaque) void {
+        \\export fn entry(opaque: *Opaque) void {
         \\   var m2 = &2;
         \\   const y: u32 = m2.*;
         \\
@@ -3229,19 +3320,19 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
         \\
         \\const Foo = struct {
-        \\    fn bar(self: &const Foo) void {}
+        \\    fn bar(self: *const Foo) void {}
         \\};
     ,
-        ".tmp_source.zig:4:4: error: variable of type '&const (integer literal)' must be const or comptime",
+        ".tmp_source.zig:4:4: error: variable of type '*comptime_int' must be const or comptime",
         ".tmp_source.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
-        ".tmp_source.zig:8:4: error: variable of type '(integer literal)' must be const or comptime",
-        ".tmp_source.zig:9:4: error: variable of type '(float literal)' must be const or comptime",
+        ".tmp_source.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
+        ".tmp_source.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
         ".tmp_source.zig:10:4: error: variable of type '(block)' must be const or comptime",
         ".tmp_source.zig:11:4: error: variable of type '(null)' must be const or comptime",
         ".tmp_source.zig:12:4: error: variable of type 'Opaque' must be const or comptime",
         ".tmp_source.zig:13:4: error: variable of type 'type' must be const or comptime",
         ".tmp_source.zig:14:4: error: variable of type '(namespace)' must be const or comptime",
-        ".tmp_source.zig:15:4: error: variable of type '(bound fn(&const Foo) void)' must be const or comptime",
+        ".tmp_source.zig:15:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
         ".tmp_source.zig:17:4: error: unreachable code",
     );
 
@@ -3397,14 +3488,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\
         \\export fn entry() bool {
         \\    var x: i32 = 1;
-        \\    return bar(@ptrCast(&MyType, &x));
+        \\    return bar(@ptrCast(*MyType, &x));
         \\}
         \\
-        \\fn bar(x: &MyType) bool {
+        \\fn bar(x: *MyType) bool {
         \\    return x.blah;
         \\}
     ,
-        ".tmp_source.zig:9:13: error: type '&MyType' does not support field access",
+        ".tmp_source.zig:9:13: error: type '*MyType' does not support field access",
     );
 
     cases.add(
@@ -3535,9 +3626,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    foo("hello",);
         \\}
-        \\pub extern fn foo(format: &const u8, ...) void;
+        \\pub extern fn foo(format: *const u8, ...) void;
     ,
-        ".tmp_source.zig:2:9: error: expected type '&const u8', found '[5]u8'",
+        ".tmp_source.zig:2:9: error: expected type '*const u8', found '[5]u8'",
     );
 
     cases.add(
@@ -3902,7 +3993,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    const a = Payload { .A = 1234 };
         \\    foo(a);
         \\}
-        \\fn foo(a: &const Payload) void {
+        \\fn foo(a: *const Payload) void {
         \\    switch (a.*) {
         \\        Payload.A => {},
         \\        else => unreachable,
