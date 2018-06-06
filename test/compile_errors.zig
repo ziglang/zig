@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "dereference unknown length pointer",
+        \\export fn entry(x: [*]i32) i32 {
+        \\    return x.*;
+        \\}
+    ,
+        ".tmp_source.zig:2:13: error: index syntax required for unknown-length pointer type '[*]i32'",
+    );
+
+    cases.add(
         "field access of unknown length pointer",
         \\const Foo = extern struct {
         \\    a: i32,

@@ -11132,7 +11132,13 @@ static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *
 
 static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
     IrInstruction *op1 = bin_op_instruction->op1->other;
+    if (type_is_invalid(op1->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
     IrInstruction *op2 = bin_op_instruction->op2->other;
+    if (type_is_invalid(op2->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
     IrBinOp op_id = bin_op_instruction->op_id;
 
     // look for pointer math
@@ -12851,6 +12857,12 @@ static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp 
     if (type_is_invalid(ptr_type)) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (ptr_type->id == TypeTableEntryIdPointer) {
+        if (ptr_type->data.pointer.ptr_len == PtrLenUnknown) {
+            ir_add_error_node(ira, un_op_instruction->base.source_node,
+                buf_sprintf("index syntax required for unknown-length pointer type '%s'",
+                    buf_ptr(&ptr_type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
         child_type = ptr_type->data.pointer.child_type;
     } else {
         ir_add_error_node(ira, un_op_instruction->base.source_node,

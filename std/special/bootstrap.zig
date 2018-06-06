@@ -51,7 +51,7 @@ extern fn WinMainCRTStartup() noreturn {
 
 // TODO https://github.com/ziglang/zig/issues/265
 fn posixCallMainAndExit() noreturn {
-    const argc = argc_ptr.*;
+    const argc = argc_ptr[0];
     const argv = @ptrCast([*][*]u8, argc_ptr + 1);
 
     const envp_nullable = @ptrCast([*]?[*]u8, argv + argc + 1);
