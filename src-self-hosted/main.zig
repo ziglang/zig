@@ -734,7 +734,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         defer file.close();
 
         const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
-            try stderr.print("unable to open '{}': {}", file_path, err);
+            try stderr.print("unable to open '{}': {}\n", file_path, err);
             fmt_errors = true;
             continue;
         };
