@@ -123,8 +123,7 @@ pub const File = struct {
             }
             return true;
         } else if (is_windows) {
-            // TODO do not depend on shlwapi.dll
-            if (os.windows.PathFileExistsA(path_with_null.ptr) == os.windows.TRUE) {
+            if (os.windows.PathFileExists(path_with_null.ptr) == os.windows.TRUE) {
                 return true;
             }
 

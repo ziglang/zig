@@ -123,6 +123,8 @@ pub extern "kernel32" stdcallcc fn QueryPerformanceCounter(lpPerformanceCount: *
 
 pub extern "kernel32" stdcallcc fn QueryPerformanceFrequency(lpFrequency: *LARGE_INTEGER) BOOL;
 
+pub extern "kernel32" stdcallcc fn PathFileExists(pszPath: ?LPCTSTR) BOOL;
+
 pub extern "kernel32" stdcallcc fn ReadFile(
     in_hFile: HANDLE,
     out_lpBuffer: *c_void,
@@ -160,8 +162,6 @@ pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: LPCSTR) ?HMODULE;
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
 
 pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lpCaption: ?LPCTSTR, uType: UINT) c_int;
-
-pub extern "shlwapi" stdcallcc fn PathFileExistsA(pszPath: ?LPCTSTR) BOOL;
 
 pub const PROV_RSA_FULL = 1;
 

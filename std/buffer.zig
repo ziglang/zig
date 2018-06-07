@@ -28,6 +28,7 @@ pub const Buffer = struct {
     /// Must deinitialize with deinit.
     /// None of the other operations are valid until you do one of these:
     /// * ::replaceContents
+    /// * ::replaceContentsBuffer
     /// * ::resize
     pub fn initNull(allocator: *Allocator) Buffer {
         return Buffer{ .list = ArrayList(u8).init(allocator) };
@@ -115,7 +116,7 @@ pub const Buffer = struct {
         return mem.eql(u8, self.list.items[start..l], m);
     }
 
-    pub fn replaceContents(self: *Buffer, m: []const u8) !void {
+    pub fn replaceContents(self: *const Buffer, m: []const u8) !void {
         try self.resize(m.len);
         mem.copy(u8, self.list.toSlice(), m);
     }
