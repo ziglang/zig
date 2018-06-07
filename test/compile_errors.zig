@@ -3329,7 +3329,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
         ".tmp_source.zig:10:4: error: variable of type '(block)' must be const or comptime",
         ".tmp_source.zig:11:4: error: variable of type '(null)' must be const or comptime",
-        ".tmp_source.zig:12:4: error: variable of type 'Opaque' must be const or comptime",
+        ".tmp_source.zig:12:4: error: variable of type 'Opaque' not allowed",
         ".tmp_source.zig:13:4: error: variable of type 'type' must be const or comptime",
         ".tmp_source.zig:14:4: error: variable of type '(namespace)' must be const or comptime",
         ".tmp_source.zig:15:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",

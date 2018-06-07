@@ -11624,61 +11624,6 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
     zig_unreachable();
 }
 
-enum VarClassRequired {
-    VarClassRequiredAny,
-    VarClassRequiredConst,
-    VarClassRequiredIllegal,
-};
-
-static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
-    switch (type_entry->id) {
-        case TypeTableEntryIdInvalid:
-            zig_unreachable();
-        case TypeTableEntryIdUnreachable:
-            return VarClassRequiredIllegal;
-        case TypeTableEntryIdBool:
-        case TypeTableEntryIdInt:
-        case TypeTableEntryIdFloat:
-        case TypeTableEntryIdVoid:
-        case TypeTableEntryIdErrorSet:
-        case TypeTableEntryIdFn:
-        case TypeTableEntryIdPromise:
-            return VarClassRequiredAny;
-        case TypeTableEntryIdComptimeFloat:
-        case TypeTableEntryIdComptimeInt:
-        case TypeTableEntryIdUndefined:
-        case TypeTableEntryIdBlock:
-        case TypeTableEntryIdNull:
-        case TypeTableEntryIdOpaque:
-        case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdNamespace:
-        case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdArgTuple:
-            return VarClassRequiredConst;
-
-        case TypeTableEntryIdPointer:
-            if (type_entry->data.pointer.child_type->id == TypeTableEntryIdOpaque) {
-                return VarClassRequiredAny;
-            } else {
-                return get_var_class_required(type_entry->data.pointer.child_type);
-            }
-        case TypeTableEntryIdArray:
-            return get_var_class_required(type_entry->data.array.child_type);
-        case TypeTableEntryIdMaybe:
-            return get_var_class_required(type_entry->data.maybe.child_type);
-        case TypeTableEntryIdErrorUnion:
-            return get_var_class_required(type_entry->data.error_union.payload_type);
-
-        case TypeTableEntryIdStruct:
-        case TypeTableEntryIdEnum:
-        case TypeTableEntryIdUnion:
-            // TODO check the fields of these things and make sure that they don't recursively
-            // contain any of the other variable classes
-            return VarClassRequiredAny;
-    }
-    zig_unreachable();
-}
-
 static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstructionDeclVar *decl_var_instruction) {
     VariableTableEntry *var = decl_var_instruction->var;
 
@@ -11713,36 +11658,41 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(result_type)) {
         result_type = ira->codegen->builtin_types.entry_invalid;
     } else {
-        switch (get_var_class_required(result_type)) {
-            case VarClassRequiredIllegal:
+        type_ensure_zero_bits_known(ira->codegen, result_type);
+        if (type_is_invalid(result_type)) {
+            result_type = ira->codegen->builtin_types.entry_invalid;
+        }
+    }
+
+    if (!type_is_invalid(result_type)) {
+        if (result_type->id == TypeTableEntryIdUnreachable ||
+            result_type->id == TypeTableEntryIdOpaque)
+        {
+            ir_add_error_node(ira, source_node,
+                buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
+            result_type = ira->codegen->builtin_types.entry_invalid;
+        } else if (type_requires_comptime(result_type)) {
+            var_class_requires_const = true;
+            if (!var->src_is_const && !is_comptime_var) {
                 ir_add_error_node(ira, source_node,
-                    buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
+                    buf_sprintf("variable of type '%s' must be const or comptime",
+                        buf_ptr(&result_type->name)));
                 result_type = ira->codegen->builtin_types.entry_invalid;
-                break;
-            case VarClassRequiredConst:
+            }
+        } else {
+            if (casted_init_value->value.special == ConstValSpecialStatic &&
+                casted_init_value->value.type->id == TypeTableEntryIdFn &&
+                casted_init_value->value.data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
+            {
                 var_class_requires_const = true;
                 if (!var->src_is_const && !is_comptime_var) {
-                    ir_add_error_node(ira, source_node,
-                        buf_sprintf("variable of type '%s' must be const or comptime",
-                            buf_ptr(&result_type->name)));
+                    ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                        buf_sprintf("functions marked inline must be stored in const or comptime var"));
+                    AstNode *proto_node = casted_init_value->value.data.x_ptr.data.fn.fn_entry->proto_node;
+                    add_error_note(ira->codegen, msg, proto_node, buf_sprintf("declared here"));
                     result_type = ira->codegen->builtin_types.entry_invalid;
                 }
-                break;
-            case VarClassRequiredAny:
-                if (casted_init_value->value.special == ConstValSpecialStatic &&
-                    casted_init_value->value.type->id == TypeTableEntryIdFn &&
-                    casted_init_value->value.data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
-                {
-                    var_class_requires_const = true;
-                    if (!var->src_is_const && !is_comptime_var) {
-                        ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                            buf_sprintf("functions marked inline must be stored in const or comptime var"));
-                        AstNode *proto_node = casted_init_value->value.data.x_ptr.data.fn.fn_entry->proto_node;
-                        add_error_note(ira->codegen, msg, proto_node, buf_sprintf("declared here"));
-                        result_type = ira->codegen->builtin_types.entry_invalid;
-                    }
-                }
-                break;
+            }
         }
     }
 
@@ -12622,6 +12572,10 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             } else {
                 inst_fn_type_id.return_type = specified_return_type;
             }
+
+            type_ensure_zero_bits_known(ira->codegen, specified_return_type);
+            if (type_is_invalid(specified_return_type))
+                return ira->codegen->builtin_types.entry_invalid;
 
             if (type_requires_comptime(specified_return_type)) {
                 // Throw out our work and call the function as if it were comptime.
