@@ -45,7 +45,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         }
 
         pub fn set(l: *const Self, n: usize, item: *const T) !void {
-            if (n > l.items.len) return error.OutOfBounds;
+            if (n > l.len) return error.OutOfBounds;
             l.items[n] = item.*;
         }
 
