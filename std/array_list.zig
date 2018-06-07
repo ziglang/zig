@@ -44,6 +44,11 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return l.toSliceConst()[n];
         }
 
+        pub fn set(l: *const Self, n: usize, item: *const T) !void {
+            if (n > l.items.len) return error.OutOfBounds;
+            l.items[n] = item.*;
+        }
+
         pub fn count(self: *const Self) usize {
             return self.len;
         }
