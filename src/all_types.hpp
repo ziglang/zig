@@ -1354,7 +1354,6 @@ enum BuiltinFnId {
     BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
-    BuiltinFnIdCanImplicitCast,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
@@ -2065,7 +2064,6 @@ enum IrInstructionId {
     IrInstructionIdCheckSwitchProngs,
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
-    IrInstructionIdCanImplicitCast,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdTagName,
@@ -2856,13 +2854,6 @@ struct IrInstructionTypeName {
     IrInstruction base;
 
     IrInstruction *type_value;
-};
-
-struct IrInstructionCanImplicitCast {
-    IrInstruction base;
-
-    IrInstruction *type_value;
-    IrInstruction *target_value;
 };
 
 struct IrInstructionDeclRef {

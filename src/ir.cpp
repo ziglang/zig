@@ -585,10 +585,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeName *) {
     return IrInstructionIdTypeName;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionCanImplicitCast *) {
-    return IrInstructionIdCanImplicitCast;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionDeclRef *) {
     return IrInstructionIdDeclRef;
 }
@@ -2344,20 +2340,6 @@ static IrInstruction *ir_build_type_name(IrBuilder *irb, Scope *scope, AstNode *
     instruction->type_value = type_value;
 
     ir_ref_instruction(type_value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_can_implicit_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *type_value, IrInstruction *target_value)
-{
-    IrInstructionCanImplicitCast *instruction = ir_build_instruction<IrInstructionCanImplicitCast>(
-            irb, scope, source_node);
-    instruction->type_value = type_value;
-    instruction->target_value = target_value;
-
-    ir_ref_instruction(type_value, irb->current_basic_block);
-    ir_ref_instruction(target_value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4131,21 +4113,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *type_name = ir_build_type_name(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, type_name, lval);
-            }
-        case BuiltinFnIdCanImplicitCast:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_instruction)
-                    return arg1_value;
-
-                IrInstruction *can_implicit_cast = ir_build_can_implicit_cast(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, can_implicit_cast, lval);
             }
         case BuiltinFnIdPanic:
             {
@@ -18405,30 +18372,6 @@ static TypeTableEntry *ir_analyze_instruction_check_statement_is_void(IrAnalyze 
     return ira->codegen->builtin_types.entry_void;
 }
 
-static TypeTableEntry *ir_analyze_instruction_can_implicit_cast(IrAnalyze *ira,
-        IrInstructionCanImplicitCast *instruction)
-{
-    IrInstruction *type_value = instruction->type_value->other;
-    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
-    if (type_is_invalid(type_entry))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    IrInstruction *target_value = instruction->target_value->other;
-    if (type_is_invalid(target_value->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    ImplicitCastMatchResult result = ir_types_match_with_implicit_cast(ira, type_entry, target_value->value.type,
-            target_value);
-
-    if (result == ImplicitCastMatchResultReportedError) {
-        zig_panic("TODO refactor implicit cast tester to return bool without reporting errors");
-    }
-
-    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    out_val->data.x_bool = (result == ImplicitCastMatchResultYes);
-    return ira->codegen->builtin_types.entry_bool;
-}
-
 static TypeTableEntry *ir_analyze_instruction_panic(IrAnalyze *ira, IrInstructionPanic *instruction) {
     IrInstruction *msg = instruction->msg->other;
     if (type_is_invalid(msg->value.type))
@@ -19762,8 +19705,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_check_switch_prongs(ira, (IrInstructionCheckSwitchProngs *)instruction);
         case IrInstructionIdCheckStatementIsVoid:
             return ir_analyze_instruction_check_statement_is_void(ira, (IrInstructionCheckStatementIsVoid *)instruction);
-        case IrInstructionIdCanImplicitCast:
-            return ir_analyze_instruction_can_implicit_cast(ira, (IrInstructionCanImplicitCast *)instruction);
         case IrInstructionIdDeclRef:
             return ir_analyze_instruction_decl_ref(ira, (IrInstructionDeclRef *)instruction);
         case IrInstructionIdPanic:
@@ -20043,7 +19984,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdIntToEnum:
         case IrInstructionIdIntToErr:
         case IrInstructionIdErrToInt:
-        case IrInstructionIdCanImplicitCast:
         case IrInstructionIdDeclRef:
         case IrInstructionIdErrName:
         case IrInstructionIdTypeName:

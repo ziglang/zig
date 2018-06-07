@@ -3845,9 +3845,6 @@ pub fn printValue(self: *OutStream, value: var) !void {
         return self.printInt(T, value);
     } else if (@isFloat(T)) {
         return self.printFloat(T, value);
-    } else if (@canImplicitCast([]const u8, value)) {
-        const casted_value = ([]const u8)(value);
-        return self.write(casted_value);
     } else {
         @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
     }
@@ -4101,12 +4098,6 @@ comptime {
       temporary buffer.
       </p>
       {#see_also|Import from C Header File|@cImport|@cDefine|@cInclude#}
-      {#header_close#}
-      {#header_open|@canImplicitCast#}
-      <pre><code class="zig">@canImplicitCast(comptime T: type, value) bool</code></pre>
-      <p>
-      Returns whether a value can be implicitly casted to a given type.
-      </p>
       {#header_close#}
       {#header_open|@clz#}
       <pre><code class="zig">@clz(x: T) U</code></pre>
@@ -6136,7 +6127,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

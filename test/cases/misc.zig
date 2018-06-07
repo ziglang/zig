@@ -523,14 +523,6 @@ test "@typeId" {
     }
 }
 
-test "@canImplicitCast" {
-    comptime {
-        assert(@canImplicitCast(i64, i32(3)));
-        assert(!@canImplicitCast(i32, f32(1.234)));
-        assert(@canImplicitCast([]const u8, "aoeu"));
-    }
-}
-
 test "@typeName" {
     const Struct = struct {};
     const Union = union {
