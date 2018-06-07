@@ -687,18 +687,58 @@ const usage_fmt =
     \\Options:
     \\   --help                 Print this help and exit
     \\   --color [auto|off|on]  Enable or disable colored error messages
-    \\
+    \\   -r                     Recursive (searches within directories) for any .zig files
     \\
 ;
 
 const args_fmt_spec = []Flag{
     Flag.Bool("--help"),
+    Flag.Bool("-r"),
     Flag.Option("--color", []const []const u8{
         "auto",
         "off",
         "on",
     }),
 };
+
+// Returns false if any errors occur
+fn fmtHandleFile(allocator: *Allocator, file_path: []const u8, color: errmsg.Color) !bool {
+    var file = try os.File.openRead(allocator, file_path);
+    defer file.close();
+
+    const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
+        try stderr.print("unable to open '{}': {}\n", file_path, err);
+        return false;
+    };
+    defer allocator.free(source_code);
+
+    var tree = std.zig.parse(allocator, source_code) catch |err| {
+        try stderr.print("error parsing file '{}': {}\n", file_path, err);
+        return false;
+    };
+    defer tree.deinit();
+
+    var error_it = tree.errors.iterator(0);
+    while (error_it.next()) |parse_error| {
+        const msg = try errmsg.createFromParseError(allocator, parse_error, &tree, file_path);
+        defer allocator.destroy(msg);
+
+        try errmsg.printToFile(&stderr_file, msg, color);
+    }
+    if (tree.errors.len != 0) {
+        return false;
+    }
+
+    const baf = try io.BufferedAtomicFile.create(allocator, file_path);
+    defer baf.destroy();
+
+    const anything_changed = try std.zig.render(allocator, baf.stream(), &tree);
+    if (anything_changed) {
+        try stderr.print("{}\n", file_path);
+        try baf.finish();
+    }
+    return true;
+}
 
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);
@@ -729,43 +769,37 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     };
 
     var fmt_errors = false;
-    for (flags.positionals.toSliceConst()) |file_path| {
-        var file = try os.File.openRead(allocator, file_path);
-        defer file.close();
+    const positionals = flags.positionals.toSliceConst();
 
-        const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
-            try stderr.print("unable to open '{}': {}\n", file_path, err);
-            fmt_errors = true;
-            continue;
-        };
-        defer allocator.free(source_code);
+    const recursive = flags.present("r");
 
-        var tree = std.zig.parse(allocator, source_code) catch |err| {
-            try stderr.print("error parsing file '{}': {}\n", file_path, err);
-            fmt_errors = true;
-            continue;
-        };
-        defer tree.deinit();
+    for (positionals) |file_path| {
+        if (recursive) {
+            var dir = std.os.Dir.open(allocator, file_path) catch null;
+            defer (dir.?).close();
+            var full_entry_buf = ArrayList(u8).init(allocator);
+            defer full_entry_buf.deinit();
 
-        var error_it = tree.errors.iterator(0);
-        while (error_it.next()) |parse_error| {
-            const msg = try errmsg.createFromParseError(allocator, parse_error, &tree, file_path);
-            defer allocator.destroy(msg);
-
-            try errmsg.printToFile(&stderr_file, msg, color);
-        }
-        if (tree.errors.len != 0) {
-            fmt_errors = true;
-            continue;
-        }
-
-        const baf = try io.BufferedAtomicFile.create(allocator, file_path);
-        defer baf.destroy();
-
-        const anything_changed = try std.zig.render(allocator, baf.stream(), &tree);
-        if (anything_changed) {
-            try stderr.print("{}\n", file_path);
-            try baf.finish();
+            while (try (dir.?).next()) |entry| {
+                if (mem.endsWith(u8, entry.name, ".zig")) {
+                    try full_entry_buf.resize(file_path.len + entry.name.len);
+                    const full_entry_path = full_entry_buf.toSlice();
+                    mem.copy(u8, full_entry_path, file_path);
+                    mem.copy(u8, full_entry_path[file_path.len..], entry.name);
+                    fmt_errors = try fmtHandleFile(allocator, full_entry_path, color);
+                }
+            }
+        } else {
+            if (!try fmtHandleFile(allocator, file_path, color)) {
+                fmt_errors = true;
+                var dir = std.os.Dir.open(allocator, file_path) catch null;
+                if (dir != null) {
+                    // Check incase if the user forgot the '-r' flag
+                    (dir.?).close();
+                    try stderr.write("To fmt recursively pass the '-r' flag.\n");
+                    os.exit(1);
+                }
+            }
         }
     }
 
