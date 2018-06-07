@@ -41,9 +41,9 @@ pub const Buffer = struct {
     /// Buffer takes ownership of the passed in slice. The slice must have been
     /// allocated with `allocator`.
     /// Must deinitialize with deinit.
-    pub fn fromOwnedSlice(allocator: *Allocator, slice: []u8) Buffer {
+    pub fn fromOwnedSlice(allocator: *Allocator, slice: []u8) !Buffer {
         var self = Buffer{ .list = ArrayList(u8).fromOwnedSlice(allocator, slice) };
-        self.list.append(0);
+        try self.list.append(0);
         return self;
     }
 
