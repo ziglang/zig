@@ -324,7 +324,9 @@ pub const StreamingParser = struct {
                             p.complete = true;
                             p.state = State.TopLevelEnd;
                         },
-                        else => {},
+                        else => {
+                            p.state = State.ValueEnd;
+                        },
                     }
 
                     token.* = Token.initMarker(Token.Id.ObjectEnd);
@@ -348,7 +350,9 @@ pub const StreamingParser = struct {
                             p.complete = true;
                             p.state = State.TopLevelEnd;
                         },
-                        else => {},
+                        else => {
+                            p.state = State.ValueEnd;
+                        },
                     }
 
                     token.* = Token.initMarker(Token.Id.ArrayEnd);
@@ -970,12 +974,16 @@ pub fn validate(s: []const u8) bool {
         var token1: ?Token = undefined;
         var token2: ?Token = undefined;
 
-        p.feed(c, *token1, *token2) catch |err| {
+        p.feed(c, &token1, &token2) catch |err| {
             return false;
         };
     }
 
     return p.complete;
+}
+
+test "json validate" {
+    debug.assert(validate("{}"));
 }
 
 const Allocator = std.mem.Allocator;
@@ -1230,7 +1238,7 @@ pub const Parser = struct {
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
-                    else => {
+                    Token.Id.ObjectEnd, Token.Id.ArrayEnd => {
                         unreachable;
                     },
                 }
@@ -1270,7 +1278,7 @@ pub const Parser = struct {
                     Token.Id.Null => {
                         try array.append(Value.Null);
                     },
-                    else => {
+                    Token.Id.ObjectEnd => {
                         unreachable;
                     },
                 }

@@ -51,14 +51,7 @@ pub fn main() !void {
     var toc = try genToc(allocator, &tokenizer);
 
     try os.makePath(allocator, tmp_dir_name);
-    defer {
-        // TODO issue #709
-        // disabled to pass CI tests, but obviously we want to implement this
-        // and then remove this workaround
-        if (builtin.os != builtin.Os.windows) {
-            os.deleteTree(allocator, tmp_dir_name) catch {};
-        }
-    }
+    defer os.deleteTree(allocator, tmp_dir_name) catch {};
     try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
     try buffered_out_stream.flush();
 }
@@ -300,6 +293,7 @@ const Link = struct {
 const Node = union(enum) {
     Content: []const u8,
     Nav,
+    Builtin,
     HeaderOpen: HeaderOpen,
     SeeAlso: []const SeeAlsoItem,
     Code: Code,
@@ -356,6 +350,9 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
 
                     try nodes.append(Node.Nav);
+                } else if (mem.eql(u8, tag_name, "builtin")) {
+                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    try nodes.append(Node.Builtin);
                 } else if (mem.eql(u8, tag_name, "header_open")) {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const content_token = try eatToken(tokenizer, Token.Id.TagContent);
@@ -690,6 +687,9 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
 
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
+
+    const builtin_code = try escapeHtml(allocator, try getBuiltinCode(allocator, zig_exe));
+
     for (toc.nodes) |node| {
         switch (node) {
             Node.Content => |data| {
@@ -703,6 +703,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
             },
             Node.Nav => {
                 try out.write(toc.toc);
+            },
+            Node.Builtin => {
+                try out.print("<pre><code class=\"zig\">{}</code></pre>", builtin_code);
             },
             Node.HeaderOpen => |info| {
                 try out.print("<h{} id=\"{}\">{}</h{}>\n", info.n, info.url, info.name, info.n);
@@ -1059,4 +1062,12 @@ fn exec(allocator: *mem.Allocator, args: []const []const u8) !os.ChildProcess.Ex
         },
     }
     return result;
+}
+
+fn getBuiltinCode(allocator: *mem.Allocator, zig_exe: []const u8) ![]const u8 {
+    const result = try exec(allocator, []const []const u8{
+        zig_exe,
+        "builtin",
+    });
+    return result.stdout;
 }

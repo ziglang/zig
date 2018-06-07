@@ -70,6 +70,8 @@ TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name);
 TypeEnumField *find_enum_field_by_tag(TypeTableEntry *enum_type, const BigInt *tag);
 TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag);
 
+bool is_ref(TypeTableEntry *type_entry);
+bool is_array_ref(TypeTableEntry *type_entry);
 bool is_container_ref(TypeTableEntry *type_entry);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 void scan_import(CodeGen *g, ImportTableEntry *import);

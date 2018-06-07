@@ -118,6 +118,60 @@ pub fn windowsOpen(
     return result;
 }
 
+pub const FileSearchData = struct {
+    fd: windows.HANDLE,
+    data: windows.WIN32_FIND_DATA,
+    end: bool,
+};
+
+pub fn windowsPathIsDirectoryEmpty(allocator: *mem.Allocator, dir_path: []const u8) !bool {
+    const path_with_null = try cstr.addNullByte(allocator, dir_path);
+    defer allocator.free(path_with_null);
+    return windows.PathIsDirectoryEmptyA(path_with_null.ptr) == 1;
+}
+
+pub fn windowsRemoveDirectory(allocator: *mem.Allocator, dir_path: []const u8) !bool {
+    const path_with_null = try cstr.addNullByte(allocator, dir_path);
+    defer allocator.free(path_with_null);
+    return windows.RemoveDirectoryA(path_with_null.ptr) == 1;
+}
+
+pub fn windowsFindFirstFile(allocator: *mem.Allocator, dir_path: []const u8) !FileSearchData {
+    const path_with_wild_and_null = try allocator.alloc(u8, dir_path.len + 3);
+    mem.copy(u8, path_with_wild_and_null, dir_path);
+    mem.copy(u8, path_with_wild_and_null[dir_path.len..], "\\*");
+    path_with_wild_and_null[dir_path.len + 2] = 0;
+    defer allocator.free(path_with_wild_and_null);
+
+    var data : FileSearchData = undefined;
+    data.end = false;
+    data.fd = windows.FindFirstFileA(path_with_wild_and_null.ptr, &data.data);
+
+    if (data.fd == windows.INVALID_HANDLE_VALUE) {
+        const err = windows.GetLastError();
+        return switch (err) {
+            // May return more, docs not clear enough
+            windows.ERROR.FILE_NOT_FOUND => error.PathNotFound,
+            else => os.unexpectedErrorWindows(err),
+        };
+    }
+
+    return data;
+}
+
+pub fn windowsFindNextFile(data: *FileSearchData) bool {
+    if (windows.FindNextFileA(data.fd, &data.data) != 1 or data.fd == windows.INVALID_HANDLE_VALUE) {
+        data.end = true;
+        return false;
+    }
+
+    return true;
+}
+
+pub fn windowsFindClose(data: *FileSearchData) bool {
+    return windows.FindClose(data.fd) == 1;
+}
+
 /// Caller must free result.
 pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) ![]u8 {
     // count bytes needed

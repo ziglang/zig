@@ -2530,7 +2530,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
                 assert(wanted_type->data.structure.is_slice);
                 assert(actual_type->id == TypeTableEntryIdArray);
 
-                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
+                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
                 TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
 
 
@@ -2576,6 +2576,29 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             return expr_val;
         case CastOpBitCast:
             return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
+        case CastOpPtrOfArrayToSlice: {
+            assert(cast_instruction->tmp_ptr);
+            assert(actual_type->id == TypeTableEntryIdPointer);
+            TypeTableEntry *array_type = actual_type->data.pointer.child_type;
+            assert(array_type->id == TypeTableEntryIdArray);
+
+            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
+                    slice_ptr_index, "");
+            LLVMValueRef indices[] = {
+                LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+                LLVMConstInt(g->builtin_types.entry_usize->type_ref, 0, false),
+            };
+            LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
+            gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
+
+            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
+                    slice_len_index, "");
+            LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                    array_type->data.array.len, false);
+            gen_store_untyped(g, len_value, len_field_ptr, 0, false);
+
+            return cast_instruction->tmp_ptr;
+        }
     }
     zig_unreachable();
 }
@@ -3815,7 +3838,6 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
         } else {
             end_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, array_type->data.array.len, false);
         }
-
         if (want_runtime_safety) {
             add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
             if (instruction->end) {
@@ -4625,7 +4647,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCheckSwitchProngs:
         case IrInstructionIdCheckStatementIsVoid:
         case IrInstructionIdTypeName:
-        case IrInstructionIdCanImplicitCast:
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdOffsetOf:
@@ -6277,7 +6298,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);
     create_builtin_fn(g, BuiltinFnIdTypeName, "typeName", 1);
-    create_builtin_fn(g, BuiltinFnIdCanImplicitCast, "canImplicitCast", 2);
     create_builtin_fn(g, BuiltinFnIdEmbedFile, "embedFile", 1);
     create_builtin_fn(g, BuiltinFnIdCmpxchgWeak, "cmpxchgWeak", 6);
     create_builtin_fn(g, BuiltinFnIdCmpxchgStrong, "cmpxchgStrong", 6);
@@ -6335,13 +6355,7 @@ static const char *build_mode_to_str(BuildMode build_mode) {
     zig_unreachable();
 }
 
-static void define_builtin_compile_vars(CodeGen *g) {
-    if (g->std_package == nullptr)
-        return;
-
-    const char *builtin_zig_basename = "builtin.zig";
-    Buf *builtin_zig_path = buf_alloc();
-    os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+Buf *codegen_generate_builtin_source(CodeGen *g) {
     Buf *contents = buf_alloc();
 
     // Modifications to this struct must be coordinated with code that does anything with
@@ -6707,6 +6721,19 @@ static void define_builtin_compile_vars(CodeGen *g) {
 
     buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
 
+
+    return contents;
+}
+
+static void define_builtin_compile_vars(CodeGen *g) {
+    if (g->std_package == nullptr)
+        return;
+
+    const char *builtin_zig_basename = "builtin.zig";
+    Buf *builtin_zig_path = buf_alloc();
+    os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+
+    Buf *contents = codegen_generate_builtin_source(g);
     ensure_cache_dir(g);
     os_write_file(builtin_zig_path, contents);
 

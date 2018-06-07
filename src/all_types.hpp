@@ -583,6 +583,7 @@ enum CastOp {
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
+    CastOpPtrOfArrayToSlice,
 };
 
 struct AstNodeFnCallExpr {
@@ -1037,6 +1038,10 @@ struct TypeTableEntryStruct {
     // whether we've finished resolving it
     bool complete;
 
+    // whether any of the fields require comptime
+    // the value is not valid until zero_bits_known == true
+    bool requires_comptime;
+
     bool zero_bits_loop_flag;
     bool zero_bits_known;
     uint32_t abi_alignment; // also figured out with zero_bits pass
@@ -1104,6 +1109,10 @@ struct TypeTableEntryUnion {
     bool reported_infinite_err;
     // whether we've finished resolving it
     bool complete;
+
+    // whether any of the fields require comptime
+    // the value is not valid until zero_bits_known == true
+    bool requires_comptime;
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
@@ -1346,7 +1355,6 @@ enum BuiltinFnId {
     BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
-    BuiltinFnIdCanImplicitCast,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
@@ -2057,7 +2065,6 @@ enum IrInstructionId {
     IrInstructionIdCheckSwitchProngs,
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
-    IrInstructionIdCanImplicitCast,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdTagName,
@@ -2848,13 +2855,6 @@ struct IrInstructionTypeName {
     IrInstruction base;
 
     IrInstruction *type_value;
-};
-
-struct IrInstructionCanImplicitCast {
-    IrInstruction base;
-
-    IrInstruction *type_value;
-    IrInstruction *target_value;
 };
 
 struct IrInstructionDeclRef {

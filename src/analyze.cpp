@@ -2533,6 +2533,10 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
             continue;
         }
 
+        if (type_requires_comptime(field_type)) {
+            struct_type->data.structure.requires_comptime = true;
+        }
+
         if (!type_has_bits(field_type))
             continue;
 
@@ -2723,6 +2727,11 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
             }
         }
         union_field->type_entry = field_type;
+
+        if (type_requires_comptime(field_type)) {
+            union_type->data.unionation.requires_comptime = true;
+        }
+
 
         if (field_node->data.struct_field.value != nullptr && !decl_node->data.container_decl.auto_enum) {
             ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.value,
@@ -3752,14 +3761,24 @@ static bool is_container(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
+bool is_ref(TypeTableEntry *type_entry) {
+    return type_entry->id == TypeTableEntryIdPointer && type_entry->data.pointer.ptr_len == PtrLenSingle;
+}
+
+bool is_array_ref(TypeTableEntry *type_entry) {
+    TypeTableEntry *array = is_ref(type_entry) ?
+        type_entry->data.pointer.child_type : type_entry;
+    return array->id == TypeTableEntryIdArray;
+}
+
 bool is_container_ref(TypeTableEntry *type_entry) {
-    return (type_entry->id == TypeTableEntryIdPointer && type_entry->data.pointer.ptr_len == PtrLenSingle) ?
+    return is_ref(type_entry) ?
         is_container(type_entry->data.pointer.child_type) : is_container(type_entry);
 }
 
 TypeTableEntry *container_ref_type(TypeTableEntry *type_entry) {
     assert(is_container_ref(type_entry));
-    return (type_entry->id == TypeTableEntryIdPointer && type_entry->data.pointer.ptr_len == PtrLenSingle) ?
+    return is_ref(type_entry) ?
         type_entry->data.pointer.child_type : type_entry;
 }
 
@@ -4944,17 +4963,29 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdArgTuple:
             return true;
         case TypeTableEntryIdArray:
+            return type_requires_comptime(type_entry->data.array.child_type);
         case TypeTableEntryIdStruct:
+            assert(type_has_zero_bits_known(type_entry));
+            return type_entry->data.structure.requires_comptime;
         case TypeTableEntryIdUnion:
+            assert(type_has_zero_bits_known(type_entry));
+            return type_entry->data.unionation.requires_comptime;
         case TypeTableEntryIdMaybe:
+            return type_requires_comptime(type_entry->data.maybe.child_type);
         case TypeTableEntryIdErrorUnion:
+            return type_requires_comptime(type_entry->data.error_union.payload_type);
+        case TypeTableEntryIdPointer:
+            if (type_entry->data.pointer.child_type->id == TypeTableEntryIdOpaque) {
+                return false;
+            } else {
+                return type_requires_comptime(type_entry->data.pointer.child_type);
+            }
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBool:
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
-        case TypeTableEntryIdPointer:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdPromise:
