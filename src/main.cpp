@@ -23,6 +23,7 @@ static int usage(const char *arg0) {
         "  build-exe [source]           create executable from source or object files\n"
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
+        "  builtin                      show the source code of that @import(\"builtin\")\n"
         "  run [source]                 create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
@@ -214,6 +215,7 @@ static Buf *resolve_zig_lib_dir(void) {
 enum Cmd {
     CmdInvalid,
     CmdBuild,
+    CmdBuiltin,
     CmdRun,
     CmdTest,
     CmdVersion,
@@ -664,6 +666,8 @@ int main(int argc, char **argv) {
                 out_type = OutTypeExe;
             } else if (strcmp(arg, "targets") == 0) {
                 cmd = CmdTargets;
+            } else if (strcmp(arg, "builtin") == 0) {
+                cmd = CmdBuiltin;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
                 return usage(arg0);
@@ -681,6 +685,7 @@ int main(int argc, char **argv) {
                         return usage(arg0);
                     }
                     break;
+                case CmdBuiltin:
                 case CmdVersion:
                 case CmdZen:
                 case CmdTargets:
@@ -727,6 +732,16 @@ int main(int argc, char **argv) {
     }
 
     switch (cmd) {
+    case CmdBuiltin: {
+        Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
+        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, zig_lib_dir_buf);
+        Buf *builtin_source = codegen_generate_builtin_source(g);
+        if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
+            fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
+            return EXIT_FAILURE;
+        }
+        return EXIT_SUCCESS;
+    }
     case CmdRun:
     case CmdBuild:
     case CmdTranslateC:

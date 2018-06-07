@@ -6335,13 +6335,7 @@ static const char *build_mode_to_str(BuildMode build_mode) {
     zig_unreachable();
 }
 
-static void define_builtin_compile_vars(CodeGen *g) {
-    if (g->std_package == nullptr)
-        return;
-
-    const char *builtin_zig_basename = "builtin.zig";
-    Buf *builtin_zig_path = buf_alloc();
-    os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+Buf *codegen_generate_builtin_source(CodeGen *g) {
     Buf *contents = buf_alloc();
 
     // Modifications to this struct must be coordinated with code that does anything with
@@ -6707,6 +6701,19 @@ static void define_builtin_compile_vars(CodeGen *g) {
 
     buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
 
+
+    return contents;
+}
+
+static void define_builtin_compile_vars(CodeGen *g) {
+    if (g->std_package == nullptr)
+        return;
+
+    const char *builtin_zig_basename = "builtin.zig";
+    Buf *builtin_zig_path = buf_alloc();
+    os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+
+    Buf *contents = codegen_generate_builtin_source(g);
     ensure_cache_dir(g);
     os_write_file(builtin_zig_path, contents);
 
