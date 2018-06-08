@@ -3761,14 +3761,24 @@ static bool is_container(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
+bool is_ref(TypeTableEntry *type_entry) {
+    return type_entry->id == TypeTableEntryIdPointer && type_entry->data.pointer.ptr_len == PtrLenSingle;
+}
+
+bool is_array_ref(TypeTableEntry *type_entry) {
+    TypeTableEntry *array = is_ref(type_entry) ?
+        type_entry->data.pointer.child_type : type_entry;
+    return array->id == TypeTableEntryIdArray;
+}
+
 bool is_container_ref(TypeTableEntry *type_entry) {
-    return (type_entry->id == TypeTableEntryIdPointer && type_entry->data.pointer.ptr_len == PtrLenSingle) ?
+    return is_ref(type_entry) ?
         is_container(type_entry->data.pointer.child_type) : is_container(type_entry);
 }
 
 TypeTableEntry *container_ref_type(TypeTableEntry *type_entry) {
     assert(is_container_ref(type_entry));
-    return (type_entry->id == TypeTableEntryIdPointer && type_entry->data.pointer.ptr_len == PtrLenSingle) ?
+    return is_ref(type_entry) ?
         type_entry->data.pointer.child_type : type_entry;
 }
 

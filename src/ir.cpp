@@ -13846,10 +13846,14 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             ir_link_new_instruction(result, &field_ptr_instruction->base);
             return result->value.type;
         }
-    } else if (container_type->id == TypeTableEntryIdArray) {
+    } else if (is_array_ref(container_type)) {
         if (buf_eql_str(field_name, "len")) {
             ConstExprValue *len_val = create_const_vals(1);
-            init_const_usize(ira->codegen, len_val, container_type->data.array.len);
+            if (container_type->id == TypeTableEntryIdPointer) {
+                init_const_usize(ira->codegen, len_val, container_type->data.pointer.child_type->data.array.len);
+            } else {
+                init_const_usize(ira->codegen, len_val, container_type->data.array.len);
+            }
 
             TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
             bool ptr_is_const = true;
