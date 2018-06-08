@@ -132,6 +132,8 @@ pub const tan = @import("tan.zig").tan;
 pub const complex = @import("complex/index.zig");
 pub const Complex = complex.Complex;
 
+pub const big = @import("big/index.zig");
+
 test "math" {
     _ = @import("nan.zig");
     _ = @import("isnan.zig");
@@ -177,6 +179,8 @@ test "math" {
     _ = @import("tan.zig");
 
     _ = @import("complex/index.zig");
+
+    _ = @import("big/index.zig");
 }
 
 pub fn min(x: var, y: var) @typeOf(x + y) {
