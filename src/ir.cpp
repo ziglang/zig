@@ -7994,6 +7994,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     // implicit &const [N]T to []const T
     if (is_slice(expected_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
+        actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.is_const &&
         actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)
     {
@@ -8012,6 +8013,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     // implicit [N]T to &const []const T
     if (expected_type->id == TypeTableEntryIdPointer &&
         expected_type->data.pointer.is_const &&
+        expected_type->data.pointer.ptr_len == PtrLenSingle &&
         is_slice(expected_type->data.pointer.child_type) &&
         actual_type->id == TypeTableEntryIdArray)
     {
@@ -8074,6 +8076,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
          actual_type->id == TypeTableEntryIdComptimeInt)
     {
         if (expected_type->id == TypeTableEntryIdPointer &&
+            expected_type->data.pointer.ptr_len == PtrLenSingle &&
             expected_type->data.pointer.is_const)
         {
             if (ir_num_lit_fits_in_other_type(ira, value, expected_type->data.pointer.child_type, false)) {
@@ -8121,7 +8124,10 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit enum to &const union which has the enum as the tag type
-    if (actual_type->id == TypeTableEntryIdEnum && expected_type->id == TypeTableEntryIdPointer) {
+    if (actual_type->id == TypeTableEntryIdEnum &&
+        expected_type->id == TypeTableEntryIdPointer &&
+        expected_type->data.pointer.ptr_len == PtrLenSingle)
+    {
         TypeTableEntry *union_type = expected_type->data.pointer.child_type;
         if (union_type->data.unionation.decl_node->data.container_decl.auto_enum ||
             union_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr)
@@ -8141,7 +8147,11 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     // implicitly take a const pointer to something
     if (!type_requires_comptime(actual_type)) {
         TypeTableEntry *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
-        if (types_match_const_cast_only(ira, expected_type, const_ptr_actual, source_node).id == ConstCastResultIdOk) {
+        if (expected_type->id == TypeTableEntryIdPointer &&
+            expected_type->data.pointer.ptr_len == PtrLenSingle &&
+            types_match_const_cast_only(ira, expected_type, const_ptr_actual,
+                source_node).id == ConstCastResultIdOk)
+        {
             return ImplicitCastMatchResultYes;
         }
     }
