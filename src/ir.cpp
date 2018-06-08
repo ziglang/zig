@@ -108,6 +108,7 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
 static TypeTableEntry *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op);
 static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LVal lval);
 static TypeTableEntry *adjust_ptr_align(CodeGen *g, TypeTableEntry *ptr_type, uint32_t new_align);
+static TypeTableEntry *adjust_slice_align(CodeGen *g, TypeTableEntry *slice_type, uint32_t new_align);
 
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == TypeTableEntryIdPointer);
@@ -8024,6 +8025,33 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         }
     }
 
+    // implicit *[N]T to [*]T
+    if (expected_type->id == TypeTableEntryIdPointer &&
+        expected_type->data.pointer.ptr_len == PtrLenUnknown &&
+        actual_type->id == TypeTableEntryIdPointer &&
+        actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        actual_type->data.pointer.child_type->id == TypeTableEntryIdArray &&
+        types_match_const_cast_only(ira, expected_type->data.pointer.child_type,
+            actual_type->data.pointer.child_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+    {
+        return ImplicitCastMatchResultYes;
+    }
+
+    // implicit *[N]T to []T
+    if (is_slice(expected_type) &&
+        actual_type->id == TypeTableEntryIdPointer &&
+        actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)
+    {
+        TypeTableEntry *slice_ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(slice_ptr_type->id == TypeTableEntryIdPointer);
+        if (types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
+            actual_type->data.pointer.child_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+        {
+            return ImplicitCastMatchResultYes;
+        }
+    }
+
     // implicit [N]T to ?[]const T
     if (expected_type->id == TypeTableEntryIdMaybe &&
         is_slice(expected_type->data.maybe.child_type) &&
@@ -8699,6 +8727,7 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
             zig_unreachable();
         case CastOpErrSet:
         case CastOpBitCast:
+        case CastOpPtrOfArrayToSlice:
             zig_panic("TODO");
         case CastOpNoop:
             {
@@ -8784,6 +8813,63 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
         return result;
     }
+}
+
+static IrInstruction *ir_resolve_ptr_of_array_to_unknown_len_ptr(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, TypeTableEntry *wanted_type)
+{
+    assert(value->value.type->id == TypeTableEntryIdPointer);
+    wanted_type = adjust_ptr_align(ira->codegen, wanted_type, value->value.type->data.pointer.alignment);
+
+    if (instr_is_comptime(value)) {
+        ConstExprValue *pointee = const_ptr_pointee(ira->codegen, &value->value);
+        if (pointee->special != ConstValSpecialRuntime) {
+            IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, wanted_type);
+            result->value.type = wanted_type;
+            result->value.data.x_ptr.special = ConstPtrSpecialBaseArray;
+            result->value.data.x_ptr.mut = value->value.data.x_ptr.mut;
+            result->value.data.x_ptr.data.base_array.array_val = pointee;
+            result->value.data.x_ptr.data.base_array.elem_index = 0;
+            result->value.data.x_ptr.data.base_array.is_cstr = false;
+            return result;
+        }
+    }
+
+    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
+            wanted_type, value, CastOpBitCast);
+    result->value.type = wanted_type;
+    return result;
+}
+
+static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, TypeTableEntry *wanted_type)
+{
+    wanted_type = adjust_slice_align(ira->codegen, wanted_type, value->value.type->data.pointer.alignment);
+
+    if (instr_is_comptime(value)) {
+        ConstExprValue *pointee = const_ptr_pointee(ira->codegen, &value->value);
+        if (pointee->special != ConstValSpecialRuntime) {
+            assert(value->value.type->id == TypeTableEntryIdPointer);
+            TypeTableEntry *array_type = value->value.type->data.pointer.child_type;
+            assert(is_slice(wanted_type));
+            bool is_const = wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
+
+            IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, wanted_type);
+            init_const_slice(ira->codegen, &result->value, pointee, 0, array_type->data.array.len, is_const);
+            result->value.data.x_struct.fields[slice_ptr_index].data.x_ptr.mut =
+                value->value.data.x_ptr.mut;
+            result->value.type = wanted_type;
+            return result;
+        }
+    }
+
+    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
+            wanted_type, value, CastOpPtrOfArrayToSlice);
+    result->value.type = wanted_type;
+    ir_add_alloca(ira, result, wanted_type);
+    return result;
 }
 
 static bool is_container(TypeTableEntry *type) {
@@ -9936,6 +10022,35 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             return ira->codegen->invalid_instruction;
         }
     }
+
+    // explicit *[N]T to [*]T
+    if (wanted_type->id == TypeTableEntryIdPointer &&
+        wanted_type->data.pointer.ptr_len == PtrLenUnknown &&
+        actual_type->id == TypeTableEntryIdPointer &&
+        actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        actual_type->data.pointer.child_type->id == TypeTableEntryIdArray &&
+        actual_type->data.pointer.alignment >= wanted_type->data.pointer.alignment &&
+        types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
+            actual_type->data.pointer.child_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+    {
+        return ir_resolve_ptr_of_array_to_unknown_len_ptr(ira, source_instr, value, wanted_type);
+    }
+
+    // explicit *[N]T to []T
+    if (is_slice(wanted_type) &&
+        actual_type->id == TypeTableEntryIdPointer &&
+        actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)
+    {
+        TypeTableEntry *slice_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(slice_ptr_type->id == TypeTableEntryIdPointer);
+        if (types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
+            actual_type->data.pointer.child_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+        {
+            return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_type);
+        }
+    }
+
 
     // explicit cast from child type of maybe type to maybe type
     if (wanted_type->id == TypeTableEntryIdMaybe) {
@@ -13148,6 +13263,13 @@ static TypeTableEntry *adjust_ptr_align(CodeGen *g, TypeTableEntry *ptr_type, ui
             ptr_type->data.pointer.ptr_len,
             new_align,
             ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
+}
+
+static TypeTableEntry *adjust_slice_align(CodeGen *g, TypeTableEntry *slice_type, uint32_t new_align) {
+    assert(is_slice(slice_type));
+    TypeTableEntry *ptr_type = adjust_ptr_align(g, slice_type->data.structure.fields[slice_ptr_index].type_entry,
+        new_align);
+    return get_slice_type(g, ptr_type);
 }
 
 static TypeTableEntry *adjust_ptr_len(CodeGen *g, TypeTableEntry *ptr_type, PtrLen ptr_len) {

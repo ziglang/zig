@@ -583,6 +583,7 @@ enum CastOp {
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
+    CastOpPtrOfArrayToSlice,
 };
 
 struct AstNodeFnCallExpr {

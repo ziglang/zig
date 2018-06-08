@@ -384,3 +384,19 @@ test "const slice widen cast" {
 
     assert(@bitCast(u32, bytes) == 0x12121212);
 }
+
+test "single-item pointer of array to slice and to unknown length pointer" {
+    testCastPtrOfArrayToSliceAndPtr();
+    comptime testCastPtrOfArrayToSliceAndPtr();
+}
+
+fn testCastPtrOfArrayToSliceAndPtr() void {
+    var array = "ao" ++ "eu"; // TODO https://github.com/ziglang/zig/issues/1076
+    const x: [*]u8 = &array;
+    x[0] += 1;
+    assert(mem.eql(u8, array[0..], "boeu"));
+    const y: []u8 = &array;
+    y[0] += 1;
+    assert(mem.eql(u8, array[0..], "coeu"));
+}
+
