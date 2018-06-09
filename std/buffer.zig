@@ -28,7 +28,6 @@ pub const Buffer = struct {
     /// Must deinitialize with deinit.
     /// None of the other operations are valid until you do one of these:
     /// * ::replaceContents
-    /// * ::replaceContentsBuffer
     /// * ::resize
     pub fn initNull(allocator: *Allocator) Buffer {
         return Buffer{ .list = ArrayList(u8).init(allocator) };
@@ -42,9 +41,9 @@ pub const Buffer = struct {
     /// Buffer takes ownership of the passed in slice. The slice must have been
     /// allocated with `allocator`.
     /// Must deinitialize with deinit.
-    pub fn fromOwnedSlice(allocator: *Allocator, slice: []u8) Buffer {
+    pub fn fromOwnedSlice(allocator: *Allocator, slice: []u8) !Buffer {
         var self = Buffer{ .list = ArrayList(u8).fromOwnedSlice(allocator, slice) };
-        self.list.append(0);
+        try self.list.append(0);
         return self;
     }
 
@@ -116,7 +115,7 @@ pub const Buffer = struct {
         return mem.eql(u8, self.list.items[start..l], m);
     }
 
-    pub fn replaceContents(self: *const Buffer, m: []const u8) !void {
+    pub fn replaceContents(self: *Buffer, m: []const u8) !void {
         try self.resize(m.len);
         mem.copy(u8, self.list.toSlice(), m);
     }

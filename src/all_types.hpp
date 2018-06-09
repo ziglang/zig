@@ -144,6 +144,9 @@ enum ConstPtrSpecial {
     // understand the value of pointee at compile time. However, we will still
     // emit a binary with a compile time known address.
     // In this case index is the numeric address value.
+    // We also use this for null pointer. We need the data layout for ConstCastOnly == true
+    // types to be the same, so all nullables of pointer types use x_ptr
+    // instead of x_nullable
     ConstPtrSpecialHardCodedAddr,
     // This means that the pointer represents memory of assigning to _.
     // That is, storing discards the data, and loading is invalid.
@@ -251,7 +254,7 @@ struct ConstExprValue {
         bool x_bool;
         ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
-        ConstExprValue *x_maybe;
+        ConstExprValue *x_nullable;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_err_set;
         BigInt x_enum_tag;
@@ -583,6 +586,7 @@ enum CastOp {
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
+    CastOpPtrOfArrayToSlice,
 };
 
 struct AstNodeFnCallExpr {
@@ -1037,6 +1041,10 @@ struct TypeTableEntryStruct {
     // whether we've finished resolving it
     bool complete;
 
+    // whether any of the fields require comptime
+    // the value is not valid until zero_bits_known == true
+    bool requires_comptime;
+
     bool zero_bits_loop_flag;
     bool zero_bits_known;
     uint32_t abi_alignment; // also figured out with zero_bits pass
@@ -1104,6 +1112,10 @@ struct TypeTableEntryUnion {
     bool reported_infinite_err;
     // whether we've finished resolving it
     bool complete;
+
+    // whether any of the fields require comptime
+    // the value is not valid until zero_bits_known == true
+    bool requires_comptime;
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
@@ -1346,7 +1358,6 @@ enum BuiltinFnId {
     BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
-    BuiltinFnIdCanImplicitCast,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
@@ -2057,7 +2068,6 @@ enum IrInstructionId {
     IrInstructionIdCheckSwitchProngs,
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
-    IrInstructionIdCanImplicitCast,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdTagName,
@@ -2848,13 +2858,6 @@ struct IrInstructionTypeName {
     IrInstruction base;
 
     IrInstruction *type_value;
-};
-
-struct IrInstructionCanImplicitCast {
-    IrInstruction base;
-
-    IrInstruction *type_value;
-    IrInstruction *target_value;
 };
 
 struct IrInstructionDeclRef {

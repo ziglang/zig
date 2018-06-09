@@ -1,5 +1,6 @@
-const assert = @import("std").debug.assert;
-const mem = @import("std").mem;
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
 
 test "int to ptr cast" {
     const x = usize(13);
@@ -383,4 +384,25 @@ test "const slice widen cast" {
     assert(u32_value == 0x12121212);
 
     assert(@bitCast(u32, bytes) == 0x12121212);
+}
+
+test "single-item pointer of array to slice and to unknown length pointer" {
+    testCastPtrOfArrayToSliceAndPtr();
+    comptime testCastPtrOfArrayToSliceAndPtr();
+}
+
+fn testCastPtrOfArrayToSliceAndPtr() void {
+    var array = "ao" ++ "eu"; // TODO https://github.com/ziglang/zig/issues/1076
+    const x: [*]u8 = &array;
+    x[0] += 1;
+    assert(mem.eql(u8, array[0..], "boeu"));
+    const y: []u8 = &array;
+    y[0] += 1;
+    assert(mem.eql(u8, array[0..], "coeu"));
+}
+
+test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
+    const window_name = [1][*]const u8{c"window name"};
+    const x: [*]const ?[*]const u8 = &window_name;
+    assert(mem.eql(u8, std.cstr.toSliceConst(??x[0]), "window name"));
 }

@@ -2530,7 +2530,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
                 assert(wanted_type->data.structure.is_slice);
                 assert(actual_type->id == TypeTableEntryIdArray);
 
-                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
+                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
                 TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
 
 
@@ -2576,6 +2576,29 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             return expr_val;
         case CastOpBitCast:
             return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
+        case CastOpPtrOfArrayToSlice: {
+            assert(cast_instruction->tmp_ptr);
+            assert(actual_type->id == TypeTableEntryIdPointer);
+            TypeTableEntry *array_type = actual_type->data.pointer.child_type;
+            assert(array_type->id == TypeTableEntryIdArray);
+
+            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
+                    slice_ptr_index, "");
+            LLVMValueRef indices[] = {
+                LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+                LLVMConstInt(g->builtin_types.entry_usize->type_ref, 0, false),
+            };
+            LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
+            gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
+
+            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
+                    slice_len_index, "");
+            LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                    array_type->data.array.len, false);
+            gen_store_untyped(g, len_value, len_field_ptr, 0, false);
+
+            return cast_instruction->tmp_ptr;
+        }
     }
     zig_unreachable();
 }
@@ -3815,7 +3838,6 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
         } else {
             end_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, array_type->data.array.len, false);
         }
-
         if (want_runtime_safety) {
             add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
             if (instruction->end) {
@@ -4625,7 +4647,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCheckSwitchProngs:
         case IrInstructionIdCheckStatementIsVoid:
         case IrInstructionIdTypeName:
-        case IrInstructionIdCanImplicitCast:
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdOffsetOf:
@@ -4999,6 +5020,79 @@ static bool is_llvm_value_unnamed_type(TypeTableEntry *type_entry, LLVMValueRef 
     return LLVMTypeOf(val) != type_entry->type_ref;
 }
 
+static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, const char *name) {
+    render_const_val_global(g, const_val, name);
+    switch (const_val->data.x_ptr.special) {
+        case ConstPtrSpecialInvalid:
+        case ConstPtrSpecialDiscard:
+            zig_unreachable();
+        case ConstPtrSpecialRef:
+            {
+                ConstExprValue *pointee = const_val->data.x_ptr.data.ref.pointee;
+                render_const_val(g, pointee, "");
+                render_const_val_global(g, pointee, "");
+                ConstExprValue *other_val = pointee;
+                const_val->global_refs->llvm_value = LLVMConstBitCast(other_val->global_refs->llvm_global, const_val->type->type_ref);
+                render_const_val_global(g, const_val, "");
+                return const_val->global_refs->llvm_value;
+            }
+        case ConstPtrSpecialBaseArray:
+            {
+                ConstExprValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
+                size_t elem_index = const_val->data.x_ptr.data.base_array.elem_index;
+                assert(array_const_val->type->id == TypeTableEntryIdArray);
+                if (array_const_val->type->zero_bits) {
+                    // make this a null pointer
+                    TypeTableEntry *usize = g->builtin_types.entry_usize;
+                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->type_ref),
+                            const_val->type->type_ref);
+                    render_const_val_global(g, const_val, "");
+                    return const_val->global_refs->llvm_value;
+                }
+                LLVMValueRef uncasted_ptr_val = gen_const_ptr_array_recursive(g, array_const_val,
+                        elem_index);
+                LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
+                const_val->global_refs->llvm_value = ptr_val;
+                render_const_val_global(g, const_val, "");
+                return ptr_val;
+            }
+        case ConstPtrSpecialBaseStruct:
+            {
+                ConstExprValue *struct_const_val = const_val->data.x_ptr.data.base_struct.struct_val;
+                assert(struct_const_val->type->id == TypeTableEntryIdStruct);
+                if (struct_const_val->type->zero_bits) {
+                    // make this a null pointer
+                    TypeTableEntry *usize = g->builtin_types.entry_usize;
+                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->type_ref),
+                            const_val->type->type_ref);
+                    render_const_val_global(g, const_val, "");
+                    return const_val->global_refs->llvm_value;
+                }
+                size_t src_field_index = const_val->data.x_ptr.data.base_struct.field_index;
+                size_t gen_field_index =
+                    struct_const_val->type->data.structure.fields[src_field_index].gen_index;
+                LLVMValueRef uncasted_ptr_val = gen_const_ptr_struct_recursive(g, struct_const_val,
+                        gen_field_index);
+                LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
+                const_val->global_refs->llvm_value = ptr_val;
+                render_const_val_global(g, const_val, "");
+                return ptr_val;
+            }
+        case ConstPtrSpecialHardCodedAddr:
+            {
+                uint64_t addr_value = const_val->data.x_ptr.data.hard_coded_addr.addr;
+                TypeTableEntry *usize = g->builtin_types.entry_usize;
+                const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstInt(usize->type_ref, addr_value, false),
+                        const_val->type->type_ref);
+                render_const_val_global(g, const_val, "");
+                return const_val->global_refs->llvm_value;
+            }
+        case ConstPtrSpecialFunction:
+            return LLVMConstBitCast(fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry), const_val->type->type_ref);
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const char *name) {
     TypeTableEntry *type_entry = const_val->type;
     assert(!type_entry->zero_bits);
@@ -5047,19 +5141,15 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
                 if (child_type->zero_bits) {
-                    return LLVMConstInt(LLVMInt1Type(), const_val->data.x_maybe ? 1 : 0, false);
+                    return LLVMConstInt(LLVMInt1Type(), const_val->data.x_nullable ? 1 : 0, false);
                 } else if (type_is_codegen_pointer(child_type)) {
-                    if (const_val->data.x_maybe) {
-                        return gen_const_val(g, const_val->data.x_maybe, "");
-                    } else {
-                        return LLVMConstNull(child_type->type_ref);
-                    }
+                    return gen_const_val_ptr(g, const_val, name);
                 } else {
                     LLVMValueRef child_val;
                     LLVMValueRef maybe_val;
                     bool make_unnamed_struct;
-                    if (const_val->data.x_maybe) {
-                        child_val = gen_const_val(g, const_val->data.x_maybe, "");
+                    if (const_val->data.x_nullable) {
+                        child_val = gen_const_val(g, const_val->data.x_nullable, "");
                         maybe_val = LLVMConstAllOnes(LLVMInt1Type());
 
                         make_unnamed_struct = is_llvm_value_unnamed_type(const_val->type, child_val);
@@ -5249,78 +5339,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
             assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
             return fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry);
         case TypeTableEntryIdPointer:
-            {
-                render_const_val_global(g, const_val, name);
-                switch (const_val->data.x_ptr.special) {
-                    case ConstPtrSpecialInvalid:
-                    case ConstPtrSpecialDiscard:
-                        zig_unreachable();
-                    case ConstPtrSpecialRef:
-                        {
-                            ConstExprValue *pointee = const_val->data.x_ptr.data.ref.pointee;
-                            render_const_val(g, pointee, "");
-                            render_const_val_global(g, pointee, "");
-                            ConstExprValue *other_val = pointee;
-                            const_val->global_refs->llvm_value = LLVMConstBitCast(other_val->global_refs->llvm_global, const_val->type->type_ref);
-                            render_const_val_global(g, const_val, "");
-                            return const_val->global_refs->llvm_value;
-                        }
-                    case ConstPtrSpecialBaseArray:
-                        {
-                            ConstExprValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
-                            size_t elem_index = const_val->data.x_ptr.data.base_array.elem_index;
-                            assert(array_const_val->type->id == TypeTableEntryIdArray);
-                            if (array_const_val->type->zero_bits) {
-                                // make this a null pointer
-                                TypeTableEntry *usize = g->builtin_types.entry_usize;
-                                const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->type_ref),
-                                        const_val->type->type_ref);
-                                render_const_val_global(g, const_val, "");
-                                return const_val->global_refs->llvm_value;
-                            }
-                            LLVMValueRef uncasted_ptr_val = gen_const_ptr_array_recursive(g, array_const_val,
-                                    elem_index);
-                            LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
-                            const_val->global_refs->llvm_value = ptr_val;
-                            render_const_val_global(g, const_val, "");
-                            return ptr_val;
-                        }
-                    case ConstPtrSpecialBaseStruct:
-                        {
-                            ConstExprValue *struct_const_val = const_val->data.x_ptr.data.base_struct.struct_val;
-                            assert(struct_const_val->type->id == TypeTableEntryIdStruct);
-                            if (struct_const_val->type->zero_bits) {
-                                // make this a null pointer
-                                TypeTableEntry *usize = g->builtin_types.entry_usize;
-                                const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->type_ref),
-                                        const_val->type->type_ref);
-                                render_const_val_global(g, const_val, "");
-                                return const_val->global_refs->llvm_value;
-                            }
-                            size_t src_field_index = const_val->data.x_ptr.data.base_struct.field_index;
-                            size_t gen_field_index =
-                                struct_const_val->type->data.structure.fields[src_field_index].gen_index;
-                            LLVMValueRef uncasted_ptr_val = gen_const_ptr_struct_recursive(g, struct_const_val,
-                                    gen_field_index);
-                            LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
-                            const_val->global_refs->llvm_value = ptr_val;
-                            render_const_val_global(g, const_val, "");
-                            return ptr_val;
-                        }
-                    case ConstPtrSpecialHardCodedAddr:
-                        {
-                            uint64_t addr_value = const_val->data.x_ptr.data.hard_coded_addr.addr;
-                            TypeTableEntry *usize = g->builtin_types.entry_usize;
-                            const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstInt(usize->type_ref, addr_value, false),
-                                    const_val->type->type_ref);
-                            render_const_val_global(g, const_val, "");
-                            return const_val->global_refs->llvm_value;
-                        }
-                    case ConstPtrSpecialFunction:
-                        return LLVMConstBitCast(fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry), const_val->type->type_ref);
-                }
-            }
-            zig_unreachable();
+            return gen_const_val_ptr(g, const_val, name);
         case TypeTableEntryIdErrorUnion:
             {
                 TypeTableEntry *payload_type = type_entry->data.error_union.payload_type;
@@ -6277,7 +6296,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);
     create_builtin_fn(g, BuiltinFnIdTypeName, "typeName", 1);
-    create_builtin_fn(g, BuiltinFnIdCanImplicitCast, "canImplicitCast", 2);
     create_builtin_fn(g, BuiltinFnIdEmbedFile, "embedFile", 1);
     create_builtin_fn(g, BuiltinFnIdCmpxchgWeak, "cmpxchgWeak", 6);
     create_builtin_fn(g, BuiltinFnIdCmpxchgStrong, "cmpxchgStrong", 6);
@@ -6335,13 +6353,7 @@ static const char *build_mode_to_str(BuildMode build_mode) {
     zig_unreachable();
 }
 
-static void define_builtin_compile_vars(CodeGen *g) {
-    if (g->std_package == nullptr)
-        return;
-
-    const char *builtin_zig_basename = "builtin.zig";
-    Buf *builtin_zig_path = buf_alloc();
-    os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+Buf *codegen_generate_builtin_source(CodeGen *g) {
     Buf *contents = buf_alloc();
 
     // Modifications to this struct must be coordinated with code that does anything with
@@ -6707,6 +6719,19 @@ static void define_builtin_compile_vars(CodeGen *g) {
 
     buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
 
+
+    return contents;
+}
+
+static void define_builtin_compile_vars(CodeGen *g) {
+    if (g->std_package == nullptr)
+        return;
+
+    const char *builtin_zig_basename = "builtin.zig";
+    Buf *builtin_zig_path = buf_alloc();
+    os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+
+    Buf *contents = codegen_generate_builtin_source(g);
     ensure_cache_dir(g);
     os_write_file(builtin_zig_path, contents);
 

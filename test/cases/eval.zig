@@ -610,3 +610,16 @@ test "slice of type" {
         }
     }
 }
+
+const Wrapper = struct {
+    T: type,
+};
+
+fn wrap(comptime T: type) Wrapper {
+    return Wrapper{ .T = T };
+}
+
+test "function which returns struct with type field causes implicit comptime" {
+    const ty = wrap(i32).T;
+    assert(ty == i32);
+}

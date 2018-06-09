@@ -3,6 +3,7 @@
 // https://tools.ietf.org/html/rfc8259
 
 const std = @import("index.zig");
+const debug = std.debug;
 const mem = std.mem;
 
 const u1 = @IntType(false, 1);
@@ -86,7 +87,9 @@ pub const Token = struct {
 // parsing state requires ~40-50 bytes of stack space.
 //
 // Conforms strictly to RFC8529.
-pub const StreamingJsonParser = struct {
+//
+// For a non-byte based wrapper, consider using TokenStream instead.
+pub const StreamingParser = struct {
     // Current state
     state: State,
     // How many bytes we have counted for the current token
@@ -109,13 +112,13 @@ pub const StreamingJsonParser = struct {
     const array_bit = 1;
     const max_stack_size = @maxValue(u8);
 
-    pub fn init() StreamingJsonParser {
-        var p: StreamingJsonParser = undefined;
+    pub fn init() StreamingParser {
+        var p: StreamingParser = undefined;
         p.reset();
         return p;
     }
 
-    pub fn reset(p: *StreamingJsonParser) void {
+    pub fn reset(p: *StreamingParser) void {
         p.state = State.TopLevelBegin;
         p.count = 0;
         // Set before ever read in main transition function
@@ -175,7 +178,7 @@ pub const StreamingJsonParser = struct {
 
         // Only call this function to generate array/object final state.
         pub fn fromInt(x: var) State {
-            std.debug.assert(x == 0 or x == 1);
+            debug.assert(x == 0 or x == 1);
             const T = @TagType(State);
             return State(T(x));
         }
@@ -205,7 +208,7 @@ pub const StreamingJsonParser = struct {
     // tokens. token2 is always null if token1 is null.
     //
     // There is currently no error recovery on a bad stream.
-    pub fn feed(p: *StreamingJsonParser, c: u8, token1: *?Token, token2: *?Token) Error!void {
+    pub fn feed(p: *StreamingParser, c: u8, token1: *?Token, token2: *?Token) Error!void {
         token1.* = null;
         token2.* = null;
         p.count += 1;
@@ -217,7 +220,7 @@ pub const StreamingJsonParser = struct {
     }
 
     // Perform a single transition on the state machine and return any possible token.
-    fn transition(p: *StreamingJsonParser, c: u8, token: *?Token) Error!bool {
+    fn transition(p: *StreamingParser, c: u8, token: *?Token) Error!bool {
         switch (p.state) {
             State.TopLevelBegin => switch (c) {
                 '{' => {
@@ -321,7 +324,9 @@ pub const StreamingJsonParser = struct {
                             p.complete = true;
                             p.state = State.TopLevelEnd;
                         },
-                        else => {},
+                        else => {
+                            p.state = State.ValueEnd;
+                        },
                     }
 
                     token.* = Token.initMarker(Token.Id.ObjectEnd);
@@ -345,7 +350,9 @@ pub const StreamingJsonParser = struct {
                             p.complete = true;
                             p.state = State.TopLevelEnd;
                         },
-                        else => {},
+                        else => {
+                            p.state = State.ValueEnd;
+                        },
                     }
 
                     token.* = Token.initMarker(Token.Id.ArrayEnd);
@@ -852,21 +859,131 @@ pub const StreamingJsonParser = struct {
     }
 };
 
+// A small wrapper over a StreamingParser for full slices. Returns a stream of json Tokens.
+pub const TokenStream = struct {
+    i: usize,
+    slice: []const u8,
+    parser: StreamingParser,
+    token: ?Token,
+
+    pub fn init(slice: []const u8) TokenStream {
+        return TokenStream{
+            .i = 0,
+            .slice = slice,
+            .parser = StreamingParser.init(),
+            .token = null,
+        };
+    }
+
+    pub fn next(self: *TokenStream) !?Token {
+        if (self.token) |token| {
+            self.token = null;
+            return token;
+        }
+
+        var t1: ?Token = undefined;
+        var t2: ?Token = undefined;
+
+        while (self.i < self.slice.len) {
+            try self.parser.feed(self.slice[self.i], &t1, &t2);
+            self.i += 1;
+
+            if (t1) |token| {
+                self.token = t2;
+                return token;
+            }
+        }
+
+        if (self.i > self.slice.len) {
+            try self.parser.feed(' ', &t1, &t2);
+            self.i += 1;
+
+            if (t1) |token| {
+                return token;
+            }
+        }
+
+        return null;
+    }
+};
+
+fn checkNext(p: *TokenStream, id: Token.Id) void {
+    const token = ??(p.next() catch unreachable);
+    debug.assert(token.id == id);
+}
+
+test "token" {
+    const s =
+        \\{
+        \\  "Image": {
+        \\      "Width":  800,
+        \\      "Height": 600,
+        \\      "Title":  "View from 15th Floor",
+        \\      "Thumbnail": {
+        \\          "Url":    "http://www.example.com/image/481989943",
+        \\          "Height": 125,
+        \\          "Width":  100
+        \\      },
+        \\      "Animated" : false,
+        \\      "IDs": [116, 943, 234, 38793]
+        \\    }
+        \\}
+    ;
+
+    var p = TokenStream.init(s);
+
+    checkNext(&p, Token.Id.ObjectBegin);
+    checkNext(&p, Token.Id.String); // Image
+    checkNext(&p, Token.Id.ObjectBegin);
+    checkNext(&p, Token.Id.String); // Width
+    checkNext(&p, Token.Id.Number);
+    checkNext(&p, Token.Id.String); // Height
+    checkNext(&p, Token.Id.Number);
+    checkNext(&p, Token.Id.String); // Title
+    checkNext(&p, Token.Id.String);
+    checkNext(&p, Token.Id.String); // Thumbnail
+    checkNext(&p, Token.Id.ObjectBegin);
+    checkNext(&p, Token.Id.String); // Url
+    checkNext(&p, Token.Id.String);
+    checkNext(&p, Token.Id.String); // Height
+    checkNext(&p, Token.Id.Number);
+    checkNext(&p, Token.Id.String); // Width
+    checkNext(&p, Token.Id.Number);
+    checkNext(&p, Token.Id.ObjectEnd);
+    checkNext(&p, Token.Id.String); // Animated
+    checkNext(&p, Token.Id.False);
+    checkNext(&p, Token.Id.String); // IDs
+    checkNext(&p, Token.Id.ArrayBegin);
+    checkNext(&p, Token.Id.Number);
+    checkNext(&p, Token.Id.Number);
+    checkNext(&p, Token.Id.Number);
+    checkNext(&p, Token.Id.Number);
+    checkNext(&p, Token.Id.ArrayEnd);
+    checkNext(&p, Token.Id.ObjectEnd);
+    checkNext(&p, Token.Id.ObjectEnd);
+
+    debug.assert((try p.next()) == null);
+}
+
 // Validate a JSON string. This does not limit number precision so a decoder may not necessarily
 // be able to decode the string even if this returns true.
 pub fn validate(s: []const u8) bool {
-    var p = StreamingJsonParser.init();
+    var p = StreamingParser.init();
 
     for (s) |c, i| {
         var token1: ?Token = undefined;
         var token2: ?Token = undefined;
 
-        p.feed(c, *token1, *token2) catch |err| {
+        p.feed(c, &token1, &token2) catch |err| {
             return false;
         };
     }
 
     return p.complete;
+}
+
+test "json validate" {
+    debug.assert(validate("{}"));
 }
 
 const Allocator = std.mem.Allocator;
@@ -897,46 +1014,46 @@ pub const Value = union(enum) {
     pub fn dump(self: *const Value) void {
         switch (self.*) {
             Value.Null => {
-                std.debug.warn("null");
+                debug.warn("null");
             },
             Value.Bool => |inner| {
-                std.debug.warn("{}", inner);
+                debug.warn("{}", inner);
             },
             Value.Integer => |inner| {
-                std.debug.warn("{}", inner);
+                debug.warn("{}", inner);
             },
             Value.Float => |inner| {
-                std.debug.warn("{.5}", inner);
+                debug.warn("{.5}", inner);
             },
             Value.String => |inner| {
-                std.debug.warn("\"{}\"", inner);
+                debug.warn("\"{}\"", inner);
             },
             Value.Array => |inner| {
                 var not_first = false;
-                std.debug.warn("[");
+                debug.warn("[");
                 for (inner.toSliceConst()) |value| {
                     if (not_first) {
-                        std.debug.warn(",");
+                        debug.warn(",");
                     }
                     not_first = true;
                     value.dump();
                 }
-                std.debug.warn("]");
+                debug.warn("]");
             },
             Value.Object => |inner| {
                 var not_first = false;
-                std.debug.warn("{{");
+                debug.warn("{{");
                 var it = inner.iterator();
 
                 while (it.next()) |entry| {
                     if (not_first) {
-                        std.debug.warn(",");
+                        debug.warn(",");
                     }
                     not_first = true;
-                    std.debug.warn("\"{}\":", entry.key);
+                    debug.warn("\"{}\":", entry.key);
                     entry.value.dump();
                 }
-                std.debug.warn("}}");
+                debug.warn("}}");
             },
         }
     }
@@ -952,53 +1069,53 @@ pub const Value = union(enum) {
     fn dumpIndentLevel(self: *const Value, indent: usize, level: usize) void {
         switch (self.*) {
             Value.Null => {
-                std.debug.warn("null");
+                debug.warn("null");
             },
             Value.Bool => |inner| {
-                std.debug.warn("{}", inner);
+                debug.warn("{}", inner);
             },
             Value.Integer => |inner| {
-                std.debug.warn("{}", inner);
+                debug.warn("{}", inner);
             },
             Value.Float => |inner| {
-                std.debug.warn("{.5}", inner);
+                debug.warn("{.5}", inner);
             },
             Value.String => |inner| {
-                std.debug.warn("\"{}\"", inner);
+                debug.warn("\"{}\"", inner);
             },
             Value.Array => |inner| {
                 var not_first = false;
-                std.debug.warn("[\n");
+                debug.warn("[\n");
 
                 for (inner.toSliceConst()) |value| {
                     if (not_first) {
-                        std.debug.warn(",\n");
+                        debug.warn(",\n");
                     }
                     not_first = true;
                     padSpace(level + indent);
                     value.dumpIndentLevel(indent, level + indent);
                 }
-                std.debug.warn("\n");
+                debug.warn("\n");
                 padSpace(level);
-                std.debug.warn("]");
+                debug.warn("]");
             },
             Value.Object => |inner| {
                 var not_first = false;
-                std.debug.warn("{{\n");
+                debug.warn("{{\n");
                 var it = inner.iterator();
 
                 while (it.next()) |entry| {
                     if (not_first) {
-                        std.debug.warn(",\n");
+                        debug.warn(",\n");
                     }
                     not_first = true;
                     padSpace(level + indent);
-                    std.debug.warn("\"{}\": ", entry.key);
+                    debug.warn("\"{}\": ", entry.key);
                     entry.value.dumpIndentLevel(indent, level + indent);
                 }
-                std.debug.warn("\n");
+                debug.warn("\n");
                 padSpace(level);
-                std.debug.warn("}}");
+                debug.warn("}}");
             },
         }
     }
@@ -1006,13 +1123,13 @@ pub const Value = union(enum) {
     fn padSpace(indent: usize) void {
         var i: usize = 0;
         while (i < indent) : (i += 1) {
-            std.debug.warn(" ");
+            debug.warn(" ");
         }
     }
 };
 
 // A non-stream JSON parser which constructs a tree of Value's.
-pub const JsonParser = struct {
+pub const Parser = struct {
     allocator: *Allocator,
     state: State,
     copy_strings: bool,
@@ -1026,8 +1143,8 @@ pub const JsonParser = struct {
         Simple,
     };
 
-    pub fn init(allocator: *Allocator, copy_strings: bool) JsonParser {
-        return JsonParser{
+    pub fn init(allocator: *Allocator, copy_strings: bool) Parser {
+        return Parser{
             .allocator = allocator,
             .state = State.Simple,
             .copy_strings = copy_strings,
@@ -1035,52 +1152,26 @@ pub const JsonParser = struct {
         };
     }
 
-    pub fn deinit(p: *JsonParser) void {
+    pub fn deinit(p: *Parser) void {
         p.stack.deinit();
     }
 
-    pub fn reset(p: *JsonParser) void {
+    pub fn reset(p: *Parser) void {
         p.state = State.Simple;
         p.stack.shrink(0);
     }
 
-    pub fn parse(p: *JsonParser, input: []const u8) !ValueTree {
-        var mp = StreamingJsonParser.init();
+    pub fn parse(p: *Parser, input: []const u8) !ValueTree {
+        var s = TokenStream.init(input);
 
         var arena = ArenaAllocator.init(p.allocator);
         errdefer arena.deinit();
 
-        for (input) |c, i| {
-            var mt1: ?Token = undefined;
-            var mt2: ?Token = undefined;
-
-            try mp.feed(c, &mt1, &mt2);
-            if (mt1) |t1| {
-                try p.transition(&arena.allocator, input, i, t1);
-
-                if (mt2) |t2| {
-                    try p.transition(&arena.allocator, input, i, t2);
-                }
-            }
+        while (try s.next()) |token| {
+            try p.transition(&arena.allocator, input, s.i - 1, token);
         }
 
-        // Handle top-level lonely number values.
-        {
-            const i = input.len;
-            var mt1: ?Token = undefined;
-            var mt2: ?Token = undefined;
-
-            try mp.feed(' ', &mt1, &mt2);
-            if (mt1) |t1| {
-                try p.transition(&arena.allocator, input, i, t1);
-            }
-        }
-
-        if (!mp.complete) {
-            return error.IncompleteJsonInput;
-        }
-
-        std.debug.assert(p.stack.len == 1);
+        debug.assert(p.stack.len == 1);
 
         return ValueTree{
             .arena = arena,
@@ -1090,7 +1181,7 @@ pub const JsonParser = struct {
 
     // Even though p.allocator exists, we take an explicit allocator so that allocation state
     // can be cleaned up on error correctly during a `parse` on call.
-    fn transition(p: *JsonParser, allocator: *Allocator, input: []const u8, i: usize, token: *const Token) !void {
+    fn transition(p: *Parser, allocator: *Allocator, input: []const u8, i: usize, token: *const Token) !void {
         switch (p.state) {
             State.ObjectKey => switch (token.id) {
                 Token.Id.ObjectEnd => {
@@ -1147,7 +1238,7 @@ pub const JsonParser = struct {
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
-                    else => {
+                    Token.Id.ObjectEnd, Token.Id.ArrayEnd => {
                         unreachable;
                     },
                 }
@@ -1187,7 +1278,7 @@ pub const JsonParser = struct {
                     Token.Id.Null => {
                         try array.append(Value.Null);
                     },
-                    else => {
+                    Token.Id.ObjectEnd => {
                         unreachable;
                     },
                 }
@@ -1223,7 +1314,7 @@ pub const JsonParser = struct {
         }
     }
 
-    fn pushToParent(p: *JsonParser, value: *const Value) !void {
+    fn pushToParent(p: *Parser, value: *const Value) !void {
         switch (p.stack.at(p.stack.len - 1)) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
@@ -1244,14 +1335,14 @@ pub const JsonParser = struct {
         }
     }
 
-    fn parseString(p: *JsonParser, allocator: *Allocator, token: *const Token, input: []const u8, i: usize) !Value {
+    fn parseString(p: *Parser, allocator: *Allocator, token: *const Token, input: []const u8, i: usize) !Value {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);
         return Value{ .String = try mem.dupe(p.allocator, u8, slice) };
     }
 
-    fn parseNumber(p: *JsonParser, token: *const Token, input: []const u8, i: usize) !Value {
+    fn parseNumber(p: *Parser, token: *const Token, input: []const u8, i: usize) !Value {
         return if (token.number_is_integer)
             Value{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
         else
@@ -1259,10 +1350,8 @@ pub const JsonParser = struct {
     }
 };
 
-const debug = std.debug;
-
 test "json parser dynamic" {
-    var p = JsonParser.init(std.debug.global_allocator, false);
+    var p = Parser.init(debug.global_allocator, false);
     defer p.deinit();
 
     const s =
