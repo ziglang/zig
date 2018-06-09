@@ -144,6 +144,9 @@ enum ConstPtrSpecial {
     // understand the value of pointee at compile time. However, we will still
     // emit a binary with a compile time known address.
     // In this case index is the numeric address value.
+    // We also use this for null pointer. We need the data layout for ConstCastOnly == true
+    // types to be the same, so all nullables of pointer types use x_ptr
+    // instead of x_nullable
     ConstPtrSpecialHardCodedAddr,
     // This means that the pointer represents memory of assigning to _.
     // That is, storing discards the data, and loading is invalid.
@@ -251,7 +254,7 @@ struct ConstExprValue {
         bool x_bool;
         ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
-        ConstExprValue *x_maybe;
+        ConstExprValue *x_nullable;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_err_set;
         BigInt x_enum_tag;
