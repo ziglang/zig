@@ -559,14 +559,19 @@ pub fn formatBytes(
         return output(context, "0B");
     }
 
-    const mags = " KMGTPEZY";
+    const mags_si = " kMGTPEZY";
+    const mags_iec = " KMGTPEZY";
     const magnitude = switch (radix) {
-        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags.len - 1),
-        1024 => math.min(math.log2(value) / 10, mags.len - 1),
+        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags_si.len - 1),
+        1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
         else => unreachable,
     };
     const new_value = f64(value) / math.pow(f64, f64(radix), f64(magnitude));
-    const suffix = mags[magnitude];
+    const suffix = switch (radix) {
+        1000 => mags_si[magnitude],
+        1024 => mags_iec[magnitude],
+        else => unreachable,
+    };
 
     try formatFloatDecimal(new_value, width, context, Errors, output);
 
