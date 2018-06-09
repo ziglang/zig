@@ -88,6 +88,16 @@ pub fn assert(ok: bool) void {
     }
 }
 
+/// TODO: add `==` operator for `error_union == error_set`, and then
+/// remove this function
+pub fn assertError(value: var, expected_error: error) void {
+    if (value) {
+        @panic("expected error");
+    } else |actual_error| {
+        assert(actual_error == expected_error);
+    }
+}
+
 /// Call this function when you want to panic if the condition is not true.
 /// If `ok` is `false`, this function will panic in every release mode.
 pub fn assertOrPanic(ok: bool) void {
