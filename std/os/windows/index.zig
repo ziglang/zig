@@ -146,6 +146,10 @@ pub extern "kernel32" stdcallcc fn TerminateProcess(hProcess: HANDLE, uExitCode:
 
 pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: DWORD) DWORD;
 
+pub extern "kernel32" stdcallcc fn RemoveDirectoryA(lpPathName: LPCTSTR) BOOL;
+
+pub extern "shlwapi" stdcallcc fn PathIsDirectoryEmptyA(pszPath: LPCTSTR) BOOL;
+
 pub extern "kernel32" stdcallcc fn WriteFile(
     in_hFile: HANDLE,
     in_lpBuffer: *const c_void,
@@ -162,6 +166,12 @@ pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
 pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lpCaption: ?LPCTSTR, uType: UINT) c_int;
 
 pub extern "shlwapi" stdcallcc fn PathFileExistsA(pszPath: ?LPCTSTR) BOOL;
+
+pub extern "kernel32" stdcallcc fn FindFirstFileA(lpFileName: LPCSTR, lpFindFileData: LPWIN32_FIND_DATA) HANDLE;
+
+pub extern "kernel32" stdcallcc fn FindClose(hFindFile: HANDLE) BOOL;
+
+pub extern "kernel32" stdcallcc fn FindNextFileA(hFindFile: HANDLE, lpFindFileData: LPWIN32_FIND_DATA) BOOL;
 
 pub const PROV_RSA_FULL = 1;
 
@@ -180,6 +190,7 @@ pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;
 pub const LPCSTR = [*]const CHAR;
 pub const LPCTSTR = [*]const TCHAR;
+pub const LPWIN32_FIND_DATA = *WIN32_FIND_DATA;
 pub const LPCVOID = *const c_void;
 pub const LPDWORD = *DWORD;
 pub const LPSTR = [*]CHAR;
@@ -298,14 +309,29 @@ pub const FILE_ATTRIBUTE_HIDDEN = 0x2;
 pub const FILE_ATTRIBUTE_NORMAL = 0x80;
 pub const FILE_ATTRIBUTE_OFFLINE = 0x1000;
 pub const FILE_ATTRIBUTE_READONLY = 0x1;
+pub const FILE_ATTRIBUTE_DIRECTORY = 0x10;
 pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
+pub const FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
 
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
     hThread: HANDLE,
     dwProcessId: DWORD,
     dwThreadId: DWORD,
+};
+
+pub const WIN32_FIND_DATA = extern struct {
+    dwFileAttributes: DWORD,
+    ftCreationTime: FILETIME,
+    ftLastAccessTime: FILETIME,
+    ftLastWriteTime: FILETIME,
+    nFileSizeHigh: DWORD,
+    nFileSizeLow: DWORD,
+    dwReserved0: DWORD,
+    dwReserved1: DWORD,
+    cFileName: [MAX_PATH]TCHAR,
+    cAlternateFileName: [14]TCHAR,
 };
 
 pub const STARTUPINFOA = extern struct {
