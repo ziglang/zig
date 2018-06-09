@@ -44,6 +44,11 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return l.toSliceConst()[n];
         }
 
+        pub fn set(self: *const Self, n: usize, item: *const T) !void {
+            if (n >= self.len) return error.OutOfBounds;
+            self.items[n] = item.*;
+        }
+
         pub fn count(self: *const Self) usize {
             return self.len;
         }
@@ -162,6 +167,11 @@ test "basic ArrayList test" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
+        // setting on empty list is out of bounds
+    list.set(0, 1) catch |err| {
+        assert(err == error.OutOfBounds);
+    };
+
     {
         var i: usize = 0;
         while (i < 10) : (i += 1) {
@@ -200,6 +210,20 @@ test "basic ArrayList test" {
 
     list.appendSlice([]const i32{}) catch unreachable;
     assert(list.len == 9);
+    
+    // can only set on indices < self.len
+    list.set(7, 33) catch unreachable;
+    list.set(8, 42) catch unreachable;
+    
+    list.set(9, 99) catch |err| {
+        assert(err == error.OutOfBounds);
+    };
+    list.set(10, 123) catch |err| {
+        assert(err == error.OutOfBounds);
+    };
+
+    assert(list.pop() == 42);
+    assert(list.pop() == 33);
 }
 
 test "iterator ArrayList test" {
