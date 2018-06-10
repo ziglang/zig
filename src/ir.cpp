@@ -14842,22 +14842,6 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
     TypeTableEntry *type_entry = ptr_type->data.pointer.child_type;
     if (type_is_invalid(type_entry)) {
         return ira->codegen->builtin_types.entry_invalid;
-    } else if (type_entry->id == TypeTableEntryIdMetaType) {
-        // surprise! actually this is just ??T not an unwrap maybe instruction
-        ConstExprValue *ptr_val = const_ptr_pointee(ira->codegen, &value->value);
-        assert(ptr_val->type->id == TypeTableEntryIdMetaType);
-        TypeTableEntry *child_type = ptr_val->data.x_type;
-
-        type_ensure_zero_bits_known(ira->codegen, child_type);
-        TypeTableEntry *layer1 = get_maybe_type(ira->codegen, child_type);
-        TypeTableEntry *layer2 = get_maybe_type(ira->codegen, layer1);
-
-        IrInstruction *const_instr = ir_build_const_type(&ira->new_irb, unwrap_maybe_instruction->base.scope,
-                unwrap_maybe_instruction->base.source_node, layer2);
-        IrInstruction *result_instr = ir_get_ref(ira, &unwrap_maybe_instruction->base, const_instr,
-                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile);
-        ir_link_new_instruction(result_instr, &unwrap_maybe_instruction->base);
-        return result_instr->value.type;
     } else if (type_entry->id != TypeTableEntryIdOptional) {
         ir_add_error_node(ira, unwrap_maybe_instruction->value->source_node,
                 buf_sprintf("expected optional type, found '%s'", buf_ptr(&type_entry->name)));

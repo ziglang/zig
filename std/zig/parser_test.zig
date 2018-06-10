@@ -1151,7 +1151,7 @@ test "zig fmt: infix operators" {
         \\    _ = i!i;
         \\    _ = i ** i;
         \\    _ = i ++ i;
-        \\    _ = i ?? i;
+        \\    _ = i orelse i;
         \\    _ = i % i;
         \\    _ = i / i;
         \\    _ = i *% i;

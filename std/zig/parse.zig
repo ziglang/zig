@@ -3248,7 +3248,7 @@ fn tokenIdToAssignment(id: *const Token.Id) ?ast.Node.InfixOp.Op {
 fn tokenIdToUnwrapExpr(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
     return switch (id) {
         Token.Id.Keyword_catch => ast.Node.InfixOp.Op{ .Catch = null },
-        Token.Id.QuestionMarkQuestionMark => ast.Node.InfixOp.Op{ .UnwrapOptional = void{} },
+        Token.Id.Keyword_orelse => ast.Node.InfixOp.Op{ .UnwrapOptional = void{} },
         else => null,
     };
 }
