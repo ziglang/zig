@@ -161,6 +161,14 @@ pub fn formatType(
                 else => return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value)),
             },
             builtin.TypeInfo.Pointer.Size.Many => {
+                if (ptr_info.child == u8) {
+                    //This is a bit of a hack, but it made more sense to
+                    // do this check here than have formatText do it
+                    if (fmt[0] == 's') {
+                        const len = std.cstr.len(value);
+                        return formatText(value[0..len], fmt, context, Errors, output);
+                    }
+                }
                 return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
             },
             builtin.TypeInfo.Pointer.Size.Slice => {
@@ -300,7 +308,7 @@ pub fn formatBuf(
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
     const pad_byte: u8 = ' ';
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        try output(context, (&pad_byte)[0..1]);
+        try output(context, (*[1]u8)(&pad_byte)[0..1]);
     }
 }
 
@@ -841,6 +849,10 @@ test "fmt.format" {
         const value: u8 = 'a';
         try testFmt("u8: a\n", "u8: {c}\n", value);
     }
+    try testFmt("buf: Test \n", "buf: {s5}\n", "Test");
+    try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", "Test");
+    try testFmt("cstr: Test C\n", "cstr: {s}\n", c"Test C");
+    try testFmt("cstr: Test C    \n", "cstr: {s10}\n", c"Test C");
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
     try testFmt("file size: 66.06MB\n", "file size: {B2}\n", usize(63 * 1024 * 1024));
     {
