@@ -130,13 +130,13 @@ pub const Module = struct {
         var name_buffer = try Buffer.init(allocator, name);
         errdefer name_buffer.deinit();
 
-        const context = c.LLVMContextCreate() ?? return error.OutOfMemory;
+        const context = c.LLVMContextCreate() orelse return error.OutOfMemory;
         errdefer c.LLVMContextDispose(context);
 
-        const module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) ?? return error.OutOfMemory;
+        const module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) orelse return error.OutOfMemory;
         errdefer c.LLVMDisposeModule(module);
 
-        const builder = c.LLVMCreateBuilderInContext(context) ?? return error.OutOfMemory;
+        const builder = c.LLVMCreateBuilderInContext(context) orelse return error.OutOfMemory;
         errdefer c.LLVMDisposeBuilder(builder);
 
         const module_ptr = try allocator.create(Module);
@@ -223,7 +223,7 @@ pub const Module = struct {
             c.ZigLLVMParseCommandLineOptions(self.llvm_argv.len + 1, c_compatible_args.ptr);
         }
 
-        const root_src_path = self.root_src_path ?? @panic("TODO handle null root src path");
+        const root_src_path = self.root_src_path orelse @panic("TODO handle null root src path");
         const root_src_real_path = os.path.real(self.allocator, root_src_path) catch |err| {
             try printError("unable to get real path '{}': {}", root_src_path, err);
             return err;

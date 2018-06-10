@@ -73,7 +73,7 @@ fn Struct(comptime T: type) type {
 
         fn maybePointer(self: ?*const Self) Self {
             const none = Self{ .x = if (T == void) void{} else 0 };
-            return (self ?? &none).*;
+            return (self orelse &none).*;
         }
     };
 }
@@ -87,7 +87,7 @@ const Union = union {
 
     fn maybePointer(self: ?*const Union) Union {
         const none = Union{ .x = 0 };
-        return (self ?? &none).*;
+        return (self orelse &none).*;
     }
 };
 
@@ -100,7 +100,7 @@ const Enum = enum {
     }
 
     fn maybePointer(self: ?*const Enum) Enum {
-        return (self ?? &Enum.None).*;
+        return (self orelse &Enum.None).*;
     }
 };
 

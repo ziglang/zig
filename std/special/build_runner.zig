@@ -27,15 +27,15 @@ pub fn main() !void {
     // skip my own exe name
     _ = arg_it.skip();
 
-    const zig_exe = try unwrapArg(arg_it.next(allocator) ?? {
+    const zig_exe = try unwrapArg(arg_it.next(allocator) orelse {
         warn("Expected first argument to be path to zig compiler\n");
         return error.InvalidArgs;
     });
-    const build_root = try unwrapArg(arg_it.next(allocator) ?? {
+    const build_root = try unwrapArg(arg_it.next(allocator) orelse {
         warn("Expected second argument to be build root directory path\n");
         return error.InvalidArgs;
     });
-    const cache_root = try unwrapArg(arg_it.next(allocator) ?? {
+    const cache_root = try unwrapArg(arg_it.next(allocator) orelse {
         warn("Expected third argument to be cache root directory path\n");
         return error.InvalidArgs;
     });
@@ -84,12 +84,12 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--help")) {
                 return usage(&builder, false, try stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix")) {
-                prefix = try unwrapArg(arg_it.next(allocator) ?? {
+                prefix = try unwrapArg(arg_it.next(allocator) orelse {
                     warn("Expected argument after --prefix\n\n");
                     return usageAndErr(&builder, false, try stderr_stream);
                 });
             } else if (mem.eql(u8, arg, "--search-prefix")) {
-                const search_prefix = try unwrapArg(arg_it.next(allocator) ?? {
+                const search_prefix = try unwrapArg(arg_it.next(allocator) orelse {
                     warn("Expected argument after --search-prefix\n\n");
                     return usageAndErr(&builder, false, try stderr_stream);
                 });

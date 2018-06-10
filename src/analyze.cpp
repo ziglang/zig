@@ -3308,6 +3308,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypePtrDeref:
+        case NodeTypeUnwrapOptional:
         case NodeTypeStructField:
         case NodeTypeContainerInitExpr:
         case NodeTypeStructValueField:

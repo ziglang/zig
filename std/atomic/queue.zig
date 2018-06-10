@@ -33,8 +33,8 @@ pub fn Queue(comptime T: type) type {
         pub fn get(self: *Self) ?*Node {
             var head = @atomicLoad(*Node, &self.head, AtomicOrder.SeqCst);
             while (true) {
-                const node = head.next ?? return null;
-                head = @cmpxchgWeak(*Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return node;
+                const node = head.next orelse return null;
+                head = @cmpxchgWeak(*Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return node;
             }
         }
     };

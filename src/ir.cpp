@@ -4661,21 +4661,6 @@ static IrInstruction *ir_gen_err_assert_ok(IrBuilder *irb, Scope *scope, AstNode
     return ir_build_load_ptr(irb, scope, source_node, payload_ptr);
 }
 
-static IrInstruction *ir_gen_maybe_assert_ok(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
-    assert(node->type == NodeTypePrefixOpExpr);
-    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
-
-    IrInstruction *maybe_ptr = ir_gen_node_extra(irb, expr_node, scope, LVAL_PTR);
-    if (maybe_ptr == irb->codegen->invalid_instruction)
-        return irb->codegen->invalid_instruction;
-
-    IrInstruction *unwrapped_ptr = ir_build_unwrap_maybe(irb, scope, node, maybe_ptr, true);
-    if (lval.is_ptr)
-        return unwrapped_ptr;
-
-    return ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
-}
-
 static IrInstruction *ir_gen_bool_not(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypePrefixOpExpr);
     AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
@@ -4705,8 +4690,6 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegationWrap), lval);
         case PrefixOpOptional:
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpOptional), lval);
-        case PrefixOpUnwrapOptional:
-            return ir_gen_maybe_assert_ok(irb, scope, node, lval);
         case PrefixOpAddrOf: {
             AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
             return ir_lval_wrap(irb, scope, ir_gen_node_extra(irb, expr_node, scope, LVAL_PTR), lval);
@@ -6541,13 +6524,25 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
                 return ir_build_load_ptr(irb, scope, node, ptr_instruction);
             }
         case NodeTypePtrDeref: {
-            assert(node->type == NodeTypePtrDeref);
             AstNode *expr_node = node->data.ptr_deref_expr.target;
             IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope, lval);
             if (value == irb->codegen->invalid_instruction)
                 return value;
 
             return ir_build_un_op(irb, scope, node, IrUnOpDereference, value);
+        }
+        case NodeTypeUnwrapOptional: {
+            AstNode *expr_node = node->data.unwrap_optional.expr;
+
+            IrInstruction *maybe_ptr = ir_gen_node_extra(irb, expr_node, scope, LVAL_PTR);
+            if (maybe_ptr == irb->codegen->invalid_instruction)
+                return irb->codegen->invalid_instruction;
+
+            IrInstruction *unwrapped_ptr = ir_build_unwrap_maybe(irb, scope, node, maybe_ptr, true);
+            if (lval.is_ptr)
+                return unwrapped_ptr;
+
+            return ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
         }
         case NodeTypeThisLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_this_literal(irb, scope, node), lval);
