@@ -63,6 +63,7 @@ pub fn build(b: *Builder) !void {
             exe.addObjectFile(lib);
         }
     } else {
+        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_wasm");
         addCppLib(b, exe, cmake_binary_dir, "embedded_lld_elf");
         addCppLib(b, exe, cmake_binary_dir, "embedded_lld_coff");
         addCppLib(b, exe, cmake_binary_dir, "embedded_lld_lib");

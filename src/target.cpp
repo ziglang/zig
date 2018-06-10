@@ -597,10 +597,13 @@ void resolve_target_object_format(ZigTarget *target) {
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
         case ZigLLVM_thumbeb:
-        case ZigLLVM_wasm32:
-        case ZigLLVM_wasm64:
         case ZigLLVM_xcore:
             target->oformat= ZigLLVM_ELF;
+            return;
+
+        case ZigLLVM_wasm32:
+        case ZigLLVM_wasm64:
+            target->oformat = ZigLLVM_Wasm;
             return;
 
         case ZigLLVM_ppc:
