@@ -625,7 +625,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateSawDot;
                         break;
                     case '?':
-                        begin_token(&t, TokenIdMaybe);
+                        begin_token(&t, TokenIdQuestion);
                         t.state = TokenizeStateSawQuestionMark;
                         break;
                     default:
@@ -636,11 +636,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case '?':
                         set_token_id(&t, t.cur_tok, TokenIdDoubleQuestion);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    case '=':
-                        set_token_id(&t, t.cur_tok, TokenIdMaybeAssign);
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -1609,8 +1604,7 @@ const char * token_name(TokenId id) {
         case TokenIdLBrace: return "{";
         case TokenIdLBracket: return "[";
         case TokenIdLParen: return "(";
-        case TokenIdMaybe: return "?";
-        case TokenIdMaybeAssign: return "?=";
+        case TokenIdQuestion: return "?";
         case TokenIdMinusEq: return "-=";
         case TokenIdMinusPercent: return "-%";
         case TokenIdMinusPercentEq: return "-%=";

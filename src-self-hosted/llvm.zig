@@ -8,6 +8,6 @@ pub const ContextRef = removeNullability(c.LLVMContextRef);
 pub const BuilderRef = removeNullability(c.LLVMBuilderRef);
 
 fn removeNullability(comptime T: type) type {
-    comptime assert(@typeId(T) == builtin.TypeId.Nullable);
+    comptime assert(@typeId(T) == builtin.TypeId.Optional);
     return T.Child;
 }

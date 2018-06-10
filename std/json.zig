@@ -908,7 +908,7 @@ pub const TokenStream = struct {
 };
 
 fn checkNext(p: *TokenStream, id: Token.Id) void {
-    const token = ??(p.next() catch unreachable);
+    const token = (p.next() catch unreachable).?;
     debug.assert(token.id == id);
 }
 
@@ -1376,17 +1376,17 @@ test "json parser dynamic" {
 
     var root = tree.root;
 
-    var image = (??root.Object.get("Image")).value;
+    var image = root.Object.get("Image").?.value;
 
-    const width = (??image.Object.get("Width")).value;
+    const width = image.Object.get("Width").?.value;
     debug.assert(width.Integer == 800);
 
-    const height = (??image.Object.get("Height")).value;
+    const height = image.Object.get("Height").?.value;
     debug.assert(height.Integer == 600);
 
-    const title = (??image.Object.get("Title")).value;
+    const title = image.Object.get("Title").?.value;
     debug.assert(mem.eql(u8, title.String, "View from 15th Floor"));
 
-    const animated = (??image.Object.get("Animated")).value;
+    const animated = image.Object.get("Animated").?.value;
     debug.assert(animated.Bool == false);
 }

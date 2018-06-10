@@ -422,7 +422,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: 
 
     const exe_path = argv[0];
     if (mem.indexOfScalar(u8, exe_path, '/') != null) {
-        return posixExecveErrnoToErr(posix.getErrno(posix.execve(??argv_buf[0], argv_buf.ptr, envp_buf.ptr)));
+        return posixExecveErrnoToErr(posix.getErrno(posix.execve(argv_buf[0].?, argv_buf.ptr, envp_buf.ptr)));
     }
 
     const PATH = getEnvPosix("PATH") ?? "/usr/local/bin:/bin/:/usr/bin";
@@ -1729,7 +1729,7 @@ test "windows arg parsing" {
 fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []const u8) void {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
-        const arg = ??it.next(debug.global_allocator) catch unreachable;
+        const arg = it.next(debug.global_allocator).? catch unreachable;
         assert(mem.eql(u8, arg, expected_arg));
     }
     assert(it.next(debug.global_allocator) == null);

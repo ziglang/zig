@@ -74,7 +74,7 @@ pub fn build(b: *Builder) !void {
             cxx_compiler,
             "-print-file-name=libstdc++.a",
         });
-        const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
+        const libstdcxx_path = mem.split(libstdcxx_path_padded, "\r\n").next().?;
         if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
             warn(
                 \\Unable to determine path to libstdc++.a

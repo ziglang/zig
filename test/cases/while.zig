@@ -81,7 +81,7 @@ test "while with else" {
     assert(got_else == 1);
 }
 
-test "while with nullable as condition" {
+test "while with optional as condition" {
     numbers_left = 10;
     var sum: i32 = 0;
     while (getNumberOrNull()) |value| {
@@ -90,7 +90,7 @@ test "while with nullable as condition" {
     assert(sum == 45);
 }
 
-test "while with nullable as condition with else" {
+test "while with optional as condition with else" {
     numbers_left = 10;
     var sum: i32 = 0;
     var got_else: i32 = 0;
@@ -132,7 +132,7 @@ fn getNumberOrNull() ?i32 {
     };
 }
 
-test "while on nullable with else result follow else prong" {
+test "while on optional with else result follow else prong" {
     const result = while (returnNull()) |value| {
         break value;
     } else
@@ -140,8 +140,8 @@ test "while on nullable with else result follow else prong" {
     assert(result == 2);
 }
 
-test "while on nullable with else result follow break prong" {
-    const result = while (returnMaybe(10)) |value| {
+test "while on optional with else result follow break prong" {
+    const result = while (returnOptional(10)) |value| {
         break value;
     } else
         i32(2);
@@ -210,7 +210,7 @@ fn testContinueOuter() void {
 fn returnNull() ?i32 {
     return null;
 }
-fn returnMaybe(x: i32) ?i32 {
+fn returnOptional(x: i32) ?i32 {
     return x;
 }
 fn returnError() error!i32 {

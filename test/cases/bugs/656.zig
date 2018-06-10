@@ -9,7 +9,7 @@ const Value = struct {
     align_expr: ?u32,
 };
 
-test "nullable if after an if in a switch prong of a switch with 2 prongs in an else" {
+test "optional if after an if in a switch prong of a switch with 2 prongs in an else" {
     foo(false, true);
 }
 

@@ -140,7 +140,7 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
     if (x) |v| assert(v == 1234) else |err| @compileError("bad");
 }
 
-test "syntax: nullable operator in front of error union operator" {
+test "syntax: optional operator in front of error union operator" {
     comptime {
         assert(?error!i32 == ?(error!i32));
     }

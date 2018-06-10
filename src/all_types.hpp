@@ -145,8 +145,8 @@ enum ConstPtrSpecial {
     // emit a binary with a compile time known address.
     // In this case index is the numeric address value.
     // We also use this for null pointer. We need the data layout for ConstCastOnly == true
-    // types to be the same, so all nullables of pointer types use x_ptr
-    // instead of x_nullable
+    // types to be the same, so all optionals of pointer types use x_ptr
+    // instead of x_optional
     ConstPtrSpecialHardCodedAddr,
     // This means that the pointer represents memory of assigning to _.
     // That is, storing discards the data, and loading is invalid.
@@ -222,10 +222,10 @@ enum RuntimeHintErrorUnion {
     RuntimeHintErrorUnionNonError,
 };
 
-enum RuntimeHintMaybe {
-    RuntimeHintMaybeUnknown,
-    RuntimeHintMaybeNull, // TODO is this value even possible? if this is the case it might mean the const value is compile time known.
-    RuntimeHintMaybeNonNull,
+enum RuntimeHintOptional {
+    RuntimeHintOptionalUnknown,
+    RuntimeHintOptionalNull, // TODO is this value even possible? if this is the case it might mean the const value is compile time known.
+    RuntimeHintOptionalNonNull,
 };
 
 enum RuntimeHintPtr {
@@ -254,7 +254,7 @@ struct ConstExprValue {
         bool x_bool;
         ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
-        ConstExprValue *x_nullable;
+        ConstExprValue *x_optional;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_err_set;
         BigInt x_enum_tag;
@@ -268,7 +268,7 @@ struct ConstExprValue {
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
-        RuntimeHintMaybe rh_maybe;
+        RuntimeHintOptional rh_maybe;
         RuntimeHintPtr rh_ptr;
     } data;
 };
@@ -556,7 +556,7 @@ enum BinOpType {
     BinOpTypeMultWrap,
     BinOpTypeDiv,
     BinOpTypeMod,
-    BinOpTypeUnwrapMaybe,
+    BinOpTypeUnwrapOptional,
     BinOpTypeArrayCat,
     BinOpTypeArrayMult,
     BinOpTypeErrorUnion,
@@ -623,8 +623,8 @@ enum PrefixOp {
     PrefixOpBinNot,
     PrefixOpNegation,
     PrefixOpNegationWrap,
-    PrefixOpMaybe,
-    PrefixOpUnwrapMaybe,
+    PrefixOpOptional,
+    PrefixOpUnwrapOptional,
     PrefixOpAddrOf,
 };
 
@@ -1052,7 +1052,7 @@ struct TypeTableEntryStruct {
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
-struct TypeTableEntryMaybe {
+struct TypeTableEntryOptional {
     TypeTableEntry *child_type;
 };
 
@@ -1175,7 +1175,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdComptimeInt,
     TypeTableEntryIdUndefined,
     TypeTableEntryIdNull,
-    TypeTableEntryIdMaybe,
+    TypeTableEntryIdOptional,
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdErrorSet,
     TypeTableEntryIdEnum,
@@ -1206,7 +1206,7 @@ struct TypeTableEntry {
         TypeTableEntryFloat floating;
         TypeTableEntryArray array;
         TypeTableEntryStruct structure;
-        TypeTableEntryMaybe maybe;
+        TypeTableEntryOptional maybe;
         TypeTableEntryErrorUnion error_union;
         TypeTableEntryErrorSet error_set;
         TypeTableEntryEnum enumeration;
@@ -1402,7 +1402,7 @@ enum PanicMsgId {
     PanicMsgIdRemainderDivisionByZero,
     PanicMsgIdExactDivisionRemainder,
     PanicMsgIdSliceWidenRemainder,
-    PanicMsgIdUnwrapMaybeFail,
+    PanicMsgIdUnwrapOptionalFail,
     PanicMsgIdInvalidErrorCode,
     PanicMsgIdIncorrectAlignment,
     PanicMsgIdBadUnionField,
@@ -2016,8 +2016,8 @@ enum IrInstructionId {
     IrInstructionIdAsm,
     IrInstructionIdSizeOf,
     IrInstructionIdTestNonNull,
-    IrInstructionIdUnwrapMaybe,
-    IrInstructionIdMaybeWrap,
+    IrInstructionIdUnwrapOptional,
+    IrInstructionIdOptionalWrap,
     IrInstructionIdUnionTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
@@ -2184,7 +2184,7 @@ enum IrUnOp {
     IrUnOpNegation,
     IrUnOpNegationWrap,
     IrUnOpDereference,
-    IrUnOpMaybe,
+    IrUnOpOptional,
 };
 
 struct IrInstructionUnOp {
@@ -2487,7 +2487,7 @@ struct IrInstructionTestNonNull {
     IrInstruction *value;
 };
 
-struct IrInstructionUnwrapMaybe {
+struct IrInstructionUnwrapOptional {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2745,7 +2745,7 @@ struct IrInstructionUnwrapErrPayload {
     bool safety_check_on;
 };
 
-struct IrInstructionMaybeWrap {
+struct IrInstructionOptionalWrap {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2954,10 +2954,10 @@ struct IrInstructionExport {
 struct IrInstructionErrorReturnTrace {
     IrInstruction base;
 
-    enum Nullable {
+    enum Optional {
         Null,
         NonNull,
-    } nullable;
+    } optional;
 };
 
 struct IrInstructionErrorUnion {

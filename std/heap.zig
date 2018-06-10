@@ -142,7 +142,7 @@ pub const DirectAllocator = struct {
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(*c_void, root_addr);
                 const amt = new_size + alignment + @sizeOf(usize);
-                const new_ptr = os.windows.HeapReAlloc(??self.heap_handle, 0, old_ptr, amt) ?? blk: {
+                const new_ptr = os.windows.HeapReAlloc(self.heap_handle.?, 0, old_ptr, amt) ?? blk: {
                     if (new_size > old_mem.len) return error.OutOfMemory;
                     const new_record_addr = old_record_addr - new_size + old_mem.len;
                     @intToPtr(*align(1) usize, new_record_addr).* = root_addr;
@@ -171,7 +171,7 @@ pub const DirectAllocator = struct {
                 const record_addr = @ptrToInt(bytes.ptr) + bytes.len;
                 const root_addr = @intToPtr(*align(1) usize, record_addr).*;
                 const ptr = @intToPtr(*c_void, root_addr);
-                _ = os.windows.HeapFree(??self.heap_handle, 0, ptr);
+                _ = os.windows.HeapFree(self.heap_handle.?, 0, ptr);
             },
             else => @compileError("Unsupported OS"),
         }

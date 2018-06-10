@@ -67,7 +67,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         if (0 == syms[i].st_shndx) continue;
         if (!mem.eql(u8, name, cstr.toSliceConst(strings + syms[i].st_name))) continue;
         if (maybe_versym) |versym| {
-            if (!checkver(??maybe_verdef, versym[i], vername, strings))
+            if (!checkver(maybe_verdef.?, versym[i], vername, strings))
                 continue;
         }
         return base + syms[i].st_value;

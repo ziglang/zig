@@ -7,7 +7,7 @@ const allocator = std.debug.global_allocator;
 
 pub fn main() !void {
     var args_it = os.args();
-    const exe = try unwrapArg(??args_it.next(allocator));
+    const exe = try unwrapArg(args_it.next(allocator).?);
     var catted_anything = false;
     var stdout_file = try io.getStdOut();
 

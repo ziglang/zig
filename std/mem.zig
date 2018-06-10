@@ -304,20 +304,20 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
 }
 
 test "mem.indexOf" {
-    assert(??indexOf(u8, "one two three four", "four") == 14);
-    assert(??lastIndexOf(u8, "one two three two four", "two") == 14);
+    assert(indexOf(u8, "one two three four", "four").? == 14);
+    assert(lastIndexOf(u8, "one two three two four", "two").? == 14);
     assert(indexOf(u8, "one two three four", "gour") == null);
     assert(lastIndexOf(u8, "one two three four", "gour") == null);
-    assert(??indexOf(u8, "foo", "foo") == 0);
-    assert(??lastIndexOf(u8, "foo", "foo") == 0);
+    assert(indexOf(u8, "foo", "foo").? == 0);
+    assert(lastIndexOf(u8, "foo", "foo").? == 0);
     assert(indexOf(u8, "foo", "fool") == null);
     assert(lastIndexOf(u8, "foo", "lfoo") == null);
     assert(lastIndexOf(u8, "foo", "fool") == null);
 
-    assert(??indexOf(u8, "foo foo", "foo") == 0);
-    assert(??lastIndexOf(u8, "foo foo", "foo") == 4);
-    assert(??lastIndexOfAny(u8, "boo, cat", "abo") == 6);
-    assert(??lastIndexOfScalar(u8, "boo", 'o') == 2);
+    assert(indexOf(u8, "foo foo", "foo").? == 0);
+    assert(lastIndexOf(u8, "foo foo", "foo").? == 4);
+    assert(lastIndexOfAny(u8, "boo, cat", "abo").? == 6);
+    assert(lastIndexOfScalar(u8, "boo", 'o').? == 2);
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -432,9 +432,9 @@ pub fn split(buffer: []const u8, split_bytes: []const u8) SplitIterator {
 
 test "mem.split" {
     var it = split("   abc def   ghi  ", " ");
-    assert(eql(u8, ??it.next(), "abc"));
-    assert(eql(u8, ??it.next(), "def"));
-    assert(eql(u8, ??it.next(), "ghi"));
+    assert(eql(u8, it.next().?, "abc"));
+    assert(eql(u8, it.next().?, "def"));
+    assert(eql(u8, it.next().?, "ghi"));
     assert(it.next() == null);
 }
 

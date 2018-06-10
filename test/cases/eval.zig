@@ -12,7 +12,7 @@ fn fibonacci(x: i32) i32 {
 }
 
 fn unwrapAndAddOne(blah: ?i32) i32 {
-    return ??blah + 1;
+    return blah.? + 1;
 }
 const should_be_1235 = unwrapAndAddOne(1234);
 test "static add one" {

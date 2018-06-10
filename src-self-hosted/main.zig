@@ -490,7 +490,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
                 try stderr.print("encountered --pkg-end with no matching --pkg-begin\n");
                 os.exit(1);
             }
-            cur_pkg = ??cur_pkg.parent;
+            cur_pkg = cur_pkg.parent.?;
         }
     }
 
@@ -514,7 +514,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
         },
     }
 
-    const basename = os.path.basename(??in_file);
+    const basename = os.path.basename(in_file.?);
     var it = mem.split(basename, ".");
     const root_name = it.next() ?? {
         try stderr.write("file name cannot be empty\n");
@@ -523,12 +523,12 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
 
     const asm_a = flags.many("assembly");
     const obj_a = flags.many("object");
-    if (in_file == null and (obj_a == null or (??obj_a).len == 0) and (asm_a == null or (??asm_a).len == 0)) {
+    if (in_file == null and (obj_a == null or obj_a.?.len == 0) and (asm_a == null or asm_a.?.len == 0)) {
         try stderr.write("Expected source file argument or at least one --object or --assembly argument\n");
         os.exit(1);
     }
 
-    if (out_type == Module.Kind.Obj and (obj_a != null and (??obj_a).len != 0)) {
+    if (out_type == Module.Kind.Obj and (obj_a != null and obj_a.?.len != 0)) {
         try stderr.write("When building an object file, --object arguments are invalid\n");
         os.exit(1);
     }

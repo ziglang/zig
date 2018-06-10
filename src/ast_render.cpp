@@ -50,7 +50,7 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignBitXor:           return "^=";
         case BinOpTypeAssignBitOr:            return "|=";
         case BinOpTypeAssignMergeErrorSets:   return "||=";
-        case BinOpTypeUnwrapMaybe:            return "??";
+        case BinOpTypeUnwrapOptional:         return "??";
         case BinOpTypeArrayCat:               return "++";
         case BinOpTypeArrayMult:              return "**";
         case BinOpTypeErrorUnion:             return "!";
@@ -66,8 +66,8 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpNegationWrap: return "-%";
         case PrefixOpBoolNot: return "!";
         case PrefixOpBinNot: return "~";
-        case PrefixOpMaybe: return "?";
-        case PrefixOpUnwrapMaybe: return "??";
+        case PrefixOpOptional: return "?";
+        case PrefixOpUnwrapOptional: return "??";
         case PrefixOpAddrOf: return "&";
     }
     zig_unreachable();

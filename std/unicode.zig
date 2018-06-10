@@ -286,15 +286,15 @@ fn testUtf8IteratorOnAscii() void {
     const s = Utf8View.initComptime("abc");
 
     var it1 = s.iterator();
-    debug.assert(std.mem.eql(u8, "a", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "b", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "c", ??it1.nextCodepointSlice()));
+    debug.assert(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
+    debug.assert(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
+    debug.assert(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
     debug.assert(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
-    debug.assert(??it2.nextCodepoint() == 'a');
-    debug.assert(??it2.nextCodepoint() == 'b');
-    debug.assert(??it2.nextCodepoint() == 'c');
+    debug.assert(it2.nextCodepoint().? == 'a');
+    debug.assert(it2.nextCodepoint().? == 'b');
+    debug.assert(it2.nextCodepoint().? == 'c');
     debug.assert(it2.nextCodepoint() == null);
 }
 
@@ -321,15 +321,15 @@ fn testUtf8ViewOk() void {
     const s = Utf8View.initComptime("東京市");
 
     var it1 = s.iterator();
-    debug.assert(std.mem.eql(u8, "東", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "京", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "市", ??it1.nextCodepointSlice()));
+    debug.assert(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
+    debug.assert(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
+    debug.assert(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
     debug.assert(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
-    debug.assert(??it2.nextCodepoint() == 0x6771);
-    debug.assert(??it2.nextCodepoint() == 0x4eac);
-    debug.assert(??it2.nextCodepoint() == 0x5e02);
+    debug.assert(it2.nextCodepoint().? == 0x6771);
+    debug.assert(it2.nextCodepoint().? == 0x4eac);
+    debug.assert(it2.nextCodepoint().? == 0x5e02);
     debug.assert(it2.nextCodepoint() == null);
 }
 
