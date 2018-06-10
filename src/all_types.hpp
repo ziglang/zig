@@ -387,6 +387,7 @@ enum NodeType {
     NodeTypeSliceExpr,
     NodeTypeFieldAccessExpr,
     NodeTypePtrDeref,
+    NodeTypeUnwrapOptional,
     NodeTypeUse,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
@@ -575,6 +576,10 @@ struct AstNodeCatchExpr {
     AstNode *op2;
 };
 
+struct AstNodeUnwrapOptional {
+    AstNode *expr;
+};
+
 enum CastOp {
     CastOpNoCast, // signifies the function call expression is not a cast
     CastOpNoop, // fn call expr is a cast, but does nothing
@@ -624,7 +629,6 @@ enum PrefixOp {
     PrefixOpNegation,
     PrefixOpNegationWrap,
     PrefixOpOptional,
-    PrefixOpUnwrapOptional,
     PrefixOpAddrOf,
 };
 
@@ -909,6 +913,7 @@ struct AstNode {
         AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeCatchExpr unwrap_err_expr;
+        AstNodeUnwrapOptional unwrap_optional;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodePointerType pointer_type;
         AstNodeFnCallExpr fn_call_expr;

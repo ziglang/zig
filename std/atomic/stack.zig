@@ -28,14 +28,14 @@ pub fn Stack(comptime T: type) type {
             var root = @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst);
             while (true) {
                 node.next = root;
-                root = @cmpxchgWeak(?*Node, &self.root, root, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? break;
+                root = @cmpxchgWeak(?*Node, &self.root, root, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse break;
             }
         }
 
         pub fn pop(self: *Self) ?*Node {
             var root = @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst);
             while (true) {
-                root = @cmpxchgWeak(?*Node, &self.root, root, (root ?? return null).next, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return root;
+                root = @cmpxchgWeak(?*Node, &self.root, root, (root orelse return null).next, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return root;
             }
         }
 

@@ -134,6 +134,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"noalias", TokenIdKeywordNoAlias},
     {"null", TokenIdKeywordNull},
     {"or", TokenIdKeywordOr},
+    {"orelse", TokenIdKeywordOrElse},
     {"packed", TokenIdKeywordPacked},
     {"promise", TokenIdKeywordPromise},
     {"pub", TokenIdKeywordPub},
@@ -215,7 +216,6 @@ enum TokenizeState {
     TokenizeStateSawGreaterThanGreaterThan,
     TokenizeStateSawDot,
     TokenizeStateSawDotDot,
-    TokenizeStateSawQuestionMark,
     TokenizeStateSawAtSign,
     TokenizeStateCharCode,
     TokenizeStateError,
@@ -532,6 +532,10 @@ void tokenize(Buf *buf, Tokenization *out) {
                         begin_token(&t, TokenIdComma);
                         end_token(&t);
                         break;
+                    case '?':
+                        begin_token(&t, TokenIdQuestion);
+                        end_token(&t);
+                        break;
                     case '{':
                         begin_token(&t, TokenIdLBrace);
                         end_token(&t);
@@ -624,26 +628,8 @@ void tokenize(Buf *buf, Tokenization *out) {
                         begin_token(&t, TokenIdDot);
                         t.state = TokenizeStateSawDot;
                         break;
-                    case '?':
-                        begin_token(&t, TokenIdQuestion);
-                        t.state = TokenizeStateSawQuestionMark;
-                        break;
                     default:
                         invalid_char_error(&t, c);
-                }
-                break;
-            case TokenizeStateSawQuestionMark:
-                switch (c) {
-                    case '?':
-                        set_token_id(&t, t.cur_tok, TokenIdDoubleQuestion);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    default:
-                        t.pos -= 1;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
                 }
                 break;
             case TokenizeStateSawDot:
@@ -1480,7 +1466,6 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawGreaterThan:
         case TokenizeStateSawGreaterThanGreaterThan:
         case TokenizeStateSawDot:
-        case TokenizeStateSawQuestionMark:
         case TokenizeStateSawAtSign:
         case TokenizeStateSawStarPercent:
         case TokenizeStateSawPlusPercent:
@@ -1545,7 +1530,6 @@ const char * token_name(TokenId id) {
         case TokenIdDash: return "-";
         case TokenIdDivEq: return "/=";
         case TokenIdDot: return ".";
-        case TokenIdDoubleQuestion: return "??";
         case TokenIdEllipsis2: return "..";
         case TokenIdEllipsis3: return "...";
         case TokenIdEof: return "EOF";
@@ -1582,6 +1566,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordNoAlias: return "noalias";
         case TokenIdKeywordNull: return "null";
         case TokenIdKeywordOr: return "or";
+        case TokenIdKeywordOrElse: return "orelse";
         case TokenIdKeywordPacked: return "packed";
         case TokenIdKeywordPromise: return "promise";
         case TokenIdKeywordPub: return "pub";

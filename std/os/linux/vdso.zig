@@ -28,7 +28,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
             }
         }
     }
-    const dynv = maybe_dynv ?? return 0;
+    const dynv = maybe_dynv orelse return 0;
     if (base == @maxValue(usize)) return 0;
 
     var maybe_strings: ?[*]u8 = null;
@@ -52,9 +52,9 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         }
     }
 
-    const strings = maybe_strings ?? return 0;
-    const syms = maybe_syms ?? return 0;
-    const hashtab = maybe_hashtab ?? return 0;
+    const strings = maybe_strings orelse return 0;
+    const syms = maybe_syms orelse return 0;
+    const hashtab = maybe_hashtab orelse return 0;
     if (maybe_verdef == null) maybe_versym = null;
 
     const OK_TYPES = (1 << elf.STT_NOTYPE | 1 << elf.STT_OBJECT | 1 << elf.STT_FUNC | 1 << elf.STT_COMMON);

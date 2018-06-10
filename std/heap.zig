@@ -97,12 +97,12 @@ pub const DirectAllocator = struct {
             },
             Os.windows => {
                 const amt = n + alignment + @sizeOf(usize);
-                const heap_handle = self.heap_handle ?? blk: {
-                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0) ?? return error.OutOfMemory;
+                const heap_handle = self.heap_handle orelse blk: {
+                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0) orelse return error.OutOfMemory;
                     self.heap_handle = hh;
                     break :blk hh;
                 };
-                const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) ?? return error.OutOfMemory;
+                const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
                 const root_addr = @ptrToInt(ptr);
                 const rem = @rem(root_addr, alignment);
                 const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
@@ -142,7 +142,7 @@ pub const DirectAllocator = struct {
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(*c_void, root_addr);
                 const amt = new_size + alignment + @sizeOf(usize);
-                const new_ptr = os.windows.HeapReAlloc(self.heap_handle.?, 0, old_ptr, amt) ?? blk: {
+                const new_ptr = os.windows.HeapReAlloc(self.heap_handle.?, 0, old_ptr, amt) orelse blk: {
                     if (new_size > old_mem.len) return error.OutOfMemory;
                     const new_record_addr = old_record_addr - new_size + old_mem.len;
                     @intToPtr(*align(1) usize, new_record_addr).* = root_addr;
@@ -343,7 +343,7 @@ pub const ThreadSafeFixedBufferAllocator = struct {
             if (new_end_index > self.buffer.len) {
                 return error.OutOfMemory;
             }
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) ?? return self.buffer[adjusted_index..new_end_index];
+            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
         }
     }
 

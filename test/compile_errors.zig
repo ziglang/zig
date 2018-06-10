@@ -2296,7 +2296,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\    defer try canFail();
         \\
-        \\    const a = maybeInt() ?? return;
+        \\    const a = maybeInt() orelse return;
         \\}
         \\
         \\fn canFail() error!void { }

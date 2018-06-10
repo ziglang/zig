@@ -220,7 +220,7 @@ const Utf8Iterator = struct {
     }
 
     pub fn nextCodepoint(it: *Utf8Iterator) ?u32 {
-        const slice = it.nextCodepointSlice() ?? return null;
+        const slice = it.nextCodepointSlice() orelse return null;
 
         switch (slice.len) {
             1 => return u32(slice[0]),

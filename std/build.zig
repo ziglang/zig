@@ -136,7 +136,7 @@ pub const Builder = struct {
     }
 
     pub fn setInstallPrefix(self: *Builder, maybe_prefix: ?[]const u8) void {
-        self.prefix = maybe_prefix ?? "/usr/local"; // TODO better default
+        self.prefix = maybe_prefix orelse "/usr/local"; // TODO better default
         self.lib_dir = os.path.join(self.allocator, self.prefix, "lib") catch unreachable;
         self.exe_dir = os.path.join(self.allocator, self.prefix, "bin") catch unreachable;
     }
@@ -312,9 +312,9 @@ pub const Builder = struct {
         if (os.getEnvVarOwned(self.allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
             var it = mem.split(nix_cflags_compile, " ");
             while (true) {
-                const word = it.next() ?? break;
+                const word = it.next() orelse break;
                 if (mem.eql(u8, word, "-isystem")) {
-                    const include_path = it.next() ?? {
+                    const include_path = it.next() orelse {
                         warn("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n");
                         break;
                     };
@@ -330,9 +330,9 @@ pub const Builder = struct {
         if (os.getEnvVarOwned(self.allocator, "NIX_LDFLAGS")) |nix_ldflags| {
             var it = mem.split(nix_ldflags, " ");
             while (true) {
-                const word = it.next() ?? break;
+                const word = it.next() orelse break;
                 if (mem.eql(u8, word, "-rpath")) {
-                    const rpath = it.next() ?? {
+                    const rpath = it.next() orelse {
                         warn("Expected argument after -rpath in NIX_LDFLAGS\n");
                         break;
                     };
@@ -362,7 +362,7 @@ pub const Builder = struct {
         }
         self.available_options_list.append(available_option) catch unreachable;
 
-        const entry = self.user_input_options.get(name) ?? return null;
+        const entry = self.user_input_options.get(name) orelse return null;
         entry.value.used = true;
         switch (type_id) {
             TypeId.Bool => switch (entry.value.value) {
@@ -416,9 +416,9 @@ pub const Builder = struct {
     pub fn standardReleaseOptions(self: *Builder) builtin.Mode {
         if (self.release_mode) |mode| return mode;
 
-        const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") ?? false;
-        const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") ?? false;
-        const release_small = self.option(bool, "release-small", "size optimizations on and safety off") ?? false;
+        const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") orelse false;
+        const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") orelse false;
+        const release_small = self.option(bool, "release-small", "size optimizations on and safety off") orelse false;
 
         const mode = if (release_safe and !release_fast and !release_small) builtin.Mode.ReleaseSafe else if (release_fast and !release_safe and !release_small) builtin.Mode.ReleaseFast else if (release_small and !release_fast and !release_safe) builtin.Mode.ReleaseSmall else if (!release_fast and !release_safe and !release_small) builtin.Mode.Debug else x: {
             warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)");
@@ -518,7 +518,7 @@ pub const Builder = struct {
         // make sure all args are used
         var it = self.user_input_options.iterator();
         while (true) {
-            const entry = it.next() ?? break;
+            const entry = it.next() orelse break;
             if (!entry.value.used) {
                 warn("Invalid option: -D{}\n\n", entry.key);
                 self.markInvalidUserInput();
@@ -1246,7 +1246,7 @@ pub const LibExeObjStep = struct {
         {
             var it = self.link_libs.iterator();
             while (true) {
-                const entry = it.next() ?? break;
+                const entry = it.next() orelse break;
                 zig_args.append("--library") catch unreachable;
                 zig_args.append(entry.key) catch unreachable;
             }
@@ -1696,7 +1696,7 @@ pub const TestStep = struct {
         {
             var it = self.link_libs.iterator();
             while (true) {
-                const entry = it.next() ?? break;
+                const entry = it.next() orelse break;
                 try zig_args.append("--library");
                 try zig_args.append(entry.key);
             }

@@ -985,7 +985,7 @@ a ^= b</code></pre></td>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a ?? b</code></pre></td>
+          <td><pre><code class="zig">a orelse b</code></pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -998,7 +998,7 @@ a ^= b</code></pre></td>
           </td>
           <td>
             <pre><code class="zig">const value: ?u32 = null;
-const unwrapped = value ?? 1234;
+const unwrapped = value orelse 1234;
 unwrapped == 1234</code></pre>
           </td>
         </tr>
@@ -1011,7 +1011,7 @@ unwrapped == 1234</code></pre>
           </td>
           <td>
             Equivalent to:
-            <pre><code class="zig">a ?? unreachable</code></pre>
+            <pre><code class="zig">a orelse unreachable</code></pre>
           </td>
           <td>
             <pre><code class="zig">const value: ?u32 = 5678;
@@ -1278,7 +1278,7 @@ x{} x.* x.?
 == != &lt; &gt; &lt;= &gt;=
 and
 or
-?? catch
+orelse catch
 = *= /= %= += -= &lt;&lt;= &gt;&gt;= &amp;= ^= |=</code></pre>
       {#header_close#}
       {#header_close#}
@@ -3062,7 +3062,7 @@ fn createFoo(param: i32) !Foo {
     // but we want to return it if the function succeeds.
     errdefer deallocateFoo(foo);
 
-    const tmp_buf = allocateTmpBuffer() ?? return error.OutOfMemory;
+    const tmp_buf = allocateTmpBuffer() orelse return error.OutOfMemory;
     // tmp_buf is truly a temporary resource, and we for sure want to clean it up
     // before this block leaves scope
     defer deallocateTmpBuffer(tmp_buf);
@@ -3219,13 +3219,13 @@ struct Foo *do_a_thing(void) {
 extern fn malloc(size: size_t) ?*u8;
 
 fn doAThing() ?*Foo {
-    const ptr = malloc(1234) ?? return null;
+    const ptr = malloc(1234) orelse return null;
     // ...
 }
       {#code_end#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
-        is <code>*u8</code> <em>not</em> <code>?*u8</code>. The <code>??</code> operator
+        is <code>*u8</code> <em>not</em> <code>?*u8</code>. The <code>orelse</code> keyword
         unwrapped the optional type and therefore <code>ptr</code> is guaranteed to be non-null everywhere
         it is used in the function.
       </p>
@@ -5941,7 +5941,7 @@ AsmClobbers= ":" list(String, ",")
 
 UnwrapExpression = BoolOrExpression (UnwrapOptional | UnwrapError) | BoolOrExpression
 
-UnwrapOptional = "??" Expression
+UnwrapOptional = "orelse" Expression
 
 UnwrapError = "catch" option("|" Symbol "|") Expression
 

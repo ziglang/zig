@@ -182,8 +182,8 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
             }
 
             var it = mem.split(path, []u8{this_sep});
-            _ = (it.next() ?? return relative_path);
-            _ = (it.next() ?? return relative_path);
+            _ = (it.next() orelse return relative_path);
+            _ = (it.next() orelse return relative_path);
             return WindowsPath{
                 .is_abs = isAbsoluteWindows(path),
                 .kind = WindowsPath.Kind.NetworkShare,
@@ -200,8 +200,8 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
             }
 
             var it = mem.split(path, []u8{this_sep});
-            _ = (it.next() ?? return relative_path);
-            _ = (it.next() ?? return relative_path);
+            _ = (it.next() orelse return relative_path);
+            _ = (it.next() orelse return relative_path);
             return WindowsPath{
                 .is_abs = isAbsoluteWindows(path),
                 .kind = WindowsPath.Kind.NetworkShare,
@@ -923,7 +923,7 @@ pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) 
     var from_it = mem.split(resolved_from, "/\\");
     var to_it = mem.split(resolved_to, "/\\");
     while (true) {
-        const from_component = from_it.next() ?? return mem.dupe(allocator, u8, to_it.rest());
+        const from_component = from_it.next() orelse return mem.dupe(allocator, u8, to_it.rest());
         const to_rest = to_it.rest();
         if (to_it.next()) |to_component| {
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
@@ -974,7 +974,7 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
     var from_it = mem.split(resolved_from, "/");
     var to_it = mem.split(resolved_to, "/");
     while (true) {
-        const from_component = from_it.next() ?? return mem.dupe(allocator, u8, to_it.rest());
+        const from_component = from_it.next() orelse return mem.dupe(allocator, u8, to_it.rest());
         const to_rest = to_it.rest();
         if (to_it.next()) |to_component| {
             if (mem.eql(u8, from_component, to_component))

@@ -83,7 +83,7 @@ fn renderRoot(
     var start_col: usize = 0;
     var it = tree.root_node.decls.iterator(0);
     while (true) {
-        var decl = (it.next() ?? return).*;
+        var decl = (it.next() orelse return).*;
         // look for zig fmt: off comment
         var start_token_index = decl.firstToken();
         zig_fmt_loop: while (start_token_index != 0) {
@@ -112,7 +112,7 @@ fn renderRoot(
                         const start = tree.tokens.at(start_token_index + 1).start;
                         try stream.print("{}\n", tree.source[start..end_token.end]);
                         while (tree.tokens.at(decl.firstToken()).start < end_token.end) {
-                            decl = (it.next() ?? return).*;
+                            decl = (it.next() orelse return).*;
                         }
                         break :zig_fmt_loop;
                     }
@@ -1993,7 +1993,7 @@ fn renderDocComments(
     indent: usize,
     start_col: *usize,
 ) (@typeOf(stream).Child.Error || Error)!void {
-    const comment = node.doc_comments ?? return;
+    const comment = node.doc_comments orelse return;
     var it = comment.lines.iterator(0);
     const first_token = node.firstToken();
     while (it.next()) |line_token_index| {
@@ -2021,7 +2021,7 @@ fn nodeIsBlock(base: *const ast.Node) bool {
 }
 
 fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
-    const infix_op = base.cast(ast.Node.InfixOp) ?? return false;
+    const infix_op = base.cast(ast.Node.InfixOp) orelse return false;
     return switch (infix_op.op) {
         ast.Node.InfixOp.Op.Period => false,
         else => true,

@@ -153,7 +153,7 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
 pub fn windowsLoadDll(allocator: *mem.Allocator, dll_path: []const u8) !windows.HMODULE {
     const padded_buff = try cstr.addNullByte(allocator, dll_path);
     defer allocator.free(padded_buff);
-    return windows.LoadLibraryA(padded_buff.ptr) ?? error.DllNotFound;
+    return windows.LoadLibraryA(padded_buff.ptr) orelse error.DllNotFound;
 }
 
 pub fn windowsUnloadDll(hModule: windows.HMODULE) void {

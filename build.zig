@@ -102,11 +102,11 @@ pub fn build(b: *Builder) !void {
 
     b.default_step.dependOn(&exe.step);
 
-    const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") ?? false;
+    const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
     }
-    const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") ?? false;
+    const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") orelse false;
     exe.setVerboseLink(verbose_link_exe);
 
     b.installArtifact(exe);
@@ -114,7 +114,7 @@ pub fn build(b: *Builder) !void {
     installCHeaders(b, c_header_files);
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
-    const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") ?? false;
+    const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") orelse false;
 
     test_step.dependOn(docs_step);
 

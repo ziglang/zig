@@ -15,13 +15,13 @@ test "optional type" {
 
     const next_x: ?i32 = null;
 
-    const z = next_x ?? 1234;
+    const z = next_x orelse 1234;
 
     assert(z == 1234);
 
     const final_x: ?i32 = 13;
 
-    const num = final_x ?? unreachable;
+    const num = final_x orelse unreachable;
 
     assert(num == 13);
 }
@@ -38,7 +38,7 @@ test "test maybe object and get a pointer to the inner value" {
 
 test "rhs maybe unwrap return" {
     const x: ?bool = true;
-    const y = x ?? return;
+    const y = x orelse return;
 }
 
 test "maybe return" {
@@ -53,7 +53,7 @@ fn maybeReturnImpl() void {
 }
 
 fn foo(x: ?i32) ?bool {
-    const value = x ?? return null;
+    const value = x orelse return null;
     return value > 1234;
 }
 
@@ -140,6 +140,6 @@ test "unwrap optional which is field of global var" {
 }
 
 test "null with default unwrap" {
-    const x: i32 = null ?? 1;
+    const x: i32 = null orelse 1;
     assert(x == 1);
 }

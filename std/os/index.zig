@@ -425,7 +425,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: 
         return posixExecveErrnoToErr(posix.getErrno(posix.execve(argv_buf[0].?, argv_buf.ptr, envp_buf.ptr)));
     }
 
-    const PATH = getEnvPosix("PATH") ?? "/usr/local/bin:/bin/:/usr/bin";
+    const PATH = getEnvPosix("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
     // PATH.len because it is >= the largest search_path
     // +1 for the / to join the search path and exe_path
     // +1 for the null terminating byte
@@ -490,7 +490,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     errdefer result.deinit();
 
     if (is_windows) {
-        const ptr = windows.GetEnvironmentStringsA() ?? return error.OutOfMemory;
+        const ptr = windows.GetEnvironmentStringsA() orelse return error.OutOfMemory;
         defer assert(windows.FreeEnvironmentStringsA(ptr) != 0);
 
         var i: usize = 0;
@@ -573,7 +573,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) ![]u8 {
             return allocator.shrink(u8, buf, result);
         }
     } else {
-        const result = getEnvPosix(key) ?? return error.EnvironmentVariableNotFound;
+        const result = getEnvPosix(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);
     }
 }
@@ -1641,7 +1641,7 @@ pub const ArgIterator = struct {
         if (builtin.os == Os.windows) {
             return self.inner.next(allocator);
         } else {
-            return mem.dupe(allocator, u8, self.inner.next() ?? return null);
+            return mem.dupe(allocator, u8, self.inner.next() orelse return null);
         }
     }
 
@@ -2457,9 +2457,9 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
             }
         };
 
-        const heap_handle = windows.GetProcessHeap() ?? return SpawnThreadError.OutOfMemory;
+        const heap_handle = windows.GetProcessHeap() orelse return SpawnThreadError.OutOfMemory;
         const byte_count = @alignOf(WinThread.OuterContext) + @sizeOf(WinThread.OuterContext);
-        const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) ?? return SpawnThreadError.OutOfMemory;
+        const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) orelse return SpawnThreadError.OutOfMemory;
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
         const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
         const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
@@ -2468,7 +2468,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         outer_context.thread.data.alloc_start = bytes_ptr;
 
         const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
-        outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) ?? {
+        outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {
             const err = windows.GetLastError();
             return switch (err) {
                 else => os.unexpectedErrorWindows(err),

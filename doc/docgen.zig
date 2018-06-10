@@ -25,13 +25,13 @@ pub fn main() !void {
 
     if (!args_it.skip()) @panic("expected self arg");
 
-    const zig_exe = try (args_it.next(allocator) ?? @panic("expected zig exe arg"));
+    const zig_exe = try (args_it.next(allocator) orelse @panic("expected zig exe arg"));
     defer allocator.free(zig_exe);
 
-    const in_file_name = try (args_it.next(allocator) ?? @panic("expected input arg"));
+    const in_file_name = try (args_it.next(allocator) orelse @panic("expected input arg"));
     defer allocator.free(in_file_name);
 
-    const out_file_name = try (args_it.next(allocator) ?? @panic("expected output arg"));
+    const out_file_name = try (args_it.next(allocator) orelse @panic("expected output arg"));
     defer allocator.free(out_file_name);
 
     var in_file = try os.File.openRead(allocator, in_file_name);

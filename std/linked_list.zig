@@ -169,7 +169,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Returns:
         ///     A pointer to the last node in the list.
         pub fn pop(list: *Self) ?*Node {
-            const last = list.last ?? return null;
+            const last = list.last orelse return null;
             list.remove(last);
             return last;
         }
@@ -179,7 +179,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Returns:
         ///     A pointer to the first node in the list.
         pub fn popFirst(list: *Self) ?*Node {
-            const first = list.first ?? return null;
+            const first = list.first orelse return null;
             list.remove(first);
             return first;
         }
