@@ -258,7 +258,7 @@ test "iterator ArrayList test" {
     }
 
     it.reset();
-    assert(??it.next() == 1);
+    assert(it.next().? == 1);
 }
 
 test "insert ArrayList test" {

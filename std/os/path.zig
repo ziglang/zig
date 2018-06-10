@@ -265,7 +265,7 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) bool {
     var it2 = mem.split(ns2, []u8{sep2});
 
     // TODO ASCII is wrong, we actually need full unicode support to compare paths.
-    return asciiEqlIgnoreCase(??it1.next(), ??it2.next());
+    return asciiEqlIgnoreCase(it1.next().?, it2.next().?);
 }
 
 fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8) bool {
@@ -286,7 +286,7 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             var it2 = mem.split(p2, []u8{sep2});
 
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
-            return asciiEqlIgnoreCase(??it1.next(), ??it2.next()) and asciiEqlIgnoreCase(??it1.next(), ??it2.next());
+            return asciiEqlIgnoreCase(it1.next().?, it2.next().?) and asciiEqlIgnoreCase(it1.next().?, it2.next().?);
         },
     }
 }
@@ -414,8 +414,8 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
             WindowsPath.Kind.NetworkShare => {
                 result = try allocator.alloc(u8, max_size);
                 var it = mem.split(paths[first_index], "/\\");
-                const server_name = ??it.next();
-                const other_name = ??it.next();
+                const server_name = it.next().?;
+                const other_name = it.next().?;
 
                 result[result_index] = '\\';
                 result_index += 1;

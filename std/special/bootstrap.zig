@@ -54,10 +54,10 @@ fn posixCallMainAndExit() noreturn {
     const argc = argc_ptr[0];
     const argv = @ptrCast([*][*]u8, argc_ptr + 1);
 
-    const envp_nullable = @ptrCast([*]?[*]u8, argv + argc + 1);
+    const envp_optional = @ptrCast([*]?[*]u8, argv + argc + 1);
     var envp_count: usize = 0;
-    while (envp_nullable[envp_count]) |_| : (envp_count += 1) {}
-    const envp = @ptrCast([*][*]u8, envp_nullable)[0..envp_count];
+    while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
+    const envp = @ptrCast([*][*]u8, envp_optional)[0..envp_count];
     if (builtin.os == builtin.Os.linux) {
         const auxv = @ptrCast([*]usize, envp.ptr + envp_count + 1);
         var i: usize = 0;

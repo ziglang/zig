@@ -72,15 +72,15 @@ test "BufMap" {
     defer bufmap.deinit();
 
     try bufmap.set("x", "1");
-    assert(mem.eql(u8, ??bufmap.get("x"), "1"));
+    assert(mem.eql(u8, bufmap.get("x").?, "1"));
     assert(1 == bufmap.count());
 
     try bufmap.set("x", "2");
-    assert(mem.eql(u8, ??bufmap.get("x"), "2"));
+    assert(mem.eql(u8, bufmap.get("x").?, "2"));
     assert(1 == bufmap.count());
 
     try bufmap.set("x", "3");
-    assert(mem.eql(u8, ??bufmap.get("x"), "3"));
+    assert(mem.eql(u8, bufmap.get("x").?, "3"));
     assert(1 == bufmap.count());
 
     bufmap.delete("x");

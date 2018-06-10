@@ -111,7 +111,7 @@ pub fn formatType(
         builtin.TypeId.Bool => {
             return output(context, if (value) "true" else "false");
         },
-        builtin.TypeId.Nullable => {
+        builtin.TypeId.Optional => {
             if (value) |payload| {
                 return formatType(payload, fmt, context, Errors, output);
             } else {
@@ -819,11 +819,11 @@ test "parse unsigned comptime" {
 test "fmt.format" {
     {
         const value: ?i32 = 1234;
-        try testFmt("nullable: 1234\n", "nullable: {}\n", value);
+        try testFmt("optional: 1234\n", "optional: {}\n", value);
     }
     {
         const value: ?i32 = null;
-        try testFmt("nullable: null\n", "nullable: {}\n", value);
+        try testFmt("optional: null\n", "optional: {}\n", value);
     }
     {
         const value: error!i32 = 1234;

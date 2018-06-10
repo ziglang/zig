@@ -650,9 +650,10 @@ test "zig fmt: statements with empty line between" {
     );
 }
 
-test "zig fmt: ptr deref operator" {
+test "zig fmt: ptr deref operator and unwrap optional operator" {
     try testCanonical(
         \\const a = b.*;
+        \\const a = b.?;
         \\
     );
 }
@@ -1209,7 +1210,7 @@ test "zig fmt: precedence" {
 test "zig fmt: prefix operators" {
     try testCanonical(
         \\test "prefix operators" {
-        \\    try return --%~??!*&0;
+        \\    try return --%~!*&0;
         \\}
         \\
     );

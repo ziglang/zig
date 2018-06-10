@@ -1341,7 +1341,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (true) |x| { }
         \\}
     ,
-        ".tmp_source.zig:2:9: error: expected nullable type, found 'bool'",
+        ".tmp_source.zig:2:9: error: expected optional type, found 'bool'",
     );
 
     cases.add(
@@ -1780,7 +1780,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "assign null to non-nullable pointer",
+        "assign null to non-optional pointer",
         \\const a: *u8 = null;
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
@@ -2817,7 +2817,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected bool, got nullable",
+        "while expected bool, got optional",
         \\export fn foo() void {
         \\    while (bar()) {}
         \\}
@@ -2837,23 +2837,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected nullable, got bool",
+        "while expected optional, got bool",
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
         \\fn bar() bool { return true; }
     ,
-        ".tmp_source.zig:2:15: error: expected nullable type, found 'bool'",
+        ".tmp_source.zig:2:15: error: expected optional type, found 'bool'",
     );
 
     cases.add(
-        "while expected nullable, got error union",
+        "while expected optional, got error union",
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
         \\fn bar() error!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected nullable type, found 'error!i32'",
+        ".tmp_source.zig:2:15: error: expected optional type, found 'error!i32'",
     );
 
     cases.add(
@@ -2867,7 +2867,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected error union, got nullable",
+        "while expected error union, got optional",
         \\export fn foo() void {
         \\    while (bar()) |x| {} else |err| {}
         \\}

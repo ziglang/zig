@@ -1417,7 +1417,7 @@ pub const Node = struct {
             Range,
             Sub,
             SubWrap,
-            UnwrapMaybe,
+            UnwrapOptional,
         };
 
         pub fn iterate(self: *InfixOp, index: usize) ?*Node {
@@ -1475,7 +1475,7 @@ pub const Node = struct {
                 Op.Range,
                 Op.Sub,
                 Op.SubWrap,
-                Op.UnwrapMaybe,
+                Op.UnwrapOptional,
                 => {},
             }
 
@@ -1507,14 +1507,13 @@ pub const Node = struct {
             BitNot,
             BoolNot,
             Cancel,
-            MaybeType,
+            OptionalType,
             Negation,
             NegationWrap,
             Resume,
             PtrType: PtrInfo,
             SliceType: PtrInfo,
             Try,
-            UnwrapMaybe,
         };
 
         pub const PtrInfo = struct {
@@ -1557,12 +1556,12 @@ pub const Node = struct {
                 Op.BitNot,
                 Op.BoolNot,
                 Op.Cancel,
-                Op.MaybeType,
+                Op.OptionalType,
                 Op.Negation,
                 Op.NegationWrap,
                 Op.Try,
                 Op.Resume,
-                Op.UnwrapMaybe,
+                Op.UnwrapOptional,
                 Op.PointerType,
                 => {},
             }
@@ -1619,6 +1618,7 @@ pub const Node = struct {
             ArrayInitializer: InitList,
             StructInitializer: InitList,
             Deref,
+            UnwrapOptional,
 
             pub const InitList = SegmentedList(*Node, 2);
 

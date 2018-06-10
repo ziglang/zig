@@ -88,15 +88,15 @@ fn testArray() void {
     assert(arr_info.Array.child == bool);
 }
 
-test "type info: nullable type info" {
-    testNullable();
-    comptime testNullable();
+test "type info: optional type info" {
+    testOptional();
+    comptime testOptional();
 }
 
-fn testNullable() void {
+fn testOptional() void {
     const null_info = @typeInfo(?void);
-    assert(TypeId(null_info) == TypeId.Nullable);
-    assert(null_info.Nullable.child == void);
+    assert(TypeId(null_info) == TypeId.Optional);
+    assert(null_info.Optional.child == void);
 }
 
 test "type info: promise info" {
@@ -168,7 +168,7 @@ fn testUnion() void {
     assert(typeinfo_info.Union.tag_type == TypeId);
     assert(typeinfo_info.Union.fields.len == 25);
     assert(typeinfo_info.Union.fields[4].enum_field != null);
-    assert((??typeinfo_info.Union.fields[4].enum_field).value == 4);
+    assert(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     assert(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
     assert(typeinfo_info.Union.defs.len == 20);
 

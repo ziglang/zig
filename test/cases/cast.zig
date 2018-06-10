@@ -109,16 +109,16 @@ test "implicitly cast indirect pointer to maybe-indirect pointer" {
         const Self = this;
         x: u8,
         fn constConst(p: *const *const Self) u8 {
-            return (p.*).x;
+            return p.*.x;
         }
         fn maybeConstConst(p: ?*const *const Self) u8 {
-            return ((??p).*).x;
+            return p.?.*.x;
         }
         fn constConstConst(p: *const *const *const Self) u8 {
-            return (p.*.*).x;
+            return p.*.*.x;
         }
         fn maybeConstConstConst(p: ?*const *const *const Self) u8 {
-            return ((??p).*.*).x;
+            return p.?.*.*.x;
         }
     };
     const s = S{ .x = 42 };
@@ -177,56 +177,56 @@ test "string literal to &const []const u8" {
 }
 
 test "implicitly cast from T to error!?T" {
-    castToMaybeTypeError(1);
-    comptime castToMaybeTypeError(1);
+    castToOptionalTypeError(1);
+    comptime castToOptionalTypeError(1);
 }
 const A = struct {
     a: i32,
 };
-fn castToMaybeTypeError(z: i32) void {
+fn castToOptionalTypeError(z: i32) void {
     const x = i32(1);
     const y: error!?i32 = x;
-    assert(??(try y) == 1);
+    assert((try y).? == 1);
 
     const f = z;
     const g: error!?i32 = f;
 
     const a = A{ .a = z };
     const b: error!?A = a;
-    assert((??(b catch unreachable)).a == 1);
+    assert((b catch unreachable).?.a == 1);
 }
 
 test "implicitly cast from int to error!?T" {
-    implicitIntLitToMaybe();
-    comptime implicitIntLitToMaybe();
+    implicitIntLitToOptional();
+    comptime implicitIntLitToOptional();
 }
-fn implicitIntLitToMaybe() void {
+fn implicitIntLitToOptional() void {
     const f: ?i32 = 1;
     const g: error!?i32 = 1;
 }
 
 test "return null from fn() error!?&T" {
-    const a = returnNullFromMaybeTypeErrorRef();
-    const b = returnNullLitFromMaybeTypeErrorRef();
+    const a = returnNullFromOptionalTypeErrorRef();
+    const b = returnNullLitFromOptionalTypeErrorRef();
     assert((try a) == null and (try b) == null);
 }
-fn returnNullFromMaybeTypeErrorRef() error!?*A {
+fn returnNullFromOptionalTypeErrorRef() error!?*A {
     const a: ?*A = null;
     return a;
 }
-fn returnNullLitFromMaybeTypeErrorRef() error!?*A {
+fn returnNullLitFromOptionalTypeErrorRef() error!?*A {
     return null;
 }
 
 test "peer type resolution: ?T and T" {
-    assert(??peerTypeTAndMaybeT(true, false) == 0);
-    assert(??peerTypeTAndMaybeT(false, false) == 3);
+    assert(peerTypeTAndOptionalT(true, false).? == 0);
+    assert(peerTypeTAndOptionalT(false, false).? == 3);
     comptime {
-        assert(??peerTypeTAndMaybeT(true, false) == 0);
-        assert(??peerTypeTAndMaybeT(false, false) == 3);
+        assert(peerTypeTAndOptionalT(true, false).? == 0);
+        assert(peerTypeTAndOptionalT(false, false).? == 3);
     }
 }
-fn peerTypeTAndMaybeT(c: bool, b: bool) ?usize {
+fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
     if (c) {
         return if (b) null else usize(0);
     }
@@ -251,11 +251,11 @@ fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
 }
 
 test "implicitly cast from [N]T to ?[]const T" {
-    assert(mem.eql(u8, ??castToMaybeSlice(), "hi"));
-    comptime assert(mem.eql(u8, ??castToMaybeSlice(), "hi"));
+    assert(mem.eql(u8, castToOptionalSlice().?, "hi"));
+    comptime assert(mem.eql(u8, castToOptionalSlice().?, "hi"));
 }
 
-fn castToMaybeSlice() ?[]const u8 {
+fn castToOptionalSlice() ?[]const u8 {
     return "hi";
 }
 
@@ -404,5 +404,5 @@ fn testCastPtrOfArrayToSliceAndPtr() void {
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{c"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    assert(mem.eql(u8, std.cstr.toSliceConst(??x[0]), "window name"));
+    assert(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
 }

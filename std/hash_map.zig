@@ -265,11 +265,11 @@ test "basic hash map usage" {
     assert((map.put(4, 44) catch unreachable) == null);
     assert((map.put(5, 55) catch unreachable) == null);
 
-    assert(??(map.put(5, 66) catch unreachable) == 55);
-    assert(??(map.put(5, 55) catch unreachable) == 66);
+    assert((map.put(5, 66) catch unreachable).? == 55);
+    assert((map.put(5, 55) catch unreachable).? == 66);
 
     assert(map.contains(2));
-    assert((??map.get(2)).value == 22);
+    assert(map.get(2).?.value == 22);
     _ = map.remove(2);
     assert(map.remove(2) == null);
     assert(map.get(2) == null);
@@ -317,7 +317,7 @@ test "iterator hash map" {
     }
 
     it.reset();
-    var entry = ??it.next();
+    var entry = it.next().?;
     assert(entry.key == keys[0]);
     assert(entry.value == values[0]);
 }

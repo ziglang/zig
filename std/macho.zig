@@ -130,7 +130,7 @@ pub fn loadSymbols(allocator: *mem.Allocator, in: *io.FileInStream) !SymbolTable
     for (syms) |sym| {
         if (!isSymbol(sym)) continue;
         const start = sym.n_strx;
-        const end = ??mem.indexOfScalarPos(u8, strings, start, 0);
+        const end = mem.indexOfScalarPos(u8, strings, start, 0).?;
         const name = strings[start..end];
         const address = sym.n_value;
         symbols[nsym] = Symbol{ .name = name, .address = address };

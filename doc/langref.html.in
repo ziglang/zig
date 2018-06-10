@@ -156,18 +156,18 @@ pub fn main() void {
         true or false,
         !true);
     
-    // nullable
-    var nullable_value: ?[]const u8 = null;
-    assert(nullable_value == null);
+    // optional
+    var optional_value: ?[]const u8 = null;
+    assert(optional_value == null);
 
-    warn("\nnullable 1\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(nullable_value)), nullable_value);
+    warn("\noptional 1\ntype: {}\nvalue: {}\n",
+        @typeName(@typeOf(optional_value)), optional_value);
 
-    nullable_value = "hi";
-    assert(nullable_value != null);
+    optional_value = "hi";
+    assert(optional_value != null);
 
-    warn("\nnullable 2\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(nullable_value)), nullable_value);
+    warn("\noptional 2\ntype: {}\nvalue: {}\n",
+        @typeName(@typeOf(optional_value)), optional_value);
 
     // error union
     var number_or_error: error!i32 = error.ArgNotFound;
@@ -428,7 +428,7 @@ pub fn main() void {
         </tr>
         <tr>
           <td><code>null</code></td>
-          <td>used to set a nullable type to <code>null</code></td>
+          <td>used to set an optional type to <code>null</code></td>
         </tr>
         <tr>
           <td><code>undefined</code></td>
@@ -440,7 +440,7 @@ pub fn main() void {
         </tr>
       </table>
       </div>
-      {#see_also|Nullables|this#}
+      {#see_also|Optionals|this#}
       {#header_close#}
       {#header_open|String Literals#}
       {#code_begin|test#}
@@ -988,7 +988,7 @@ a ^= b</code></pre></td>
           <td><pre><code class="zig">a ?? b</code></pre></td>
           <td>
             <ul>
-              <li>{#link|Nullables#}</li>
+              <li>{#link|Optionals#}</li>
             </ul>
           </td>
           <td>If <code>a</code> is <code>null</code>,
@@ -1003,10 +1003,10 @@ unwrapped == 1234</code></pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">??a</code></pre></td>
+          <td><pre><code class="zig">a.?</code></pre></td>
           <td>
             <ul>
-              <li>{#link|Nullables#}</li>
+              <li>{#link|Optionals#}</li>
             </ul>
           </td>
           <td>
@@ -1015,7 +1015,7 @@ unwrapped == 1234</code></pre>
           </td>
           <td>
             <pre><code class="zig">const value: ?u32 = 5678;
-??value == 5678</code></pre>
+value.? == 5678</code></pre>
           </td>
         </tr>
         <tr>
@@ -1103,7 +1103,7 @@ unwrapped == 1234</code></pre>
           <td><pre><code class="zig">a == null<code></pre></td>
           <td>
             <ul>
-              <li>{#link|Nullables#}</li>
+              <li>{#link|Optionals#}</li>
             </ul>
           </td>
           <td>
@@ -1267,8 +1267,8 @@ x.* == 1234</code></pre>
       {#header_open|Precedence#}
       <pre><code>x() x[] x.y
 a!b
-!x -x -%x ~x &amp;x ?x ??x
-x{} x.*
+!x -x -%x ~x &amp;x ?x
+x{} x.* x.?
 ! * / % ** *%
 + - ++ +% -%
 &lt;&lt; &gt;&gt;
@@ -1483,17 +1483,17 @@ test "volatile" {
     assert(@typeOf(mmio_ptr) == *volatile u8);
 }
 
-test "nullable pointers" {
-    // Pointers cannot be null. If you want a null pointer, use the nullable
-    // prefix `?` to make the pointer type nullable.
+test "optional pointers" {
+    // Pointers cannot be null. If you want a null pointer, use the optional
+    // prefix `?` to make the pointer type optional.
     var ptr: ?*i32 = null;
 
     var x: i32 = 1;
     ptr = &x;
 
-    assert((??ptr).* == 1);
+    assert(ptr.?.* == 1);
 
-    // Nullable pointers are the same size as normal pointers, because pointer
+    // Optional pointers are the same size as normal pointers, because pointer
     // value 0 is used as the null value.
     assert(@sizeOf(?*i32) == @sizeOf(*i32));
 }
@@ -1832,7 +1832,7 @@ test "linked list" {
         .last = &node,
         .len = 1,
     };
-    assert((??list2.first).data == 1234);
+    assert(list2.first.?.data == 1234);
 }
       {#code_end#}
       {#see_also|comptime|@fieldParentPtr#}
@@ -2270,7 +2270,7 @@ fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
 }
 
 test "while null capture" {
-    // Just like if expressions, while loops can take a nullable as the
+    // Just like if expressions, while loops can take an optional as the
     // condition and capture the payload. When null is encountered the loop
     // exits.
     var sum1: u32 = 0;
@@ -2280,7 +2280,7 @@ test "while null capture" {
     }
     assert(sum1 == 3);
 
-    // The else branch is allowed on nullable iteration. In this case, it will
+    // The else branch is allowed on optional iteration. In this case, it will
     // be executed on the first null value encountered.
     var sum2: u32 = 0;
     numbers_left = 3;
@@ -2340,7 +2340,7 @@ fn typeNameLength(comptime T: type) usize {
     return @typeName(T).len;
 }
       {#code_end#}
-      {#see_also|if|Nullables|Errors|comptime|unreachable#}
+      {#see_also|if|Optionals|Errors|comptime|unreachable#}
       {#header_close#}
       {#header_open|for#}
       {#code_begin|test|for#}
@@ -2400,7 +2400,7 @@ test "for else" {
         if (value == null) {
             break 9;
         } else {
-            sum += ??value;
+            sum += value.?;
         }
     } else blk: {
         assert(sum == 7);
@@ -2461,7 +2461,7 @@ test "if boolean" {
     assert(result == 47);
 }
 
-test "if nullable" {
+test "if optional" {
     // If expressions test for null.
 
     const a: ?u32 = 0;
@@ -2544,7 +2544,7 @@ test "if error union" {
     }
 }
       {#code_end#}
-      {#see_also|Nullables|Errors#}
+      {#see_also|Optionals|Errors#}
       {#header_close#}
       {#header_open|defer#}
       {#code_begin|test|defer#}
@@ -3167,24 +3167,24 @@ test "inferred error set" {
       <p>TODO</p>
       {#header_close#}
       {#header_close#}
-      {#header_open|Nullables#}
+      {#header_open|Optionals#}
       <p>
       One area that Zig provides safety without compromising efficiency or
-      readability is with the nullable type.
+      readability is with the optional type.
       </p>
       <p>
-      The question mark symbolizes the nullable type. You can convert a type to a nullable
+      The question mark symbolizes the optional type. You can convert a type to an optional
       type by putting a question mark in front of it, like this:
       </p>
       {#code_begin|syntax#}
 // normal integer
 const normal_int: i32 = 1234;
 
-// nullable integer
-const nullable_int: ?i32 = 5678;
+// optional integer
+const optional_int: ?i32 = 5678;
       {#code_end#}
       <p>
-      Now the variable <code>nullable_int</code> could be an <code>i32</code>, or <code>null</code>.
+      Now the variable <code>optional_int</code> could be an <code>i32</code>, or <code>null</code>.
       </p>
       <p>
       Instead of integers, let's talk about pointers. Null references are the source of many runtime
@@ -3193,8 +3193,8 @@ const nullable_int: ?i32 = 5678;
       </p>
       <p>Zig does not have them.</p>
       <p>
-      Instead, you can use a nullable pointer. This secretly compiles down to a normal pointer,
-      since we know we can use 0 as the null value for the nullable type. But the compiler
+      Instead, you can use an optional pointer. This secretly compiles down to a normal pointer,
+      since we know we can use 0 as the null value for the optional type. But the compiler
       can check your work and make sure you don't assign null to something that can't be null.
       </p>
       <p>
@@ -3226,7 +3226,7 @@ fn doAThing() ?*Foo {
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
         is <code>*u8</code> <em>not</em> <code>?*u8</code>. The <code>??</code> operator
-        unwrapped the nullable type and therefore <code>ptr</code> is guaranteed to be non-null everywhere
+        unwrapped the optional type and therefore <code>ptr</code> is guaranteed to be non-null everywhere
         it is used in the function.
       </p>
       <p>
@@ -3245,10 +3245,10 @@ fn doAThing() ?*Foo {
         In Zig you can accomplish the same thing:
       </p>
       {#code_begin|syntax#}
-fn doAThing(nullable_foo: ?*Foo) void {
+fn doAThing(optional_foo: ?*Foo) void {
     // do some stuff
 
-    if (nullable_foo) |foo| {
+    if (optional_foo) |foo| {
       doSomethingWithFoo(foo);
     }
 
@@ -3257,7 +3257,7 @@ fn doAThing(nullable_foo: ?*Foo) void {
       {#code_end#}
       <p>
       Once again, the notable thing here is that inside the if block,
-      <code>foo</code> is no longer a nullable pointer, it is a pointer, which
+      <code>foo</code> is no longer an optional pointer, it is a pointer, which
       cannot be null.
       </p>
       <p>
@@ -3267,20 +3267,20 @@ fn doAThing(nullable_foo: ?*Foo) void {
       The optimizer can sometimes make better decisions knowing that pointer arguments
       cannot be null.
       </p>
-      {#header_open|Nullable Type#}
-      <p>A nullable is created by putting <code>?</code> in front of a type. You can use compile-time
-      reflection to access the child type of a nullable:</p>
+      {#header_open|Optional Type#}
+      <p>An optional is created by putting <code>?</code> in front of a type. You can use compile-time
+      reflection to access the child type of an optional:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
-test "nullable type" {
-    // Declare a nullable and implicitly cast from null:
+test "optional type" {
+    // Declare an optional and implicitly cast from null:
     var foo: ?i32 = null;
 
-    // Implicitly cast from child type of a nullable
+    // Implicitly cast from child type of an optional
     foo = 1234;
 
-    // Use compile-time reflection to access the child type of the nullable:
+    // Use compile-time reflection to access the child type of the optional:
     comptime assert(@typeOf(foo).Child == i32);
 }
       {#code_end#}
@@ -4888,7 +4888,7 @@ pub const TypeId = enum {
     ComptimeInt,
     Undefined,
     Null,
-    Nullable,
+    Optional,
     ErrorUnion,
     Error,
     Enum,
@@ -4922,7 +4922,7 @@ pub const TypeInfo = union(TypeId) {
     ComptimeInt: void,
     Undefined: void,
     Null: void,
-    Nullable: Nullable,
+    Optional: Optional,
     ErrorUnion: ErrorUnion,
     ErrorSet: ErrorSet,
     Enum: Enum,
@@ -4975,7 +4975,7 @@ pub const TypeInfo = union(TypeId) {
         defs: []Definition,
     };
 
-    pub const Nullable = struct {
+    pub const Optional = struct {
         child: type,
     };
 
@@ -5366,8 +5366,8 @@ comptime {
       <p>At compile-time:</p>
       {#code_begin|test_err|unable to unwrap null#}
 comptime {
-    const nullable_number: ?i32 = null;
-    const number = ??nullable_number;
+    const optional_number: ?i32 = null;
+    const number = optional_number.?;
 }
       {#code_end#}
       <p>At runtime crashes with the message <code>attempt to unwrap null</code> and a stack trace.</p>
@@ -5376,9 +5376,9 @@ comptime {
       {#code_begin|exe|test#}
 const warn = @import("std").debug.warn;
 pub fn main() void {
-    const nullable_number: ?i32 = null;
+    const optional_number: ?i32 = null;
 
-    if (nullable_number) |number| {
+    if (optional_number) |number| {
         warn("got number: {}\n", number);
     } else {
         warn("it's null\n");
@@ -5939,9 +5939,9 @@ AsmInputItem = "[" Symbol "]" String "(" Expression ")"
 
 AsmClobbers= ":" list(String, ",")
 
-UnwrapExpression = BoolOrExpression (UnwrapNullable | UnwrapError) | BoolOrExpression
+UnwrapExpression = BoolOrExpression (UnwrapOptional | UnwrapError) | BoolOrExpression
 
-UnwrapNullable = "??" Expression
+UnwrapOptional = "??" Expression
 
 UnwrapError = "catch" option("|" Symbol "|") Expression
 
@@ -6015,11 +6015,9 @@ MultiplyOperator = "||" | "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp TypeExpr | SuffixOpExpression
 
-SuffixOpExpression = ("async" option("&lt;" SuffixOpExpression "&gt;") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression | PtrDerefExpression)
+SuffixOpExpression = ("async" option("&lt;" SuffixOpExpression "&gt;") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression | ".*" | ".?")
 
 FieldAccessExpression = "." Symbol
-
-PtrDerefExpression = ".*"
 
 FnCallExpression = "(" list(Expression, ",") ")"
 
@@ -6033,7 +6031,7 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | (("*" | "[*]") option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
+PrefixOp = "!" | "-" | "~" | (("*" | "[*]") option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "-%" | "try" | "await"
 
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
 

@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-test "nullable type" {
+test "optional type" {
     const x: ?bool = true;
 
     if (x) |y| {
@@ -33,7 +33,7 @@ test "test maybe object and get a pointer to the inner value" {
         b.* = false;
     }
 
-    assert(??maybe_bool == false);
+    assert(maybe_bool.? == false);
 }
 
 test "rhs maybe unwrap return" {
@@ -47,9 +47,9 @@ test "maybe return" {
 }
 
 fn maybeReturnImpl() void {
-    assert(??foo(1235));
+    assert(foo(1235).?);
     if (foo(null) != null) unreachable;
-    assert(!??foo(1234));
+    assert(!foo(1234).?);
 }
 
 fn foo(x: ?i32) ?bool {
@@ -102,12 +102,12 @@ fn testTestNullRuntime(x: ?i32) void {
     assert(!(x != null));
 }
 
-test "nullable void" {
-    nullableVoidImpl();
-    comptime nullableVoidImpl();
+test "optional void" {
+    optionalVoidImpl();
+    comptime optionalVoidImpl();
 }
 
-fn nullableVoidImpl() void {
+fn optionalVoidImpl() void {
     assert(bar(null) == null);
     assert(bar({}) != null);
 }
@@ -120,19 +120,19 @@ fn bar(x: ?void) ?void {
     }
 }
 
-const StructWithNullable = struct {
+const StructWithOptional = struct {
     field: ?i32,
 };
 
-var struct_with_nullable: StructWithNullable = undefined;
+var struct_with_optional: StructWithOptional = undefined;
 
-test "unwrap nullable which is field of global var" {
-    struct_with_nullable.field = null;
-    if (struct_with_nullable.field) |payload| {
+test "unwrap optional which is field of global var" {
+    struct_with_optional.field = null;
+    if (struct_with_optional.field) |payload| {
         unreachable;
     }
-    struct_with_nullable.field = 1234;
-    if (struct_with_nullable.field) |payload| {
+    struct_with_optional.field = 1234;
+    if (struct_with_optional.field) |payload| {
         assert(payload == 1234);
     } else {
         unreachable;
