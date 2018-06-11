@@ -15837,11 +15837,6 @@ static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIn
         return out_val->type;
     }
 
-    if (!target->value.type->data.enumeration.generate_name_table) {
-        target->value.type->data.enumeration.generate_name_table = true;
-        ira->codegen->name_table_enums.append(target->value.type);
-    }
-
     IrInstruction *result = ir_build_tag_name(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, target);
     ir_link_new_instruction(result, &instruction->base);

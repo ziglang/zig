@@ -1091,8 +1091,7 @@ struct TypeTableEntryEnum {
     bool zero_bits_loop_flag;
     bool zero_bits_known;
 
-    bool generate_name_table;
-    LLVMValueRef name_table;
+    LLVMValueRef name_function;
 
     HashMap<Buf *, TypeEnumField *, buf_hash, buf_eql_buf> fields_by_name;
 };
@@ -1411,6 +1410,7 @@ enum PanicMsgId {
     PanicMsgIdInvalidErrorCode,
     PanicMsgIdIncorrectAlignment,
     PanicMsgIdBadUnionField,
+    PanicMsgIdBadEnumValue,
 
     PanicMsgIdCount,
 };
@@ -1729,8 +1729,6 @@ struct CodeGen {
     Buf global_asm;
     ZigList<Buf *> link_objects;
     ZigList<Buf *> assembly_files;
-
-    ZigList<TypeTableEntry *> name_table_enums;
 
     Buf *test_filter;
     Buf *test_name_prefix;

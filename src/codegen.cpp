@@ -875,6 +875,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("incorrect alignment");
         case PanicMsgIdBadUnionField:
             return buf_create_from_str("access of inactive union field");
+        case PanicMsgIdBadEnumValue:
+            return buf_create_from_str("invalid enum value");
     }
     zig_unreachable();
 }
@@ -3516,34 +3518,112 @@ static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
 }
 
+static LLVMValueRef get_enum_tag_name_function(CodeGen *g, TypeTableEntry *enum_type) {
+    assert(enum_type->id == TypeTableEntryIdEnum);
+    if (enum_type->data.enumeration.name_function)
+        return enum_type->data.enumeration.name_function;
+
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
+    TypeTableEntry *u8_slice_type = get_slice_type(g, u8_ptr_type);
+    TypeTableEntry *tag_int_type = enum_type->data.enumeration.tag_int_type;
+
+    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMPointerType(u8_slice_type->type_ref, 0),
+            &tag_int_type->type_ref, 1, false);
+    
+    Buf *fn_name = get_mangled_name(g, buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name)), false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    LLVMSetLinkage(fn_val, LLVMInternalLinkage);
+    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    addLLVMFnAttr(fn_val, "nounwind");
+    add_uwtable_attr(g, fn_val);
+    if (g->build_mode == BuildModeDebug) {
+        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
+        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+    }
+
+    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
+    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
+    FnTableEntry *prev_cur_fn = g->cur_fn;
+    LLVMValueRef prev_cur_fn_val = g->cur_fn_val;
+
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
+    LLVMPositionBuilderAtEnd(g->builder, entry_block);
+    ZigLLVMClearCurrentDebugLocation(g->builder);
+    g->cur_fn = nullptr;
+    g->cur_fn_val = fn_val;
+
+    size_t field_count = enum_type->data.enumeration.src_field_count;
+    LLVMBasicBlockRef bad_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadValue");
+    LLVMValueRef tag_int_value = LLVMGetParam(fn_val, 0);
+    LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, tag_int_value, bad_value_block, field_count);
+
+
+    TypeTableEntry *usize = g->builtin_types.entry_usize;
+    LLVMValueRef array_ptr_indices[] = {
+        LLVMConstNull(usize->type_ref),
+        LLVMConstNull(usize->type_ref),
+    };
+
+    for (size_t field_i = 0; field_i < field_count; field_i += 1) {
+        Buf *name = enum_type->data.enumeration.fields[field_i].name;
+        LLVMValueRef str_init = LLVMConstString(buf_ptr(name), (unsigned)buf_len(name), true);
+        LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
+        LLVMSetInitializer(str_global, str_init);
+        LLVMSetLinkage(str_global, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(str_global, true);
+        LLVMSetUnnamedAddr(str_global, true);
+        LLVMSetAlignment(str_global, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(str_init)));
+
+        LLVMValueRef fields[] = {
+            LLVMConstGEP(str_global, array_ptr_indices, 2),
+            LLVMConstInt(g->builtin_types.entry_usize->type_ref, buf_len(name), false),
+        };
+        LLVMValueRef slice_init_value = LLVMConstNamedStruct(u8_slice_type->type_ref, fields, 2);
+
+        LLVMValueRef slice_global = LLVMAddGlobal(g->module, LLVMTypeOf(slice_init_value), "");
+        LLVMSetInitializer(slice_global, slice_init_value);
+        LLVMSetLinkage(slice_global, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(slice_global, true);
+        LLVMSetUnnamedAddr(slice_global, true);
+        LLVMSetAlignment(slice_global, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(slice_init_value)));
+
+        LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn_val, "Name");
+        LLVMValueRef this_tag_int_value = bigint_to_llvm_const(tag_int_type->type_ref,
+                &enum_type->data.enumeration.fields[field_i].value);
+        LLVMAddCase(switch_instr, this_tag_int_value, return_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, return_block);
+        LLVMBuildRet(g->builder, slice_global);
+    }
+
+    LLVMPositionBuilderAtEnd(g->builder, bad_value_block);
+    if (g->build_mode == BuildModeDebug || g->build_mode == BuildModeSafeRelease) {
+        gen_safety_crash(g, PanicMsgIdBadEnumValue);
+    } else {
+        LLVMBuildUnreachable(g->builder);
+    }
+
+    g->cur_fn = prev_cur_fn;
+    g->cur_fn_val = prev_cur_fn_val;
+    LLVMPositionBuilderAtEnd(g->builder, prev_block);
+    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+
+    enum_type->data.enumeration.name_function = fn_val;
+    return fn_val;
+}
+
 static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable,
         IrInstructionTagName *instruction)
 {
     TypeTableEntry *enum_type = instruction->target->value.type;
     assert(enum_type->id == TypeTableEntryIdEnum);
-    assert(enum_type->data.enumeration.generate_name_table);
 
-    TypeTableEntry *tag_int_type = enum_type->data.enumeration.tag_int_type;
+    LLVMValueRef enum_name_function = get_enum_tag_name_function(g, enum_type);
+
     LLVMValueRef enum_tag_value = ir_llvm_value(g, instruction->target);
-    if (ir_want_runtime_safety(g, &instruction->base)) {
-        size_t field_count = enum_type->data.enumeration.src_field_count;
-
-        // if the field_count can't fit in the bits of the enum_type, then it can't possibly
-        // be the wrong value
-        BigInt field_bi;
-        bigint_init_unsigned(&field_bi, field_count);
-        if (bigint_fits_in_bits(&field_bi, tag_int_type->data.integral.bit_count, false)) {
-            LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(enum_tag_value), field_count, false);
-            add_bounds_check(g, enum_tag_value, LLVMIntEQ, nullptr, LLVMIntULT, end_val);
-        }
-    }
-
-    LLVMValueRef indices[] = {
-        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
-        gen_widen_or_shorten(g, false, tag_int_type,
-                g->builtin_types.entry_usize, enum_tag_value),
-    };
-    return LLVMBuildInBoundsGEP(g->builder, enum_type->data.enumeration.name_table, indices, 2, "");
+    return ZigLLVMBuildCall(g->builder, enum_name_function, &enum_tag_value, 1,
+            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
 }
 
 static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutable *executable,
@@ -5471,55 +5551,6 @@ static void generate_error_name_table(CodeGen *g) {
     LLVMSetAlignment(g->err_name_table, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(err_name_table_init)));
 }
 
-static void generate_enum_name_tables(CodeGen *g) {
-    TypeTableEntry *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
-    TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
-
-    TypeTableEntry *usize = g->builtin_types.entry_usize;
-    LLVMValueRef array_ptr_indices[] = {
-        LLVMConstNull(usize->type_ref),
-        LLVMConstNull(usize->type_ref),
-    };
-
-
-    for (size_t enum_i = 0; enum_i < g->name_table_enums.length; enum_i += 1) {
-        TypeTableEntry *enum_type = g->name_table_enums.at(enum_i);
-        assert(enum_type->id == TypeTableEntryIdEnum);
-
-        size_t field_count = enum_type->data.enumeration.src_field_count;
-        LLVMValueRef *values = allocate<LLVMValueRef>(field_count);
-        for (size_t field_i = 0; field_i < field_count; field_i += 1) {
-            Buf *name = enum_type->data.enumeration.fields[field_i].name;
-
-            LLVMValueRef str_init = LLVMConstString(buf_ptr(name), (unsigned)buf_len(name), true);
-            LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
-            LLVMSetInitializer(str_global, str_init);
-            LLVMSetLinkage(str_global, LLVMPrivateLinkage);
-            LLVMSetGlobalConstant(str_global, true);
-            LLVMSetUnnamedAddr(str_global, true);
-            LLVMSetAlignment(str_global, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(str_init)));
-
-            LLVMValueRef fields[] = {
-                LLVMConstGEP(str_global, array_ptr_indices, 2),
-                LLVMConstInt(g->builtin_types.entry_usize->type_ref, buf_len(name), false),
-            };
-            values[field_i] = LLVMConstNamedStruct(str_type->type_ref, fields, 2);
-        }
-
-        LLVMValueRef name_table_init = LLVMConstArray(str_type->type_ref, values, (unsigned)field_count);
-
-        Buf *table_name = get_mangled_name(g, buf_sprintf("%s_name_table", buf_ptr(&enum_type->name)), false);
-        LLVMValueRef name_table = LLVMAddGlobal(g->module, LLVMTypeOf(name_table_init), buf_ptr(table_name));
-        LLVMSetInitializer(name_table, name_table_init);
-        LLVMSetLinkage(name_table, LLVMPrivateLinkage);
-        LLVMSetGlobalConstant(name_table, true);
-        LLVMSetUnnamedAddr(name_table, true);
-        LLVMSetAlignment(name_table, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(name_table_init)));
-        enum_type->data.enumeration.name_table = name_table;
-    }
-}
-
 static void build_all_basic_blocks(CodeGen *g, FnTableEntry *fn) {
     IrExecutable *executable = &fn->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
@@ -5616,7 +5647,6 @@ static void do_code_gen(CodeGen *g) {
     }
 
     generate_error_name_table(g);
-    generate_enum_name_tables(g);
 
     // Generate module level variables
     for (size_t i = 0; i < g->global_vars.length; i += 1) {
