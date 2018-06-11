@@ -3909,6 +3909,277 @@ pub fn main() void {
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
       {#header_close#}
+      {#header_open|Coroutines#}
+      <p>
+      A coroutine is a generalization of a function.
+      </p>
+      <p>
+      When you call a function, it creates a stack frame,
+      and then the function runs until it reaches a return
+      statement, and then the stack frame is destroyed.
+      At the callsite, the next line of code does not run
+      until the function returns.
+      </p>
+      <p>
+      A coroutine is like a function, but it can be suspended
+      and resumed any number of times, and then it must be
+      explicitly destroyed. When a coroutine suspends, it
+      returns to the resumer.
+      </p>
+      {#header_open|Minimal Coroutine Example#}
+      <p>
+      Declare a coroutine with the <code>async</code> keyword.
+      The expression in angle brackets must evaluate to a struct
+      which has these fields:
+      </p>
+      <ul>
+        <li><code>allocFn: fn (self: *Allocator, byte_count: usize, alignment: u29) Error![]u8</code> - where <code>Error</code> can be any error set.</li>
+        <li><code>freeFn: fn (self: *Allocator, old_mem: []u8) void</code></li>
+      </ul>
+      <p>
+      You may notice that this corresponds to the <code>std.mem.Allocator</code> interface.
+      This makes it convenient to integrate with existing allocators. Note, however,
+      that the language feature does not depend on the standard library, and any struct which
+      has these fields is allowed.
+      </p>
+      <p>
+      Omitting the angle bracket expression when defining an async function makes
+      the function generic. Zig will infer the allocator type when the async function is called.
+      </p>
+      <p>
+      Call a coroutine with the <code>async</code> keyword. Here, the expression in angle brackets
+      is a pointer to the allocator struct that the coroutine expects.
+      </p>
+      <p>
+      The result of an async function call is a <code>promise->T</code> type, where <code>T</code>
+      is the return type of the async function. Once a promise has been created, it must be
+      consumed, either with <code>cancel</code> or <code>await</code>:
+      </p>
+      <p>
+      Async functions start executing when created, so in the following example, the entire
+      async function completes before it is canceled:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+var x: i32 = 1;
+
+test "create a coroutine and cancel it" {
+    const p = try async<std.debug.global_allocator> simpleAsyncFn();
+    comptime assert(@typeOf(p) == promise->void);
+    cancel p;
+    assert(x == 2);
+}
+async<*std.mem.Allocator> fn simpleAsyncFn() void {
+    x += 1;
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Suspend and Resume#}
+      <p>
+      At any point, an async function may suspend itself. This causes control flow to
+      return to the caller or resumer. The following code demonstrates where control flow
+      goes:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "coroutine suspend, resume, cancel" {
+    seq('a');
+    const p = try async<std.debug.global_allocator> testAsyncSeq();
+    seq('c');
+    resume p;
+    seq('f');
+    cancel p;
+    seq('g');
+
+    assert(std.mem.eql(u8, points, "abcdefg"));
+}
+async fn testAsyncSeq() void {
+    defer seq('e');
+
+    seq('b');
+    suspend;
+    seq('d');
+}
+var points = []u8{0} ** "abcdefg".len;
+var index: usize = 0;
+
+fn seq(c: u8) void {
+    points[index] = c;
+    index += 1;
+}
+      {#code_end#}
+      <p>
+      When an async function suspends itself, it must be sure that it will be
+      resumed or canceled somehow, for example by registering its promise handle
+      in an event loop. Use a suspend capture block to gain access to the
+      promise:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "coroutine suspend with block" {
+    const p = try async<std.debug.global_allocator> testSuspendBlock();
+    std.debug.assert(!result);
+    resume a_promise;
+    std.debug.assert(result);
+    cancel p;
+}
+
+var a_promise: promise = undefined;
+var result = false;
+async fn testSuspendBlock() void {
+    suspend |p| {
+        comptime assert(@typeOf(p) == promise->void);
+        a_promise = p;
+    }
+    result = true;
+}
+      {#code_end#}
+      <p>
+      Every suspend point in an async function represents a point at which the coroutine
+      could be destroyed. If that happens, <code>defer</code> expressions that are in
+      scope are run, as well as <code>errdefer</code> expressions.
+      </p>
+      <p>
+      {#link|Await#} counts as a suspend point.
+      </p>
+      {#header_open|Breaking from Suspend Blocks#}
+      <p>
+      Suspend blocks support labeled break, just like {#link|while#} and {#link|for#}.
+      </p>
+      <p>
+      Upon entering a <code>suspend</code> block, the coroutine is already considered
+      suspended, and can be resumed. For example, if you started another kernel thread,
+      and had that thread call <code>resume</code> on the promise handle provided by the
+      <code>suspend</code> block, the new thread would begin executing after the suspend
+      block, while the old thread continued executing the suspend block.
+      </p>
+      <p>
+      However, if you use labeled <code>break</code> on the suspend block, the coroutine
+      never returns to its resumer and continues executing.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "break from suspend" {
+    var buf: [500]u8 = undefined;
+    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    var my_result: i32 = 1;
+    const p = try async<a> testBreakFromSuspend(&my_result);
+    cancel p;
+    std.debug.assert(my_result == 2);
+}
+async fn testBreakFromSuspend(my_result: *i32) void {
+    s: suspend |p| {
+        break :s;
+    }
+    my_result.* += 1;
+    suspend;
+    my_result.* += 1;
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_close#}
+      {#header_open|Await#}
+      <p>
+      The <code>await</code> keyword is used to coordinate with an async function's
+      <code>return</code> statement.
+      </p>
+      <p>
+      <code>await</code> is valid only in an <code>async</code> function, and it takes
+      as an operand a promise handle.
+      If the async function associated with the promise handle has already returned, 
+      then <code>await</code> destroys the target async function, and gives the return value.
+      Otherwise, <code>await</code> suspends the current async function, registering its
+      promise handle with the target coroutine. It becomes the target coroutine's responsibility
+      to have ensured that it will be resumed or destroyed. When the target coroutine reaches
+      its return statement, it gives the return value to the awaiter, destroys itself, and then
+      resumes the awaiter.
+      </p>
+      <p>
+      A promise handle must be consumed exactly once after it is created, either by <code>cancel</code> or <code>await</code>.
+      </p>
+      <p>
+      <code>await</code> counts as a suspend point, and therefore at every <code>await</code>,
+      a coroutine can be potentially destroyed, which would run <code>defer</code> and <code>errdefer</code> expressions.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+var a_promise: promise = undefined;
+var final_result: i32 = 0;
+
+test "coroutine await" {
+    seq('a');
+    const p = async<std.debug.global_allocator> amain() catch unreachable;
+    seq('f');
+    resume a_promise;
+    seq('i');
+    assert(final_result == 1234);
+    assert(std.mem.eql(u8, seq_points, "abcdefghi"));
+}
+async fn amain() void {
+    seq('b');
+    const p = async another() catch unreachable;
+    seq('e');
+    final_result = await p;
+    seq('h');
+}
+async fn another() i32 {
+    seq('c');
+    suspend |p| {
+        seq('d');
+        a_promise = p;
+    }
+    seq('g');
+    return 1234;
+}
+
+var seq_points = []u8{0} ** "abcdefghi".len;
+var seq_index: usize = 0;
+
+fn seq(c: u8) void {
+    seq_points[seq_index] = c;
+    seq_index += 1;
+}
+      {#code_end#}
+      <p>
+      In general, <code>suspend</code> is lower level than <code>await</code>. Most application
+      code will use only <code>async</code> and <code>await</code>, but event loop
+      implementations will make use of <code>suspend</code> internally.
+      </p>
+      {#header_close#}
+      {#header_open|Open Issues#}
+      <p>
+      There are a few issues with coroutines that are considered unresolved. Best be aware of them,
+      as the situation is likely to change before 1.0.0:
+      </p>
+      <ul>
+          <li>Async functions have optimizations disabled - even in release modes - due to an
+              <a href="https://github.com/ziglang/zig/issues/802">LLVM bug</a>.
+          </li>
+          <li>
+              There are some situations where we can know statically that there will not be
+              memory allocation failure, but Zig still forces us to handle it.
+              TODO file an issue for this and link it here.
+          </li>
+          <li>
+              Zig does not take advantage of LLVM's allocation elision optimization for
+              coroutines. It crashed LLVM when I tried to do it the first time. This is
+              related to the other 2 bullet points here. See
+              <a href="https://github.com/ziglang/zig/issues/802">#802</a>.
+          </li>
+      </ul>
+      {#header_close#}
+      
+      {#header_close#}
       {#header_open|Builtin Functions#}
       <p>
       Builtin functions are provided by the compiler and are prefixed with <code>@</code>.
@@ -6124,7 +6395,7 @@ hljs.registerLanguage("zig", function(t) {
         },
         a = t.IR + "\\s*\\(",
         c = {
-            keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
+            keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong resume cancel await async",
             built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall",
             literal: "true false null undefined"
         },
