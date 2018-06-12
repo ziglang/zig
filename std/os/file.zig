@@ -96,7 +96,20 @@ pub const File = struct {
         return File{ .handle = handle };
     }
 
-    pub fn access(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) !bool {
+    pub const AccessError = error {
+        PermissionDenied,
+        NotFound,
+        NameTooLong,
+        BadMode,
+        BadPathName,
+        Io,
+        SystemResources,
+        OutOfMemory,
+
+        Unexpected,
+    };
+
+    pub fn access(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) AccessError!bool {
         const path_with_null = try std.cstr.addNullByte(allocator, path);
         defer allocator.free(path_with_null);
 
@@ -123,8 +136,7 @@ pub const File = struct {
             }
             return true;
         } else if (is_windows) {
-            // TODO do not depend on shlwapi.dll
-            if (os.windows.PathFileExistsA(path_with_null.ptr) == os.windows.TRUE) {
+            if (os.windows.GetFileAttributesA(path_with_null.ptr) != os.windows.INVALID_FILE_ATTRIBUTES) {
                 return true;
             }
 

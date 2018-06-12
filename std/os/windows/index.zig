@@ -1,3 +1,7 @@
+test "import" {
+    _ = @import("util.zig");
+}
+
 pub const ERROR = @import("error.zig");
 
 pub extern "advapi32" stdcallcc fn CryptAcquireContextA(
@@ -61,6 +65,10 @@ pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) BOOL;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) noreturn;
 
+pub extern "kernel32" stdcallcc fn FindFirstFileA(lpFileName: LPCSTR, lpFindFileData: *WIN32_FIND_DATAA) HANDLE;
+pub extern "kernel32" stdcallcc fn FindClose(hFindFile: HANDLE) BOOL;
+pub extern "kernel32" stdcallcc fn FindNextFileA(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAA) BOOL;
+
 pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsA(penv: [*]u8) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetCommandLineA() LPSTR;
@@ -76,6 +84,8 @@ pub extern "kernel32" stdcallcc fn GetEnvironmentVariableA(lpName: LPCSTR, lpBuf
 pub extern "kernel32" stdcallcc fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: *DWORD) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetFileSizeEx(hFile: HANDLE, lpFileSize: *LARGE_INTEGER) BOOL;
+
+pub extern "kernel32" stdcallcc fn GetFileAttributesA(lpFileName: LPCSTR) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetModuleFileNameA(hModule: ?HMODULE, lpFilename: LPSTR, nSize: DWORD) DWORD;
 
@@ -97,7 +107,7 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
 
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 
-pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(?*FILETIME) void;
+pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(*FILETIME) void;
 
 pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
 pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
@@ -130,6 +140,8 @@ pub extern "kernel32" stdcallcc fn ReadFile(
     out_lpNumberOfBytesRead: *DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
 ) BOOL;
+
+pub extern "kernel32" stdcallcc fn RemoveDirectoryA(lpPathName: LPCSTR) BOOL;
 
 pub extern "kernel32" stdcallcc fn SetFilePointerEx(
     in_fFile: HANDLE,
@@ -196,7 +208,6 @@ pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const LARGE_INTEGER = i64;
-pub const FILETIME = i64;
 
 pub const TRUE = 1;
 pub const FALSE = 0;
@@ -211,6 +222,8 @@ pub const STD_OUTPUT_HANDLE = @maxValue(DWORD) - 11 + 1;
 pub const STD_ERROR_HANDLE = @maxValue(DWORD) - 12 + 1;
 
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, @maxValue(usize));
+
+pub const INVALID_FILE_ATTRIBUTES = DWORD(@maxValue(DWORD));
 
 pub const OVERLAPPED = extern struct {
     Internal: ULONG_PTR,
@@ -293,13 +306,24 @@ pub const OPEN_EXISTING = 3;
 pub const TRUNCATE_EXISTING = 5;
 
 pub const FILE_ATTRIBUTE_ARCHIVE = 0x20;
+pub const FILE_ATTRIBUTE_COMPRESSED = 0x800;
+pub const FILE_ATTRIBUTE_DEVICE = 0x40;
+pub const FILE_ATTRIBUTE_DIRECTORY = 0x10;
 pub const FILE_ATTRIBUTE_ENCRYPTED = 0x4000;
 pub const FILE_ATTRIBUTE_HIDDEN = 0x2;
+pub const FILE_ATTRIBUTE_INTEGRITY_STREAM = 0x8000;
 pub const FILE_ATTRIBUTE_NORMAL = 0x80;
+pub const FILE_ATTRIBUTE_NOT_CONTENT_INDEXED = 0x2000;
+pub const FILE_ATTRIBUTE_NO_SCRUB_DATA = 0x20000;
 pub const FILE_ATTRIBUTE_OFFLINE = 0x1000;
 pub const FILE_ATTRIBUTE_READONLY = 0x1;
+pub const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x400000;
+pub const FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x40000;
+pub const FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
+pub const FILE_ATTRIBUTE_SPARSE_FILE = 0x200;
 pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
+pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
 
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
@@ -372,6 +396,20 @@ pub const HEAP_NO_SERIALIZE = 0x00000001;
 pub const PTHREAD_START_ROUTINE = extern fn (LPVOID) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
-test "import" {
-    _ = @import("util.zig");
-}
+pub const WIN32_FIND_DATAA = extern struct {
+    dwFileAttributes: DWORD,
+    ftCreationTime: FILETIME,
+    ftLastAccessTime: FILETIME,
+    ftLastWriteTime: FILETIME,
+    nFileSizeHigh: DWORD,
+    nFileSizeLow: DWORD,
+    dwReserved0: DWORD,
+    dwReserved1: DWORD,
+    cFileName: [260]CHAR,
+    cAlternateFileName: [14]CHAR,
+};
+
+pub const FILETIME = extern struct {
+    dwLowDateTime: DWORD,
+    dwHighDateTime: DWORD,
+};

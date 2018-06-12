@@ -170,3 +170,41 @@ test "InvalidDll" {
         return;
     };
 }
+
+
+pub fn windowsFindFirstFile(allocator: *mem.Allocator, dir_path: []const u8,
+    find_file_data: *windows.WIN32_FIND_DATAA) !windows.HANDLE
+{
+    const wild_and_null = []u8{'\\', '*', 0};
+    const path_with_wild_and_null = try allocator.alloc(u8, dir_path.len + wild_and_null.len);
+    defer allocator.free(path_with_wild_and_null);
+
+    mem.copy(u8, path_with_wild_and_null, dir_path);
+    mem.copy(u8, path_with_wild_and_null[dir_path.len..], wild_and_null);
+
+    const handle = windows.FindFirstFileA(path_with_wild_and_null.ptr, find_file_data);
+
+    if (handle == windows.INVALID_HANDLE_VALUE) {
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND,
+            windows.ERROR.PATH_NOT_FOUND,
+            => return error.PathNotFound,
+            else => return os.unexpectedErrorWindows(err),
+        }
+    }
+
+    return handle;
+} 
+
+/// Returns `true` if there was another file, `false` otherwise.
+pub fn windowsFindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN32_FIND_DATAA) !bool {
+    if (windows.FindNextFileA(handle, find_file_data) == 0) {
+        const err = windows.GetLastError();
+        return switch (err) {
+            windows.ERROR.NO_MORE_FILES => false,
+            else => os.unexpectedErrorWindows(err),
+        };
+    }
+    return true;
+} 

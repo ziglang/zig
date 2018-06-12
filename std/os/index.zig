@@ -734,7 +734,23 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     }
 }
 
-pub fn deleteFile(allocator: *Allocator, file_path: []const u8) !void {
+pub const DeleteFileError = error {
+    FileNotFound,
+    AccessDenied,
+    FileBusy,
+    FileSystem,
+    IsDir,
+    SymLinkLoop,
+    NameTooLong,
+    NotDir,
+    SystemResources,
+    ReadOnlyFileSystem,
+    OutOfMemory,
+
+    Unexpected,
+};
+
+pub fn deleteFile(allocator: *Allocator, file_path: []const u8) DeleteFileError!void {
     if (builtin.os == Os.windows) {
         return deleteFileWindows(allocator, file_path);
     } else {
@@ -1019,37 +1035,67 @@ pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
     }
 }
 
+pub const DeleteDirError = error {
+    AccessDenied,
+    FileBusy,
+    SymLinkLoop,
+    NameTooLong,
+    FileNotFound,
+    SystemResources,
+    NotDir,
+    DirNotEmpty,
+    ReadOnlyFileSystem,
+    OutOfMemory,
+
+    Unexpected,
+};
+
 /// Returns ::error.DirNotEmpty if the directory is not empty.
 /// To delete a directory recursively, see ::deleteTree
-pub fn deleteDir(allocator: *Allocator, dir_path: []const u8) !void {
+pub fn deleteDir(allocator: *Allocator, dir_path: []const u8) DeleteDirError!void {
     const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
     mem.copy(u8, path_buf, dir_path);
     path_buf[dir_path.len] = 0;
 
-    const err = posix.getErrno(posix.rmdir(path_buf.ptr));
-    if (err > 0) {
-        return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
-            posix.EBUSY => error.FileBusy,
-            posix.EFAULT, posix.EINVAL => unreachable,
-            posix.ELOOP => error.SymLinkLoop,
-            posix.ENAMETOOLONG => error.NameTooLong,
-            posix.ENOENT => error.FileNotFound,
-            posix.ENOMEM => error.SystemResources,
-            posix.ENOTDIR => error.NotDir,
-            posix.EEXIST, posix.ENOTEMPTY => error.DirNotEmpty,
-            posix.EROFS => error.ReadOnlyFileSystem,
-            else => unexpectedErrorPosix(err),
-        };
+    switch (builtin.os) {
+        Os.windows => {
+            if (windows.RemoveDirectoryA(path_buf.ptr) == 0) {
+                const err = windows.GetLastError();
+                return switch (err) {
+                    windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
+                    windows.ERROR.DIR_NOT_EMPTY => error.DirNotEmpty,
+                    else => unexpectedErrorWindows(err),
+                };
+            }
+        },
+        Os.linux, Os.macosx, Os.ios => {
+            const err = posix.getErrno(posix.rmdir(path_buf.ptr));
+            if (err > 0) {
+                return switch (err) {
+                    posix.EACCES, posix.EPERM => error.AccessDenied,
+                    posix.EBUSY => error.FileBusy,
+                    posix.EFAULT, posix.EINVAL => unreachable,
+                    posix.ELOOP => error.SymLinkLoop,
+                    posix.ENAMETOOLONG => error.NameTooLong,
+                    posix.ENOENT => error.FileNotFound,
+                    posix.ENOMEM => error.SystemResources,
+                    posix.ENOTDIR => error.NotDir,
+                    posix.EEXIST, posix.ENOTEMPTY => error.DirNotEmpty,
+                    posix.EROFS => error.ReadOnlyFileSystem,
+                    else => unexpectedErrorPosix(err),
+                };
+            }
+        },
+        else => @compileError("unimplemented"),
     }
+
 }
 
 /// Whether ::full_path describes a symlink, file, or directory, this function
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
-/// TODO non-recursive implementation
 const DeleteTreeError = error{
     OutOfMemory,
     AccessDenied,
@@ -1128,7 +1174,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
                 try full_entry_buf.resize(full_path.len + entry.name.len + 1);
                 const full_entry_path = full_entry_buf.toSlice();
                 mem.copy(u8, full_entry_path, full_path);
-                full_entry_path[full_path.len] = '/';
+                full_entry_path[full_path.len] = path.sep;
                 mem.copy(u8, full_entry_path[full_path.len + 1 ..], entry.name);
 
                 try deleteTree(allocator, full_entry_path);
@@ -1139,16 +1185,29 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
 }
 
 pub const Dir = struct {
-    fd: i32,
-    darwin_seek: darwin_seek_t,
+    handle: Handle,
     allocator: *Allocator,
-    buf: []u8,
-    index: usize,
-    end_index: usize,
 
-    const darwin_seek_t = switch (builtin.os) {
-        Os.macosx, Os.ios => i64,
-        else => void,
+    pub const Handle = switch (builtin.os) {
+        Os.macosx, Os.ios => struct {
+            fd: i32,
+            seek: i64,
+            buf: []u8,
+            index: usize,
+            end_index: usize,
+        },
+        Os.linux => struct {
+            fd: i32,
+            buf: []u8,
+            index: usize,
+            end_index: usize,
+        },
+        Os.windows => struct {
+            handle: windows.HANDLE,
+            find_file_data: windows.WIN32_FIND_DATAA,
+            first: bool,
+        },
+        else => @compileError("unimplemented"),
     };
 
     pub const Entry = struct {
@@ -1168,81 +1227,117 @@ pub const Dir = struct {
         };
     };
 
-    pub fn open(allocator: *Allocator, dir_path: []const u8) !Dir {
-        const fd = switch (builtin.os) {
-            Os.windows => @compileError("TODO support Dir.open for windows"),
-            Os.linux => try posixOpen(allocator, dir_path, posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC, 0),
-            Os.macosx, Os.ios => try posixOpen(
-                allocator,
-                dir_path,
-                posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
-                0,
-            ),
-            else => @compileError("Dir.open is not supported for this platform"),
-        };
-        const darwin_seek_init = switch (builtin.os) {
-            Os.macosx, Os.ios => 0,
-            else => {},
-        };
+    pub const OpenError = error {
+        PathNotFound,
+        NotDir,
+        AccessDenied,
+        FileTooBig,
+        IsDir,
+        SymLinkLoop,
+        ProcessFdQuotaExceeded,
+        NameTooLong,
+        SystemFdQuotaExceeded,
+        NoDevice,
+        SystemResources,
+        NoSpaceLeft,
+        PathAlreadyExists,
+        OutOfMemory,
+
+        Unexpected,
+    };
+
+    pub fn open(allocator: *Allocator, dir_path: []const u8) OpenError!Dir {
         return Dir{
             .allocator = allocator,
-            .fd = fd,
-            .darwin_seek = darwin_seek_init,
-            .index = 0,
-            .end_index = 0,
-            .buf = []u8{},
+            .handle = switch (builtin.os) {
+                Os.windows => blk: {
+                    var find_file_data: windows.WIN32_FIND_DATAA = undefined;
+                    const handle = try windows_util.windowsFindFirstFile(allocator, dir_path, &find_file_data);
+                    break :blk Handle {
+                        .handle = handle,
+                        .find_file_data = find_file_data, // TODO guaranteed copy elision
+                        .first = true,
+                    };
+                },
+                Os.macosx, Os.ios => Handle {
+                    .fd = try posixOpen(
+                        allocator,
+                        dir_path,
+                        posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
+                        0,
+                    ),
+                    .seek = 0,
+                    .index = 0,
+                    .end_index = 0,
+                    .buf = []u8{},
+                },
+                Os.linux => Handle {
+                    .fd = try posixOpen(allocator, dir_path, posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC, 0,),
+                    .index = 0,
+                    .end_index = 0,
+                    .buf = []u8{},
+                },
+                else => @compileError("unimplemented"),
+            },
         };
     }
 
     pub fn close(self: *Dir) void {
-        self.allocator.free(self.buf);
-        os.close(self.fd);
+        switch (builtin.os) {
+            Os.windows => {
+                _ = windows.FindClose(self.handle.handle);
+            },
+            Os.macosx, Os.ios, Os.linux => {
+                self.allocator.free(self.handle.buf);
+                os.close(self.handle.fd);
+            },
+            else => @compileError("unimplemented"),
+        }
     }
 
     /// Memory such as file names referenced in this returned entry becomes invalid
-    /// with subsequent calls to next, as well as when this ::Dir is deinitialized.
+    /// with subsequent calls to next, as well as when this `Dir` is deinitialized.
     pub fn next(self: *Dir) !?Entry {
         switch (builtin.os) {
             Os.linux => return self.nextLinux(),
             Os.macosx, Os.ios => return self.nextDarwin(),
             Os.windows => return self.nextWindows(),
-            else => @compileError("Dir.next not supported on " ++ @tagName(builtin.os)),
+            else => @compileError("unimplemented"),
         }
     }
 
     fn nextDarwin(self: *Dir) !?Entry {
         start_over: while (true) {
-            if (self.index >= self.end_index) {
-                if (self.buf.len == 0) {
-                    self.buf = try self.allocator.alloc(u8, page_size);
+            if (self.handle.index >= self.handle.end_index) {
+                if (self.handle.buf.len == 0) {
+                    self.handle.buf = try self.allocator.alloc(u8, page_size);
                 }
 
                 while (true) {
-                    const result = posix.getdirentries64(self.fd, self.buf.ptr, self.buf.len, &self.darwin_seek);
+                    const result = posix.getdirentries64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len, &self.handle.seek);
                     const err = posix.getErrno(result);
                     if (err > 0) {
                         switch (err) {
                             posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
-                                self.buf = try self.allocator.realloc(u8, self.buf, self.buf.len * 2);
+                                self.handle.buf = try self.allocator.realloc(u8, self.handle.buf, self.handle.buf.len * 2);
                                 continue;
                             },
                             else => return unexpectedErrorPosix(err),
                         }
                     }
                     if (result == 0) return null;
-                    self.index = 0;
-                    self.end_index = result;
+                    self.handle.index = 0;
+                    self.handle.end_index = result;
                     break;
                 }
             }
-            const darwin_entry = @ptrCast(*align(1) posix.dirent, &self.buf[self.index]);
-            const next_index = self.index + darwin_entry.d_reclen;
-            self.index = next_index;
+            const darwin_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const next_index = self.handle.index + darwin_entry.d_reclen;
+            self.handle.index = next_index;
 
             const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
 
-            // skip . and .. entries
             if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
                 continue :start_over;
             }
@@ -1266,38 +1361,59 @@ pub const Dir = struct {
     }
 
     fn nextWindows(self: *Dir) !?Entry {
-        @compileError("TODO support Dir.next for windows");
+        while (true) {
+            if (self.handle.first) {
+                self.handle.first = false;
+            } else {
+                if (!try windows_util.windowsFindNextFile(self.handle.handle, &self.handle.find_file_data))
+                    return null;
+            }
+            const name = std.cstr.toSlice(self.handle.find_file_data.cFileName[0..].ptr);
+            if (mem.eql(u8, name, ".") or mem.eql(u8, name, ".."))
+                continue;
+            const kind = blk: {
+                const attrs = self.handle.find_file_data.dwFileAttributes;
+                if (attrs & windows.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
+                if (attrs & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
+                if (attrs & windows.FILE_ATTRIBUTE_NORMAL != 0) break :blk Entry.Kind.File;
+                break :blk Entry.Kind.Unknown;
+            };
+            return Entry {
+                .name = name,
+                .kind = kind,
+            };
+        }
     }
 
     fn nextLinux(self: *Dir) !?Entry {
         start_over: while (true) {
-            if (self.index >= self.end_index) {
-                if (self.buf.len == 0) {
-                    self.buf = try self.allocator.alloc(u8, page_size);
+            if (self.handle.index >= self.handle.end_index) {
+                if (self.handle.buf.len == 0) {
+                    self.handle.buf = try self.allocator.alloc(u8, page_size);
                 }
 
                 while (true) {
-                    const result = posix.getdents(self.fd, self.buf.ptr, self.buf.len);
+                    const result = posix.getdents(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len);
                     const err = posix.getErrno(result);
                     if (err > 0) {
                         switch (err) {
                             posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
-                                self.buf = try self.allocator.realloc(u8, self.buf, self.buf.len * 2);
+                                self.handle.buf = try self.allocator.realloc(u8, self.handle.buf, self.handle.buf.len * 2);
                                 continue;
                             },
                             else => return unexpectedErrorPosix(err),
                         }
                     }
                     if (result == 0) return null;
-                    self.index = 0;
-                    self.end_index = result;
+                    self.handle.index = 0;
+                    self.handle.end_index = result;
                     break;
                 }
             }
-            const linux_entry = @ptrCast(*align(1) posix.dirent, &self.buf[self.index]);
-            const next_index = self.index + linux_entry.d_reclen;
-            self.index = next_index;
+            const linux_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const next_index = self.handle.index + linux_entry.d_reclen;
+            self.handle.index = next_index;
 
             const name = cstr.toSlice(@ptrCast([*]u8, &linux_entry.d_name));
 
@@ -1306,7 +1422,7 @@ pub const Dir = struct {
                 continue :start_over;
             }
 
-            const type_char = self.buf[next_index - 1];
+            const type_char = self.handle.buf[next_index - 1];
             const entry_kind = switch (type_char) {
                 posix.DT_BLK => Entry.Kind.BlockDevice,
                 posix.DT_CHR => Entry.Kind.CharacterDevice,

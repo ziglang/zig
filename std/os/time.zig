@@ -68,11 +68,13 @@ pub const milliTimestamp = switch (builtin.os) {
 fn milliTimestampWindows() u64 {
     //FileTime has a granularity of 100 nanoseconds
     //  and uses the NTFS/Windows epoch
-    var ft: i64 = undefined;
+    var ft: windows.FILETIME = undefined;
     windows.GetSystemTimeAsFileTime(&ft);
     const hns_per_ms = (ns_per_s / 100) / ms_per_s;
     const epoch_adj = epoch.windows * ms_per_s;
-    return u64(@divFloor(ft, hns_per_ms) + epoch_adj);
+
+    const ft64 = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    return @divFloor(ft64, hns_per_ms) - - epoch_adj;
 }
 
 fn milliTimestampDarwin() u64 {
