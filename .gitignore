@@ -1,3 +1,5 @@
 zig-cache/
 build/
 build-*/
+foo.h
+test.h
