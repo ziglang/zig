@@ -96,7 +96,7 @@ pub const File = struct {
         return File{ .handle = handle };
     }
 
-    pub const AccessError = error {
+    pub const AccessError = error{
         PermissionDenied,
         NotFound,
         NameTooLong,

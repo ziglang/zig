@@ -74,7 +74,7 @@ fn milliTimestampWindows() u64 {
     const epoch_adj = epoch.windows * ms_per_s;
 
     const ft64 = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-    return @divFloor(ft64, hns_per_ms) - - epoch_adj;
+    return @divFloor(ft64, hns_per_ms) - -epoch_adj;
 }
 
 fn milliTimestampDarwin() u64 {

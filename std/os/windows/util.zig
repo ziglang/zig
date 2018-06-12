@@ -171,11 +171,12 @@ test "InvalidDll" {
     };
 }
 
-
-pub fn windowsFindFirstFile(allocator: *mem.Allocator, dir_path: []const u8,
-    find_file_data: *windows.WIN32_FIND_DATAA) !windows.HANDLE
-{
-    const wild_and_null = []u8{'\\', '*', 0};
+pub fn windowsFindFirstFile(
+    allocator: *mem.Allocator,
+    dir_path: []const u8,
+    find_file_data: *windows.WIN32_FIND_DATAA,
+) !windows.HANDLE {
+    const wild_and_null = []u8{ '\\', '*', 0 };
     const path_with_wild_and_null = try allocator.alloc(u8, dir_path.len + wild_and_null.len);
     defer allocator.free(path_with_wild_and_null);
 
@@ -195,7 +196,7 @@ pub fn windowsFindFirstFile(allocator: *mem.Allocator, dir_path: []const u8,
     }
 
     return handle;
-} 
+}
 
 /// Returns `true` if there was another file, `false` otherwise.
 pub fn windowsFindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN32_FIND_DATAA) !bool {
@@ -207,4 +208,4 @@ pub fn windowsFindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN3
         };
     }
     return true;
-} 
+}

@@ -734,7 +734,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     }
 }
 
-pub const DeleteFileError = error {
+pub const DeleteFileError = error{
     FileNotFound,
     AccessDenied,
     FileBusy,
@@ -1035,7 +1035,7 @@ pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
     }
 }
 
-pub const DeleteDirError = error {
+pub const DeleteDirError = error{
     AccessDenied,
     FileBusy,
     SymLinkLoop,
@@ -1090,7 +1090,6 @@ pub fn deleteDir(allocator: *Allocator, dir_path: []const u8) DeleteDirError!voi
         },
         else => @compileError("unimplemented"),
     }
-
 }
 
 /// Whether ::full_path describes a symlink, file, or directory, this function
@@ -1227,7 +1226,7 @@ pub const Dir = struct {
         };
     };
 
-    pub const OpenError = error {
+    pub const OpenError = error{
         PathNotFound,
         NotDir,
         AccessDenied,
@@ -1253,13 +1252,13 @@ pub const Dir = struct {
                 Os.windows => blk: {
                     var find_file_data: windows.WIN32_FIND_DATAA = undefined;
                     const handle = try windows_util.windowsFindFirstFile(allocator, dir_path, &find_file_data);
-                    break :blk Handle {
+                    break :blk Handle{
                         .handle = handle,
                         .find_file_data = find_file_data, // TODO guaranteed copy elision
                         .first = true,
                     };
                 },
-                Os.macosx, Os.ios => Handle {
+                Os.macosx, Os.ios => Handle{
                     .fd = try posixOpen(
                         allocator,
                         dir_path,
@@ -1271,8 +1270,13 @@ pub const Dir = struct {
                     .end_index = 0,
                     .buf = []u8{},
                 },
-                Os.linux => Handle {
-                    .fd = try posixOpen(allocator, dir_path, posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC, 0,),
+                Os.linux => Handle{
+                    .fd = try posixOpen(
+                        allocator,
+                        dir_path,
+                        posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC,
+                        0,
+                    ),
                     .index = 0,
                     .end_index = 0,
                     .buf = []u8{},
@@ -1378,7 +1382,7 @@ pub const Dir = struct {
                 if (attrs & windows.FILE_ATTRIBUTE_NORMAL != 0) break :blk Entry.Kind.File;
                 break :blk Entry.Kind.Unknown;
             };
-            return Entry {
+            return Entry{
                 .name = name,
                 .kind = kind,
             };
