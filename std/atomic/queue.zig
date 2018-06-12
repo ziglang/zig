@@ -94,8 +94,18 @@ test "std.atomic.queue" {
     for (getters) |t|
         t.wait();
 
-    std.debug.assert(context.put_sum == context.get_sum);
-    std.debug.assert(context.get_count == puts_per_thread * put_thread_count);
+    if (context.put_sum != context.get_sum) {
+        std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);
+    }
+
+    if (context.get_count != puts_per_thread * put_thread_count) {
+        std.debug.panic(
+            "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
+            context.get_count,
+            u32(puts_per_thread),
+            u32(put_thread_count),
+        );
+    }
 }
 
 fn startPuts(ctx: *Context) u8 {
