@@ -8151,6 +8151,17 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         }
     }
 
+    // implicit T to *T where T is zero bits
+    if (expected_type->id == TypeTableEntryIdPointer && expected_type->data.pointer.ptr_len == PtrLenSingle &&
+        types_match_const_cast_only(ira, expected_type->data.pointer.child_type,
+            actual_type, source_node).id == ConstCastResultIdOk)
+    {
+        type_ensure_zero_bits_known(ira->codegen, actual_type);
+        if (!type_has_bits(actual_type)) {
+            return ImplicitCastMatchResultYes;
+        }
+    }
+
     // implicit undefined literal to anything
     if (actual_type->id == TypeTableEntryIdUndefined) {
         return ImplicitCastMatchResultYes;
@@ -8820,7 +8831,7 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         TypeTableEntry *wanted_type, CastOp cast_op, bool need_alloca)
 {
-    if (value->value.special != ConstValSpecialRuntime &&
+    if ((instr_is_comptime(value) || !type_has_bits(wanted_type)) &&
         cast_op != CastOpResizeSlice && cast_op != CastOpBytesToSlice)
     {
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
@@ -9382,7 +9393,17 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
 
     if (value->id == IrInstructionIdLoadPtr) {
         IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *) value;
+
         if (load_ptr_inst->ptr->value.type->data.pointer.is_const) {
+            return load_ptr_inst->ptr;
+        }
+
+        type_ensure_zero_bits_known(ira->codegen, value->value.type);
+        if (type_is_invalid(value->value.type)) {
+            return ira->codegen->invalid_instruction;
+        }
+
+        if (!type_has_bits(value->value.type)) {
             return load_ptr_inst->ptr;
         }
     }
@@ -10337,6 +10358,20 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
             }
             return ir_analyze_ptr_to_array(ira, source_instr, value, wanted_type);
+        }
+    }
+
+    // explicit cast from T to *T where T is zero bits
+    if (wanted_type->id == TypeTableEntryIdPointer && wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+        types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
+            actual_type, source_node).id == ConstCastResultIdOk)
+    {
+        type_ensure_zero_bits_known(ira->codegen, actual_type);
+        if (type_is_invalid(actual_type)) {
+            return ira->codegen->invalid_instruction;
+        }
+        if (!type_has_bits(actual_type)) {
+            return ir_get_ref(ira, source_instr, value, false, false);
         }
     }
 
