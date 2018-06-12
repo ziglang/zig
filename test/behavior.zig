@@ -31,6 +31,7 @@ comptime {
     _ = @import("cases/incomplete_struct_param_tld.zig");
     _ = @import("cases/ir_block_deps.zig");
     _ = @import("cases/math.zig");
+    _ = @import("cases/merge_error_sets.zig");
     _ = @import("cases/misc.zig");
     _ = @import("cases/namespace_depends_on_compile_var/index.zig");
     _ = @import("cases/new_stack_call.zig");

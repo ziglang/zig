@@ -3117,7 +3117,50 @@ test "error union" {
     comptime assert(@typeOf(foo).ErrorSet == error);
 }
       {#code_end#}
-      <p>TODO the <code>||</code> operator for error sets</p>
+      {#header_open|Merging Error Sets#}
+      <p>
+      Use the <code>||</code> operator to merge two error sets together. The resulting
+      error set contains the errors of both error sets. Doc comments from the left-hand
+      side override doc comments from the right-hand side. In this example, the doc
+      comments for <code>C.PathNotFound</code> is <code>A doc comment</code>.
+      </p>
+      <p>
+      This is especially useful for functions which return different error sets depending
+      on {#link|comptime#} branches. For example, the Zig standard library uses
+      <code>LinuxFileOpenError || WindowsFileOpenError</code> for the error set of opening
+      files.
+      </p>
+      {#code_begin|test#}
+const A = error{
+    NotDir,
+
+    /// A doc comment
+    PathNotFound,
+};
+const B = error{
+    OutOfMemory,
+
+    /// B doc comment
+    PathNotFound,
+};
+
+const C = A || B;
+
+fn foo() C!void {
+    return error.NotDir;
+}
+
+test "merge error sets" {
+    if (foo()) {
+        @panic("unexpected");
+    } else |err| switch (err) {
+        error.OutOfMemory => @panic("unexpected"),
+        error.PathNotFound => @panic("unexpected"),
+        error.NotDir => {},
+    }
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|Inferred Error Sets#}
       <p>
       Because many functions in Zig return a possible error, Zig supports inferring the error set.
