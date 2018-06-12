@@ -958,6 +958,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
 
+                        const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{}.h", code.name);
+                        const output_h_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_h_ext);
+
                         try build_args.appendSlice([][]const u8{
                             zig_exe,
                             "build-obj",
@@ -966,6 +969,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "on",
                             "--output",
                             tmp_obj_file_name,
+                            "--output-h",
+                            output_h_file_name,
                         });
 
                         if (!code.is_inline) {
