@@ -1542,7 +1542,7 @@ pub const Node = struct {
                         i -= 1;
                     }
                 },
-                Op.AddrOf => |addr_of_info| {
+                Op.AddressOf => |addr_of_info| {
                     if (addr_of_info.align_info) |align_info| {
                         if (i < 1) return align_info.node;
                         i -= 1;
@@ -1561,8 +1561,7 @@ pub const Node = struct {
                 Op.NegationWrap,
                 Op.Try,
                 Op.Resume,
-                Op.UnwrapOptional,
-                Op.PointerType,
+                Op.PtrType,
                 => {},
             }
 
