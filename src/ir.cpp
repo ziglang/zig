@@ -7647,23 +7647,24 @@ static TypeTableEntry *get_error_set_intersection(IrAnalyze *ira, TypeTableEntry
 }
 
 
-static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry *expected_type,
-        TypeTableEntry *actual_type, AstNode *source_node)
+static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry *wanted_type,
+        TypeTableEntry *actual_type, AstNode *source_node, bool wanted_is_mutable)
 {
     CodeGen *g = ira->codegen;
     ConstCastOnly result = {};
     result.id = ConstCastResultIdOk;
 
-    if (expected_type == actual_type)
+    if (wanted_type == actual_type)
         return result;
 
     // * and [*] can do a const-cast-only to ?* and ?[*], respectively
-    if (expected_type->id == TypeTableEntryIdOptional &&
-        expected_type->data.maybe.child_type->id == TypeTableEntryIdPointer &&
+    // but not if there is a mutable parent pointer
+    if (!wanted_is_mutable && wanted_type->id == TypeTableEntryIdOptional &&
+        wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer &&
         actual_type->id == TypeTableEntryIdPointer)
     {
         ConstCastOnly child = types_match_const_cast_only(ira,
-                expected_type->data.maybe.child_type, actual_type, source_node);
+                wanted_type->data.maybe.child_type, actual_type, source_node, wanted_is_mutable);
         if (child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdNullWrapPtr;
             result.data.null_wrap_ptr_child = allocate_nonzero<ConstCastOnly>(1);
@@ -7673,16 +7674,17 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     }
 
     // pointer const
-    if (expected_type->id == TypeTableEntryIdPointer &&
+    if (wanted_type->id == TypeTableEntryIdPointer &&
         actual_type->id == TypeTableEntryIdPointer &&
-        (actual_type->data.pointer.ptr_len == expected_type->data.pointer.ptr_len) &&
-        (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const) &&
-        (!actual_type->data.pointer.is_volatile || expected_type->data.pointer.is_volatile) &&
-        actual_type->data.pointer.bit_offset == expected_type->data.pointer.bit_offset &&
-        actual_type->data.pointer.unaligned_bit_count == expected_type->data.pointer.unaligned_bit_count &&
-        actual_type->data.pointer.alignment >= expected_type->data.pointer.alignment)
+        (actual_type->data.pointer.ptr_len == wanted_type->data.pointer.ptr_len) &&
+        (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
+        (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile) &&
+        actual_type->data.pointer.bit_offset == wanted_type->data.pointer.bit_offset &&
+        actual_type->data.pointer.unaligned_bit_count == wanted_type->data.pointer.unaligned_bit_count &&
+        actual_type->data.pointer.alignment >= wanted_type->data.pointer.alignment)
     {
-        ConstCastOnly child = types_match_const_cast_only(ira, expected_type->data.pointer.child_type, actual_type->data.pointer.child_type, source_node);
+        ConstCastOnly child = types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
+                actual_type->data.pointer.child_type, source_node, !wanted_type->data.pointer.is_const);
         if (child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdPointerChild;
             result.data.pointer_child = allocate_nonzero<ConstCastOnly>(1);
@@ -7692,17 +7694,17 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     }
 
     // slice const
-    if (is_slice(expected_type) && is_slice(actual_type)) {
+    if (is_slice(wanted_type) && is_slice(actual_type)) {
         TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
-        TypeTableEntry *expected_ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
-        if ((!actual_ptr_type->data.pointer.is_const || expected_ptr_type->data.pointer.is_const) &&
-            (!actual_ptr_type->data.pointer.is_volatile || expected_ptr_type->data.pointer.is_volatile) &&
-            actual_ptr_type->data.pointer.bit_offset == expected_ptr_type->data.pointer.bit_offset &&
-            actual_ptr_type->data.pointer.unaligned_bit_count == expected_ptr_type->data.pointer.unaligned_bit_count &&
-            actual_ptr_type->data.pointer.alignment >= expected_ptr_type->data.pointer.alignment)
+        TypeTableEntry *wanted_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        if ((!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
+            (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile) &&
+            actual_ptr_type->data.pointer.bit_offset == wanted_ptr_type->data.pointer.bit_offset &&
+            actual_ptr_type->data.pointer.unaligned_bit_count == wanted_ptr_type->data.pointer.unaligned_bit_count &&
+            actual_ptr_type->data.pointer.alignment >= wanted_ptr_type->data.pointer.alignment)
         {
-            ConstCastOnly child = types_match_const_cast_only(ira, expected_ptr_type->data.pointer.child_type,
-                    actual_ptr_type->data.pointer.child_type, source_node);
+            ConstCastOnly child = types_match_const_cast_only(ira, wanted_ptr_type->data.pointer.child_type,
+                    actual_ptr_type->data.pointer.child_type, source_node, !wanted_ptr_type->data.pointer.is_const);
             if (child.id != ConstCastResultIdOk) {
                 result.id = ConstCastResultIdSliceChild;
                 result.data.slice_child = allocate_nonzero<ConstCastOnly>(1);
@@ -7713,8 +7715,9 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     }
 
     // maybe
-    if (expected_type->id == TypeTableEntryIdOptional && actual_type->id == TypeTableEntryIdOptional) {
-        ConstCastOnly child = types_match_const_cast_only(ira, expected_type->data.maybe.child_type, actual_type->data.maybe.child_type, source_node);
+    if (wanted_type->id == TypeTableEntryIdOptional && actual_type->id == TypeTableEntryIdOptional) {
+        ConstCastOnly child = types_match_const_cast_only(ira, wanted_type->data.maybe.child_type,
+                actual_type->data.maybe.child_type, source_node, wanted_is_mutable);
         if (child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdOptionalChild;
             result.data.optional_child = allocate_nonzero<ConstCastOnly>(1);
@@ -7724,15 +7727,17 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     }
 
     // error union
-    if (expected_type->id == TypeTableEntryIdErrorUnion && actual_type->id == TypeTableEntryIdErrorUnion) {
-        ConstCastOnly payload_child = types_match_const_cast_only(ira, expected_type->data.error_union.payload_type, actual_type->data.error_union.payload_type, source_node);
+    if (wanted_type->id == TypeTableEntryIdErrorUnion && actual_type->id == TypeTableEntryIdErrorUnion) {
+        ConstCastOnly payload_child = types_match_const_cast_only(ira, wanted_type->data.error_union.payload_type,
+                actual_type->data.error_union.payload_type, source_node, wanted_is_mutable);
         if (payload_child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdErrorUnionPayload;
             result.data.error_union_payload = allocate_nonzero<ConstCastOnly>(1);
             *result.data.error_union_payload = payload_child;
             return result;
         }
-        ConstCastOnly error_set_child = types_match_const_cast_only(ira, expected_type->data.error_union.err_set_type, actual_type->data.error_union.err_set_type, source_node);
+        ConstCastOnly error_set_child = types_match_const_cast_only(ira, wanted_type->data.error_union.err_set_type,
+                actual_type->data.error_union.err_set_type, source_node, wanted_is_mutable);
         if (error_set_child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdErrorUnionErrorSet;
             result.data.error_union_error_set = allocate_nonzero<ConstCastOnly>(1);
@@ -7743,9 +7748,9 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     }
 
     // error set
-    if (expected_type->id == TypeTableEntryIdErrorSet && actual_type->id == TypeTableEntryIdErrorSet) {
+    if (wanted_type->id == TypeTableEntryIdErrorSet && actual_type->id == TypeTableEntryIdErrorSet) {
         TypeTableEntry *contained_set = actual_type;
-        TypeTableEntry *container_set = expected_type;
+        TypeTableEntry *container_set = wanted_type;
 
         // if the container set is inferred, then this will always work.
         if (container_set->data.error_set.infer_fn != nullptr) {
@@ -7786,36 +7791,37 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
         return result;
     }
 
-    if (expected_type == ira->codegen->builtin_types.entry_promise &&
+    if (wanted_type == ira->codegen->builtin_types.entry_promise &&
         actual_type->id == TypeTableEntryIdPromise)
     {
         return result;
     }
 
     // fn
-    if (expected_type->id == TypeTableEntryIdFn &&
+    if (wanted_type->id == TypeTableEntryIdFn &&
         actual_type->id == TypeTableEntryIdFn)
     {
-        if (expected_type->data.fn.fn_type_id.alignment > actual_type->data.fn.fn_type_id.alignment) {
+        if (wanted_type->data.fn.fn_type_id.alignment > actual_type->data.fn.fn_type_id.alignment) {
             result.id = ConstCastResultIdFnAlign;
             return result;
         }
-        if (expected_type->data.fn.fn_type_id.cc != actual_type->data.fn.fn_type_id.cc) {
+        if (wanted_type->data.fn.fn_type_id.cc != actual_type->data.fn.fn_type_id.cc) {
             result.id = ConstCastResultIdFnCC;
             return result;
         }
-        if (expected_type->data.fn.fn_type_id.is_var_args != actual_type->data.fn.fn_type_id.is_var_args) {
+        if (wanted_type->data.fn.fn_type_id.is_var_args != actual_type->data.fn.fn_type_id.is_var_args) {
             result.id = ConstCastResultIdFnVarArgs;
             return result;
         }
-        if (expected_type->data.fn.is_generic != actual_type->data.fn.is_generic) {
+        if (wanted_type->data.fn.is_generic != actual_type->data.fn.is_generic) {
             result.id = ConstCastResultIdFnIsGeneric;
             return result;
         }
-        if (!expected_type->data.fn.is_generic &&
+        if (!wanted_type->data.fn.is_generic &&
             actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable)
         {
-            ConstCastOnly child = types_match_const_cast_only(ira, expected_type->data.fn.fn_type_id.return_type, actual_type->data.fn.fn_type_id.return_type, source_node);
+            ConstCastOnly child = types_match_const_cast_only(ira, wanted_type->data.fn.fn_type_id.return_type,
+                    actual_type->data.fn.fn_type_id.return_type, source_node, false);
             if (child.id != ConstCastResultIdOk) {
                 result.id = ConstCastResultIdFnReturnType;
                 result.data.return_type = allocate_nonzero<ConstCastOnly>(1);
@@ -7823,9 +7829,11 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
                 return result;
             }
         }
-        if (!expected_type->data.fn.is_generic && expected_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
-            ConstCastOnly child = types_match_const_cast_only(ira, actual_type->data.fn.fn_type_id.async_allocator_type,
-                    expected_type->data.fn.fn_type_id.async_allocator_type, source_node);
+        if (!wanted_type->data.fn.is_generic && wanted_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+            ConstCastOnly child = types_match_const_cast_only(ira,
+                    actual_type->data.fn.fn_type_id.async_allocator_type,
+                    wanted_type->data.fn.fn_type_id.async_allocator_type,
+                    source_node, false);
             if (child.id != ConstCastResultIdOk) {
                 result.id = ConstCastResultIdAsyncAllocatorType;
                 result.data.async_allocator_type = allocate_nonzero<ConstCastOnly>(1);
@@ -7833,22 +7841,23 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
                 return result;
             }
         }
-        if (expected_type->data.fn.fn_type_id.param_count != actual_type->data.fn.fn_type_id.param_count) {
+        if (wanted_type->data.fn.fn_type_id.param_count != actual_type->data.fn.fn_type_id.param_count) {
             result.id = ConstCastResultIdFnArgCount;
             return result;
         }
-        if (expected_type->data.fn.fn_type_id.next_param_index != actual_type->data.fn.fn_type_id.next_param_index) {
+        if (wanted_type->data.fn.fn_type_id.next_param_index != actual_type->data.fn.fn_type_id.next_param_index) {
             result.id = ConstCastResultIdFnGenericArgCount;
             return result;
         }
-        assert(expected_type->data.fn.is_generic ||
-                expected_type->data.fn.fn_type_id.next_param_index  == expected_type->data.fn.fn_type_id.param_count);
-        for (size_t i = 0; i < expected_type->data.fn.fn_type_id.next_param_index; i += 1) {
+        assert(wanted_type->data.fn.is_generic ||
+                wanted_type->data.fn.fn_type_id.next_param_index  == wanted_type->data.fn.fn_type_id.param_count);
+        for (size_t i = 0; i < wanted_type->data.fn.fn_type_id.next_param_index; i += 1) {
             // note it's reversed for parameters
             FnTypeParamInfo *actual_param_info = &actual_type->data.fn.fn_type_id.param_info[i];
-            FnTypeParamInfo *expected_param_info = &expected_type->data.fn.fn_type_id.param_info[i];
+            FnTypeParamInfo *expected_param_info = &wanted_type->data.fn.fn_type_id.param_info[i];
 
-            ConstCastOnly arg_child = types_match_const_cast_only(ira, actual_param_info->type, expected_param_info->type, source_node);
+            ConstCastOnly arg_child = types_match_const_cast_only(ira, actual_param_info->type,
+                    expected_param_info->type, source_node, false);
             if (arg_child.id != ConstCastResultIdOk) {
                 result.id = ConstCastResultIdFnArg;
                 result.data.fn_arg.arg_index = i;
@@ -7876,11 +7885,12 @@ enum ImplicitCastMatchResult {
     ImplicitCastMatchResultReportedError,
 };
 
-static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira, TypeTableEntry *expected_type,
+static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira, TypeTableEntry *wanted_type,
         TypeTableEntry *actual_type, IrInstruction *value)
 {
     AstNode *source_node = value->source_node;
-    ConstCastOnly const_cast_result = types_match_const_cast_only(ira, expected_type, actual_type, source_node);
+    ConstCastOnly const_cast_result = types_match_const_cast_only(ira, wanted_type, actual_type,
+            source_node, false);
     if (const_cast_result.id == ConstCastResultIdOk) {
         return ImplicitCastMatchResultYes;
     }
@@ -7895,21 +7905,21 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
             missing_errors = &const_cast_result.data.error_union_error_set->data.error_set.missing_errors;
         } else if (const_cast_result.data.error_union_error_set->id == ConstCastResultIdErrSetGlobal) {
             ErrorMsg *msg = ir_add_error(ira, value,
-                buf_sprintf("expected '%s', found '%s'", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
+                buf_sprintf("expected '%s', found '%s'", buf_ptr(&wanted_type->name), buf_ptr(&actual_type->name)));
             add_error_note(ira->codegen, msg, value->source_node,
                 buf_sprintf("unable to cast global error set into smaller set"));
             return ImplicitCastMatchResultReportedError;
         }
     } else if (const_cast_result.id == ConstCastResultIdErrSetGlobal) {
         ErrorMsg *msg = ir_add_error(ira, value,
-            buf_sprintf("expected '%s', found '%s'", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
+            buf_sprintf("expected '%s', found '%s'", buf_ptr(&wanted_type->name), buf_ptr(&actual_type->name)));
         add_error_note(ira->codegen, msg, value->source_node,
             buf_sprintf("unable to cast global error set into smaller set"));
         return ImplicitCastMatchResultReportedError;
     }
     if (missing_errors != nullptr) {
         ErrorMsg *msg = ir_add_error(ira, value,
-            buf_sprintf("expected '%s', found '%s'", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
+            buf_sprintf("expected '%s', found '%s'", buf_ptr(&wanted_type->name), buf_ptr(&actual_type->name)));
         for (size_t i = 0; i < missing_errors->length; i += 1) {
             ErrorTableEntry *error_entry = missing_errors->at(i);
             add_error_note(ira->codegen, msg, error_entry->decl_node,
@@ -7920,162 +7930,168 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit conversion from ?T to ?U
-    if (expected_type->id == TypeTableEntryIdOptional && actual_type->id == TypeTableEntryIdOptional) {
-        ImplicitCastMatchResult res = ir_types_match_with_implicit_cast(ira, expected_type->data.maybe.child_type,
+    if (wanted_type->id == TypeTableEntryIdOptional && actual_type->id == TypeTableEntryIdOptional) {
+        ImplicitCastMatchResult res = ir_types_match_with_implicit_cast(ira, wanted_type->data.maybe.child_type,
                 actual_type->data.maybe.child_type, value);
         if (res != ImplicitCastMatchResultNo)
             return res;
     }
 
     // implicit conversion from non maybe type to maybe type
-    if (expected_type->id == TypeTableEntryIdOptional) {
-        ImplicitCastMatchResult res = ir_types_match_with_implicit_cast(ira, expected_type->data.maybe.child_type,
+    if (wanted_type->id == TypeTableEntryIdOptional) {
+        ImplicitCastMatchResult res = ir_types_match_with_implicit_cast(ira, wanted_type->data.maybe.child_type,
                 actual_type, value);
         if (res != ImplicitCastMatchResultNo)
             return res;
     }
 
     // implicit conversion from null literal to maybe type
-    if (expected_type->id == TypeTableEntryIdOptional &&
+    if (wanted_type->id == TypeTableEntryIdOptional &&
         actual_type->id == TypeTableEntryIdNull)
     {
         return ImplicitCastMatchResultYes;
     }
 
     // implicit T to U!T
-    if (expected_type->id == TypeTableEntryIdErrorUnion &&
-        ir_types_match_with_implicit_cast(ira, expected_type->data.error_union.payload_type, actual_type, value))
+    if (wanted_type->id == TypeTableEntryIdErrorUnion &&
+        ir_types_match_with_implicit_cast(ira, wanted_type->data.error_union.payload_type, actual_type, value))
     {
         return ImplicitCastMatchResultYes;
     }
 
     // implicit conversion from error set to error union type
-    if (expected_type->id == TypeTableEntryIdErrorUnion &&
+    if (wanted_type->id == TypeTableEntryIdErrorUnion &&
         actual_type->id == TypeTableEntryIdErrorSet)
     {
         return ImplicitCastMatchResultYes;
     }
 
     // implicit conversion from T to U!?T
-    if (expected_type->id == TypeTableEntryIdErrorUnion &&
-        expected_type->data.error_union.payload_type->id == TypeTableEntryIdOptional &&
+    if (wanted_type->id == TypeTableEntryIdErrorUnion &&
+        wanted_type->data.error_union.payload_type->id == TypeTableEntryIdOptional &&
         ir_types_match_with_implicit_cast(ira,
-            expected_type->data.error_union.payload_type->data.maybe.child_type,
+            wanted_type->data.error_union.payload_type->data.maybe.child_type,
             actual_type, value))
     {
         return ImplicitCastMatchResultYes;
     }
 
     // implicit widening conversion
-    if (expected_type->id == TypeTableEntryIdInt &&
+    if (wanted_type->id == TypeTableEntryIdInt &&
         actual_type->id == TypeTableEntryIdInt &&
-        expected_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
-        expected_type->data.integral.bit_count >= actual_type->data.integral.bit_count)
+        wanted_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
+        wanted_type->data.integral.bit_count >= actual_type->data.integral.bit_count)
     {
         return ImplicitCastMatchResultYes;
     }
 
     // small enough unsigned ints can get casted to large enough signed ints
-    if (expected_type->id == TypeTableEntryIdInt && expected_type->data.integral.is_signed &&
+    if (wanted_type->id == TypeTableEntryIdInt && wanted_type->data.integral.is_signed &&
         actual_type->id == TypeTableEntryIdInt && !actual_type->data.integral.is_signed &&
-        expected_type->data.integral.bit_count > actual_type->data.integral.bit_count)
+        wanted_type->data.integral.bit_count > actual_type->data.integral.bit_count)
     {
         return ImplicitCastMatchResultYes;
     }
 
     // implicit float widening conversion
-    if (expected_type->id == TypeTableEntryIdFloat &&
+    if (wanted_type->id == TypeTableEntryIdFloat &&
         actual_type->id == TypeTableEntryIdFloat &&
-        expected_type->data.floating.bit_count >= actual_type->data.floating.bit_count)
+        wanted_type->data.floating.bit_count >= actual_type->data.floating.bit_count)
     {
         return ImplicitCastMatchResultYes;
     }
 
     // implicit [N]T to []const T
-    if (is_slice(expected_type) && actual_type->id == TypeTableEntryIdArray) {
-        TypeTableEntry *ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
+    if (is_slice(wanted_type) && actual_type->id == TypeTableEntryIdArray) {
+        TypeTableEntry *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
 
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             return ImplicitCastMatchResultYes;
         }
     }
 
     // implicit &const [N]T to []const T
-    if (is_slice(expected_type) &&
+    if (is_slice(wanted_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.is_const &&
         actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)
     {
-        TypeTableEntry *ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
+        TypeTableEntry *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
 
         TypeTableEntry *array_type = actual_type->data.pointer.child_type;
 
         if ((ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
-            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, array_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, array_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             return ImplicitCastMatchResultYes;
         }
     }
 
     // implicit [N]T to &const []const T
-    if (expected_type->id == TypeTableEntryIdPointer &&
-        expected_type->data.pointer.is_const &&
-        expected_type->data.pointer.ptr_len == PtrLenSingle &&
-        is_slice(expected_type->data.pointer.child_type) &&
+    if (wanted_type->id == TypeTableEntryIdPointer &&
+        wanted_type->data.pointer.is_const &&
+        wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+        is_slice(wanted_type->data.pointer.child_type) &&
         actual_type->id == TypeTableEntryIdArray)
     {
         TypeTableEntry *ptr_type =
-            expected_type->data.pointer.child_type->data.structure.fields[slice_ptr_index].type_entry;
+            wanted_type->data.pointer.child_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-                types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+                types_match_const_cast_only(ira, ptr_type->data.pointer.child_type,
+                    actual_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             return ImplicitCastMatchResultYes;
         }
     }
 
     // implicit *[N]T to [*]T
-    if (expected_type->id == TypeTableEntryIdPointer &&
-        expected_type->data.pointer.ptr_len == PtrLenUnknown &&
+    if (wanted_type->id == TypeTableEntryIdPointer &&
+        wanted_type->data.pointer.ptr_len == PtrLenUnknown &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.child_type->id == TypeTableEntryIdArray &&
-        types_match_const_cast_only(ira, expected_type->data.pointer.child_type,
-            actual_type->data.pointer.child_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+        types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
+            actual_type->data.pointer.child_type->data.array.child_type, source_node,
+            !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
     {
         return ImplicitCastMatchResultYes;
     }
 
     // implicit *[N]T to []T
-    if (is_slice(expected_type) &&
+    if (is_slice(wanted_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)
     {
-        TypeTableEntry *slice_ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
+        TypeTableEntry *slice_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(slice_ptr_type->id == TypeTableEntryIdPointer);
         if (types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
-            actual_type->data.pointer.child_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            actual_type->data.pointer.child_type->data.array.child_type, source_node,
+            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
             return ImplicitCastMatchResultYes;
         }
     }
 
     // implicit [N]T to ?[]const T
-    if (expected_type->id == TypeTableEntryIdOptional &&
-        is_slice(expected_type->data.maybe.child_type) &&
+    if (wanted_type->id == TypeTableEntryIdOptional &&
+        is_slice(wanted_type->data.maybe.child_type) &&
         actual_type->id == TypeTableEntryIdArray)
     {
         TypeTableEntry *ptr_type =
-            expected_type->data.maybe.child_type->data.structure.fields[slice_ptr_index].type_entry;
+            wanted_type->data.maybe.child_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-                types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+                types_match_const_cast_only(ira, ptr_type->data.pointer.child_type,
+                    actual_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             return ImplicitCastMatchResultYes;
         }
@@ -8087,16 +8103,16 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     if (actual_type->id == TypeTableEntryIdComptimeFloat ||
          actual_type->id == TypeTableEntryIdComptimeInt)
     {
-        if (expected_type->id == TypeTableEntryIdPointer &&
-            expected_type->data.pointer.ptr_len == PtrLenSingle &&
-            expected_type->data.pointer.is_const)
+        if (wanted_type->id == TypeTableEntryIdPointer &&
+            wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+            wanted_type->data.pointer.is_const)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, expected_type->data.pointer.child_type, false)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.pointer.child_type, false)) {
                 return ImplicitCastMatchResultYes;
             } else {
                 return ImplicitCastMatchResultReportedError;
             }
-        } else if (ir_num_lit_fits_in_other_type(ira, value, expected_type, false)) {
+        } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, false)) {
             return ImplicitCastMatchResultYes;
         } else {
             return ImplicitCastMatchResultReportedError;
@@ -8106,41 +8122,41 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     // implicit typed number to integer or float literal.
     // works when the number is known
     if (value->value.special == ConstValSpecialStatic) {
-        if (actual_type->id == TypeTableEntryIdInt && expected_type->id == TypeTableEntryIdComptimeInt) {
+        if (actual_type->id == TypeTableEntryIdInt && wanted_type->id == TypeTableEntryIdComptimeInt) {
             return ImplicitCastMatchResultYes;
-        } else if (actual_type->id == TypeTableEntryIdFloat && expected_type->id == TypeTableEntryIdComptimeFloat) {
+        } else if (actual_type->id == TypeTableEntryIdFloat && wanted_type->id == TypeTableEntryIdComptimeFloat) {
             return ImplicitCastMatchResultYes;
         }
     }
 
     // implicit union to its enum tag type
-    if (expected_type->id == TypeTableEntryIdEnum && actual_type->id == TypeTableEntryIdUnion &&
+    if (wanted_type->id == TypeTableEntryIdEnum && actual_type->id == TypeTableEntryIdUnion &&
         (actual_type->data.unionation.decl_node->data.container_decl.auto_enum ||
         actual_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
     {
         type_ensure_zero_bits_known(ira->codegen, actual_type);
-        if (actual_type->data.unionation.tag_type == expected_type) {
+        if (actual_type->data.unionation.tag_type == wanted_type) {
             return ImplicitCastMatchResultYes;
         }
     }
 
     // implicit enum to union which has the enum as the tag type
-    if (expected_type->id == TypeTableEntryIdUnion && actual_type->id == TypeTableEntryIdEnum &&
-        (expected_type->data.unionation.decl_node->data.container_decl.auto_enum ||
-        expected_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+    if (wanted_type->id == TypeTableEntryIdUnion && actual_type->id == TypeTableEntryIdEnum &&
+        (wanted_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+        wanted_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
     {
-        type_ensure_zero_bits_known(ira->codegen, expected_type);
-        if (expected_type->data.unionation.tag_type == actual_type) {
+        type_ensure_zero_bits_known(ira->codegen, wanted_type);
+        if (wanted_type->data.unionation.tag_type == actual_type) {
             return ImplicitCastMatchResultYes;
         }
     }
 
     // implicit enum to &const union which has the enum as the tag type
     if (actual_type->id == TypeTableEntryIdEnum &&
-        expected_type->id == TypeTableEntryIdPointer &&
-        expected_type->data.pointer.ptr_len == PtrLenSingle)
+        wanted_type->id == TypeTableEntryIdPointer &&
+        wanted_type->data.pointer.ptr_len == PtrLenSingle)
     {
-        TypeTableEntry *union_type = expected_type->data.pointer.child_type;
+        TypeTableEntry *union_type = wanted_type->data.pointer.child_type;
         if (union_type->data.unionation.decl_node->data.container_decl.auto_enum ||
             union_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr)
         {
@@ -8152,9 +8168,9 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit T to *T where T is zero bits
-    if (expected_type->id == TypeTableEntryIdPointer && expected_type->data.pointer.ptr_len == PtrLenSingle &&
-        types_match_const_cast_only(ira, expected_type->data.pointer.child_type,
-            actual_type, source_node).id == ConstCastResultIdOk)
+    if (wanted_type->id == TypeTableEntryIdPointer && wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+        types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
+            actual_type, source_node, false).id == ConstCastResultIdOk)
     {
         type_ensure_zero_bits_known(ira->codegen, actual_type);
         if (!type_has_bits(actual_type)) {
@@ -8170,10 +8186,10 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     // implicitly take a const pointer to something
     if (!type_requires_comptime(actual_type)) {
         TypeTableEntry *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
-        if (expected_type->id == TypeTableEntryIdPointer &&
-            expected_type->data.pointer.ptr_len == PtrLenSingle &&
-            types_match_const_cast_only(ira, expected_type, const_ptr_actual,
-                source_node).id == ConstCastResultIdOk)
+        if (wanted_type->id == TypeTableEntryIdPointer &&
+            wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+            types_match_const_cast_only(ira, wanted_type, const_ptr_actual,
+                source_node, false).id == ConstCastResultIdOk)
         {
             return ImplicitCastMatchResultYes;
         }
@@ -8415,9 +8431,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             TypeTableEntry *cur_payload_type = cur_type->data.error_union.payload_type;
 
             bool const_cast_prev = types_match_const_cast_only(ira, prev_payload_type, cur_payload_type,
-                    source_node).id == ConstCastResultIdOk;
+                    source_node, false).id == ConstCastResultIdOk;
             bool const_cast_cur = types_match_const_cast_only(ira, cur_payload_type, prev_payload_type,
-                    source_node).id == ConstCastResultIdOk;
+                    source_node, false).id == ConstCastResultIdOk;
 
             if (const_cast_prev || const_cast_cur) {
                 if (const_cast_cur) {
@@ -8504,11 +8520,11 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             continue;
         }
 
-        if (types_match_const_cast_only(ira, prev_type, cur_type, source_node).id == ConstCastResultIdOk) {
+        if (types_match_const_cast_only(ira, prev_type, cur_type, source_node, false).id == ConstCastResultIdOk) {
             continue;
         }
 
-        if (types_match_const_cast_only(ira, cur_type, prev_type, source_node).id == ConstCastResultIdOk) {
+        if (types_match_const_cast_only(ira, cur_type, prev_type, source_node, false).id == ConstCastResultIdOk) {
             prev_inst = cur_inst;
             continue;
         }
@@ -8531,13 +8547,15 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         }
 
         if (prev_type->id == TypeTableEntryIdErrorUnion &&
-                types_match_const_cast_only(ira, prev_type->data.error_union.payload_type, cur_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, prev_type->data.error_union.payload_type, cur_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             continue;
         }
 
         if (cur_type->id == TypeTableEntryIdErrorUnion &&
-                types_match_const_cast_only(ira, cur_type->data.error_union.payload_type, prev_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, cur_type->data.error_union.payload_type, prev_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             if (err_set_type != nullptr) {
                 TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
@@ -8559,13 +8577,15 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         }
 
         if (prev_type->id == TypeTableEntryIdOptional &&
-            types_match_const_cast_only(ira, prev_type->data.maybe.child_type, cur_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, prev_type->data.maybe.child_type, cur_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             continue;
         }
 
         if (cur_type->id == TypeTableEntryIdOptional &&
-                   types_match_const_cast_only(ira, cur_type->data.maybe.child_type, prev_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, cur_type->data.maybe.child_type, prev_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             prev_inst = cur_inst;
             continue;
@@ -8602,8 +8622,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         }
 
         if (cur_type->id == TypeTableEntryIdArray && prev_type->id == TypeTableEntryIdArray &&
-                cur_type->data.array.len != prev_type->data.array.len &&
-                types_match_const_cast_only(ira, cur_type->data.array.child_type, prev_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            cur_type->data.array.len != prev_type->data.array.len &&
+            types_match_const_cast_only(ira, cur_type->data.array.child_type, prev_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             convert_to_const_slice = true;
             prev_inst = cur_inst;
@@ -8611,8 +8632,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         }
 
         if (cur_type->id == TypeTableEntryIdArray && prev_type->id == TypeTableEntryIdArray &&
-                cur_type->data.array.len != prev_type->data.array.len &&
-                types_match_const_cast_only(ira, prev_type->data.array.child_type, cur_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            cur_type->data.array.len != prev_type->data.array.len &&
+            types_match_const_cast_only(ira, prev_type->data.array.child_type, cur_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             convert_to_const_slice = true;
             continue;
@@ -8621,8 +8643,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         if (cur_type->id == TypeTableEntryIdArray && is_slice(prev_type) &&
             (prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
             cur_type->data.array.len == 0) &&
-            types_match_const_cast_only(ira, prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
-                cur_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira,
+                prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                cur_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             convert_to_const_slice = false;
             continue;
@@ -8631,8 +8654,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         if (prev_type->id == TypeTableEntryIdArray && is_slice(cur_type) &&
             (cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
             prev_type->data.array.len == 0) &&
-            types_match_const_cast_only(ira, cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
-            prev_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira,
+                cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                prev_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             prev_inst = cur_inst;
             convert_to_const_slice = false;
@@ -9913,7 +9937,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // explicit match or non-const to const
-    if (types_match_const_cast_only(ira, wanted_type, actual_type, source_node).id == ConstCastResultIdOk) {
+    if (types_match_const_cast_only(ira, wanted_type, actual_type, source_node, false).id == ConstCastResultIdOk) {
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop, false);
     }
 
@@ -9959,7 +9983,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         TypeTableEntry *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             return ir_analyze_array_to_slice(ira, source_instr, value, wanted_type);
         }
@@ -9977,7 +10002,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         TypeTableEntry *array_type = actual_type->data.pointer.child_type;
 
         if ((ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
-            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, array_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, array_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             return ir_analyze_array_to_slice(ira, source_instr, value, wanted_type);
         }
@@ -9993,7 +10019,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             wanted_type->data.pointer.child_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-                types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.pointer.child_type, value);
             if (type_is_invalid(cast1->value.type))
@@ -10016,7 +10043,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             wanted_type->data.maybe.child_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-                types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.maybe.child_type, value);
             if (type_is_invalid(cast1->value.type))
@@ -10084,7 +10112,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->data.pointer.child_type->id == TypeTableEntryIdArray &&
         actual_type->data.pointer.alignment >= wanted_type->data.pointer.alignment &&
         types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
-            actual_type->data.pointer.child_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            actual_type->data.pointer.child_type->data.array.child_type, source_node,
+            !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
     {
         return ir_resolve_ptr_of_array_to_unknown_len_ptr(ira, source_instr, value, wanted_type);
     }
@@ -10098,7 +10127,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         TypeTableEntry *slice_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(slice_ptr_type->id == TypeTableEntryIdPointer);
         if (types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
-            actual_type->data.pointer.child_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            actual_type->data.pointer.child_type->data.array.child_type, source_node,
+            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
             return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_type);
         }
@@ -10109,7 +10139,9 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // note that the *T to ?*T case is handled via the "ConstCastOnly" mechanism
     if (wanted_type->id == TypeTableEntryIdOptional) {
         TypeTableEntry *wanted_child_type = wanted_type->data.maybe.child_type;
-        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node).id == ConstCastResultIdOk) {
+        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node,
+            false).id == ConstCastResultIdOk)
+        {
             return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
         } else if (actual_type->id == TypeTableEntryIdComptimeInt ||
                    actual_type->id == TypeTableEntryIdComptimeFloat)
@@ -10144,7 +10176,9 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     // explicit cast from child type of error type to error type
     if (wanted_type->id == TypeTableEntryIdErrorUnion) {
-        if (types_match_const_cast_only(ira, wanted_type->data.error_union.payload_type, actual_type, source_node).id == ConstCastResultIdOk) {
+        if (types_match_const_cast_only(ira, wanted_type->data.error_union.payload_type, actual_type,
+            source_node, false).id == ConstCastResultIdOk)
+        {
             return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
         } else if (actual_type->id == TypeTableEntryIdComptimeInt ||
                    actual_type->id == TypeTableEntryIdComptimeFloat)
@@ -10166,7 +10200,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             wanted_type->data.error_union.payload_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-                types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type, source_node).id == ConstCastResultIdOk)
+            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+                source_node, false).id == ConstCastResultIdOk)
         {
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.error_union.payload_type, value);
             if (type_is_invalid(cast1->value.type))
@@ -10193,7 +10228,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id != TypeTableEntryIdOptional)
     {
         TypeTableEntry *wanted_child_type = wanted_type->data.error_union.payload_type->data.maybe.child_type;
-        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node).id == ConstCastResultIdOk ||
+        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node, false).id == ConstCastResultIdOk ||
             actual_type->id == TypeTableEntryIdNull ||
             actual_type->id == TypeTableEntryIdComptimeInt ||
             actual_type->id == TypeTableEntryIdComptimeFloat)
@@ -10345,7 +10380,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         TypeTableEntry *array_type = wanted_type->data.pointer.child_type;
         if (array_type->id == TypeTableEntryIdArray && array_type->data.array.len == 1 &&
             types_match_const_cast_only(ira, array_type->data.array.child_type,
-            actual_type->data.pointer.child_type, source_node).id == ConstCastResultIdOk)
+            actual_type->data.pointer.child_type, source_node,
+            !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
             if (wanted_type->data.pointer.alignment > actual_type->data.pointer.alignment) {
                 ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("cast increases pointer alignment"));
@@ -10364,7 +10400,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // explicit cast from T to *T where T is zero bits
     if (wanted_type->id == TypeTableEntryIdPointer && wanted_type->data.pointer.ptr_len == PtrLenSingle &&
         types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
-            actual_type, source_node).id == ConstCastResultIdOk)
+            actual_type, source_node, !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
     {
         type_ensure_zero_bits_known(ira->codegen, actual_type);
         if (type_is_invalid(actual_type)) {
@@ -10384,7 +10420,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // explicit cast from something to const pointer of it
     if (!type_requires_comptime(actual_type)) {
         TypeTableEntry *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
-        if (types_match_const_cast_only(ira, wanted_type, const_ptr_actual, source_node).id == ConstCastResultIdOk) {
+        if (types_match_const_cast_only(ira, wanted_type, const_ptr_actual, source_node, false).id == ConstCastResultIdOk) {
             return ir_analyze_cast_ref(ira, source_instr, value, wanted_type);
         }
     }

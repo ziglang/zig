@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "use implicit casts to assign null to non-nullable pointer",
+        \\export fn entry() void {
+        \\    var x: i32 = 1234;
+        \\    var p: *i32 = &x;
+        \\    var pp: *?*i32 = &p;
+        \\    pp.* = null;
+        \\    var y = p.*;
+        \\}
+    ,
+        ".tmp_source.zig:4:23: error: expected type '*?*i32', found '**i32'",
+    );
+
+    cases.add(
         "attempted implicit cast from T to [*]const T",
         \\export fn entry() void {
         \\    const x: [*]const bool = true;
