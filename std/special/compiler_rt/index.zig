@@ -38,6 +38,9 @@ comptime {
     @export("__umoddi3", __umoddi3, linkage);
     @export("__udivmodsi4", __udivmodsi4, linkage);
 
+    @export("__divti3", @import("divti3.zig").__divti3, linkage);
+    @export("__muloti4", @import("muloti4.zig").__muloti4, linkage);
+
     if (isArmArch()) {
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
         @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
