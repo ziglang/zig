@@ -1261,6 +1261,22 @@ const ptr = &amp;x;
 x.* == 1234</code></pre>
           </td>
         </tr>
+        <tr>
+          <td><pre><code class="zig">a || b<code></pre></td>
+          <td>
+            <ul>
+              <li>{#link|Error Set Type#}</li>
+            </ul>
+          </td>
+          <td>
+              {#link|Merging Error Sets#}
+          </td>
+          <td>
+            <pre><code class="zig">const A = error{One};
+const B = error{Two};
+(A || B) == error{One, Two}</code></pre>
+          </td>
+        </tr>
       </table>
       </div>
       {#header_close#}
@@ -1269,7 +1285,7 @@ x.* == 1234</code></pre>
 a!b
 !x -x -%x ~x &amp;x ?x
 x{} x.* x.?
-! * / % ** *%
+! * / % ** *% ||
 + - ++ +% -%
 &lt;&lt; &gt;&gt;
 &amp;
