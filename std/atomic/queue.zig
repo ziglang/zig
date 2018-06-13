@@ -124,15 +124,14 @@ fn startPuts(ctx: *Context) u8 {
 
 fn startGets(ctx: *Context) u8 {
     while (true) {
+        const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
+
         while (ctx.queue.get()) |node| {
             std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
             _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
             _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
         }
 
-        if (@atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1) {
-            break;
-        }
+        if (last) return 0;
     }
-    return 0;
 }
