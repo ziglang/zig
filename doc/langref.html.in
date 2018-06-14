@@ -2797,39 +2797,30 @@ fn foo() void { }
       {#code_end#}
       {#header_open|Pass-by-value Parameters#}
       <p>
-      In Zig, structs, unions, and enums with payloads cannot be passed by value
-      to a function.
-      </p>
-      {#code_begin|test_err|not copyable; cannot pass by value#}
-const Foo = struct {
-    x: i32,
-};
-
-fn bar(foo: Foo) void {}
-
-test "pass aggregate type by value to function" {
-    bar(Foo {.x = 12,});
-}
-      {#code_end#}
-      <p>
-      Instead, one must use <code>*const</code>. Zig allows implicitly casting something
-      to a const pointer to it:
+      In Zig, structs, unions, and enums with payloads can be passed directly to a function:
       </p>
       {#code_begin|test#}
-const Foo = struct {
+const Point = struct {
     x: i32,
+    y: i32,
 };
 
-fn bar(foo: *const Foo) void {}
+fn foo(point: Point) i32 {
+    return point.x + point.y;
+}
 
-test "implicitly cast to const pointer" {
-    bar(Foo {.x = 12,});
+const assert = @import("std").debug.assert;
+
+test "pass aggregate type by non-copy value to function" {
+    assert(foo(Point{ .x = 1, .y = 2 }) == 3);
 }
       {#code_end#}
       <p>
-      However,
-      the C ABI does allow passing structs and unions by value. So functions which
-      use the C calling convention may pass structs and unions by value.
+      In this case, the value may be passed by reference, or by value, whichever way
+      Zig decides will be faster.
+      </p>
+      <p>
+      For extern functions, Zig follows the C ABI for passing structs and unions by value.
       </p>
       {#header_close#}
       {#header_open|Function Reflection#}

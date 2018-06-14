@@ -119,3 +119,16 @@ test "assign inline fn to const variable" {
 }
 
 inline fn inlineFn() void {}
+
+test "pass by non-copying value" {
+    assert(bar(Point{ .x = 1, .y = 2 }) == 3);
+}
+
+const Point = struct {
+    x: i32,
+    y: i32,
+};
+
+fn bar(pt: Point) i32 {
+    return pt.x + pt.y;
+}
