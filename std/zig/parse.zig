@@ -43,7 +43,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
     // skip over line comments at the top of the file
     while (true) {
-        const next_tok = tok_it.peek() ?? break;
+        const next_tok = tok_it.peek() orelse break;
         if (next_tok.id != Token.Id.LineComment) break;
         _ = tok_it.next();
     }
@@ -197,7 +197,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     const lib_name_token = nextToken(&tok_it, &tree);
                     const lib_name_token_index = lib_name_token.index;
                     const lib_name_token_ptr = lib_name_token.ptr;
-                    break :blk (try parseStringLiteral(arena, &tok_it, lib_name_token_ptr, lib_name_token_index, &tree)) ?? {
+                    break :blk (try parseStringLiteral(arena, &tok_it, lib_name_token_ptr, lib_name_token_index, &tree)) orelse {
                         prevToken(&tok_it, &tree);
                         break :blk null;
                     };
@@ -711,7 +711,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     else => {
                         // TODO: this is a special case. Remove this when #760 is fixed
                         if (token_ptr.id == Token.Id.Keyword_error) {
-                            if ((??tok_it.peek()).id == Token.Id.LBrace) {
+                            if (tok_it.peek().?.id == Token.Id.LBrace) {
                                 const error_type_node = try arena.construct(ast.Node.ErrorType{
                                     .base = ast.Node{ .id = ast.Node.Id.ErrorType },
                                     .token = token_index,
@@ -1434,14 +1434,14 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 try stack.append(State{
                     .ExpectTokenSave = ExpectTokenSave{
                         .id = Token.Id.AngleBracketRight,
-                        .ptr = &??async_node.rangle_bracket,
+                        .ptr = &async_node.rangle_bracket.?,
                     },
                 });
                 try stack.append(State{ .TypeExprBegin = OptionalCtx{ .RequiredNull = &async_node.allocator_type } });
                 continue;
             },
             State.AsyncEnd => |ctx| {
-                const node = ctx.ctx.get() ?? continue;
+                const node = ctx.ctx.get() orelse continue;
 
                 switch (node.id) {
                     ast.Node.Id.FnProto => {
@@ -1567,7 +1567,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .bit_range = null,
                         };
                         // TODO https://github.com/ziglang/zig/issues/1022
-                        const align_info = &??addr_of_info.align_info;
+                        const align_info = &addr_of_info.align_info.?;
 
                         try stack.append(State{ .AlignBitRange = align_info });
                         try stack.append(State{ .Expression = OptionalCtx{ .Required = &align_info.node } });
@@ -1604,7 +1604,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 switch (token.ptr.id) {
                     Token.Id.Colon => {
                         align_info.bit_range = ast.Node.PrefixOp.PtrInfo.Align.BitRange(undefined);
-                        const bit_range = &??align_info.bit_range;
+                        const bit_range = &align_info.bit_range.?;
 
                         try stack.append(State{ .ExpectToken = Token.Id.RParen });
                         try stack.append(State{ .Expression = OptionalCtx{ .Required = &bit_range.end } });
@@ -1814,7 +1814,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.RangeExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Ellipsis3)) |ellipsis3| {
                     const node = try arena.construct(ast.Node.InfixOp{
@@ -1836,7 +1836,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.AssignmentExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -1866,7 +1866,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.UnwrapExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -1901,7 +1901,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.BoolOrExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_or)) |or_token| {
                     const node = try arena.construct(ast.Node.InfixOp{
@@ -1925,7 +1925,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.BoolAndExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_and)) |and_token| {
                     const node = try arena.construct(ast.Node.InfixOp{
@@ -1949,7 +1949,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ComparisonExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -1979,7 +1979,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.BinaryOrExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Pipe)) |pipe| {
                     const node = try arena.construct(ast.Node.InfixOp{
@@ -2003,7 +2003,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.BinaryXorExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Caret)) |caret| {
                     const node = try arena.construct(ast.Node.InfixOp{
@@ -2027,7 +2027,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.BinaryAndExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Ampersand)) |ampersand| {
                     const node = try arena.construct(ast.Node.InfixOp{
@@ -2051,7 +2051,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.BitShiftExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -2081,7 +2081,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.AdditionExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -2111,7 +2111,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.MultiplyExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -2142,9 +2142,9 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.CurlySuffixExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
-                if ((??tok_it.peek()).id == Token.Id.Period) {
+                if (tok_it.peek().?.id == Token.Id.Period) {
                     const node = try arena.construct(ast.Node.SuffixOp{
                         .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
                         .lhs = lhs,
@@ -2190,7 +2190,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.TypeExprEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Bang)) |bang| {
                     const node = try arena.construct(ast.Node.InfixOp{
@@ -2270,7 +2270,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.SuffixOpExpressionEnd => |opt_ctx| {
-                const lhs = opt_ctx.get() ?? continue;
+                const lhs = opt_ctx.get() orelse continue;
 
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -2321,6 +2321,17 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                                 .lhs = lhs,
                                 .op = ast.Node.SuffixOp.Op.Deref,
                                 .rtoken = asterisk_token,
+                            });
+                            opt_ctx.store(&node.base);
+                            stack.append(State{ .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                            continue;
+                        }
+                        if (eatToken(&tok_it, &tree, Token.Id.QuestionMark)) |question_token| {
+                            const node = try arena.construct(ast.Node.SuffixOp{
+                                .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
+                                .lhs = lhs,
+                                .op = ast.Node.SuffixOp.Op.UnwrapOptional,
+                                .rtoken = question_token,
                             });
                             opt_ctx.store(&node.base);
                             stack.append(State{ .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
@@ -2403,12 +2414,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .arrow_token = next_token_index,
                             .return_type = undefined,
                         };
-                        const return_type_ptr = &((??node.result).return_type);
+                        const return_type_ptr = &node.result.?.return_type;
                         try stack.append(State{ .Expression = OptionalCtx{ .Required = return_type_ptr } });
                         continue;
                     },
                     Token.Id.StringLiteral, Token.Id.MultilineStringLiteralLine => {
-                        opt_ctx.store((try parseStringLiteral(arena, &tok_it, token.ptr, token.index, &tree)) ?? unreachable);
+                        opt_ctx.store((try parseStringLiteral(arena, &tok_it, token.ptr, token.index, &tree)) orelse unreachable);
                         continue;
                     },
                     Token.Id.LParen => {
@@ -2638,7 +2649,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
-                opt_ctx.store((try parseStringLiteral(arena, &tok_it, token_ptr, token_index, &tree)) ?? {
+                opt_ctx.store((try parseStringLiteral(arena, &tok_it, token_ptr, token_index, &tree)) orelse {
                     prevToken(&tok_it, &tree);
                     if (opt_ctx != OptionalCtx.Optional) {
                         ((try tree.errors.addOne())).* = Error{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr{ .token = token_index } };
@@ -2875,7 +2886,7 @@ const OptionalCtx = union(enum) {
     pub fn get(self: *const OptionalCtx) ?*ast.Node {
         switch (self.*) {
             OptionalCtx.Optional => |ptr| return ptr.*,
-            OptionalCtx.RequiredNull => |ptr| return ??ptr.*,
+            OptionalCtx.RequiredNull => |ptr| return ptr.*.?,
             OptionalCtx.Required => |ptr| return ptr.*,
         }
     }
@@ -3237,7 +3248,7 @@ fn tokenIdToAssignment(id: *const Token.Id) ?ast.Node.InfixOp.Op {
 fn tokenIdToUnwrapExpr(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
     return switch (id) {
         Token.Id.Keyword_catch => ast.Node.InfixOp.Op{ .Catch = null },
-        Token.Id.QuestionMarkQuestionMark => ast.Node.InfixOp.Op{ .UnwrapMaybe = void{} },
+        Token.Id.Keyword_orelse => ast.Node.InfixOp.Op{ .UnwrapOptional = void{} },
         else => null,
     };
 }
@@ -3299,8 +3310,7 @@ fn tokenIdToPrefixOp(id: @TagType(Token.Id)) ?ast.Node.PrefixOp.Op {
                 .volatile_token = null,
             },
         },
-        Token.Id.QuestionMark => ast.Node.PrefixOp.Op{ .MaybeType = void{} },
-        Token.Id.QuestionMarkQuestionMark => ast.Node.PrefixOp.Op{ .UnwrapMaybe = void{} },
+        Token.Id.QuestionMark => ast.Node.PrefixOp.Op{ .OptionalType = void{} },
         Token.Id.Keyword_await => ast.Node.PrefixOp.Op{ .Await = void{} },
         Token.Id.Keyword_try => ast.Node.PrefixOp.Op{ .Try = void{} },
         else => null,
@@ -3322,7 +3332,7 @@ fn createToCtxLiteral(arena: *mem.Allocator, opt_ctx: *const OptionalCtx, compti
 }
 
 fn eatToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, id: @TagType(Token.Id)) ?TokenIndex {
-    const token = ??tok_it.peek();
+    const token = tok_it.peek().?;
 
     if (token.id == id) {
         return nextToken(tok_it, tree).index;
@@ -3334,12 +3344,12 @@ fn eatToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, id: @TagType(
 fn nextToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree) AnnotatedToken {
     const result = AnnotatedToken{
         .index = tok_it.index,
-        .ptr = ??tok_it.next(),
+        .ptr = tok_it.next().?,
     };
     assert(result.ptr.id != Token.Id.LineComment);
 
     while (true) {
-        const next_tok = tok_it.peek() ?? return result;
+        const next_tok = tok_it.peek() orelse return result;
         if (next_tok.id != Token.Id.LineComment) return result;
         _ = tok_it.next();
     }
@@ -3347,7 +3357,7 @@ fn nextToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree) AnnotatedTok
 
 fn prevToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree) void {
     while (true) {
-        const prev_tok = tok_it.prev() ?? return;
+        const prev_tok = tok_it.prev() orelse return;
         if (prev_tok.id == Token.Id.LineComment) continue;
         return;
     }

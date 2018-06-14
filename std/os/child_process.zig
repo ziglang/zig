@@ -156,7 +156,7 @@ pub const ChildProcess = struct {
             };
         }
         try self.waitUnwrappedWindows();
-        return ??self.term;
+        return self.term.?;
     }
 
     pub fn killPosix(self: *ChildProcess) !Term {
@@ -175,7 +175,7 @@ pub const ChildProcess = struct {
             };
         }
         self.waitUnwrapped();
-        return ??self.term;
+        return self.term.?;
     }
 
     /// Blocks until child process terminates and then cleans up all resources.
@@ -212,8 +212,8 @@ pub const ChildProcess = struct {
         defer Buffer.deinit(&stdout);
         defer Buffer.deinit(&stderr);
 
-        var stdout_file_in_stream = io.FileInStream.init(&??child.stdout);
-        var stderr_file_in_stream = io.FileInStream.init(&??child.stderr);
+        var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
+        var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
 
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
         try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
@@ -232,7 +232,7 @@ pub const ChildProcess = struct {
         }
 
         try self.waitUnwrappedWindows();
-        return ??self.term;
+        return self.term.?;
     }
 
     fn waitPosix(self: *ChildProcess) !Term {
@@ -242,7 +242,7 @@ pub const ChildProcess = struct {
         }
 
         self.waitUnwrapped();
-        return ??self.term;
+        return self.term.?;
     }
 
     pub fn deinit(self: *ChildProcess) void {
@@ -619,13 +619,13 @@ pub const ChildProcess = struct {
         self.term = null;
 
         if (self.stdin_behavior == StdIo.Pipe) {
-            os.close(??g_hChildStd_IN_Rd);
+            os.close(g_hChildStd_IN_Rd.?);
         }
         if (self.stderr_behavior == StdIo.Pipe) {
-            os.close(??g_hChildStd_ERR_Wr);
+            os.close(g_hChildStd_ERR_Wr.?);
         }
         if (self.stdout_behavior == StdIo.Pipe) {
-            os.close(??g_hChildStd_OUT_Wr);
+            os.close(g_hChildStd_OUT_Wr.?);
         }
     }
 

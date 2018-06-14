@@ -33,8 +33,8 @@ pub fn Queue(comptime T: type) type {
         pub fn get(self: *Self) ?*Node {
             var head = @atomicLoad(*Node, &self.head, AtomicOrder.SeqCst);
             while (true) {
-                const node = head.next ?? return null;
-                head = @cmpxchgWeak(*Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return node;
+                const node = head.next orelse return null;
+                head = @cmpxchgWeak(*Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return node;
             }
         }
     };
@@ -94,8 +94,18 @@ test "std.atomic.queue" {
     for (getters) |t|
         t.wait();
 
-    std.debug.assert(context.put_sum == context.get_sum);
-    std.debug.assert(context.get_count == puts_per_thread * put_thread_count);
+    if (context.put_sum != context.get_sum) {
+        std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);
+    }
+
+    if (context.get_count != puts_per_thread * put_thread_count) {
+        std.debug.panic(
+            "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
+            context.get_count,
+            u32(puts_per_thread),
+            u32(put_thread_count),
+        );
+    }
 }
 
 fn startPuts(ctx: *Context) u8 {
@@ -114,15 +124,14 @@ fn startPuts(ctx: *Context) u8 {
 
 fn startGets(ctx: *Context) u8 {
     while (true) {
+        const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
+
         while (ctx.queue.get()) |node| {
             std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
             _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
             _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
         }
 
-        if (@atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1) {
-            break;
-        }
+        if (last) return 0;
     }
-    return 0;
 }

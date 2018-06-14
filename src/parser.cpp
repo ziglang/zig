@@ -1046,12 +1046,11 @@ static AstNode *ast_parse_fn_proto_partial(ParseContext *pc, size_t *token_index
 }
 
 /*
-SuffixOpExpression = ("async" option("<" SuffixOpExpression ">") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | PtrDerefExpression | SliceExpression)
+SuffixOpExpression = ("async" option("&lt;" SuffixOpExpression "&gt;") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression | ".*" | ".?")
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 SliceExpression = "[" Expression ".." option(Expression) "]"
 FieldAccessExpression : token(Dot) token(Symbol)
-PtrDerefExpression = ".*"
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
 static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -1149,6 +1148,13 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
                 node->data.ptr_deref_expr.target = primary_expr;
 
                 primary_expr = node;
+            } else if (token->id == TokenIdQuestion) {
+                *token_index += 1;
+
+                AstNode *node = ast_create_node(pc, NodeTypeUnwrapOptional, first_token);
+                node->data.unwrap_optional.expr = primary_expr;
+
+                primary_expr = node;
             } else {
                 ast_invalid_token_error(pc, token);
             }
@@ -1165,8 +1171,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdDash: return PrefixOpNegation;
         case TokenIdMinusPercent: return PrefixOpNegationWrap;
         case TokenIdTilde: return PrefixOpBinNot;
-        case TokenIdMaybe: return PrefixOpMaybe;
-        case TokenIdDoubleQuestion: return PrefixOpUnwrapMaybe;
+        case TokenIdQuestion: return PrefixOpOptional;
         case TokenIdAmpersand: return PrefixOpAddrOf;
         default: return PrefixOpInvalid;
     }
@@ -2304,8 +2309,8 @@ static BinOpType ast_parse_ass_op(ParseContext *pc, size_t *token_index, bool ma
 }
 
 /*
-UnwrapExpression : BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpression
-UnwrapMaybe : "??" BoolOrExpression
+UnwrapExpression : BoolOrExpression (UnwrapOptional | UnwrapError) | BoolOrExpression
+UnwrapOptional = "orelse" Expression
 UnwrapError = "catch" option("|" Symbol "|") Expression
 */
 static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -2315,14 +2320,14 @@ static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, boo
 
     Token *token = &pc->tokens->at(*token_index);
 
-    if (token->id == TokenIdDoubleQuestion) {
+    if (token->id == TokenIdKeywordOrElse) {
         *token_index += 1;
 
         AstNode *rhs = ast_parse_expression(pc, token_index, true);
 
         AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
         node->data.bin_op_expr.op1 = lhs;
-        node->data.bin_op_expr.bin_op = BinOpTypeUnwrapMaybe;
+        node->data.bin_op_expr.bin_op = BinOpTypeUnwrapOptional;
         node->data.bin_op_expr.op2 = rhs;
 
         return node;
@@ -3027,6 +3032,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypePtrDeref:
             visit_field(&node->data.ptr_deref_expr.target, visit, context);
+            break;
+        case NodeTypeUnwrapOptional:
+            visit_field(&node->data.unwrap_optional.expr, visit, context);
             break;
         case NodeTypeUse:
             visit_field(&node->data.use.expr, visit, context);

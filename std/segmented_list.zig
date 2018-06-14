@@ -364,7 +364,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         assert(x == 0);
     }
 
-    assert(??list.pop() == 100);
+    assert(list.pop().? == 100);
     assert(list.len == 99);
 
     try list.pushMany([]i32{
@@ -373,9 +373,9 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         3,
     });
     assert(list.len == 102);
-    assert(??list.pop() == 3);
-    assert(??list.pop() == 2);
-    assert(??list.pop() == 1);
+    assert(list.pop().? == 3);
+    assert(list.pop().? == 2);
+    assert(list.pop().? == 1);
     assert(list.len == 99);
 
     try list.pushMany([]const i32{});

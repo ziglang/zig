@@ -505,7 +505,7 @@ test "@typeId" {
         assert(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
         assert(@typeId(@typeOf(undefined)) == Tid.Undefined);
         assert(@typeId(@typeOf(null)) == Tid.Null);
-        assert(@typeId(?i32) == Tid.Nullable);
+        assert(@typeId(?i32) == Tid.Optional);
         assert(@typeId(error!i32) == Tid.ErrorUnion);
         assert(@typeId(error) == Tid.ErrorSet);
         assert(@typeId(AnEnum) == Tid.Enum);
@@ -520,14 +520,6 @@ test "@typeId" {
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
-    }
-}
-
-test "@canImplicitCast" {
-    comptime {
-        assert(@canImplicitCast(i64, i32(3)));
-        assert(!@canImplicitCast(i32, f32(1.234)));
-        assert(@canImplicitCast([]const u8, "aoeu"));
     }
 }
 

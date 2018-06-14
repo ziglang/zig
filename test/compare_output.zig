@@ -284,7 +284,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("expose function pointer to C land",
         \\const c = @cImport(@cInclude("stdlib.h"));
         \\
-        \\export fn compare_fn(a: ?[*]const c_void, b: ?[*]const c_void) c_int {
+        \\export fn compare_fn(a: ?*const c_void, b: ?*const c_void) c_int {
         \\    const a_int = @ptrCast(*const i32, @alignCast(@alignOf(i32), a));
         \\    const b_int = @ptrCast(*const i32, @alignCast(@alignOf(i32), b));
         \\    if (a_int.* < b_int.*) {
@@ -299,7 +299,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\export fn main() c_int {
         \\    var array = []u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
-        \\    c.qsort(@ptrCast(?[*]c_void, array[0..].ptr), c_ulong(array.len), @sizeOf(i32), compare_fn);
+        \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), c_ulong(array.len), @sizeOf(i32), compare_fn);
         \\
         \\    for (array) |item, i| {
         \\        if (item != i) {

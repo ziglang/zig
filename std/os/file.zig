@@ -96,7 +96,20 @@ pub const File = struct {
         return File{ .handle = handle };
     }
 
-    pub fn access(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) !bool {
+    pub const AccessError = error{
+        PermissionDenied,
+        NotFound,
+        NameTooLong,
+        BadMode,
+        BadPathName,
+        Io,
+        SystemResources,
+        OutOfMemory,
+
+        Unexpected,
+    };
+
+    pub fn access(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) AccessError!bool {
         const path_with_null = try std.cstr.addNullByte(allocator, path);
         defer allocator.free(path_with_null);
 
@@ -123,7 +136,7 @@ pub const File = struct {
             }
             return true;
         } else if (is_windows) {
-            if (os.windows.PathFileExists(path_with_null.ptr) == os.windows.TRUE) {
+            if (os.windows.GetFileAttributesA(path_with_null.ptr) != os.windows.INVALID_FILE_ATTRIBUTES) {
                 return true;
             }
 
@@ -334,7 +347,7 @@ pub const File = struct {
             while (index < buffer.len) {
                 const want_read_count = windows.DWORD(math.min(windows.DWORD(@maxValue(windows.DWORD)), buffer.len - index));
                 var amt_read: windows.DWORD = undefined;
-                if (windows.ReadFile(self.handle, @ptrCast([*]c_void, buffer.ptr + index), want_read_count, &amt_read, null) == 0) {
+                if (windows.ReadFile(self.handle, @ptrCast(*c_void, buffer.ptr + index), want_read_count, &amt_read, null) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
                         windows.ERROR.OPERATION_ABORTED => continue,

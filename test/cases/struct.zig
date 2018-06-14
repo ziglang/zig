@@ -421,3 +421,20 @@ const Expr = union(enum) {
 fn alloc(comptime T: type) []T {
     return []T{};
 }
+
+test "call method with mutable reference to struct with no fields" {
+    const S = struct {
+        fn doC(s: *const this) bool {
+            return true;
+        }
+        fn do(s: *this) bool {
+            return true;
+        }
+    };
+
+    var s = S{};
+    assert(S.doC(&s));
+    assert(s.doC());
+    assert(S.do(&s));
+    assert(s.do());
+}

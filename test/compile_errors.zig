@@ -2,6 +2,57 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "use implicit casts to assign null to non-nullable pointer",
+        \\export fn entry() void {
+        \\    var x: i32 = 1234;
+        \\    var p: *i32 = &x;
+        \\    var pp: *?*i32 = &p;
+        \\    pp.* = null;
+        \\    var y = p.*;
+        \\}
+    ,
+        ".tmp_source.zig:4:23: error: expected type '*?*i32', found '**i32'",
+    );
+
+    cases.add(
+        "attempted implicit cast from T to [*]const T",
+        \\export fn entry() void {
+        \\    const x: [*]const bool = true;
+        \\}
+    ,
+        ".tmp_source.zig:2:30: error: expected type '[*]const bool', found 'bool'",
+    );
+
+    cases.add(
+        "dereference unknown length pointer",
+        \\export fn entry(x: [*]i32) i32 {
+        \\    return x.*;
+        \\}
+    ,
+        ".tmp_source.zig:2:13: error: index syntax required for unknown-length pointer type '[*]i32'",
+    );
+
+    cases.add(
+        "field access of unknown length pointer",
+        \\const Foo = extern struct {
+        \\    a: i32,
+        \\};
+        \\
+        \\export fn entry(foo: [*]Foo) void {
+        \\    foo.a += 1;
+        \\}
+    ,
+        ".tmp_source.zig:6:8: error: type '[*]Foo' does not support field access",
+    );
+
+    cases.add(
+        "unknown length pointer to opaque",
+        \\export const T = [*]@OpaqueType();
+    ,
+        ".tmp_source.zig:1:18: error: unknown-length pointer to opaque",
+    );
+
+    cases.add(
         "error when evaluating return type",
         \\const Foo = struct {
         \\    map: i32(i32),
@@ -1303,7 +1354,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (true) |x| { }
         \\}
     ,
-        ".tmp_source.zig:2:9: error: expected nullable type, found 'bool'",
+        ".tmp_source.zig:2:9: error: expected optional type, found 'bool'",
     );
 
     cases.add(
@@ -1742,7 +1793,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "assign null to non-nullable pointer",
+        "assign null to non-optional pointer",
         \\const a: *u8 = null;
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
@@ -2258,7 +2309,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\    defer try canFail();
         \\
-        \\    const a = maybeInt() ?? return;
+        \\    const a = maybeInt() orelse return;
         \\}
         \\
         \\fn canFail() error!void { }
@@ -2779,7 +2830,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected bool, got nullable",
+        "while expected bool, got optional",
         \\export fn foo() void {
         \\    while (bar()) {}
         \\}
@@ -2799,23 +2850,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected nullable, got bool",
+        "while expected optional, got bool",
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
         \\fn bar() bool { return true; }
     ,
-        ".tmp_source.zig:2:15: error: expected nullable type, found 'bool'",
+        ".tmp_source.zig:2:15: error: expected optional type, found 'bool'",
     );
 
     cases.add(
-        "while expected nullable, got error union",
+        "while expected optional, got error union",
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
         \\fn bar() error!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected nullable type, found 'error!i32'",
+        ".tmp_source.zig:2:15: error: expected optional type, found 'error!i32'",
     );
 
     cases.add(
@@ -2829,7 +2880,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected error union, got nullable",
+        "while expected error union, got optional",
         \\export fn foo() void {
         \\    while (bar()) |x| {} else |err| {}
         \\}
@@ -3291,7 +3342,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
         ".tmp_source.zig:10:4: error: variable of type '(block)' must be const or comptime",
         ".tmp_source.zig:11:4: error: variable of type '(null)' must be const or comptime",
-        ".tmp_source.zig:12:4: error: variable of type 'Opaque' must be const or comptime",
+        ".tmp_source.zig:12:4: error: variable of type 'Opaque' not allowed",
         ".tmp_source.zig:13:4: error: variable of type 'type' must be const or comptime",
         ".tmp_source.zig:14:4: error: variable of type '(namespace)' must be const or comptime",
         ".tmp_source.zig:15:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",

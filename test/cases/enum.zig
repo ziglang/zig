@@ -883,3 +883,12 @@ test "empty extern enum with members" {
     };
     assert(@sizeOf(E) == @sizeOf(c_int));
 }
+
+test "aoeu" {
+    const LocalFoo = enum {
+        A = 1,
+        B = 0,
+    };
+    var b = LocalFoo.B;
+    assert(mem.eql(u8, @tagName(b), "B"));
+}

@@ -1,6 +1,7 @@
 const std = @import("index.zig");
 const debug = std.debug;
 const assert = debug.assert;
+const assertError = debug.assertError;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
@@ -28,20 +29,33 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             };
         }
 
-        pub fn deinit(l: *const Self) void {
-            l.allocator.free(l.items);
+        pub fn deinit(self: *const Self) void {
+            self.allocator.free(self.items);
         }
 
-        pub fn toSlice(l: *const Self) []align(A) T {
-            return l.items[0..l.len];
+        pub fn toSlice(self: *const Self) []align(A) T {
+            return self.items[0..self.len];
         }
 
-        pub fn toSliceConst(l: *const Self) []align(A) const T {
-            return l.items[0..l.len];
+        pub fn toSliceConst(self: *const Self) []align(A) const T {
+            return self.items[0..self.len];
         }
 
-        pub fn at(l: *const Self, n: usize) T {
-            return l.toSliceConst()[n];
+        pub fn at(self: *const Self, n: usize) T {
+            return self.toSliceConst()[n];
+        }
+
+        /// Sets the value at index `i`, or returns `error.OutOfBounds` if
+        /// the index is not in range.
+        pub fn setOrError(self: *const Self, i: usize, item: *const T) !void {
+            if (i >= self.len) return error.OutOfBounds;
+            self.items[i] = item.*;
+        }
+
+        /// Sets the value at index `i`, asserting that the value is in range.
+        pub fn set(self: *const Self, i: usize, item: *const T) void {
+            assert(i < self.len);
+            self.items[i] = item.*;
         }
 
         pub fn count(self: *const Self) usize {
@@ -67,58 +81,58 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return result;
         }
 
-        pub fn insert(l: *Self, n: usize, item: *const T) !void {
-            try l.ensureCapacity(l.len + 1);
-            l.len += 1;
+        pub fn insert(self: *Self, n: usize, item: *const T) !void {
+            try self.ensureCapacity(self.len + 1);
+            self.len += 1;
 
-            mem.copy(T, l.items[n + 1 .. l.len], l.items[n .. l.len - 1]);
-            l.items[n] = item.*;
+            mem.copy(T, self.items[n + 1 .. self.len], self.items[n .. self.len - 1]);
+            self.items[n] = item.*;
         }
 
-        pub fn insertSlice(l: *Self, n: usize, items: []align(A) const T) !void {
-            try l.ensureCapacity(l.len + items.len);
-            l.len += items.len;
+        pub fn insertSlice(self: *Self, n: usize, items: []align(A) const T) !void {
+            try self.ensureCapacity(self.len + items.len);
+            self.len += items.len;
 
-            mem.copy(T, l.items[n + items.len .. l.len], l.items[n .. l.len - items.len]);
-            mem.copy(T, l.items[n .. n + items.len], items);
+            mem.copy(T, self.items[n + items.len .. self.len], self.items[n .. self.len - items.len]);
+            mem.copy(T, self.items[n .. n + items.len], items);
         }
 
-        pub fn append(l: *Self, item: *const T) !void {
-            const new_item_ptr = try l.addOne();
+        pub fn append(self: *Self, item: *const T) !void {
+            const new_item_ptr = try self.addOne();
             new_item_ptr.* = item.*;
         }
 
-        pub fn appendSlice(l: *Self, items: []align(A) const T) !void {
-            try l.ensureCapacity(l.len + items.len);
-            mem.copy(T, l.items[l.len..], items);
-            l.len += items.len;
+        pub fn appendSlice(self: *Self, items: []align(A) const T) !void {
+            try self.ensureCapacity(self.len + items.len);
+            mem.copy(T, self.items[self.len..], items);
+            self.len += items.len;
         }
 
-        pub fn resize(l: *Self, new_len: usize) !void {
-            try l.ensureCapacity(new_len);
-            l.len = new_len;
+        pub fn resize(self: *Self, new_len: usize) !void {
+            try self.ensureCapacity(new_len);
+            self.len = new_len;
         }
 
-        pub fn shrink(l: *Self, new_len: usize) void {
-            assert(new_len <= l.len);
-            l.len = new_len;
+        pub fn shrink(self: *Self, new_len: usize) void {
+            assert(new_len <= self.len);
+            self.len = new_len;
         }
 
-        pub fn ensureCapacity(l: *Self, new_capacity: usize) !void {
-            var better_capacity = l.items.len;
+        pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
+            var better_capacity = self.items.len;
             if (better_capacity >= new_capacity) return;
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
-            l.items = try l.allocator.alignedRealloc(T, A, l.items, better_capacity);
+            self.items = try self.allocator.alignedRealloc(T, A, self.items, better_capacity);
         }
 
-        pub fn addOne(l: *Self) !*T {
-            const new_length = l.len + 1;
-            try l.ensureCapacity(new_length);
-            const result = &l.items[l.len];
-            l.len = new_length;
+        pub fn addOne(self: *Self) !*T {
+            const new_length = self.len + 1;
+            try self.ensureCapacity(new_length);
+            const result = &self.items[self.len];
+            self.len = new_length;
             return result;
         }
 
@@ -159,8 +173,14 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
 }
 
 test "basic ArrayList test" {
-    var list = ArrayList(i32).init(debug.global_allocator);
+    var bytes: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var list = ArrayList(i32).init(allocator);
     defer list.deinit();
+
+    // setting on empty list is out of bounds
+    assertError(list.setOrError(0, 1), error.OutOfBounds);
 
     {
         var i: usize = 0;
@@ -200,6 +220,16 @@ test "basic ArrayList test" {
 
     list.appendSlice([]const i32{}) catch unreachable;
     assert(list.len == 9);
+
+    // can only set on indices < self.len
+    list.set(7, 33);
+    list.set(8, 42);
+
+    assertError(list.setOrError(9, 99), error.OutOfBounds);
+    assertError(list.setOrError(10, 123), error.OutOfBounds);
+
+    assert(list.pop() == 42);
+    assert(list.pop() == 33);
 }
 
 test "iterator ArrayList test" {
@@ -228,7 +258,7 @@ test "iterator ArrayList test" {
     }
 
     it.reset();
-    assert(??it.next() == 1);
+    assert(it.next().? == 1);
 }
 
 test "insert ArrayList test" {

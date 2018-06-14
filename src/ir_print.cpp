@@ -148,7 +148,7 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
             return "-%";
         case IrUnOpDereference:
             return "*";
-        case IrUnOpMaybe:
+        case IrUnOpOptional:
             return "?";
     }
     zig_unreachable();
@@ -481,7 +481,7 @@ static void ir_print_test_null(IrPrint *irp, IrInstructionTestNonNull *instructi
     fprintf(irp->f, " != null");
 }
 
-static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapMaybe *instruction) {
+static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapOptional *instruction) {
     fprintf(irp->f, "&??*");
     ir_print_other_instruction(irp, instruction->value);
     if (!instruction->safety_check_on) {
@@ -777,7 +777,7 @@ static void ir_print_unwrap_err_payload(IrPrint *irp, IrInstructionUnwrapErrPayl
     }
 }
 
-static void ir_print_maybe_wrap(IrPrint *irp, IrInstructionMaybeWrap *instruction) {
+static void ir_print_maybe_wrap(IrPrint *irp, IrInstructionOptionalWrap *instruction) {
     fprintf(irp->f, "@maybeWrap(");
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, ")");
@@ -913,14 +913,6 @@ static void ir_print_tag_name(IrPrint *irp, IrInstructionTagName *instruction) {
     ir_print_other_instruction(irp, instruction->target);
 }
 
-static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCast *instruction) {
-    fprintf(irp->f, "@canImplicitCast(");
-    ir_print_other_instruction(irp, instruction->type_value);
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->target_value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_ptr_type(IrPrint *irp, IrInstructionPtrType *instruction) {
     fprintf(irp->f, "&");
     if (instruction->align_value != nullptr) {
@@ -1040,7 +1032,7 @@ static void ir_print_export(IrPrint *irp, IrInstructionExport *instruction) {
 
 static void ir_print_error_return_trace(IrPrint *irp, IrInstructionErrorReturnTrace *instruction) {
     fprintf(irp->f, "@errorReturnTrace(");
-    switch (instruction->nullable) {
+    switch (instruction->optional) {
         case IrInstructionErrorReturnTrace::Null:
             fprintf(irp->f, "Null");
             break;
@@ -1356,8 +1348,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTestNonNull:
             ir_print_test_null(irp, (IrInstructionTestNonNull *)instruction);
             break;
-        case IrInstructionIdUnwrapMaybe:
-            ir_print_unwrap_maybe(irp, (IrInstructionUnwrapMaybe *)instruction);
+        case IrInstructionIdUnwrapOptional:
+            ir_print_unwrap_maybe(irp, (IrInstructionUnwrapOptional *)instruction);
             break;
         case IrInstructionIdCtz:
             ir_print_ctz(irp, (IrInstructionCtz *)instruction);
@@ -1473,8 +1465,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdUnwrapErrPayload:
             ir_print_unwrap_err_payload(irp, (IrInstructionUnwrapErrPayload *)instruction);
             break;
-        case IrInstructionIdMaybeWrap:
-            ir_print_maybe_wrap(irp, (IrInstructionMaybeWrap *)instruction);
+        case IrInstructionIdOptionalWrap:
+            ir_print_maybe_wrap(irp, (IrInstructionOptionalWrap *)instruction);
             break;
         case IrInstructionIdErrWrapCode:
             ir_print_err_wrap_code(irp, (IrInstructionErrWrapCode *)instruction);
@@ -1523,9 +1515,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTagName:
             ir_print_tag_name(irp, (IrInstructionTagName *)instruction);
-            break;
-        case IrInstructionIdCanImplicitCast:
-            ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);
             break;
         case IrInstructionIdPtrType:
             ir_print_ptr_type(irp, (IrInstructionPtrType *)instruction);

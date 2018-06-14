@@ -58,6 +58,8 @@ comptime {
                     @export("__chkstk", __chkstk, strong_linkage);
                     @export("___chkstk_ms", ___chkstk_ms, linkage);
                 }
+                @export("__divti3", @import("divti3.zig").__divti3_windows_x86_64, linkage);
+                @export("__muloti4", @import("muloti4.zig").__muloti4_windows_x86_64, linkage);
                 @export("__udivti3", @import("udivti3.zig").__udivti3_windows_x86_64, linkage);
                 @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4_windows_x86_64, linkage);
                 @export("__umodti3", @import("umodti3.zig").__umodti3_windows_x86_64, linkage);
@@ -65,6 +67,8 @@ comptime {
             else => {},
         }
     } else {
+        @export("__divti3", @import("divti3.zig").__divti3, linkage);
+        @export("__muloti4", @import("muloti4.zig").__muloti4, linkage);
         @export("__udivti3", @import("udivti3.zig").__udivti3, linkage);
         @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4, linkage);
         @export("__umodti3", @import("umodti3.zig").__umodti3, linkage);

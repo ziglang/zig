@@ -88,6 +88,16 @@ pub fn assert(ok: bool) void {
     }
 }
 
+/// TODO: add `==` operator for `error_union == error_set`, and then
+/// remove this function
+pub fn assertError(value: var, expected_error: error) void {
+    if (value) {
+        @panic("expected error");
+    } else |actual_error| {
+        assert(actual_error == expected_error);
+    }
+}
+
 /// Call this function when you want to panic if the condition is not true.
 /// If `ok` is `false`, this function will panic in every release mode.
 pub fn assertOrPanic(ok: bool) void {
@@ -198,7 +208,7 @@ fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: us
                 .name = "???",
                 .address = address,
             };
-            const symbol = debug_info.symbol_table.search(address) ?? &unknown;
+            const symbol = debug_info.symbol_table.search(address) orelse &unknown;
             try out_stream.print(WHITE ++ "{}" ++ RESET ++ ": " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n", symbol.name, address);
         },
         else => {
@@ -258,10 +268,10 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
             try st.elf.openFile(allocator, &st.self_exe_file);
             errdefer st.elf.close();
 
-            st.debug_info = (try st.elf.findSection(".debug_info")) ?? return error.MissingDebugInfo;
-            st.debug_abbrev = (try st.elf.findSection(".debug_abbrev")) ?? return error.MissingDebugInfo;
-            st.debug_str = (try st.elf.findSection(".debug_str")) ?? return error.MissingDebugInfo;
-            st.debug_line = (try st.elf.findSection(".debug_line")) ?? return error.MissingDebugInfo;
+            st.debug_info = (try st.elf.findSection(".debug_info")) orelse return error.MissingDebugInfo;
+            st.debug_abbrev = (try st.elf.findSection(".debug_abbrev")) orelse return error.MissingDebugInfo;
+            st.debug_str = (try st.elf.findSection(".debug_str")) orelse return error.MissingDebugInfo;
+            st.debug_line = (try st.elf.findSection(".debug_line")) orelse return error.MissingDebugInfo;
             st.debug_ranges = (try st.elf.findSection(".debug_ranges"));
             try scanAllCompileUnits(st);
             return st;
@@ -433,7 +443,7 @@ const Die = struct {
     }
 
     fn getAttrAddr(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Address => |value| value,
             else => error.InvalidDebugInfo,
@@ -441,7 +451,7 @@ const Die = struct {
     }
 
     fn getAttrSecOffset(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Const => |value| value.asUnsignedLe(),
             FormValue.SecOffset => |value| value,
@@ -450,7 +460,7 @@ const Die = struct {
     }
 
     fn getAttrUnsignedLe(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Const => |value| value.asUnsignedLe(),
             else => error.InvalidDebugInfo,
@@ -458,7 +468,7 @@ const Die = struct {
     }
 
     fn getAttrString(self: *const Die, st: *ElfStackTrace, id: u64) ![]u8 {
-        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
             FormValue.StrPtr => |offset| getString(st, offset),
@@ -738,7 +748,7 @@ fn parseDie(st: *ElfStackTrace, abbrev_table: *const AbbrevTable, is_64: bool) !
     var in_file_stream = io.FileInStream.init(in_file);
     const in_stream = &in_file_stream.stream;
     const abbrev_code = try readULeb128(in_stream);
-    const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) ?? return error.InvalidDebugInfo;
+    const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
 
     var result = Die{
         .tag_id = table_entry.tag_id,

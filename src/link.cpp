@@ -391,6 +391,19 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 }
 
+static void construct_linker_job_wasm(LinkJob *lj) {
+    CodeGen *g = lj->codegen;
+
+    lj->args.append("--relocatable");  // So lld doesn't look for _start.
+    lj->args.append("-o");
+    lj->args.append(buf_ptr(&lj->out_file));
+
+    // .o files
+    for (size_t i = 0; i < g->link_objects.length; i += 1) {
+        lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
+    }
+}
+
 //static bool is_target_cyg_mingw(const ZigTarget *target) {
 //    return (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_Cygnus) ||
 //        (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_GNU);
@@ -924,7 +937,7 @@ static void construct_linker_job(LinkJob *lj) {
         case ZigLLVM_MachO:
             return construct_linker_job_macho(lj);
         case ZigLLVM_Wasm:
-            zig_panic("TODO link wasm");
+            return construct_linker_job_wasm(lj);
     }
 }
 

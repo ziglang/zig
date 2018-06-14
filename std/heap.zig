@@ -22,7 +22,7 @@ fn cAlloc(self: *Allocator, n: usize, alignment: u29) ![]u8 {
 }
 
 fn cRealloc(self: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-    const old_ptr = @ptrCast([*]c_void, old_mem.ptr);
+    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
     if (c.realloc(old_ptr, new_size)) |buf| {
         return @ptrCast([*]u8, buf)[0..new_size];
     } else if (new_size <= old_mem.len) {
@@ -33,7 +33,7 @@ fn cRealloc(self: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![
 }
 
 fn cFree(self: *Allocator, old_mem: []u8) void {
-    const old_ptr = @ptrCast([*]c_void, old_mem.ptr);
+    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
     c.free(old_ptr);
 }
 
@@ -97,12 +97,12 @@ pub const DirectAllocator = struct {
             },
             Os.windows => {
                 const amt = n + alignment + @sizeOf(usize);
-                const heap_handle = self.heap_handle ?? blk: {
-                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0) ?? return error.OutOfMemory;
+                const heap_handle = self.heap_handle orelse blk: {
+                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0) orelse return error.OutOfMemory;
                     self.heap_handle = hh;
                     break :blk hh;
                 };
-                const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) ?? return error.OutOfMemory;
+                const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
                 const root_addr = @ptrToInt(ptr);
                 const rem = @rem(root_addr, alignment);
                 const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
@@ -140,9 +140,9 @@ pub const DirectAllocator = struct {
                 const old_adjusted_addr = @ptrToInt(old_mem.ptr);
                 const old_record_addr = old_adjusted_addr + old_mem.len;
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
-                const old_ptr = @intToPtr([*]c_void, root_addr);
+                const old_ptr = @intToPtr(*c_void, root_addr);
                 const amt = new_size + alignment + @sizeOf(usize);
-                const new_ptr = os.windows.HeapReAlloc(??self.heap_handle, 0, old_ptr, amt) ?? blk: {
+                const new_ptr = os.windows.HeapReAlloc(self.heap_handle.?, 0, old_ptr, amt) orelse blk: {
                     if (new_size > old_mem.len) return error.OutOfMemory;
                     const new_record_addr = old_record_addr - new_size + old_mem.len;
                     @intToPtr(*align(1) usize, new_record_addr).* = root_addr;
@@ -170,8 +170,8 @@ pub const DirectAllocator = struct {
             Os.windows => {
                 const record_addr = @ptrToInt(bytes.ptr) + bytes.len;
                 const root_addr = @intToPtr(*align(1) usize, record_addr).*;
-                const ptr = @intToPtr([*]c_void, root_addr);
-                _ = os.windows.HeapFree(??self.heap_handle, 0, ptr);
+                const ptr = @intToPtr(*c_void, root_addr);
+                _ = os.windows.HeapFree(self.heap_handle.?, 0, ptr);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -343,7 +343,7 @@ pub const ThreadSafeFixedBufferAllocator = struct {
             if (new_end_index > self.buffer.len) {
                 return error.OutOfMemory;
             }
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) ?? return self.buffer[adjusted_index..new_end_index];
+            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
         }
     }
 

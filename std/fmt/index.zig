@@ -97,7 +97,11 @@ pub fn formatType(
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     const T = @typeOf(value);
-    switch (@typeId(T)) {
+    if (T == error) {
+        try output(context, "error.");
+        return output(context, @errorName(value));
+    }
+    switch (@typeInfo(T)) {
         builtin.TypeId.Int, builtin.TypeId.Float => {
             return formatValue(value, fmt, context, Errors, output);
         },
@@ -107,7 +111,7 @@ pub fn formatType(
         builtin.TypeId.Bool => {
             return output(context, if (value) "true" else "false");
         },
-        builtin.TypeId.Nullable => {
+        builtin.TypeId.Optional => {
             if (value) |payload| {
                 return formatType(payload, fmt, context, Errors, output);
             } else {
@@ -125,12 +129,13 @@ pub fn formatType(
             try output(context, "error.");
             return output(context, @errorName(value));
         },
-        builtin.TypeId.Pointer => {
-            switch (@typeId(T.Child)) {
-                builtin.TypeId.Array => {
-                    if (T.Child.Child == u8) {
+        builtin.TypeId.Pointer => |ptr_info| switch (ptr_info.size) {
+            builtin.TypeInfo.Pointer.Size.One => switch (@typeInfo(ptr_info.child)) {
+                builtin.TypeId.Array => |info| {
+                    if (info.child == u8) {
                         return formatText(value, fmt, context, Errors, output);
                     }
+                    return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
                     const has_cust_fmt = comptime cf: {
@@ -154,14 +159,24 @@ pub fn formatType(
                     return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
                 },
                 else => return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value)),
-            }
+            },
+            builtin.TypeInfo.Pointer.Size.Many => {
+                if (ptr_info.child == u8) {
+                    //This is a bit of a hack, but it made more sense to
+                    // do this check here than have formatText do it
+                    if (fmt[0] == 's') {
+                        const len = std.cstr.len(value);
+                        return formatText(value[0..len], fmt, context, Errors, output);
+                    }
+                }
+                return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+            },
+            builtin.TypeInfo.Pointer.Size.Slice => {
+                const casted_value = ([]const u8)(value);
+                return output(context, casted_value);
+            },
         },
-        else => if (@canImplicitCast([]const u8, value)) {
-            const casted_value = ([]const u8)(value);
-            return output(context, casted_value);
-        } else {
-            @compileError("Unable to format type '" ++ @typeName(T) ++ "'");
-        },
+        else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
 
@@ -293,7 +308,7 @@ pub fn formatBuf(
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
     const pad_byte: u8 = ' ';
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        try output(context, (&pad_byte)[0..1]);
+        try output(context, (*[1]u8)(&pad_byte)[0..1]);
     }
 }
 
@@ -552,14 +567,19 @@ pub fn formatBytes(
         return output(context, "0B");
     }
 
-    const mags = " KMGTPEZY";
+    const mags_si = " kMGTPEZY";
+    const mags_iec = " KMGTPEZY";
     const magnitude = switch (radix) {
-        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags.len - 1),
-        1024 => math.min(math.log2(value) / 10, mags.len - 1),
+        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags_si.len - 1),
+        1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
         else => unreachable,
     };
     const new_value = f64(value) / math.pow(f64, f64(radix), f64(magnitude));
-    const suffix = mags[magnitude];
+    const suffix = switch (radix) {
+        1000 => mags_si[magnitude],
+        1024 => mags_iec[magnitude],
+        else => unreachable,
+    };
 
     try formatFloatDecimal(new_value, width, context, Errors, output);
 
@@ -807,11 +827,11 @@ test "parse unsigned comptime" {
 test "fmt.format" {
     {
         const value: ?i32 = 1234;
-        try testFmt("nullable: 1234\n", "nullable: {}\n", value);
+        try testFmt("optional: 1234\n", "optional: {}\n", value);
     }
     {
         const value: ?i32 = null;
-        try testFmt("nullable: null\n", "nullable: {}\n", value);
+        try testFmt("optional: null\n", "optional: {}\n", value);
     }
     {
         const value: error!i32 = 1234;
@@ -829,6 +849,10 @@ test "fmt.format" {
         const value: u8 = 'a';
         try testFmt("u8: a\n", "u8: {c}\n", value);
     }
+    try testFmt("buf: Test \n", "buf: {s5}\n", "Test");
+    try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", "Test");
+    try testFmt("cstr: Test C\n", "cstr: {s}\n", c"Test C");
+    try testFmt("cstr: Test C    \n", "cstr: {s10}\n", c"Test C");
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
     try testFmt("file size: 66.06MB\n", "file size: {B2}\n", usize(63 * 1024 * 1024));
     {

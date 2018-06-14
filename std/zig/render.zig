@@ -83,7 +83,7 @@ fn renderRoot(
     var start_col: usize = 0;
     var it = tree.root_node.decls.iterator(0);
     while (true) {
-        var decl = (it.next() ?? return).*;
+        var decl = (it.next() orelse return).*;
         // look for zig fmt: off comment
         var start_token_index = decl.firstToken();
         zig_fmt_loop: while (start_token_index != 0) {
@@ -112,7 +112,7 @@ fn renderRoot(
                         const start = tree.tokens.at(start_token_index + 1).start;
                         try stream.print("{}\n", tree.source[start..end_token.end]);
                         while (tree.tokens.at(decl.firstToken()).start < end_token.end) {
-                            decl = (it.next() ?? return).*;
+                            decl = (it.next() orelse return).*;
                         }
                         break :zig_fmt_loop;
                     }
@@ -222,7 +222,7 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
                 }
             }
 
-            const value_expr = ??tag.value_expr;
+            const value_expr = tag.value_expr.?;
             try renderToken(tree, stream, tree.prevToken(value_expr.firstToken()), indent, start_col, Space.Space); // =
             try renderExpression(allocator, stream, tree, indent, start_col, value_expr, Space.Comma); // value,
         },
@@ -465,8 +465,7 @@ fn renderExpression(
                 ast.Node.PrefixOp.Op.BoolNot,
                 ast.Node.PrefixOp.Op.Negation,
                 ast.Node.PrefixOp.Op.NegationWrap,
-                ast.Node.PrefixOp.Op.UnwrapMaybe,
-                ast.Node.PrefixOp.Op.MaybeType,
+                ast.Node.PrefixOp.Op.OptionalType,
                 ast.Node.PrefixOp.Op.AddressOf,
                 => {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None);
@@ -513,7 +512,7 @@ fn renderExpression(
 
                         var it = call_info.params.iterator(0);
                         while (true) {
-                            const param_node = ??it.next();
+                            const param_node = it.next().?;
 
                             const param_node_new_indent = if (param_node.*.id == ast.Node.Id.MultilineStringLiteral) blk: {
                                 break :blk indent;
@@ -559,10 +558,10 @@ fn renderExpression(
                     return renderToken(tree, stream, rbracket, indent, start_col, space); // ]
                 },
 
-                ast.Node.SuffixOp.Op.Deref => {
+                ast.Node.SuffixOp.Op.Deref, ast.Node.SuffixOp.Op.UnwrapOptional => {
                     try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
                     try renderToken(tree, stream, tree.prevToken(suffix_op.rtoken), indent, start_col, Space.None); // .
-                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // *
+                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // * or ?
                 },
 
                 @TagType(ast.Node.SuffixOp.Op).Slice => |range| {
@@ -595,7 +594,7 @@ fn renderExpression(
                     }
 
                     if (field_inits.len == 1) blk: {
-                        const field_init = ??field_inits.at(0).*.cast(ast.Node.FieldInitializer);
+                        const field_init = field_inits.at(0).*.cast(ast.Node.FieldInitializer).?;
 
                         if (field_init.expr.cast(ast.Node.SuffixOp)) |nested_suffix_op| {
                             if (nested_suffix_op.op == ast.Node.SuffixOp.Op.StructInitializer) {
@@ -688,7 +687,7 @@ fn renderExpression(
                         var count: usize = 1;
                         var it = exprs.iterator(0);
                         while (true) {
-                            const expr = (??it.next()).*;
+                            const expr = it.next().?.*;
                             if (it.peek()) |next_expr| {
                                 const expr_last_token = expr.*.lastToken() + 1;
                                 const loc = tree.tokenLocation(tree.tokens.at(expr_last_token).end, next_expr.*.firstToken());
@@ -806,7 +805,7 @@ fn renderExpression(
                 },
             }
 
-            return renderExpression(allocator, stream, tree, indent, start_col, ??flow_expr.rhs, space);
+            return renderExpression(allocator, stream, tree, indent, start_col, flow_expr.rhs.?, space);
         },
 
         ast.Node.Id.Payload => {
@@ -1245,7 +1244,7 @@ fn renderExpression(
             } else {
                 var it = switch_case.items.iterator(0);
                 while (true) {
-                    const node = ??it.next();
+                    const node = it.next().?;
                     if (it.peek()) |next_node| {
                         try renderExpression(allocator, stream, tree, indent, start_col, node.*, Space.None);
 
@@ -1550,7 +1549,7 @@ fn renderExpression(
 
                 var it = asm_node.outputs.iterator(0);
                 while (true) {
-                    const asm_output = ??it.next();
+                    const asm_output = it.next().?;
                     const node = &(asm_output.*).base;
 
                     if (it.peek()) |next_asm_output| {
@@ -1588,7 +1587,7 @@ fn renderExpression(
 
                 var it = asm_node.inputs.iterator(0);
                 while (true) {
-                    const asm_input = ??it.next();
+                    const asm_input = it.next().?;
                     const node = &(asm_input.*).base;
 
                     if (it.peek()) |next_asm_input| {
@@ -1620,7 +1619,7 @@ fn renderExpression(
 
             var it = asm_node.clobbers.iterator(0);
             while (true) {
-                const clobber_token = ??it.next();
+                const clobber_token = it.next().?;
 
                 if (it.peek() == null) {
                     try renderToken(tree, stream, clobber_token.*, indent_once, start_col, Space.Newline);
@@ -1994,7 +1993,7 @@ fn renderDocComments(
     indent: usize,
     start_col: *usize,
 ) (@typeOf(stream).Child.Error || Error)!void {
-    const comment = node.doc_comments ?? return;
+    const comment = node.doc_comments orelse return;
     var it = comment.lines.iterator(0);
     const first_token = node.firstToken();
     while (it.next()) |line_token_index| {
@@ -2022,7 +2021,7 @@ fn nodeIsBlock(base: *const ast.Node) bool {
 }
 
 fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
-    const infix_op = base.cast(ast.Node.InfixOp) ?? return false;
+    const infix_op = base.cast(ast.Node.InfixOp) orelse return false;
     return switch (infix_op.op) {
         ast.Node.InfixOp.Op.Period => false,
         else => true,

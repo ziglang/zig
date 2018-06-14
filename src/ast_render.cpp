@@ -50,7 +50,7 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignBitXor:           return "^=";
         case BinOpTypeAssignBitOr:            return "|=";
         case BinOpTypeAssignMergeErrorSets:   return "||=";
-        case BinOpTypeUnwrapMaybe:            return "??";
+        case BinOpTypeUnwrapOptional:         return "orelse";
         case BinOpTypeArrayCat:               return "++";
         case BinOpTypeArrayMult:              return "**";
         case BinOpTypeErrorUnion:             return "!";
@@ -66,8 +66,7 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpNegationWrap: return "-%";
         case PrefixOpBoolNot: return "!";
         case PrefixOpBinNot: return "~";
-        case PrefixOpMaybe: return "?";
-        case PrefixOpUnwrapMaybe: return "??";
+        case PrefixOpOptional: return "?";
         case PrefixOpAddrOf: return "&";
     }
     zig_unreachable();
@@ -222,6 +221,8 @@ static const char *node_type_str(NodeType node_type) {
             return "FieldAccessExpr";
         case NodeTypePtrDeref:
             return "PtrDerefExpr";
+        case NodeTypeUnwrapOptional:
+            return "UnwrapOptional";
         case NodeTypeContainerDecl:
             return "ContainerDecl";
         case NodeTypeStructField:
@@ -709,6 +710,13 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 AstNode *lhs = node->data.ptr_deref_expr.target;
                 render_node_ungrouped(ar, lhs);
                 fprintf(ar->f, ".*");
+                break;
+            }
+        case NodeTypeUnwrapOptional:
+            {
+                AstNode *lhs = node->data.unwrap_optional.expr;
+                render_node_ungrouped(ar, lhs);
+                fprintf(ar->f, ".?");
                 break;
             }
         case NodeTypeUndefinedLiteral:

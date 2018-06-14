@@ -20,11 +20,11 @@ pub extern "c" fn @"fstat$INODE64"(fd: c_int, buf: *Stat) c_int;
 pub extern "c" fn lseek(fd: c_int, offset: isize, whence: c_int) isize;
 pub extern "c" fn open(path: [*]const u8, oflag: c_int, ...) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;
-pub extern "c" fn read(fd: c_int, buf: [*]c_void, nbyte: usize) isize;
+pub extern "c" fn read(fd: c_int, buf: *c_void, nbyte: usize) isize;
 pub extern "c" fn stat(noalias path: [*]const u8, noalias buf: *Stat) c_int;
-pub extern "c" fn write(fd: c_int, buf: [*]const c_void, nbyte: usize) isize;
-pub extern "c" fn mmap(addr: ?[*]c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, offset: isize) ?[*]c_void;
-pub extern "c" fn munmap(addr: [*]c_void, len: usize) c_int;
+pub extern "c" fn write(fd: c_int, buf: *const c_void, nbyte: usize) isize;
+pub extern "c" fn mmap(addr: ?*c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, offset: isize) ?*c_void;
+pub extern "c" fn munmap(addr: *c_void, len: usize) c_int;
 pub extern "c" fn unlink(path: [*]const u8) c_int;
 pub extern "c" fn getcwd(buf: [*]u8, size: usize) ?[*]u8;
 pub extern "c" fn waitpid(pid: c_int, stat_loc: *c_int, options: c_int) c_int;
@@ -48,15 +48,15 @@ pub extern "c" fn setreuid(ruid: c_uint, euid: c_uint) c_int;
 pub extern "c" fn setregid(rgid: c_uint, egid: c_uint) c_int;
 pub extern "c" fn rmdir(path: [*]const u8) c_int;
 
-pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?[*]c_void;
-pub extern "c" fn malloc(usize) ?[*]c_void;
-pub extern "c" fn realloc([*]c_void, usize) ?[*]c_void;
-pub extern "c" fn free([*]c_void) void;
-pub extern "c" fn posix_memalign(memptr: *[*]c_void, alignment: usize, size: usize) c_int;
+pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
+pub extern "c" fn malloc(usize) ?*c_void;
+pub extern "c" fn realloc(*c_void, usize) ?*c_void;
+pub extern "c" fn free(*c_void) void;
+pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;
 
 pub extern "pthread" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const pthread_attr_t, start_routine: extern fn (?*c_void) ?*c_void, noalias arg: ?*c_void) c_int;
 pub extern "pthread" fn pthread_attr_init(attr: *pthread_attr_t) c_int;
-pub extern "pthread" fn pthread_attr_setstack(attr: *pthread_attr_t, stackaddr: [*]c_void, stacksize: usize) c_int;
+pub extern "pthread" fn pthread_attr_setstack(attr: *pthread_attr_t, stackaddr: *c_void, stacksize: usize) c_int;
 pub extern "pthread" fn pthread_attr_destroy(attr: *pthread_attr_t) c_int;
 pub extern "pthread" fn pthread_join(thread: pthread_t, arg_return: ?*?*c_void) c_int;
 

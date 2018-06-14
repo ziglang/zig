@@ -17,7 +17,7 @@ pub const BufSet = struct {
     pub fn deinit(self: *const BufSet) void {
         var it = self.hash_map.iterator();
         while (true) {
-            const entry = it.next() ?? break;
+            const entry = it.next() orelse break;
             self.free(entry.key);
         }
 
@@ -33,7 +33,7 @@ pub const BufSet = struct {
     }
 
     pub fn delete(self: *BufSet, key: []const u8) void {
-        const entry = self.hash_map.remove(key) ?? return;
+        const entry = self.hash_map.remove(key) orelse return;
         self.free(entry.key);
     }
 

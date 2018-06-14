@@ -99,7 +99,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("restrict -> noalias",
         \\void foo(void *restrict bar, void *restrict);
     ,
-        \\pub extern fn foo(noalias bar: ?[*]c_void, noalias arg1: ?[*]c_void) void;
+        \\pub extern fn foo(noalias bar: ?*c_void, noalias arg1: ?*c_void) void;
     );
 
     cases.add("simple struct",
@@ -172,7 +172,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const struct_Foo = @OpaqueType();
     ,
-        \\pub extern fn some_func(foo: ?[*]struct_Foo, x: c_int) ?[*]struct_Foo;
+        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
     ,
         \\pub const Foo = struct_Foo;
     );
@@ -233,7 +233,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const Foo = c_void;
     ,
-        \\pub extern fn fun(a: ?[*]Foo) Foo;
+        \\pub extern fn fun(a: ?*Foo) Foo;
     );
 
     cases.add("generate inline func for #define global extern fn",
@@ -246,13 +246,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern var fn_ptr: ?extern fn() void;
     ,
         \\pub inline fn foo() void {
-        \\    return (??fn_ptr)();
+        \\    return fn_ptr.?();
         \\}
     ,
         \\pub extern var fn_ptr2: ?extern fn(c_int, f32) u8;
     ,
         \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
-        \\    return (??fn_ptr2)(arg0, arg1);
+        \\    return fn_ptr2.?(arg0, arg1);
         \\}
     );
 
@@ -505,7 +505,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 6;
         \\}
     ,
-        \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?[*]c_void) c_int {
+        \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    if ((a != 0) and (b != 0)) return 0;
         \\    if ((b != 0) and (c != null)) return 1;
         \\    if ((a != 0) and (c != null)) return 2;
@@ -608,7 +608,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    field: c_int,
         \\};
         \\pub export fn read_field(foo: ?[*]struct_Foo) c_int {
-        \\    return (??foo).field;
+        \\    return foo.?.field;
         \\}
     );
 
@@ -653,8 +653,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return x;
         \\}
     ,
-        \\pub export fn foo(x: ?[*]c_ushort) ?[*]c_void {
-        \\    return @ptrCast(?[*]c_void, x);
+        \\pub export fn foo(x: ?[*]c_ushort) ?*c_void {
+        \\    return @ptrCast(?*c_void, x);
         \\}
     );
 
@@ -969,11 +969,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn bar() void {
         \\    var f: ?extern fn() void = foo;
         \\    var b: ?extern fn() c_int = baz;
-        \\    (??f)();
-        \\    (??f)();
+        \\    f.?();
+        \\    f.?();
         \\    foo();
-        \\    _ = (??b)();
-        \\    _ = (??b)();
+        \\    _ = b.?();
+        \\    _ = b.?();
         \\    _ = baz();
         \\}
     );
@@ -984,7 +984,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub export fn foo(x: ?[*]c_int) void {
-        \\    (??x).* = 1;
+        \\    x.?.* = 1;
         \\}
     );
 
@@ -1012,7 +1012,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo() c_int {
         \\    var x: c_int = 1234;
         \\    var ptr: ?[*]c_int = &x;
-        \\    return (??ptr).*;
+        \\    return ptr.?.*;
         \\}
     );
 
@@ -1119,7 +1119,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const glClearPFN = PFNGLCLEARPROC;
     ,
         \\pub inline fn glClearUnion(arg0: GLbitfield) void {
-        \\    return (??glProcs.gl.Clear)(arg0);
+        \\    return glProcs.gl.Clear.?(arg0);
         \\}
     ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
@@ -1173,7 +1173,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return !c;
         \\}
     ,
-        \\pub fn foo(a: c_int, b: f32, c: ?[*]c_void) c_int {
+        \\pub fn foo(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    return !(a == 0);
         \\    return !(a != 0);
         \\    return !(b != 0);
@@ -1231,7 +1231,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    B,
         \\    C,
         \\};
-        \\pub fn if_none_bool(a: c_int, b: f32, c: ?[*]c_void, d: enum_SomeEnum) c_int {
+        \\pub fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
         \\    if (c != null) return 2;
@@ -1248,7 +1248,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 3;
         \\}
     ,
-        \\pub fn while_none_bool(a: c_int, b: f32, c: ?[*]c_void) c_int {
+        \\pub fn while_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
         \\    while (c != null) return 2;
@@ -1264,7 +1264,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 3;
         \\}
     ,
-        \\pub fn for_none_bool(a: c_int, b: f32, c: ?[*]c_void) c_int {
+        \\pub fn for_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
         \\    while (c != null) return 2;

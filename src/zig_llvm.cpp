@@ -853,7 +853,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             return lld::mach_o::link(array_ref_args, diag);
 
         case ZigLLVM_Wasm:
-            assert(false); // TODO ZigLLDLink for Wasm
+            return lld::wasm::link(array_ref_args, false, diag);
     }
     assert(false); // unreachable
     abort();

@@ -116,6 +116,15 @@ test "array len property" {
     assert(@typeOf(x).len == 5);
 }
 
+test "array len field" {
+    var arr = [4]u8{ 0, 0, 0, 0 };
+    var ptr = &arr;
+    assert(arr.len == 4);
+    comptime assert(arr.len == 4);
+    assert(ptr.len == 4);
+    comptime assert(ptr.len == 4);
+}
+
 test "single-item pointer to array indexing and slicing" {
     testSingleItemPtrArrayIndexSlice();
     comptime testSingleItemPtrArrayIndexSlice();
@@ -143,4 +152,3 @@ fn testImplicitCastSingleItemPtr() void {
     slice[0] += 1;
     assert(byte == 101);
 }
-

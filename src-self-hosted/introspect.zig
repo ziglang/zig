@@ -27,7 +27,7 @@ pub fn findZigLibDir(allocator: *mem.Allocator) ![]u8 {
 
     var cur_path: []const u8 = self_exe_path;
     while (true) {
-        const test_dir = os.path.dirname(cur_path);
+        const test_dir = os.path.dirname(cur_path) orelse ".";
 
         if (mem.eql(u8, test_dir, cur_path)) {
             break;

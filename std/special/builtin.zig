@@ -19,7 +19,7 @@ export fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8 {
 
     var index: usize = 0;
     while (index != n) : (index += 1)
-        (??dest)[index] = c;
+        dest.?[index] = c;
 
     return dest;
 }
@@ -29,7 +29,7 @@ export fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]
 
     var index: usize = 0;
     while (index != n) : (index += 1)
-        (??dest)[index] = (??src)[index];
+        dest.?[index] = src.?[index];
 
     return dest;
 }
@@ -40,13 +40,13 @@ export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8 {
     if (@ptrToInt(dest) < @ptrToInt(src)) {
         var index: usize = 0;
         while (index != n) : (index += 1) {
-            (??dest)[index] = (??src)[index];
+            dest.?[index] = src.?[index];
         }
     } else {
         var index = n;
         while (index != 0) {
             index -= 1;
-            (??dest)[index] = (??src)[index];
+            dest.?[index] = src.?[index];
         }
     }
 

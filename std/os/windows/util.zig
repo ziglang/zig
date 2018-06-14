@@ -42,7 +42,7 @@ pub const WriteError = error{
 };
 
 pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) WriteError!void {
-    if (windows.WriteFile(handle, @ptrCast([*]const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
+    if (windows.WriteFile(handle, @ptrCast(*const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.INVALID_USER_BUFFER => WriteError.SystemResources,
@@ -153,7 +153,7 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
 pub fn windowsLoadDll(allocator: *mem.Allocator, dll_path: []const u8) !windows.HMODULE {
     const padded_buff = try cstr.addNullByte(allocator, dll_path);
     defer allocator.free(padded_buff);
-    return windows.LoadLibraryA(padded_buff.ptr) ?? error.DllNotFound;
+    return windows.LoadLibraryA(padded_buff.ptr) orelse error.DllNotFound;
 }
 
 pub fn windowsUnloadDll(hModule: windows.HMODULE) void {
@@ -169,4 +169,43 @@ test "InvalidDll" {
         assert(err == error.DllNotFound);
         return;
     };
+}
+
+pub fn windowsFindFirstFile(
+    allocator: *mem.Allocator,
+    dir_path: []const u8,
+    find_file_data: *windows.WIN32_FIND_DATAA,
+) !windows.HANDLE {
+    const wild_and_null = []u8{ '\\', '*', 0 };
+    const path_with_wild_and_null = try allocator.alloc(u8, dir_path.len + wild_and_null.len);
+    defer allocator.free(path_with_wild_and_null);
+
+    mem.copy(u8, path_with_wild_and_null, dir_path);
+    mem.copy(u8, path_with_wild_and_null[dir_path.len..], wild_and_null);
+
+    const handle = windows.FindFirstFileA(path_with_wild_and_null.ptr, find_file_data);
+
+    if (handle == windows.INVALID_HANDLE_VALUE) {
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND,
+            windows.ERROR.PATH_NOT_FOUND,
+            => return error.PathNotFound,
+            else => return os.unexpectedErrorWindows(err),
+        }
+    }
+
+    return handle;
+}
+
+/// Returns `true` if there was another file, `false` otherwise.
+pub fn windowsFindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN32_FIND_DATAA) !bool {
+    if (windows.FindNextFileA(handle, find_file_data) == 0) {
+        const err = windows.GetLastError();
+        return switch (err) {
+            windows.ERROR.NO_MORE_FILES => false,
+            else => os.unexpectedErrorWindows(err),
+        };
+    }
+    return true;
 }

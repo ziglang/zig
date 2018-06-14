@@ -212,7 +212,7 @@ fn cmdBuild(allocator: *Allocator, args: []const []const u8) !void {
     const build_runner_path = try os.path.join(allocator, special_dir, "build_runner.zig");
     defer allocator.free(build_runner_path);
 
-    const build_file = flags.single("build-file") ?? "build.zig";
+    const build_file = flags.single("build-file") orelse "build.zig";
     const build_file_abs = try os.path.resolve(allocator, ".", build_file);
     defer allocator.free(build_file_abs);
 
@@ -249,7 +249,7 @@ fn cmdBuild(allocator: *Allocator, args: []const []const u8) !void {
     defer build_args.deinit();
 
     const build_file_basename = os.path.basename(build_file_abs);
-    const build_file_dirname = os.path.dirname(build_file_abs);
+    const build_file_dirname = os.path.dirname(build_file_abs) orelse ".";
 
     var full_cache_dir: []u8 = undefined;
     if (flags.single("cache-dir")) |cache_dir| {
@@ -490,7 +490,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
                 try stderr.print("encountered --pkg-end with no matching --pkg-begin\n");
                 os.exit(1);
             }
-            cur_pkg = ??cur_pkg.parent;
+            cur_pkg = cur_pkg.parent.?;
         }
     }
 
@@ -514,28 +514,28 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
         },
     }
 
-    const basename = os.path.basename(??in_file);
+    const basename = os.path.basename(in_file.?);
     var it = mem.split(basename, ".");
-    const root_name = it.next() ?? {
+    const root_name = it.next() orelse {
         try stderr.write("file name cannot be empty\n");
         os.exit(1);
     };
 
     const asm_a = flags.many("assembly");
     const obj_a = flags.many("object");
-    if (in_file == null and (obj_a == null or (??obj_a).len == 0) and (asm_a == null or (??asm_a).len == 0)) {
+    if (in_file == null and (obj_a == null or obj_a.?.len == 0) and (asm_a == null or asm_a.?.len == 0)) {
         try stderr.write("Expected source file argument or at least one --object or --assembly argument\n");
         os.exit(1);
     }
 
-    if (out_type == Module.Kind.Obj and (obj_a != null and (??obj_a).len != 0)) {
+    if (out_type == Module.Kind.Obj and (obj_a != null and obj_a.?.len != 0)) {
         try stderr.write("When building an object file, --object arguments are invalid\n");
         os.exit(1);
     }
 
     const zig_root_source_file = in_file;
 
-    const full_cache_dir = os.path.resolve(allocator, ".", flags.single("cache-dir") ?? "zig-cache"[0..]) catch {
+    const full_cache_dir = os.path.resolve(allocator, ".", flags.single("cache-dir") orelse "zig-cache"[0..]) catch {
         os.exit(1);
     };
     defer allocator.free(full_cache_dir);
@@ -555,9 +555,9 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
     );
     defer module.destroy();
 
-    module.version_major = try std.fmt.parseUnsigned(u32, flags.single("ver-major") ?? "0", 10);
-    module.version_minor = try std.fmt.parseUnsigned(u32, flags.single("ver-minor") ?? "0", 10);
-    module.version_patch = try std.fmt.parseUnsigned(u32, flags.single("ver-patch") ?? "0", 10);
+    module.version_major = try std.fmt.parseUnsigned(u32, flags.single("ver-major") orelse "0", 10);
+    module.version_minor = try std.fmt.parseUnsigned(u32, flags.single("ver-minor") orelse "0", 10);
+    module.version_patch = try std.fmt.parseUnsigned(u32, flags.single("ver-patch") orelse "0", 10);
 
     module.is_test = false;
 
@@ -652,7 +652,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
     }
 
     try module.build();
-    try module.link(flags.single("out-file") ?? null);
+    try module.link(flags.single("out-file") orelse null);
 
     if (flags.present("print-timing-info")) {
         // codegen_print_timing_info(g, stderr);
@@ -734,7 +734,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         defer file.close();
 
         const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
-            try stderr.print("unable to open '{}': {}", file_path, err);
+            try stderr.print("unable to open '{}': {}\n", file_path, err);
             fmt_errors = true;
             continue;
         };

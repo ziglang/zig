@@ -132,6 +132,8 @@ pub const tan = @import("tan.zig").tan;
 pub const complex = @import("complex/index.zig");
 pub const Complex = complex.Complex;
 
+pub const big = @import("big/index.zig");
+
 test "math" {
     _ = @import("nan.zig");
     _ = @import("isnan.zig");
@@ -177,6 +179,8 @@ test "math" {
     _ = @import("tan.zig");
 
     _ = @import("complex/index.zig");
+
+    _ = @import("big/index.zig");
 }
 
 pub fn min(x: var, y: var) @typeOf(x + y) {
@@ -306,7 +310,14 @@ test "math.rotl" {
 }
 
 pub fn Log2Int(comptime T: type) type {
-    return @IntType(false, log2(T.bit_count));
+    // comptime ceil log2
+    comptime var count: usize = 0;
+    comptime var s = T.bit_count - 1;
+    inline while (s != 0) : (s >>= 1) {
+        count += 1;
+    }
+
+    return @IntType(false, count);
 }
 
 test "math overflow functions" {

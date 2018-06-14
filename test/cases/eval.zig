@@ -12,7 +12,7 @@ fn fibonacci(x: i32) i32 {
 }
 
 fn unwrapAndAddOne(blah: ?i32) i32 {
-    return ??blah + 1;
+    return blah.? + 1;
 }
 const should_be_1235 = unwrapAndAddOne(1234);
 test "static add one" {
@@ -609,4 +609,17 @@ test "slice of type" {
             }
         }
     }
+}
+
+const Wrapper = struct {
+    T: type,
+};
+
+fn wrap(comptime T: type) Wrapper {
+    return Wrapper{ .T = T };
+}
+
+test "function which returns struct with type field causes implicit comptime" {
+    const ty = wrap(i32).T;
+    assert(ty == i32);
 }

@@ -144,6 +144,9 @@ enum ConstPtrSpecial {
     // understand the value of pointee at compile time. However, we will still
     // emit a binary with a compile time known address.
     // In this case index is the numeric address value.
+    // We also use this for null pointer. We need the data layout for ConstCastOnly == true
+    // types to be the same, so all optionals of pointer types use x_ptr
+    // instead of x_optional
     ConstPtrSpecialHardCodedAddr,
     // This means that the pointer represents memory of assigning to _.
     // That is, storing discards the data, and loading is invalid.
@@ -219,10 +222,10 @@ enum RuntimeHintErrorUnion {
     RuntimeHintErrorUnionNonError,
 };
 
-enum RuntimeHintMaybe {
-    RuntimeHintMaybeUnknown,
-    RuntimeHintMaybeNull, // TODO is this value even possible? if this is the case it might mean the const value is compile time known.
-    RuntimeHintMaybeNonNull,
+enum RuntimeHintOptional {
+    RuntimeHintOptionalUnknown,
+    RuntimeHintOptionalNull, // TODO is this value even possible? if this is the case it might mean the const value is compile time known.
+    RuntimeHintOptionalNonNull,
 };
 
 enum RuntimeHintPtr {
@@ -251,7 +254,7 @@ struct ConstExprValue {
         bool x_bool;
         ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
-        ConstExprValue *x_maybe;
+        ConstExprValue *x_optional;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_err_set;
         BigInt x_enum_tag;
@@ -265,7 +268,7 @@ struct ConstExprValue {
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
-        RuntimeHintMaybe rh_maybe;
+        RuntimeHintOptional rh_maybe;
         RuntimeHintPtr rh_ptr;
     } data;
 };
@@ -384,6 +387,7 @@ enum NodeType {
     NodeTypeSliceExpr,
     NodeTypeFieldAccessExpr,
     NodeTypePtrDeref,
+    NodeTypeUnwrapOptional,
     NodeTypeUse,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
@@ -553,7 +557,7 @@ enum BinOpType {
     BinOpTypeMultWrap,
     BinOpTypeDiv,
     BinOpTypeMod,
-    BinOpTypeUnwrapMaybe,
+    BinOpTypeUnwrapOptional,
     BinOpTypeArrayCat,
     BinOpTypeArrayMult,
     BinOpTypeErrorUnion,
@@ -572,6 +576,10 @@ struct AstNodeCatchExpr {
     AstNode *op2;
 };
 
+struct AstNodeUnwrapOptional {
+    AstNode *expr;
+};
+
 enum CastOp {
     CastOpNoCast, // signifies the function call expression is not a cast
     CastOpNoop, // fn call expr is a cast, but does nothing
@@ -583,6 +591,7 @@ enum CastOp {
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
+    CastOpPtrOfArrayToSlice,
 };
 
 struct AstNodeFnCallExpr {
@@ -619,8 +628,7 @@ enum PrefixOp {
     PrefixOpBinNot,
     PrefixOpNegation,
     PrefixOpNegationWrap,
-    PrefixOpMaybe,
-    PrefixOpUnwrapMaybe,
+    PrefixOpOptional,
     PrefixOpAddrOf,
 };
 
@@ -905,6 +913,7 @@ struct AstNode {
         AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeCatchExpr unwrap_err_expr;
+        AstNodeUnwrapOptional unwrap_optional;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodePointerType pointer_type;
         AstNodeFnCallExpr fn_call_expr;
@@ -1037,6 +1046,10 @@ struct TypeTableEntryStruct {
     // whether we've finished resolving it
     bool complete;
 
+    // whether any of the fields require comptime
+    // the value is not valid until zero_bits_known == true
+    bool requires_comptime;
+
     bool zero_bits_loop_flag;
     bool zero_bits_known;
     uint32_t abi_alignment; // also figured out with zero_bits pass
@@ -1044,7 +1057,7 @@ struct TypeTableEntryStruct {
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
-struct TypeTableEntryMaybe {
+struct TypeTableEntryOptional {
     TypeTableEntry *child_type;
 };
 
@@ -1078,8 +1091,7 @@ struct TypeTableEntryEnum {
     bool zero_bits_loop_flag;
     bool zero_bits_known;
 
-    bool generate_name_table;
-    LLVMValueRef name_table;
+    LLVMValueRef name_function;
 
     HashMap<Buf *, TypeEnumField *, buf_hash, buf_eql_buf> fields_by_name;
 };
@@ -1104,6 +1116,10 @@ struct TypeTableEntryUnion {
     bool reported_infinite_err;
     // whether we've finished resolving it
     bool complete;
+
+    // whether any of the fields require comptime
+    // the value is not valid until zero_bits_known == true
+    bool requires_comptime;
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
@@ -1163,7 +1179,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdComptimeInt,
     TypeTableEntryIdUndefined,
     TypeTableEntryIdNull,
-    TypeTableEntryIdMaybe,
+    TypeTableEntryIdOptional,
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdErrorSet,
     TypeTableEntryIdEnum,
@@ -1194,7 +1210,7 @@ struct TypeTableEntry {
         TypeTableEntryFloat floating;
         TypeTableEntryArray array;
         TypeTableEntryStruct structure;
-        TypeTableEntryMaybe maybe;
+        TypeTableEntryOptional maybe;
         TypeTableEntryErrorUnion error_union;
         TypeTableEntryErrorSet error_set;
         TypeTableEntryEnum enumeration;
@@ -1346,7 +1362,6 @@ enum BuiltinFnId {
     BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
-    BuiltinFnIdCanImplicitCast,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
@@ -1391,10 +1406,11 @@ enum PanicMsgId {
     PanicMsgIdRemainderDivisionByZero,
     PanicMsgIdExactDivisionRemainder,
     PanicMsgIdSliceWidenRemainder,
-    PanicMsgIdUnwrapMaybeFail,
+    PanicMsgIdUnwrapOptionalFail,
     PanicMsgIdInvalidErrorCode,
     PanicMsgIdIncorrectAlignment,
     PanicMsgIdBadUnionField,
+    PanicMsgIdBadEnumValue,
 
     PanicMsgIdCount,
 };
@@ -1712,8 +1728,6 @@ struct CodeGen {
     ZigList<Buf *> link_objects;
     ZigList<Buf *> assembly_files;
 
-    ZigList<TypeTableEntry *> name_table_enums;
-
     Buf *test_filter;
     Buf *test_name_prefix;
 
@@ -2003,8 +2017,8 @@ enum IrInstructionId {
     IrInstructionIdAsm,
     IrInstructionIdSizeOf,
     IrInstructionIdTestNonNull,
-    IrInstructionIdUnwrapMaybe,
-    IrInstructionIdMaybeWrap,
+    IrInstructionIdUnwrapOptional,
+    IrInstructionIdOptionalWrap,
     IrInstructionIdUnionTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
@@ -2055,7 +2069,6 @@ enum IrInstructionId {
     IrInstructionIdCheckSwitchProngs,
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
-    IrInstructionIdCanImplicitCast,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdTagName,
@@ -2172,7 +2185,7 @@ enum IrUnOp {
     IrUnOpNegation,
     IrUnOpNegationWrap,
     IrUnOpDereference,
-    IrUnOpMaybe,
+    IrUnOpOptional,
 };
 
 struct IrInstructionUnOp {
@@ -2475,7 +2488,7 @@ struct IrInstructionTestNonNull {
     IrInstruction *value;
 };
 
-struct IrInstructionUnwrapMaybe {
+struct IrInstructionUnwrapOptional {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2733,7 +2746,7 @@ struct IrInstructionUnwrapErrPayload {
     bool safety_check_on;
 };
 
-struct IrInstructionMaybeWrap {
+struct IrInstructionOptionalWrap {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2848,13 +2861,6 @@ struct IrInstructionTypeName {
     IrInstruction *type_value;
 };
 
-struct IrInstructionCanImplicitCast {
-    IrInstruction base;
-
-    IrInstruction *type_value;
-    IrInstruction *target_value;
-};
-
 struct IrInstructionDeclRef {
     IrInstruction base;
 
@@ -2949,10 +2955,10 @@ struct IrInstructionExport {
 struct IrInstructionErrorReturnTrace {
     IrInstruction base;
 
-    enum Nullable {
+    enum Optional {
         Null,
         NonNull,
-    } nullable;
+    } optional;
 };
 
 struct IrInstructionErrorUnion {
