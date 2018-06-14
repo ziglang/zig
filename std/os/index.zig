@@ -1971,7 +1971,7 @@ pub fn selfExeDirPath(allocator: *mem.Allocator) ![]u8 {
         Os.windows, Os.macosx, Os.ios => {
             const self_exe_path = try selfExePath(allocator);
             errdefer allocator.free(self_exe_path);
-            const dirname = os.path.dirname(self_exe_path);
+            const dirname = os.path.dirname(self_exe_path) orelse ".";
             return allocator.shrink(u8, self_exe_path, dirname.len);
         },
         else => @compileError("unimplemented: std.os.selfExeDirPath for " ++ @tagName(builtin.os)),
