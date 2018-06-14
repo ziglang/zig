@@ -617,7 +617,7 @@ pub const Builder = struct {
             warn("cp {} {}\n", source_path, dest_path);
         }
 
-        const dirname = os.path.dirname(dest_path);
+        const dirname = os.path.dirname(dest_path) orelse ".";
         const abs_source_path = self.pathFromRoot(source_path);
         os.makePath(self.allocator, dirname) catch |err| {
             warn("Unable to create path {}: {}\n", dirname, @errorName(err));
@@ -1395,8 +1395,9 @@ pub const LibExeObjStep = struct {
                     cc_args.append(abs_source_file) catch unreachable;
 
                     const cache_o_src = os.path.join(builder.allocator, builder.cache_root, source_file) catch unreachable;
-                    const cache_o_dir = os.path.dirname(cache_o_src);
-                    try builder.makePath(cache_o_dir);
+                    if (os.path.dirname(cache_o_src)) |cache_o_dir| {
+                        try builder.makePath(cache_o_dir);
+                    }
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     cc_args.append("-o") catch unreachable;
                     cc_args.append(builder.pathFromRoot(cache_o_file)) catch unreachable;
@@ -1509,8 +1510,9 @@ pub const LibExeObjStep = struct {
                     cc_args.append(abs_source_file) catch unreachable;
 
                     const cache_o_src = os.path.join(builder.allocator, builder.cache_root, source_file) catch unreachable;
-                    const cache_o_dir = os.path.dirname(cache_o_src);
-                    try builder.makePath(cache_o_dir);
+                    if (os.path.dirname(cache_o_src)) |cache_o_dir| {
+                        try builder.makePath(cache_o_dir);
+                    }
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     cc_args.append("-o") catch unreachable;
                     cc_args.append(builder.pathFromRoot(cache_o_file)) catch unreachable;
@@ -1855,7 +1857,7 @@ pub const WriteFileStep = struct {
     fn make(step: *Step) !void {
         const self = @fieldParentPtr(WriteFileStep, "step", step);
         const full_path = self.builder.pathFromRoot(self.file_path);
-        const full_path_dir = os.path.dirname(full_path);
+        const full_path_dir = os.path.dirname(full_path) orelse ".";
         os.makePath(self.builder.allocator, full_path_dir) catch |err| {
             warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
             return err;
@@ -1945,7 +1947,7 @@ pub const Step = struct {
 };
 
 fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
-    const out_dir = os.path.dirname(output_path);
+    const out_dir = os.path.dirname(output_path) orelse ".";
     const out_basename = os.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = os.path.join(allocator, out_dir, filename_major_only) catch unreachable;

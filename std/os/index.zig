@@ -714,7 +714,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         else => return err, // TODO zig should know this set does not include PathAlreadyExists
     }
 
-    const dirname = os.path.dirname(new_path);
+    const dirname = os.path.dirname(new_path) orelse ".";
 
     var rand_buf: [12]u8 = undefined;
     const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
@@ -860,14 +860,14 @@ pub const AtomicFile = struct {
 
         var rand_buf: [12]u8 = undefined;
 
-        const dirname_component_len = if (dirname.len == 0) 0 else dirname.len + 1;
+        const dirname_component_len = if (dirname) |d| d.len + 1 else 0;
         const tmp_path = try allocator.alloc(u8, dirname_component_len +
             base64.Base64Encoder.calcSize(rand_buf.len));
         errdefer allocator.free(tmp_path);
 
-        if (dirname.len != 0) {
-            mem.copy(u8, tmp_path[0..], dirname);
-            tmp_path[dirname.len] = os.path.sep;
+        if (dirname) |dir| {
+            mem.copy(u8, tmp_path[0..], dir);
+            tmp_path[dir.len] = os.path.sep;
         }
 
         while (true) {
@@ -1965,7 +1965,7 @@ pub fn selfExeDirPath(allocator: *mem.Allocator) ![]u8 {
             // the executable was in when it was run.
             const full_exe_path = try readLink(allocator, "/proc/self/exe");
             errdefer allocator.free(full_exe_path);
-            const dir = path.dirname(full_exe_path);
+            const dir = path.dirname(full_exe_path) orelse ".";
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
         Os.windows, Os.macosx, Os.ios => {

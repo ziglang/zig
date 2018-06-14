@@ -249,7 +249,7 @@ fn cmdBuild(allocator: *Allocator, args: []const []const u8) !void {
     defer build_args.deinit();
 
     const build_file_basename = os.path.basename(build_file_abs);
-    const build_file_dirname = os.path.dirname(build_file_abs);
+    const build_file_dirname = os.path.dirname(build_file_abs) orelse ".";
 
     var full_cache_dir: []u8 = undefined;
     if (flags.single("cache-dir")) |cache_dir| {

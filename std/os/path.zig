@@ -648,8 +648,8 @@ fn testResolvePosix(paths: []const []const u8) []u8 {
 }
 
 /// If the path is a file in the current directory (no directory component)
-/// then the returned slice has .len = 0.
-pub fn dirname(path: []const u8) []const u8 {
+/// then returns null
+pub fn dirname(path: []const u8) ?[]const u8 {
     if (is_windows) {
         return dirnameWindows(path);
     } else {
@@ -657,9 +657,9 @@ pub fn dirname(path: []const u8) []const u8 {
     }
 }
 
-pub fn dirnameWindows(path: []const u8) []const u8 {
+pub fn dirnameWindows(path: []const u8) ?[]const u8 {
     if (path.len == 0)
-        return path[0..0];
+        return null;
 
     const root_slice = diskDesignatorWindows(path);
     if (path.len == root_slice.len)
@@ -671,13 +671,13 @@ pub fn dirnameWindows(path: []const u8) []const u8 {
 
     while ((path[end_index] == '/' or path[end_index] == '\\') and end_index > root_slice.len) {
         if (end_index == 0)
-            return path[0..0];
+            return null;
         end_index -= 1;
     }
 
     while (path[end_index] != '/' and path[end_index] != '\\' and end_index > root_slice.len) {
         if (end_index == 0)
-            return path[0..0];
+            return null;
         end_index -= 1;
     }
 
@@ -685,12 +685,15 @@ pub fn dirnameWindows(path: []const u8) []const u8 {
         end_index += 1;
     }
 
+    if (end_index == 0)
+        return null;
+
     return path[0..end_index];
 }
 
-pub fn dirnamePosix(path: []const u8) []const u8 {
+pub fn dirnamePosix(path: []const u8) ?[]const u8 {
     if (path.len == 0)
-        return path[0..0];
+        return null;
 
     var end_index: usize = path.len - 1;
     while (path[end_index] == '/') {
@@ -701,12 +704,15 @@ pub fn dirnamePosix(path: []const u8) []const u8 {
 
     while (path[end_index] != '/') {
         if (end_index == 0)
-            return path[0..0];
+            return null;
         end_index -= 1;
     }
 
     if (end_index == 0 and path[end_index] == '/')
         return path[0..1];
+
+    if (end_index == 0)
+        return null;
 
     return path[0..end_index];
 }
@@ -717,10 +723,10 @@ test "os.path.dirnamePosix" {
     testDirnamePosix("/a", "/");
     testDirnamePosix("/", "/");
     testDirnamePosix("////", "/");
-    testDirnamePosix("", "");
-    testDirnamePosix("a", "");
-    testDirnamePosix("a/", "");
-    testDirnamePosix("a//", "");
+    testDirnamePosix("", null);
+    testDirnamePosix("a", null);
+    testDirnamePosix("a/", null);
+    testDirnamePosix("a//", null);
 }
 
 test "os.path.dirnameWindows" {
@@ -742,7 +748,7 @@ test "os.path.dirnameWindows" {
     testDirnameWindows("c:foo\\bar", "c:foo");
     testDirnameWindows("c:foo\\bar\\", "c:foo");
     testDirnameWindows("c:foo\\bar\\baz", "c:foo\\bar");
-    testDirnameWindows("file:stream", "");
+    testDirnameWindows("file:stream", null);
     testDirnameWindows("dir\\file:stream", "dir");
     testDirnameWindows("\\\\unc\\share", "\\\\unc\\share");
     testDirnameWindows("\\\\unc\\share\\foo", "\\\\unc\\share\\");
@@ -753,18 +759,26 @@ test "os.path.dirnameWindows" {
     testDirnameWindows("/a/b/", "/a");
     testDirnameWindows("/a/b", "/a");
     testDirnameWindows("/a", "/");
-    testDirnameWindows("", "");
+    testDirnameWindows("", null);
     testDirnameWindows("/", "/");
     testDirnameWindows("////", "/");
-    testDirnameWindows("foo", "");
+    testDirnameWindows("foo", null);
 }
 
-fn testDirnamePosix(input: []const u8, expected_output: []const u8) void {
-    assert(mem.eql(u8, dirnamePosix(input), expected_output));
+fn testDirnamePosix(input: []const u8, expected_output: ?[]const u8) void {
+    if (dirnamePosix(input)) |output| {
+        assert(mem.eql(u8, output, expected_output.?));
+    } else {
+        assert(expected_output == null);
+    }
 }
 
-fn testDirnameWindows(input: []const u8, expected_output: []const u8) void {
-    assert(mem.eql(u8, dirnameWindows(input), expected_output));
+fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) void {
+    if (dirnameWindows(input)) |output| {
+        assert(mem.eql(u8, output, expected_output.?));
+    } else {
+        assert(expected_output == null);
+    }
 }
 
 pub fn basename(path: []const u8) []const u8 {
