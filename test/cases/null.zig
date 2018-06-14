@@ -143,3 +143,14 @@ test "null with default unwrap" {
     const x: i32 = null orelse 1;
     assert(x == 1);
 }
+
+test "optional types" {
+    comptime {
+        const foo = StructWithOptionalType { .t=u8, };
+        assert(foo.t != null and foo.t.? == u8);
+    }
+}
+
+const StructWithOptionalType = struct {
+    t: ?type,
+};
