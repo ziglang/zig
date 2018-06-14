@@ -590,6 +590,7 @@ test "initialization" {
     x = 1;
 }
       {#code_end#}
+      {#header_open|undefined#}
       <p>Use <code>undefined</code> to leave variables uninitialized:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
@@ -600,6 +601,7 @@ test "init with undefined" {
     assert(x == 1);
 }
       {#code_end#}
+      {#header_close#}
       {#header_close#}
       {#header_close#}
       {#header_open|Integers#}
@@ -2999,6 +3001,7 @@ test "parse u64" {
         <li>You know with complete certainty it will not return an error, so want to unconditionally unwrap it.</li>
         <li>You want to take a different action for each possible error.</li>
       </ul>
+      {#header_open|catch#}
       <p>If you want to provide a default value, you can use the <code>catch</code> binary operator:</p>
       {#code_begin|syntax#}
 fn doAThing(str: []u8) void {
@@ -3011,6 +3014,8 @@ fn doAThing(str: []u8) void {
       a default value of 13. The type of the right hand side of the binary <code>catch</code> operator must
       match the unwrapped error union type, or be of type <code>noreturn</code>.
       </p>
+      {#header_close#}
+      {#header_open|try#}
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
       function logic:</p>
       {#code_begin|syntax#}
@@ -3033,6 +3038,7 @@ fn doAThing(str: []u8) !void {
       from the current function with the same error. Otherwise, the expression results in
       the unwrapped value.
       </p>
+      {#header_close#}
       <p>
         Maybe you know with complete certainty that an expression will never be an error.
         In this case you can do this:
@@ -3047,7 +3053,7 @@ fn doAThing(str: []u8) !void {
       </p>
       <p>
       Finally, you may want to take a different action for every situation. For that, we combine
-      the <code>if</code> and <code>switch</code> expression:
+      the {#link|if#} and {#link|switch#} expression:
       </p>
       {#code_begin|syntax#}
 fn doAThing(str: []u8) void {
@@ -3062,9 +3068,10 @@ fn doAThing(str: []u8) void {
     }
 }
       {#code_end#}
+      {#header_open|errdefer#}
       <p>
       The other component to error handling is defer statements.
-      In addition to an unconditional <code>defer</code>, Zig has <code>errdefer</code>,
+      In addition to an unconditional {#link|defer#}, Zig has <code>errdefer</code>,
       which evaluates the deferred expression on block exit path if and only if
       the function returned with an error from the block.
       </p>
@@ -3095,6 +3102,7 @@ fn createFoo(param: i32) !Foo {
       the verbosity and cognitive overhead of trying to make sure every exit path
       is covered. The deallocation code is always directly following the allocation code.
       </p>
+      {#header_close#}
       <p>
       A couple of other tidbits about error handling:
       </p>
@@ -3223,7 +3231,174 @@ test "inferred error set" {
       {#header_close#}
       {#header_close#}
       {#header_open|Error Return Traces#}
-      <p>TODO</p>
+      <p>
+      Error Return Traces show all the points in the code that an error was returned to the calling function. This makes it practical to use {#link|try#} everywhere and then still be able to know what happened if an error ends up bubbling all the way out of your application.
+      </p>
+      {#code_begin|exe_err#}
+pub fn main() !void {
+    try foo(12);
+}
+
+fn foo(x: i32) !void {
+    if (x >= 5) {
+        try bar();
+    } else {
+        try bang2();
+    }
+}
+
+fn bar() !void {
+    if (baz()) {
+        try quux();
+    } else |err| switch (err) {
+        error.FileNotFound => try hello(),
+        else => try another(),
+    }
+}
+
+fn baz() !void {
+    try bang1();
+}
+
+fn quux() !void {
+    try bang2();
+}
+
+fn hello() !void {
+    try bang2();
+}
+
+fn another() !void {
+    try bang1();
+}
+
+fn bang1() !void {
+    return error.FileNotFound;
+}
+
+fn bang2() !void {
+    return error.PermissionDenied;
+}
+      {#code_end#}
+      <p>
+      Look closely at this example. This is no stack trace.
+      </p>
+      <p>
+      You can see that the final error bubbled up was <code>PermissionDenied</code>,
+      but the original error that started this whole thing was <code>FileNotFound</code>. In the <code>bar</code> function, the code handles the original error code,
+      and then returns another one, from the switch statement. Error Return Traces make this clear, whereas a stack trace would look like this:
+      </p>
+      {#code_begin|exe_err#}
+pub fn main() void {
+    foo(12);
+}
+
+fn foo(x: i32) void {
+    if (x >= 5) {
+        bar();
+    } else {
+        bang2();
+    }
+}
+
+fn bar() void {
+    if (baz()) {
+        quux();
+    } else {
+        hello();
+    }
+}
+
+fn baz() bool {
+    return bang1();
+}
+
+fn quux() void {
+    bang2();
+}
+
+fn hello() void {
+    bang2();
+}
+
+fn bang1() bool {
+    return false;
+}
+
+fn bang2() void {
+    @panic("PermissionDenied");
+}
+      {#code_end#}
+      <p>
+      Here, the stack trace does not explain how the control
+      flow in <code>bar</code> got to the <code>hello()</code> call.
+      One would have to open a debugger or further instrument the application
+      in order to find out. The error return trace, on the other hand, 
+      shows exactly how the error bubbled up.
+      </p>
+      <p>
+      This debugging feature makes it easier to iterate quickly on code that
+      robustly handles all error conditions. This means that Zig developers
+      will naturally find themselves writing correct, robust code in order
+      to increase their development pace.
+      </p>
+      <p>
+      Error Return Traces are enabled by default in {#link|Debug#} and {#link|ReleaseSafe#} builds and disabled by default in {#link|ReleaseFast#} and {#link|ReleaseSmall#} builds.
+      </p>
+      <p>
+      There are a few ways to activate this error return tracing feature:
+      </p>
+      <ul>
+        <li>Return an error from main</li>
+        <li>An error makes its way to <code>catch unreachable</code> and you have not overridden the default panic handler</li>
+        <li>Use {#link|errorReturnTrace#} to access the current return trace. You can use <code>std.debug.dumpStackTrace</code> to print it. This function returns comptime-known {#link|null#} when building without error return tracing support.</li>
+      </ul>
+      {#header_open|Implementation Details#}
+      <p>
+      To analyze performance cost, there are two cases:
+      </p>
+      <ul>
+        <li>when no errors are returned</li>
+        <li>when returning errors</li>
+      </ul>
+      <p>
+      For the case when no errors are returned, the cost is a single memory write operation, only in the first non-failable function in the call graph that calls a failable function, i.e. when a function returning <code>void</code> calls a function returning <code>error</code>.
+      This is to initialize this struct in the stack memory:
+      </p>
+      {#code_begin|syntax#}
+pub const StackTrace = struct {
+    index: usize,
+    instruction_addresses: [N]usize,
+};
+      {#code_end#}
+      <p>
+      Here, N is the maximum function call depth as determined by call graph analysis. Recursion is ignored and counts for 2.
+      </p>
+      <p>
+      A pointer to <code>StackTrace</code> is passed as a secret parameter to every function that can return an error, but it's always the first parameter, so it can likely sit in a register and stay there.
+      </p>
+      <p>
+      That's it for the path when no errors occur. It's practically free in terms of performance.
+      </p>
+      <p>
+      When generating the code for a function that returns an error, just before the <code>return</code> statement (only for the <code>return</code> statements that return errors), Zig generates a call to this function:
+      </p>
+      {#code_begin|syntax#}
+// marked as "no-inline" in LLVM IR
+fn __zig_return_error(stack_trace: *StackTrace) void {
+    stack_trace.instruction_addresses[stack_trace.index] = @returnAddress();
+    stack_trace.index = (stack_trace.index + 1) % N;
+}
+      {#code_end#}
+      <p>
+      The cost is 2 math operations plus some memory reads and writes. The memory accessed is constrained and should remain cached for the duration of the error return bubbling.
+      </p>
+      <p>
+      As for code size cost, 1 function call before a return statement is no big deal. Even so,
+      I have <a href="https://github.com/ziglang/zig/issues/690">a plan</a> to make the call to
+      <code>__zig_return_error</code> a tail call, which brings the code size cost down to actually zero. What is a return statement in code without error return tracing can become a jump instruction in code with error return tracing.
+      </p>
+      {#header_close#}
       {#header_close#}
       {#header_close#}
       {#header_open|Optionals#}
@@ -3342,6 +3517,15 @@ test "optional type" {
     // Use compile-time reflection to access the child type of the optional:
     comptime assert(@typeOf(foo).Child == i32);
 }
+      {#code_end#}
+      {#header_close#}
+      {#header_open|null#}
+      <p>
+      Just like {#link|undefined#}, <code>null</code> has its own type, and the only way to use it is to
+      cast it to a different type:
+      </p>
+      {#code_begin|syntax#}
+const optional_value: ?i32 = null; 
       {#code_end#}
       {#header_close#}
       {#header_close#}
@@ -5426,12 +5610,13 @@ pub const TypeInfo = union(TypeId) {
       {#header_close#}
       {#header_open|Build Mode#}
       <p>
-      Zig has three build modes:
+      Zig has four build modes:
       </p>
       <ul>
         <li>{#link|Debug#} (default)</li>
         <li>{#link|ReleaseFast#}</li>
         <li>{#link|ReleaseSafe#}</li>
+        <li>{#link|ReleaseSmall#}</li>
       </ul>
       <p>
       To add standard build options to a <code>build.zig</code> file:
@@ -5448,14 +5633,16 @@ pub fn build(b: &Builder) void {
       <p>
       This causes these options to be available:
       </p>
-      <pre><code class="shell">  -Drelease-safe=(bool)  optimizations on and safety on
-  -Drelease-fast=(bool)  optimizations on and safety off</code></pre>
+      <pre><code class="shell">  -Drelease-safe=[bool] optimizations on and safety on
+  -Drelease-fast=[bool] optimizations on and safety off
+  -Drelease-small=[bool] size optimizations on and safety off</code></pre>
       {#header_open|Debug#}
       <pre><code class="shell">$ zig build-exe example.zig</code></pre>
       <ul>
         <li>Fast compilation speed</li>
         <li>Safety checks enabled</li>
         <li>Slow runtime performance</li>
+        <li>Large binary size</li>
       </ul>
       {#header_close#}
       {#header_open|ReleaseFast#}
@@ -5464,6 +5651,7 @@ pub fn build(b: &Builder) void {
         <li>Fast runtime performance</li>
         <li>Safety checks disabled</li>
         <li>Slow compilation speed</li>
+        <li>Large binary size</li>
       </ul>
       {#header_close#}
       {#header_open|ReleaseSafe#}
@@ -5472,9 +5660,19 @@ pub fn build(b: &Builder) void {
         <li>Medium runtime performance</li>
         <li>Safety checks enabled</li>
         <li>Slow compilation speed</li>
+        <li>Large binary size</li>
       </ul>
-      {#see_also|Compile Variables|Zig Build System|Undefined Behavior#}
       {#header_close#}
+      {#header_open|ReleaseSmall#}
+      <pre><code class="shell">$ zig build-exe example.zig --release-small</code></pre>
+      <ul>
+        <li>Medium runtime performance</li>
+        <li>Safety checks disabled</li>
+        <li>Slow compilation speed</li>
+        <li>Small binary size</li>
+      </ul>
+      {#header_close#}
+      {#see_also|Compile Variables|Zig Build System|Undefined Behavior#}
       {#header_close#}
       {#header_open|Undefined Behavior#}
       <p>
@@ -5482,7 +5680,7 @@ pub fn build(b: &Builder) void {
       detected at compile-time, Zig emits an error. Most undefined behavior that
       cannot be detected at compile-time can be detected at runtime. In these cases,
       Zig has safety checks. Safety checks can be disabled on a per-block basis
-      with <code>@setRuntimeSafety</code>. The {#link|ReleaseFast#}
+      with {#link|setRuntimeSafety#}. The {#link|ReleaseFast#}
       build mode disables all safety checks in order to facilitate optimizations.
       </p>
       <p>
