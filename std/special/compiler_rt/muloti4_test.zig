@@ -4,7 +4,7 @@ const assert = @import("std").debug.assert;
 fn test__muloti4(a: i128, b: i128, expected: i128, expected_overflow: c_int) void {
     var overflow: c_int = undefined;
     const x = __muloti4(a, b, &overflow);
-    assert(overflow == expected_overflow and (overflow != 0 or x == expected));
+    assert(overflow == expected_overflow and (expected_overflow != 0 or x == expected));
 }
 
 test "muloti4" {

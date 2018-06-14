@@ -1,5 +1,6 @@
 const udivmod = @import("udivmod.zig").udivmod;
 const builtin = @import("builtin");
+const compiler_rt = @import("index.zig");
 
 pub extern fn __muloti4(a: i128, b: i128, overflow: *c_int) i128 {
     @setRuntimeSafety(builtin.is_test);
@@ -42,4 +43,13 @@ pub extern fn __muloti4(a: i128, b: i128, overflow: *c_int) i128 {
     }
 
     return r;
+}
+
+pub extern fn __muloti4_windows_x86_64(a: *const i128, b: *const i128, overflow: *c_int) void {
+    @setRuntimeSafety(builtin.is_test);
+    compiler_rt.setXmm0(i128, __muloti4(a.*, b.*, overflow));
+}
+
+test "import muloti4" {
+    _ = @import("muloti4_test.zig");
 }
