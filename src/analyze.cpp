@@ -522,7 +522,6 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdOptional);
         assert(child_type->type_ref || child_type->zero_bits);
-        assert(child_type->di_type);
         entry->is_copyable = type_is_copyable(g, child_type);
 
         buf_resize(&entry->name, 0);
@@ -532,12 +531,14 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
             entry->type_ref = LLVMInt1Type();
             entry->di_type = g->builtin_types.entry_bool->di_type;
         } else if (type_is_codegen_pointer(child_type)) {
+            assert(child_type->di_type);
             // this is an optimization but also is necessary for calling C
             // functions where all pointers are maybe pointers
             // function types are technically pointers
             entry->type_ref = child_type->type_ref;
             entry->di_type = child_type->di_type;
         } else {
+            assert(child_type->di_type);
             // create a struct with a boolean whether this is the null value
             LLVMTypeRef elem_types[] = {
                 child_type->type_ref,
