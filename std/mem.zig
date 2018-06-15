@@ -40,16 +40,12 @@ pub const Allocator = struct {
 
     /// Call destroy with the result
     /// TODO once #733 is solved, this will replace create
-    pub fn construct(self: *Allocator, init: var) t: {
-        // TODO this is a workaround for type getting parsed as Error!&const T
-        const T = @typeOf(init).Child;
-        break :t Error!*T;
-    } {
-        const T = @typeOf(init).Child;
+    pub fn construct(self: *Allocator, init: var) Error!*@typeOf(init) {
+        const T = @typeOf(init);
         if (@sizeOf(T) == 0) return &{};
         const slice = try self.alloc(T, 1);
         const ptr = &slice[0];
-        ptr.* = init.*;
+        ptr.* = init;
         return ptr;
     }
 

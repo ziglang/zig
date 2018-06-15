@@ -2215,7 +2215,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    derp.init();
         \\}
     ,
-        ".tmp_source.zig:14:5: error: expected type 'i32', found '*const Foo'",
+        ".tmp_source.zig:14:5: error: expected type 'i32', found 'Foo'",
     );
 
     cases.add(

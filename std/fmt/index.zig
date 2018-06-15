@@ -162,8 +162,6 @@ pub fn formatType(
             },
             builtin.TypeInfo.Pointer.Size.Many => {
                 if (ptr_info.child == u8) {
-                    //This is a bit of a hack, but it made more sense to
-                    // do this check here than have formatText do it
                     if (fmt[0] == 's') {
                         const len = std.cstr.len(value);
                         return formatText(value[0..len], fmt, context, Errors, output);
@@ -175,6 +173,12 @@ pub fn formatType(
                 const casted_value = ([]const u8)(value);
                 return output(context, casted_value);
             },
+        },
+        builtin.TypeId.Array => |info| {
+            if (info.child == u8) {
+                return formatText(value, fmt, context, Errors, output);
+            }
+            return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(&value));
         },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }

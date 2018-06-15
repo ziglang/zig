@@ -318,14 +318,6 @@ fn testCastConstArrayRefToConstSlice() void {
     assert(mem.eql(u8, slice, "aoeu"));
 }
 
-test "var args implicitly casts by value arg to const ref" {
-    foo("hello");
-}
-
-fn foo(args: ...) void {
-    assert(@typeOf(args[0]) == *const [5]u8);
-}
-
 test "peer type resolution: error and [N]T" {
     // TODO: implicit error!T to error!U where T can implicitly cast to U
     //assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
