@@ -958,7 +958,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
         .restorer = @ptrCast(extern fn () void, restore_rt),
     };
     var ksa_old: k_sigaction = undefined;
-    @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), 8);
+    @memcpy(@elemCast(u8, &ksa.mask), @elemCast( u8, &act.mask), 8);
     const result = syscall4(SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), @sizeOf(@typeOf(ksa.mask)));
     const err = getErrno(result);
     if (err != 0) {
@@ -967,7 +967,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     if (oact) |old| {
         old.handler = ksa_old.handler;
         old.flags = @truncate(u32, ksa_old.flags);
-        @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &ksa_old.mask), @sizeOf(@typeOf(ksa_old.mask)));
+        @memcpy(@elemCast(u8, &old.mask), @elemCast( u8, &ksa_old.mask), @sizeOf(@typeOf(ksa_old.mask)));
     }
     return 0;
 }

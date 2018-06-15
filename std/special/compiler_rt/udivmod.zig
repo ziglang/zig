@@ -14,8 +14,8 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
     const SignedDoubleInt = @IntType(true, DoubleInt.bit_count);
     const Log2SingleInt = @import("std").math.Log2Int(SingleInt);
 
-    const n = @ptrCast(*const [2]SingleInt, &a).*; // TODO issue #421
-    const d = @ptrCast(*const [2]SingleInt, &b).*; // TODO issue #421
+    const n = @elemCast([2]SingleInt, &a).*; // TODO issue #421
+    const d = @elemCast([2]SingleInt, &b).*; // TODO issue #421
     var q: [2]SingleInt = undefined;
     var r: [2]SingleInt = undefined;
     var sr: c_uint = undefined;
@@ -57,7 +57,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             if (maybe_rem) |rem| {
                 r[high] = n[high] % d[high];
                 r[low] = 0;
-                rem.* = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
+                rem.* = @elemCast(DoubleInt, &r[0]).*; // TODO issue #421
             }
             return n[high] / d[high];
         }
@@ -69,7 +69,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             if (maybe_rem) |rem| {
                 r[low] = n[low];
                 r[high] = n[high] & (d[high] - 1);
-                rem.* = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
+                rem.* = @elemCast(DoubleInt, &r[0]).*; // TODO issue #421
             }
             return n[high] >> Log2SingleInt(@ctz(d[high]));
         }
@@ -109,7 +109,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
                 sr = @ctz(d[low]);
                 q[high] = n[high] >> Log2SingleInt(sr);
                 q[low] = (n[high] << Log2SingleInt(SingleInt.bit_count - sr)) | (n[low] >> Log2SingleInt(sr));
-                return @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &q[0]).*; // TODO issue #421
+                return @elemCast(DoubleInt, &q[0]).*; // TODO issue #421
             }
             // K X
             // ---
@@ -183,13 +183,13 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
         //     r.all -= b;
         //      carry = 1;
         // }
-        r_all = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
+        r_all = @elemCast(DoubleInt, &r[0]).*; // TODO issue #421
         const s: SignedDoubleInt = SignedDoubleInt(b -% r_all -% 1) >> (DoubleInt.bit_count - 1);
         carry = u32(s & 1);
         r_all -= b & @bitCast(DoubleInt, s);
-        r = @ptrCast(*[2]SingleInt, &r_all).*; // TODO issue #421
+        r = @elemCast([2]SingleInt, &r_all).*; // TODO issue #421
     }
-    const q_all = ((@ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &q[0]).*) << 1) | carry; // TODO issue #421
+    const q_all = ((@elemCast(DoubleInt, &q[0]).*) << 1) | carry; // TODO issue #421
     if (maybe_rem) |rem| {
         rem.* = r_all;
     }

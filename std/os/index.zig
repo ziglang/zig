@@ -1336,11 +1336,11 @@ pub const Dir = struct {
                     break;
                 }
             }
-            const darwin_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const darwin_entry = @elemCast(posix.dirent, &self.handle.buf[self.handle.index]);
             const next_index = self.handle.index + darwin_entry.d_reclen;
             self.handle.index = next_index;
 
-            const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
+            const name = @elemCast(u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
 
             if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
                 continue :start_over;
@@ -1415,11 +1415,11 @@ pub const Dir = struct {
                     break;
                 }
             }
-            const linux_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const linux_entry = @elemCast(posix.dirent, &self.handle.buf[self.handle.index]);
             const next_index = self.handle.index + linux_entry.d_reclen;
             self.handle.index = next_index;
 
-            const name = cstr.toSlice(@ptrCast([*]u8, &linux_entry.d_name));
+            const name = cstr.toSlice(([*]u8)((*[1]u8)(&linux_entry.d_name)));
 
             // skip . and .. entries
             if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
@@ -1824,7 +1824,7 @@ pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
     }
-    const unaligned_allocated_buf = @ptrCast([*]const u8, args_alloc.ptr)[0..total_bytes];
+    const unaligned_allocated_buf = @elemCast( u8, args_alloc.ptr)[0..total_bytes];
     const aligned_allocated_buf = @alignCast(@alignOf([]u8), unaligned_allocated_buf);
     return allocator.free(aligned_allocated_buf);
 }
@@ -2431,7 +2431,7 @@ pub fn posixConnectAsync(sockfd: i32, sockaddr: *const posix.sockaddr) PosixConn
 pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
     var err_code: i32 = undefined;
     var size: u32 = @sizeOf(i32);
-    const rc = posix.getsockopt(sockfd, posix.SOL_SOCKET, posix.SO_ERROR, @ptrCast([*]u8, &err_code), &size);
+    const rc = posix.getsockopt(sockfd, posix.SOL_SOCKET, posix.SO_ERROR, @elemCast(u8, &err_code), &size);
     assert(size == 4);
     const err = posix.getErrno(rc);
     switch (err) {
@@ -2572,7 +2572,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
                 if (@sizeOf(Context) == 0) {
                     return startFn({});
                 } else {
-                    return startFn(@ptrCast(*Context, @alignCast(@alignOf(Context), arg)).*);
+                    return startFn(@elemCast(Context, @alignCast(@alignOf(Context), arg)).*);
                 }
             }
         };
@@ -2581,13 +2581,13 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         const byte_count = @alignOf(WinThread.OuterContext) + @sizeOf(WinThread.OuterContext);
         const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) orelse return SpawnThreadError.OutOfMemory;
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
-        const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
+        const bytes = @elemCast(u8, bytes_ptr)[0..byte_count];
         const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
         outer_context.inner = context;
         outer_context.thread.data.heap_handle = heap_handle;
         outer_context.thread.data.alloc_start = bytes_ptr;
 
-        const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
+        const parameter = if (@sizeOf(Context) == 0) null else @elemCast(c_void, &outer_context.inner);
         outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {
             const err = windows.GetLastError();
             return switch (err) {
@@ -2610,7 +2610,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
                 _ = startFn({});
                 return null;
             } else {
-                _ = startFn(@ptrCast(*const Context, @alignCast(@alignOf(Context), ctx)).*);
+                _ = startFn(@elemCast(Context, @alignCast(@alignOf(Context), ctx)).*);
                 return null;
             }
         }

@@ -42,7 +42,7 @@ pub const WriteError = error{
 };
 
 pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) WriteError!void {
-    if (windows.WriteFile(handle, @ptrCast(*const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
+    if (windows.WriteFile(handle, @elemCast(c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.INVALID_USER_BUFFER => WriteError.SystemResources,
@@ -68,11 +68,11 @@ pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
     const size = @sizeOf(windows.FILE_NAME_INFO);
     var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8{0} ** (size + windows.MAX_PATH);
 
-    if (windows.GetFileInformationByHandleEx(handle, windows.FileNameInfo, @ptrCast(*c_void, &name_info_bytes[0]), u32(name_info_bytes.len)) == 0) {
+    if (windows.GetFileInformationByHandleEx(handle, windows.FileNameInfo, @elemCast(c_void, &name_info_bytes[0]), u32(name_info_bytes.len)) == 0) {
         return true;
     }
 
-    const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
+    const name_info = @elemCast(windows.FILE_NAME_INFO, &name_info_bytes[0]);
     const name_bytes = name_info_bytes[size .. size + usize(name_info.FileNameLength)];
     const name_wide = ([]u16)(name_bytes);
     return mem.indexOf(u16, name_wide, []u16{ 'm', 's', 'y', 's', '-' }) != null or

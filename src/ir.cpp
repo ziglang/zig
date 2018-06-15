@@ -18685,6 +18685,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_cast(IrAnalyze *ira, IrInstru
 
     IrInstruction *ptr = instruction->ptr->other;
     TypeTableEntry *src_type = ptr->value.type;
+
     if (type_is_invalid(src_type))
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -18703,8 +18704,18 @@ static TypeTableEntry *ir_analyze_instruction_elem_cast(IrAnalyze *ira, IrInstru
         case TypeTableEntryIdPointer:
         {
             const auto& pointer_type = src_type->data.pointer;
+
+            auto ptr_len = pointer_type.ptr_len;
+            if (ptr_len == PtrLenUnknown && dest_type->id == TypeTableEntryIdOpaque) {
+                ptr_len = PtrLenSingle;
+            } else if (pointer_type.child_type->id == TypeTableEntryIdOpaque &&
+                    dest_type->id != TypeTableEntryIdOpaque) {
+
+                ptr_len = PtrLenUnknown;
+            }
+
             dest_type = get_pointer_to_type_extra(ira->codegen, dest_type, pointer_type.is_const,
-                                pointer_type.is_volatile, pointer_type.ptr_len, pointer_type.alignment,
+                                pointer_type.is_volatile, ptr_len, pointer_type.alignment,
                                 pointer_type.bit_offset, pointer_type.unaligned_bit_count);
         } break;
         case TypeTableEntryIdPromise:
@@ -18729,7 +18740,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_cast(IrAnalyze *ira, IrInstru
         dest_type = get_maybe_type(ira->codegen, dest_type);
     }
 
-    assert(get_codegen_ptr_type(dest_type) == nullptr);
+    assert(get_codegen_ptr_type(dest_type) != nullptr);
 
     if (instr_is_comptime(ptr)) {
         ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
