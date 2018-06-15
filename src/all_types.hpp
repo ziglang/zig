@@ -1363,7 +1363,7 @@ enum BuiltinFnId {
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
     BuiltinFnIdPanic,
-    BuiltinFnIdPtrCast,
+    BuiltinFnIdElemCast,
     BuiltinFnIdBitCast,
     BuiltinFnIdIntToPtr,
     BuiltinFnIdPtrToInt,
@@ -2060,7 +2060,7 @@ enum IrInstructionId {
     IrInstructionIdErrWrapPayload,
     IrInstructionIdFnProto,
     IrInstructionIdTestComptime,
-    IrInstructionIdPtrCast,
+    IrInstructionIdElemCast,
     IrInstructionIdBitCast,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
@@ -2786,7 +2786,7 @@ struct IrInstructionTestComptime {
     IrInstruction *value;
 };
 
-struct IrInstructionPtrCast {
+struct IrInstructionElemCast {
     IrInstruction base;
 
     IrInstruction *dest_type;
