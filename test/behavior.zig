@@ -13,6 +13,7 @@ comptime {
     _ = @import("cases/bugs/656.zig");
     _ = @import("cases/bugs/828.zig");
     _ = @import("cases/bugs/920.zig");
+    _ = @import("cases/byval_arg_var.zig");
     _ = @import("cases/cast.zig");
     _ = @import("cases/const_slice_child.zig");
     _ = @import("cases/coroutines.zig");
