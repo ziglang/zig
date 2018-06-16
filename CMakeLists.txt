@@ -438,6 +438,7 @@ set(ZIG_STD_FILES
     "debug/failing_allocator.zig"
     "debug/index.zig"
     "dwarf.zig"
+    "dynamic_library.zig"
     "elf.zig"
     "empty.zig"
     "event.zig"

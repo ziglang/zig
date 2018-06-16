@@ -265,16 +265,7 @@ pub const File = struct {
 
     pub fn getEndPos(self: *File) !usize {
         if (is_posix) {
-            var stat: posix.Stat = undefined;
-            const err = posix.getErrno(posix.fstat(self.handle, &stat));
-            if (err > 0) {
-                return switch (err) {
-                    posix.EBADF => error.BadFd,
-                    posix.ENOMEM => error.SystemResources,
-                    else => os.unexpectedErrorPosix(err),
-                };
-            }
-
+            const stat = try os.posixFStat(self.handle);
             return usize(stat.size);
         } else if (is_windows) {
             var file_size: windows.LARGE_INTEGER = undefined;

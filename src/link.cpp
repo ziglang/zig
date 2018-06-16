@@ -208,7 +208,7 @@ static Buf *get_dynamic_linker_path(CodeGen *g) {
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
-    if (lj->link_in_crt) {
+    if (g->libc_link_lib != nullptr) {
         find_libc_lib_path(g);
     }
 
@@ -432,7 +432,7 @@ static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, si
 static void construct_linker_job_coff(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
-    if (lj->link_in_crt) {
+    if (g->libc_link_lib != nullptr) {
         find_libc_lib_path(g);
     }
 

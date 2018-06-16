@@ -2697,3 +2697,17 @@ pub fn posixWait(pid: i32) i32 {
         }
     }
 }
+
+pub fn posixFStat(fd: i32) !posix.Stat {
+    var stat: posix.Stat = undefined;
+    const err = posix.getErrno(posix.fstat(fd, &stat));
+    if (err > 0) {
+        return switch (err) {
+            posix.EBADF => error.BadFd,
+            posix.ENOMEM => error.SystemResources,
+            else => os.unexpectedErrorPosix(err),
+        };
+    }
+
+    return stat;
+}

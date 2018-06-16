@@ -6768,7 +6768,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
     int err;
     Buf *abs_full_path = buf_alloc();
     if ((err = os_path_real(builtin_zig_path, abs_full_path))) {
-        fprintf(stderr, "unable to open '%s': %s", buf_ptr(builtin_zig_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(builtin_zig_path), err_str(err));
         exit(1);
     }
 
@@ -6936,11 +6936,11 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
     Buf *abs_full_path = buf_alloc();
     int err;
     if ((err = os_path_real(&path_to_code_src, abs_full_path))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
+        zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
     Buf *import_code = buf_alloc();
     if ((err = os_fetch_file_path(abs_full_path, import_code, false))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
+        zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
 
     return add_source_file(g, package, abs_full_path, import_code);
@@ -7024,13 +7024,13 @@ static void gen_root_source(CodeGen *g) {
     Buf *abs_full_path = buf_alloc();
     int err;
     if ((err = os_path_real(rel_full_path, abs_full_path))) {
-        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(rel_full_path), err_str(err));
         exit(1);
     }
 
     Buf *source_code = buf_alloc();
     if ((err = os_fetch_file_path(rel_full_path, source_code, true))) {
-        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(rel_full_path), err_str(err));
         exit(1);
     }
 
@@ -7374,7 +7374,7 @@ static void gen_h_file(CodeGen *g) {
 
     FILE *out_h = fopen(buf_ptr(g->out_h_path), "wb");
     if (!out_h)
-        zig_panic("unable to open %s: %s", buf_ptr(g->out_h_path), strerror(errno));
+        zig_panic("unable to open %s: %s\n", buf_ptr(g->out_h_path), strerror(errno));
 
     Buf *export_macro = preprocessor_mangle(buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name)));
     buf_upcase(export_macro);

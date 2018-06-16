@@ -305,6 +305,21 @@ pub const STT_ARM_16BIT = STT_HIPROC;
 pub const VER_FLG_BASE = 0x1;
 pub const VER_FLG_WEAK = 0x2;
 
+/// An unknown type.
+pub const ET_NONE = 0;
+
+/// A relocatable file.
+pub const ET_REL = 1;
+
+/// An executable file.
+pub const ET_EXEC = 2;
+
+/// A shared object.
+pub const ET_DYN = 3;
+
+/// A core file.
+pub const ET_CORE = 4;
+
 pub const FileType = enum {
     Relocatable,
     Executable,

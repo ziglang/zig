@@ -536,6 +536,17 @@ test "math.cast" {
     assert(@typeOf(try cast(u8, u32(255))) == u8);
 }
 
+pub const AlignCastError = error{UnalignedMemory};
+
+/// Align cast a pointer but return an error if it's the wrong field
+pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alignCast(alignment, ptr)) {
+    const addr = @ptrToInt(ptr);
+    if (addr % alignment != 0) {
+        return error.UnalignedMemory;
+    }
+    return @alignCast(alignment, ptr);
+}
+
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     var x = value;
 
