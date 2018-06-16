@@ -5,7 +5,6 @@ pub fn build(b: *Builder) void {
 
     const lib = b.addSharedLibrary("add", "add.zig", b.version(1, 0, 0));
     lib.setBuildMode(opts);
-    lib.linkSystemLibrary("c");
 
     const main = b.addExecutable("main", "main.zig");
     main.setBuildMode(opts);
