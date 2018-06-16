@@ -311,9 +311,15 @@ pub const File = struct {
         }
     }
 
-    pub const ReadError = error{};
+    pub const ReadError = error{
+        BadFd,
+        Io,
+        IsDir,
 
-    pub fn read(self: *File, buffer: []u8) !usize {
+        Unexpected,
+    };
+
+    pub fn read(self: *File, buffer: []u8) ReadError!usize {
         if (is_posix) {
             var index: usize = 0;
             while (index < buffer.len) {
@@ -326,6 +332,7 @@ pub const File = struct {
                         posix.EFAULT => unreachable,
                         posix.EBADF => return error.BadFd,
                         posix.EIO => return error.Io,
+                        posix.EISDIR => return error.IsDir,
                         else => return os.unexpectedErrorPosix(read_err),
                     }
                 }

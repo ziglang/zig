@@ -639,6 +639,7 @@ const ParseFormValueError = error{
     Unexpected,
     InvalidDebugInfo,
     EndOfFile,
+    IsDir,
     OutOfMemory,
 };
 
