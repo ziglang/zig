@@ -370,17 +370,17 @@ pub fn main() void {
         <tr>
           <td><code>f32</code></td>
           <td><code>float</code></td>
-          <td>32-bit floating point (23-bit mantissa)</td>
+          <td>32-bit floating point (23-bit mantissa) IEEE-754-2008 binary32</td>
         </tr>
         <tr>
           <td><code>f64</code></td>
           <td><code>double</code></td>
-          <td>64-bit floating point (52-bit mantissa)</td>
+          <td>64-bit floating point (52-bit mantissa) IEEE-754-2008 binary64</td>
         </tr>
         <tr>
           <td><code>f128</code></td>
           <td>(none)</td>
-          <td>128-bit floating point (112-bit mantissa)</td>
+          <td>128-bit floating point (112-bit mantissa) IEEE-754-2008 binary128</td>
         </tr>
         <tr>
           <td><code>bool</code></td>
@@ -406,6 +406,16 @@ pub fn main() void {
           <td><code>error</code></td>
           <td>(none)</td>
           <td>an error code</td>
+        </tr>
+        <tr>
+          <td><code>comptime_int</code></td>
+          <td>(none)</td>
+          <td>Only allowed for {#link|comptime#}-known values. The type of integer literals.</td>
+        </tr>
+        <tr>
+          <td><code>comptime_float</code></td>
+          <td>(none)</td>
+          <td>Only allowed for {#link|comptime#}-known values. The type of float literals.</td>
         </tr>
       </table>
       </div>
@@ -642,7 +652,18 @@ fn divide(a: i32, b: i32) i32 {
       {#header_close#}
       {#header_close#}
       {#header_open|Floats#}
+      <p>Zig has the following floating point types:</p>
+      <ul>
+          <li><code>f32</code> - IEEE-754-2008 binary32</li>
+          <li><code>f64</code> - IEEE-754-2008 binary64</li>
+          <li><code>f128</code> - IEEE-754-2008 binary128</li>
+          <li><code>c_longdouble</code> - matches <code>long double</code> for the target C ABI</li>
+      </ul>
       {#header_open|Float Literals#}
+      <p>
+      Float literals have type <code>comptime_float</code> which is guaranteed to hold at least all possible values
+      that the largest other floating point type can hold. Float literals implicitly cast to any other type.
+      </p>
       {#code_begin|syntax#}
 const floating_point = 123.0E+77;
 const another_float = 123.0;
