@@ -12,13 +12,8 @@ pub const DynLib = struct {
     map_size: usize,
 
     /// Trusts the file
-    pub fn findAndOpen(allocator: *mem.Allocator, name: []const u8) !DynLib {
-        return open(allocator, name);
-    }
-
-    /// Trusts the file
     pub fn open(allocator: *mem.Allocator, path: []const u8) !DynLib {
-        const fd = try std.os.posixOpen(allocator, path, 0, linux.O_RDONLY);
+        const fd = try std.os.posixOpen(allocator, path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
         errdefer std.os.close(fd);
 
         const size = usize((try std.os.posixFStat(fd)).size);
