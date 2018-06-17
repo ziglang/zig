@@ -989,12 +989,28 @@ int os_self_exe_path(Buf *out_path) {
     }
 
 #elif defined(ZIG_OS_DARWIN)
+    // How long is the executable's relative path?
     uint32_t u32_len = 0;
     int ret1 = _NSGetExecutablePath(nullptr, &u32_len);
     assert(ret1 != 0);
-    buf_resize(out_path, u32_len);
-    int ret2 = _NSGetExecutablePath(buf_ptr(out_path), &u32_len);
+
+    // Allocate that much space, including NULL.
+    char path_tmp[u32_len + 1];
+    // Fill the buffer with the maybe-relative path.
+    int ret2 = _NSGetExecutablePath(path_tmp, &u32_len);
     assert(ret2 == 0);
+
+    // Make a buffer with room for the real path, including NULL.
+    char resolve_tmp[PATH_MAX];
+
+    // Fill it with the real resolved path.
+    char *real_path = realpath(path_tmp, resolve_tmp);
+    // IEEE Std 1003.1-2017: realpath() shall return a pointer to the
+    // buffer containing the resolved name.
+    assert(real_path == resolve_tmp);
+
+    // Resize out_path and copy the resulting resolved absolute path.
+    buf_init_from_str(out_path, resolve_tmp);
     return 0;
 #elif defined(ZIG_OS_LINUX)
     buf_resize(out_path, 256);
