@@ -331,8 +331,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    }
         \\    const small: f32 = 3.25;
         \\    const x: f64 = small;
-        \\    const y = i32(x);
-        \\    const z = f64(y);
+        \\    const y = @floatToInt(i32, x);
+        \\    const z = @intToFloat(f64, y);
         \\    _ = c.printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, f64(-0.4));
         \\    return 0;
         \\}
