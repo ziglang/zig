@@ -185,23 +185,23 @@ test "basic ArrayList test" {
     {
         var i: usize = 0;
         while (i < 10) : (i += 1) {
-            list.append(i32(i + 1)) catch unreachable;
+            list.append(@intCast(i32, i + 1)) catch unreachable;
         }
     }
 
     {
         var i: usize = 0;
         while (i < 10) : (i += 1) {
-            assert(list.items[i] == i32(i + 1));
+            assert(list.items[i] == @intCast(i32, i + 1));
         }
     }
 
     for (list.toSlice()) |v, i| {
-        assert(v == i32(i + 1));
+        assert(v == @intCast(i32, i + 1));
     }
 
     for (list.toSliceConst()) |v, i| {
-        assert(v == i32(i + 1));
+        assert(v == @intCast(i32, i + 1));
     }
 
     assert(list.pop() == 10);

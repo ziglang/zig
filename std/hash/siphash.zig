@@ -81,7 +81,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
             // Remainder for next pass.
             mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-            d.buf_len += u8(b[off..].len);
+            d.buf_len += @intCast(u8, b[off..].len);
             d.msg_len +%= @truncate(u8, b.len);
         }
 
@@ -233,7 +233,7 @@ test "siphash64-2-4 sanity" {
 
     var buffer: [64]u8 = undefined;
     for (vectors) |vector, i| {
-        buffer[i] = u8(i);
+        buffer[i] = @intCast(u8, i);
 
         const expected = mem.readInt(vector, u64, Endian.Little);
         debug.assert(siphash.hash(test_key, buffer[0..i]) == expected);
@@ -312,7 +312,7 @@ test "siphash128-2-4 sanity" {
 
     var buffer: [64]u8 = undefined;
     for (vectors) |vector, i| {
-        buffer[i] = u8(i);
+        buffer[i] = @intCast(u8, i);
 
         const expected = mem.readInt(vector, u128, Endian.Little);
         debug.assert(siphash.hash(test_key, buffer[0..i]) == expected);

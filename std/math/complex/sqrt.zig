@@ -4,18 +4,17 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
-// TODO when #733 is solved this can be @typeOf(z) instead of Complex(@typeOf(z.re))
-pub fn sqrt(z: var) Complex(@typeOf(z.re)) {
+pub fn sqrt(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
 
     return switch (T) {
         f32 => sqrt32(z),
         f64 => sqrt64(z),
-        else => @compileError("sqrt not implemented for " ++ @typeName(z)),
+        else => @compileError("sqrt not implemented for " ++ @typeName(T)),
     };
 }
 
-fn sqrt32(z: *const Complex(f32)) Complex(f32) {
+fn sqrt32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -50,14 +49,20 @@ fn sqrt32(z: *const Complex(f32)) Complex(f32) {
 
     if (dx >= 0) {
         const t = math.sqrt((dx + math.hypot(f64, dx, dy)) * 0.5);
-        return Complex(f32).new(f32(t), f32(dy / (2.0 * t)));
+        return Complex(f32).new(
+            @floatCast(f32, t),
+            @floatCast(f32, dy / (2.0 * t)),
+        );
     } else {
         const t = math.sqrt((-dx + math.hypot(f64, dx, dy)) * 0.5);
-        return Complex(f32).new(f32(math.fabs(y) / (2.0 * t)), f32(math.copysign(f64, t, y)));
+        return Complex(f32).new(
+            @floatCast(f32, math.fabs(y) / (2.0 * t)),
+            @floatCast(f32, math.copysign(f64, t, y)),
+        );
     }
 }
 
-fn sqrt64(z: *const Complex(f64)) Complex(f64) {
+fn sqrt64(z: Complex(f64)) Complex(f64) {
     // may encounter overflow for im,re >= DBL_MAX / (1 + sqrt(2))
     const threshold = 0x1.a827999fcef32p+1022;
 

@@ -75,7 +75,7 @@ pub fn log2_32(x_: f32) f32 {
 
     // x into [sqrt(2) / 2, sqrt(2)]
     ix += 0x3F800000 - 0x3F3504F3;
-    k += i32(ix >> 23) - 0x7F;
+    k += @intCast(i32, ix >> 23) - 0x7F;
     ix = (ix & 0x007FFFFF) + 0x3F3504F3;
     x = @bitCast(f32, ix);
 
@@ -93,7 +93,7 @@ pub fn log2_32(x_: f32) f32 {
     u &= 0xFFFFF000;
     hi = @bitCast(f32, u);
     const lo = f - hi - hfsq + s * (hfsq + R);
-    return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + f32(k);
+    return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + @intToFloat(f32, k);
 }
 
 pub fn log2_64(x_: f64) f64 {
@@ -109,7 +109,7 @@ pub fn log2_64(x_: f64) f64 {
 
     var x = x_;
     var ix = @bitCast(u64, x);
-    var hx = u32(ix >> 32);
+    var hx = @intCast(u32, ix >> 32);
     var k: i32 = 0;
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
@@ -125,7 +125,7 @@ pub fn log2_64(x_: f64) f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = u32(@bitCast(u64, x) >> 32);
+        hx = @intCast(u32, @bitCast(u64, x) >> 32);
     } else if (hx >= 0x7FF00000) {
         return x;
     } else if (hx == 0x3FF00000 and ix << 32 == 0) {
@@ -134,7 +134,7 @@ pub fn log2_64(x_: f64) f64 {
 
     // x into [sqrt(2) / 2, sqrt(2)]
     hx += 0x3FF00000 - 0x3FE6A09E;
-    k += i32(hx >> 20) - 0x3FF;
+    k += @intCast(i32, hx >> 20) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
     ix = (u64(hx) << 32) | (ix & 0xFFFFFFFF);
     x = @bitCast(f64, ix);
@@ -159,7 +159,7 @@ pub fn log2_64(x_: f64) f64 {
     var val_lo = (lo + hi) * ivln2lo + lo * ivln2hi;
 
     // spadd(val_hi, val_lo, y)
-    const y = f64(k);
+    const y = @intToFloat(f64, k);
     const ww = y + val_hi;
     val_lo += (y - ww) + val_hi;
     val_hi = ww;

@@ -365,14 +365,14 @@ test "runtime struct initialization of bitfield" {
         .y = x1,
     };
     const s2 = Nibbles{
-        .x = u4(x2),
-        .y = u4(x2),
+        .x = @intCast(u4, x2),
+        .y = @intCast(u4, x2),
     };
 
     assert(s1.x == x1);
     assert(s1.y == x1);
-    assert(s2.x == u4(x2));
-    assert(s2.y == u4(x2));
+    assert(s2.x == @intCast(u4, x2));
+    assert(s2.y == @intCast(u4, x2));
 }
 
 var x1 = u4(1);

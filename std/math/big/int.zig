@@ -135,7 +135,7 @@ pub const Int = struct {
                 self.positive = value >= 0;
                 self.len = 0;
 
-                var w_value: UT = if (value < 0) UT(-value) else UT(value);
+                var w_value: UT = if (value < 0) @intCast(UT, -value) else @intCast(UT, value);
 
                 if (info.bits <= Limb.bit_count) {
                     self.limbs[0] = Limb(w_value);
@@ -198,7 +198,7 @@ pub const Int = struct {
                 var r: UT = 0;
 
                 if (@sizeOf(UT) <= @sizeOf(Limb)) {
-                    r = UT(self.limbs[0]);
+                    r = @intCast(UT, self.limbs[0]);
                 } else {
                     for (self.limbs[0..self.len]) |_, ri| {
                         const limb = self.limbs[self.len - ri - 1];
@@ -210,7 +210,7 @@ pub const Int = struct {
                 if (!T.is_signed) {
                     return if (self.positive) r else error.NegativeIntoUnsigned;
                 } else {
-                    return if (self.positive) T(r) else -T(r);
+                    return if (self.positive) @intCast(T, r) else -@intCast(T, r);
                 }
             },
             else => {
@@ -295,7 +295,7 @@ pub const Int = struct {
             for (self.limbs[0..self.len]) |limb| {
                 var shift: usize = 0;
                 while (shift < Limb.bit_count) : (shift += base_shift) {
-                    const r = u8((limb >> Log2Limb(shift)) & Limb(base - 1));
+                    const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & Limb(base - 1));
                     const ch = try digitToChar(r, base);
                     try digits.append(ch);
                 }
@@ -329,7 +329,7 @@ pub const Int = struct {
                 var r_word = r.limbs[0];
                 var i: usize = 0;
                 while (i < digits_per_limb) : (i += 1) {
-                    const ch = try digitToChar(u8(r_word % base), base);
+                    const ch = try digitToChar(@intCast(u8, r_word % base), base);
                     r_word /= base;
                     try digits.append(ch);
                 }
@@ -340,7 +340,7 @@ pub const Int = struct {
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
-                    const ch = try digitToChar(u8(r_word % base), base);
+                    const ch = try digitToChar(@intCast(u8, r_word % base), base);
                     r_word /= base;
                     try digits.append(ch);
                 }
@@ -801,7 +801,7 @@ pub const Int = struct {
                 q.limbs[i - t - 1] = @maxValue(Limb);
             } else {
                 const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) | DoubleLimb(x.limbs[i - 1]);
-                const z = Limb(num / DoubleLimb(y.limbs[t]));
+                const z = @intCast(Limb, num / DoubleLimb(y.limbs[t]));
                 q.limbs[i - t - 1] = if (z > @maxValue(Limb)) @maxValue(Limb) else Limb(z);
             }
 
@@ -860,7 +860,7 @@ pub const Int = struct {
         debug.assert(r.len >= a.len + (shift / Limb.bit_count) + 1);
 
         const limb_shift = shift / Limb.bit_count + 1;
-        const interior_limb_shift = Log2Limb(shift % Limb.bit_count);
+        const interior_limb_shift = @intCast(Log2Limb, shift % Limb.bit_count);
 
         var carry: Limb = 0;
         var i: usize = 0;
@@ -869,7 +869,7 @@ pub const Int = struct {
             const dst_i = src_i + limb_shift;
 
             const src_digit = a[src_i];
-            r[dst_i] = carry | @inlineCall(math.shr, Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
+            r[dst_i] = carry | @inlineCall(math.shr, Limb, src_digit, Limb.bit_count - @intCast(Limb, interior_limb_shift));
             carry = (src_digit << interior_limb_shift);
         }
 
@@ -898,7 +898,7 @@ pub const Int = struct {
         debug.assert(r.len >= a.len - (shift / Limb.bit_count));
 
         const limb_shift = shift / Limb.bit_count;
-        const interior_limb_shift = Log2Limb(shift % Limb.bit_count);
+        const interior_limb_shift = @intCast(Log2Limb, shift % Limb.bit_count);
 
         var carry: Limb = 0;
         var i: usize = 0;
@@ -908,7 +908,7 @@ pub const Int = struct {
 
             const src_digit = a[src_i];
             r[dst_i] = carry | (src_digit >> interior_limb_shift);
-            carry = @inlineCall(math.shl, Limb, src_digit, Limb.bit_count - Limb(interior_limb_shift));
+            carry = @inlineCall(math.shl, Limb, src_digit, Limb.bit_count - @intCast(Limb, interior_limb_shift));
         }
     }
 

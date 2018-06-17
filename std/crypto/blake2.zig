@@ -79,7 +79,7 @@ fn Blake2s(comptime out_len: usize) type {
             mem.copy(u32, d.h[0..], iv[0..]);
 
             // No key plus default parameters
-            d.h[0] ^= 0x01010000 ^ u32(out_len >> 3);
+            d.h[0] ^= 0x01010000 ^ @intCast(u32, out_len >> 3);
             d.t = 0;
             d.buf_len = 0;
         }
@@ -110,7 +110,7 @@ fn Blake2s(comptime out_len: usize) type {
 
             // Copy any remainder for next pass.
             mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-            d.buf_len += u8(b[off..].len);
+            d.buf_len += @intCast(u8, b[off..].len);
         }
 
         pub fn final(d: *Self, out: []u8) void {
@@ -144,7 +144,7 @@ fn Blake2s(comptime out_len: usize) type {
             }
 
             v[12] ^= @truncate(u32, d.t);
-            v[13] ^= u32(d.t >> 32);
+            v[13] ^= @intCast(u32, d.t >> 32);
             if (last) v[14] = ~v[14];
 
             const rounds = comptime []RoundParam{
@@ -345,7 +345,7 @@ fn Blake2b(comptime out_len: usize) type {
 
             // Copy any remainder for next pass.
             mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-            d.buf_len += u8(b[off..].len);
+            d.buf_len += @intCast(u8, b[off..].len);
         }
 
         pub fn final(d: *Self, out: []u8) void {
@@ -377,7 +377,7 @@ fn Blake2b(comptime out_len: usize) type {
             }
 
             v[12] ^= @truncate(u64, d.t);
-            v[13] ^= u64(d.t >> 64);
+            v[13] ^= @intCast(u64, d.t >> 64);
             if (last) v[14] = ~v[14];
 
             const rounds = comptime []RoundParam{

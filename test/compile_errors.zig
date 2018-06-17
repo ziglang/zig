@@ -2931,10 +2931,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "cast negative value to unsigned integer",
         \\comptime {
         \\    const value: i32 = -1;
-        \\    const unsigned = u32(value);
+        \\    const unsigned = @intCast(u32, value);
         \\}
     ,
-        ".tmp_source.zig:3:25: error: attempt to cast negative value to unsigned integer",
+        ".tmp_source.zig:3:22: error: attempt to cast negative value to unsigned integer",
     );
 
     cases.add(
@@ -2963,10 +2963,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "compile-time integer cast truncates bits",
         \\comptime {
         \\    const spartan_count: u16 = 300;
-        \\    const byte = u8(spartan_count);
+        \\    const byte = @intCast(u8, spartan_count);
         \\}
     ,
-        ".tmp_source.zig:3:20: error: cast from 'u16' to 'u8' truncates bits",
+        ".tmp_source.zig:3:18: error: cast from 'u16' to 'u8' truncates bits",
     );
 
     cases.add(

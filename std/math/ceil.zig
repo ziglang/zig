@@ -20,7 +20,7 @@ pub fn ceil(x: var) @typeOf(x) {
 
 fn ceil32(x: f32) f32 {
     var u = @bitCast(u32, x);
-    var e = i32((u >> 23) & 0xFF) - 0x7F;
+    var e = @intCast(i32, (u >> 23) & 0xFF) - 0x7F;
     var m: u32 = undefined;
 
     // TODO: Shouldn't need this explicit check.
@@ -31,7 +31,7 @@ fn ceil32(x: f32) f32 {
     if (e >= 23) {
         return x;
     } else if (e >= 0) {
-        m = u32(0x007FFFFF) >> u5(e);
+        m = u32(0x007FFFFF) >> @intCast(u5, e);
         if (u & m == 0) {
             return x;
         }

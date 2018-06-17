@@ -20,7 +20,7 @@ pub fn floor(x: var) @typeOf(x) {
 
 fn floor32(x: f32) f32 {
     var u = @bitCast(u32, x);
-    const e = i32((u >> 23) & 0xFF) - 0x7F;
+    const e = @intCast(i32, (u >> 23) & 0xFF) - 0x7F;
     var m: u32 = undefined;
 
     // TODO: Shouldn't need this explicit check.
@@ -33,7 +33,7 @@ fn floor32(x: f32) f32 {
     }
 
     if (e >= 0) {
-        m = u32(0x007FFFFF) >> u5(e);
+        m = u32(0x007FFFFF) >> @intCast(u5, e);
         if (u & m == 0) {
             return x;
         }

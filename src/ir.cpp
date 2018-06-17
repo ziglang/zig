@@ -460,6 +460,22 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTruncate *) {
     return IrInstructionIdTruncate;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionIntCast *) {
+    return IrInstructionIdIntCast;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFloatCast *) {
+    return IrInstructionIdFloatCast;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToFloat *) {
+    return IrInstructionIdIntToFloat;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFloatToInt *) {
+    return IrInstructionIdFloatToInt;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionIntType *) {
     return IrInstructionIdIntType;
 }
@@ -1899,10 +1915,48 @@ static IrInstruction *ir_build_truncate(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_truncate_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *dest_type, IrInstruction *target) {
-    IrInstruction *new_instruction = ir_build_truncate(irb, old_instruction->scope, old_instruction->source_node, dest_type, target);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
+static IrInstruction *ir_build_int_cast(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_type, IrInstruction *target) {
+    IrInstructionIntCast *instruction = ir_build_instruction<IrInstructionIntCast>(irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->target = target;
+
+    ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_float_cast(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_type, IrInstruction *target) {
+    IrInstructionFloatCast *instruction = ir_build_instruction<IrInstructionFloatCast>(irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->target = target;
+
+    ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_int_to_float(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_type, IrInstruction *target) {
+    IrInstructionIntToFloat *instruction = ir_build_instruction<IrInstructionIntToFloat>(irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->target = target;
+
+    ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_float_to_int(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_type, IrInstruction *target) {
+    IrInstructionFloatToInt *instruction = ir_build_instruction<IrInstructionFloatToInt>(irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->target = target;
+
+    ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
 }
 
 static IrInstruction *ir_build_int_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *is_signed, IrInstruction *bit_count) {
@@ -3956,6 +4010,66 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *truncate = ir_build_truncate(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, truncate, lval);
+            }
+        case BuiltinFnIdIntCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_int_cast(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdFloatCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_float_cast(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdIntToFloat:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_int_to_float(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdFloatToInt:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_float_to_int(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
             }
         case BuiltinFnIdIntType:
             {
@@ -9948,34 +10062,37 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpBoolToInt, false);
     }
 
-    // explicit widening or shortening cast
-    if ((wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdInt) ||
-        (wanted_type->id == TypeTableEntryIdFloat &&
-        actual_type->id == TypeTableEntryIdFloat))
+    // explicit widening conversion
+    if (wanted_type->id == TypeTableEntryIdInt &&
+        actual_type->id == TypeTableEntryIdInt &&
+        wanted_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
+        wanted_type->data.integral.bit_count >= actual_type->data.integral.bit_count)
     {
         return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
     }
+
+    // small enough unsigned ints can get casted to large enough signed ints
+    if (wanted_type->id == TypeTableEntryIdInt && wanted_type->data.integral.is_signed &&
+        actual_type->id == TypeTableEntryIdInt && !actual_type->data.integral.is_signed &&
+        wanted_type->data.integral.bit_count > actual_type->data.integral.bit_count)
+    {
+        return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
+    }
+
+    // explicit float widening conversion
+    if (wanted_type->id == TypeTableEntryIdFloat &&
+        actual_type->id == TypeTableEntryIdFloat &&
+        wanted_type->data.floating.bit_count >= actual_type->data.floating.bit_count)
+    {
+        return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
+    }
+
 
     // explicit error set cast
     if (wanted_type->id == TypeTableEntryIdErrorSet &&
         actual_type->id == TypeTableEntryIdErrorSet)
     {
         return ir_analyze_err_set_cast(ira, source_instr, value, wanted_type);
-    }
-
-    // explicit cast from int to float
-    if (wanted_type->id == TypeTableEntryIdFloat &&
-        actual_type->id == TypeTableEntryIdInt)
-    {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpIntToFloat, false);
-    }
-
-    // explicit cast from float to int
-    if (wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdFloat)
-    {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpFloatToInt, false);
     }
 
     // explicit cast from [N]T to []const T
@@ -17365,7 +17482,126 @@ static TypeTableEntry *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruc
         return dest_type;
     }
 
-    ir_build_truncate_from(&ira->new_irb, &instruction->base, dest_type_value, target);
+    IrInstruction *new_instruction = ir_build_truncate(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, dest_type_value, target);
+    ir_link_new_instruction(new_instruction, &instruction->base);
+    return dest_type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_int_cast(IrAnalyze *ira, IrInstructionIntCast *instruction) {
+    TypeTableEntry *dest_type = ir_resolve_type(ira, instruction->dest_type->other);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (dest_type->id != TypeTableEntryIdInt) {
+        ir_add_error(ira, instruction->dest_type, buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (target->value.type->id == TypeTableEntryIdComptimeInt) {
+        if (ir_num_lit_fits_in_other_type(ira, target, dest_type, true)) {
+            IrInstruction *result = ir_resolve_cast(ira, &instruction->base, target, dest_type,
+                    CastOpNumLitToConcrete, false);
+            if (type_is_invalid(result->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+            ir_link_new_instruction(result, &instruction->base);
+            return dest_type;
+        } else {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    }
+
+    if (target->value.type->id != TypeTableEntryIdInt) {
+        ir_add_error(ira, instruction->target, buf_sprintf("expected integer type, found '%s'",
+                    buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *result = ir_analyze_widen_or_shorten(ira, &instruction->base, target, dest_type);
+    if (type_is_invalid(result->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ir_link_new_instruction(result, &instruction->base);
+    return dest_type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstructionFloatCast *instruction) {
+    TypeTableEntry *dest_type = ir_resolve_type(ira, instruction->dest_type->other);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (dest_type->id != TypeTableEntryIdFloat) {
+        ir_add_error(ira, instruction->dest_type,
+                buf_sprintf("expected float type, found '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (target->value.type->id == TypeTableEntryIdComptimeInt ||
+        target->value.type->id == TypeTableEntryIdComptimeFloat)
+    {
+        if (ir_num_lit_fits_in_other_type(ira, target, dest_type, true)) {
+            CastOp op;
+            if (target->value.type->id == TypeTableEntryIdComptimeInt) {
+                op = CastOpIntToFloat;
+            } else {
+                op = CastOpNumLitToConcrete;
+            }
+            IrInstruction *result = ir_resolve_cast(ira, &instruction->base, target, dest_type, op, false);
+            if (type_is_invalid(result->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+            ir_link_new_instruction(result, &instruction->base);
+            return dest_type;
+        } else {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    }
+
+    if (target->value.type->id != TypeTableEntryIdFloat) {
+        ir_add_error(ira, instruction->target, buf_sprintf("expected float type, found '%s'",
+                    buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *result = ir_analyze_widen_or_shorten(ira, &instruction->base, target, dest_type);
+    if (type_is_invalid(result->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+    ir_link_new_instruction(result, &instruction->base);
+    return dest_type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_int_to_float(IrAnalyze *ira, IrInstructionIntToFloat *instruction) {
+    TypeTableEntry *dest_type = ir_resolve_type(ira, instruction->dest_type->other);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpIntToFloat, false);
+    ir_link_new_instruction(result, &instruction->base);
+    return dest_type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_float_to_int(IrAnalyze *ira, IrInstructionFloatToInt *instruction) {
+    TypeTableEntry *dest_type = ir_resolve_type(ira, instruction->dest_type->other);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpFloatToInt, false);
+    ir_link_new_instruction(result, &instruction->base);
     return dest_type;
 }
 
@@ -19899,6 +20135,14 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_fence(ira, (IrInstructionFence *)instruction);
         case IrInstructionIdTruncate:
             return ir_analyze_instruction_truncate(ira, (IrInstructionTruncate *)instruction);
+        case IrInstructionIdIntCast:
+            return ir_analyze_instruction_int_cast(ira, (IrInstructionIntCast *)instruction);
+        case IrInstructionIdFloatCast:
+            return ir_analyze_instruction_float_cast(ira, (IrInstructionFloatCast *)instruction);
+        case IrInstructionIdIntToFloat:
+            return ir_analyze_instruction_int_to_float(ira, (IrInstructionIntToFloat *)instruction);
+        case IrInstructionIdFloatToInt:
+            return ir_analyze_instruction_float_to_int(ira, (IrInstructionFloatToInt *)instruction);
         case IrInstructionIdIntType:
             return ir_analyze_instruction_int_type(ira, (IrInstructionIntType *)instruction);
         case IrInstructionIdBoolNot:
@@ -20242,6 +20486,10 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPromiseResultType:
         case IrInstructionIdSqrt:
         case IrInstructionIdAtomicLoad:
+        case IrInstructionIdIntCast:
+        case IrInstructionIdFloatCast:
+        case IrInstructionIdIntToFloat:
+        case IrInstructionIdFloatToInt:
             return false;
 
         case IrInstructionIdAsm:

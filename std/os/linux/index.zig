@@ -642,7 +642,7 @@ pub fn WIFEXITED(s: i32) bool {
     return WTERMSIG(s) == 0;
 }
 pub fn WIFSTOPPED(s: i32) bool {
-    return (u16)(((unsigned(s) & 0xffff) *% 0x10001) >> 8) > 0x7f00;
+    return @intCast(u16, ((unsigned(s) & 0xffff) *% 0x10001) >> 8) > 0x7f00;
 }
 pub fn WIFSIGNALED(s: i32) bool {
     return (unsigned(s) & 0xffff) -% 1 < 0xff;
@@ -658,11 +658,11 @@ pub const winsize = extern struct {
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) usize {
     const signed_r = @bitCast(isize, r);
-    return if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0;
+    return if (signed_r > -4096 and signed_r < 0) @intCast(usize, -signed_r) else 0;
 }
 
 pub fn dup2(old: i32, new: i32) usize {
-    return syscall2(SYS_dup2, usize(old), usize(new));
+    return syscall2(SYS_dup2, @intCast(usize, old), @intCast(usize, new));
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -693,12 +693,12 @@ pub fn getcwd(buf: [*]u8, size: usize) usize {
 }
 
 pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
-    return syscall3(SYS_getdents, usize(fd), @ptrToInt(dirp), count);
+    return syscall3(SYS_getdents, @intCast(usize, fd), @ptrToInt(dirp), count);
 }
 
 pub fn isatty(fd: i32) bool {
     var wsz: winsize = undefined;
-    return syscall3(SYS_ioctl, usize(fd), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
+    return syscall3(SYS_ioctl, @intCast(usize, fd), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -727,7 +727,7 @@ pub fn umount2(special: [*]const u8, flags: u32) usize {
 }
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
-    return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, usize(fd), @bitCast(usize, offset));
+    return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @intCast(usize, fd), @bitCast(usize, offset));
 }
 
 pub fn munmap(address: usize, length: usize) usize {
@@ -735,7 +735,7 @@ pub fn munmap(address: usize, length: usize) usize {
 }
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
-    return syscall3(SYS_read, usize(fd), @ptrToInt(buf), count);
+    return syscall3(SYS_read, @intCast(usize, fd), @ptrToInt(buf), count);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -749,7 +749,7 @@ pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
 }
 
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
-    return syscall4(SYS_pread, usize(fd), @ptrToInt(buf), count, offset);
+    return syscall4(SYS_pread, @intCast(usize, fd), @ptrToInt(buf), count, offset);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -766,11 +766,11 @@ pub fn pipe2(fd: *[2]i32, flags: usize) usize {
 }
 
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
-    return syscall3(SYS_write, usize(fd), @ptrToInt(buf), count);
+    return syscall3(SYS_write, @intCast(usize, fd), @ptrToInt(buf), count);
 }
 
 pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
-    return syscall4(SYS_pwrite, usize(fd), @ptrToInt(buf), count, offset);
+    return syscall4(SYS_pwrite, @intCast(usize, fd), @ptrToInt(buf), count, offset);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -790,7 +790,7 @@ pub fn create(path: [*]const u8, perm: usize) usize {
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn openat(dirfd: i32, path: [*]const u8, flags: usize, mode: usize) usize {
-    return syscall4(SYS_openat, usize(dirfd), @ptrToInt(path), flags, mode);
+    return syscall4(SYS_openat, @intCast(usize, dirfd), @ptrToInt(path), flags, mode);
 }
 
 /// See also `clone` (from the arch-specific include)
@@ -804,11 +804,11 @@ pub fn clone2(flags: usize, child_stack_ptr: usize) usize {
 }
 
 pub fn close(fd: i32) usize {
-    return syscall1(SYS_close, usize(fd));
+    return syscall1(SYS_close, @intCast(usize, fd));
 }
 
 pub fn lseek(fd: i32, offset: isize, ref_pos: usize) usize {
-    return syscall3(SYS_lseek, usize(fd), @bitCast(usize, offset), ref_pos);
+    return syscall3(SYS_lseek, @intCast(usize, fd), @bitCast(usize, offset), ref_pos);
 }
 
 pub fn exit(status: i32) noreturn {
@@ -817,11 +817,11 @@ pub fn exit(status: i32) noreturn {
 }
 
 pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
-    return syscall3(SYS_getrandom, @ptrToInt(buf), count, usize(flags));
+    return syscall3(SYS_getrandom, @ptrToInt(buf), count, @intCast(usize, flags));
 }
 
 pub fn kill(pid: i32, sig: i32) usize {
-    return syscall2(SYS_kill, @bitCast(usize, isize(pid)), usize(sig));
+    return syscall2(SYS_kill, @bitCast(usize, isize(pid)), @intCast(usize, sig));
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -999,8 +999,8 @@ pub const empty_sigset = []usize{0} ** sigset_t.len;
 pub fn raise(sig: i32) usize {
     var set: sigset_t = undefined;
     blockAppSignals(&set);
-    const tid = i32(syscall0(SYS_gettid));
-    const ret = syscall2(SYS_tkill, usize(tid), usize(sig));
+    const tid = @intCast(i32, syscall0(SYS_gettid));
+    const ret = syscall2(SYS_tkill, @intCast(usize, tid), @intCast(usize, sig));
     restoreSignals(&set);
     return ret;
 }
@@ -1019,12 +1019,12 @@ fn restoreSignals(set: *sigset_t) void {
 
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
-    (set.*)[usize(s) / usize.bit_count] |= usize(1) << (s & (usize.bit_count - 1));
+    (set.*)[@intCast(usize, s) / usize.bit_count] |= @intCast(usize, 1) << (s & (usize.bit_count - 1));
 }
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((set.*)[usize(s) / usize.bit_count] & (usize(1) << (s & (usize.bit_count - 1)))) != 0;
+    return ((set.*)[@intCast(usize, s) / usize.bit_count] & (@intCast(usize, 1) << (s & (usize.bit_count - 1)))) != 0;
 }
 
 pub const in_port_t = u16;
@@ -1057,11 +1057,11 @@ pub const iovec = extern struct {
 };
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
-    return syscall3(SYS_getsockname, usize(fd), @ptrToInt(addr), @ptrToInt(len));
+    return syscall3(SYS_getsockname, @intCast(usize, fd), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn getpeername(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
-    return syscall3(SYS_getpeername, usize(fd), @ptrToInt(addr), @ptrToInt(len));
+    return syscall3(SYS_getpeername, @intCast(usize, fd), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
@@ -1069,47 +1069,47 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
 }
 
 pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
-    return syscall5(SYS_setsockopt, usize(fd), level, optname, usize(optval), @ptrToInt(optlen));
+    return syscall5(SYS_setsockopt, @intCast(usize, fd), level, optname, @intCast(usize, optval), @ptrToInt(optlen));
 }
 
 pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
-    return syscall5(SYS_getsockopt, usize(fd), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
+    return syscall5(SYS_getsockopt, @intCast(usize, fd), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
 pub fn sendmsg(fd: i32, msg: *const msghdr, flags: u32) usize {
-    return syscall3(SYS_sendmsg, usize(fd), @ptrToInt(msg), flags);
+    return syscall3(SYS_sendmsg, @intCast(usize, fd), @ptrToInt(msg), flags);
 }
 
 pub fn connect(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
-    return syscall3(SYS_connect, usize(fd), @ptrToInt(addr), usize(len));
+    return syscall3(SYS_connect, @intCast(usize, fd), @ptrToInt(addr), @intCast(usize, len));
 }
 
 pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
-    return syscall3(SYS_recvmsg, usize(fd), @ptrToInt(msg), flags);
+    return syscall3(SYS_recvmsg, @intCast(usize, fd), @ptrToInt(msg), flags);
 }
 
 pub fn recvfrom(fd: i32, noalias buf: [*]u8, len: usize, flags: u32, noalias addr: ?*sockaddr, noalias alen: ?*socklen_t) usize {
-    return syscall6(SYS_recvfrom, usize(fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
+    return syscall6(SYS_recvfrom, @intCast(usize, fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
 }
 
 pub fn shutdown(fd: i32, how: i32) usize {
-    return syscall2(SYS_shutdown, usize(fd), usize(how));
+    return syscall2(SYS_shutdown, @intCast(usize, fd), @intCast(usize, how));
 }
 
 pub fn bind(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
-    return syscall3(SYS_bind, usize(fd), @ptrToInt(addr), usize(len));
+    return syscall3(SYS_bind, @intCast(usize, fd), @ptrToInt(addr), @intCast(usize, len));
 }
 
 pub fn listen(fd: i32, backlog: u32) usize {
-    return syscall2(SYS_listen, usize(fd), backlog);
+    return syscall2(SYS_listen, @intCast(usize, fd), backlog);
 }
 
 pub fn sendto(fd: i32, buf: [*]const u8, len: usize, flags: u32, addr: ?*const sockaddr, alen: socklen_t) usize {
-    return syscall6(SYS_sendto, usize(fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), usize(alen));
+    return syscall6(SYS_sendto, @intCast(usize, fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen));
 }
 
 pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) usize {
-    return syscall4(SYS_socketpair, usize(domain), usize(socket_type), usize(protocol), @ptrToInt(*fd[0]));
+    return syscall4(SYS_socketpair, @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(*fd[0]));
 }
 
 pub fn accept(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -1117,11 +1117,11 @@ pub fn accept(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
 }
 
 pub fn accept4(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t, flags: u32) usize {
-    return syscall4(SYS_accept4, usize(fd), @ptrToInt(addr), @ptrToInt(len), flags);
+    return syscall4(SYS_accept4, @intCast(usize, fd), @ptrToInt(addr), @ptrToInt(len), flags);
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    return syscall2(SYS_fstat, usize(fd), @ptrToInt(stat_buf));
+    return syscall2(SYS_fstat, @intCast(usize, fd), @ptrToInt(stat_buf));
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -1214,15 +1214,15 @@ pub fn epoll_create1(flags: usize) usize {
 }
 
 pub fn epoll_ctl(epoll_fd: i32, op: u32, fd: i32, ev: *epoll_event) usize {
-    return syscall4(SYS_epoll_ctl, usize(epoll_fd), usize(op), usize(fd), @ptrToInt(ev));
+    return syscall4(SYS_epoll_ctl, @intCast(usize, epoll_fd), @intCast(usize, op), @intCast(usize, fd), @ptrToInt(ev));
 }
 
 pub fn epoll_wait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32) usize {
-    return syscall4(SYS_epoll_wait, usize(epoll_fd), @ptrToInt(events), usize(maxevents), usize(timeout));
+    return syscall4(SYS_epoll_wait, @intCast(usize, epoll_fd), @ptrToInt(events), @intCast(usize, maxevents), @intCast(usize, timeout));
 }
 
 pub fn timerfd_create(clockid: i32, flags: u32) usize {
-    return syscall2(SYS_timerfd_create, usize(clockid), usize(flags));
+    return syscall2(SYS_timerfd_create, @intCast(usize, clockid), @intCast(usize, flags));
 }
 
 pub const itimerspec = extern struct {
@@ -1231,11 +1231,11 @@ pub const itimerspec = extern struct {
 };
 
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
-    return syscall2(SYS_timerfd_gettime, usize(fd), @ptrToInt(curr_value));
+    return syscall2(SYS_timerfd_gettime, @intCast(usize, fd), @ptrToInt(curr_value));
 }
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
-    return syscall4(SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value));
+    return syscall4(SYS_timerfd_settime, @intCast(usize, fd), @intCast(usize, flags), @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
 pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
@@ -1345,7 +1345,7 @@ pub const cap_user_data_t = extern struct {
 };
 
 pub fn unshare(flags: usize) usize {
-    return syscall1(SYS_unshare, usize(flags));
+    return syscall1(SYS_unshare, @intCast(usize, flags));
 }
 
 pub fn capget(hdrp: *cap_user_header_t, datap: *cap_user_data_t) usize {

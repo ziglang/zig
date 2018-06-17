@@ -62,8 +62,8 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
 
     var i: usize = 0;
     while (i < hashtab[1]) : (i += 1) {
-        if (0 == (u32(1) << u5(syms[i].st_info & 0xf) & OK_TYPES)) continue;
-        if (0 == (u32(1) << u5(syms[i].st_info >> 4) & OK_BINDS)) continue;
+        if (0 == (u32(1) << @intCast(u5, syms[i].st_info & 0xf) & OK_TYPES)) continue;
+        if (0 == (u32(1) << @intCast(u5, syms[i].st_info >> 4) & OK_BINDS)) continue;
         if (0 == syms[i].st_shndx) continue;
         if (!mem.eql(u8, name, cstr.toSliceConst(strings + syms[i].st_name))) continue;
         if (maybe_versym) |versym| {

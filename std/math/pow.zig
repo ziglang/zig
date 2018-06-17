@@ -146,7 +146,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = i32(yi);
+    var i = @floatToInt(i32, yi);
     while (i != 0) : (i >>= 1) {
         if (i & 1 == 1) {
             a1 *= x1;
@@ -171,7 +171,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
 
 fn isOddInteger(x: f64) bool {
     const r = math.modf(x);
-    return r.fpart == 0.0 and i64(r.ipart) & 1 == 1;
+    return r.fpart == 0.0 and @floatToInt(i64, r.ipart) & 1 == 1;
 }
 
 test "math.pow" {

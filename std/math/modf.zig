@@ -29,7 +29,7 @@ fn modf32(x: f32) modf32_result {
     var result: modf32_result = undefined;
 
     const u = @bitCast(u32, x);
-    const e = i32((u >> 23) & 0xFF) - 0x7F;
+    const e = @intCast(i32, (u >> 23) & 0xFF) - 0x7F;
     const us = u & 0x80000000;
 
     // TODO: Shouldn't need this.
@@ -57,7 +57,7 @@ fn modf32(x: f32) modf32_result {
         return result;
     }
 
-    const mask = u32(0x007FFFFF) >> u5(e);
+    const mask = u32(0x007FFFFF) >> @intCast(u5, e);
     if (u & mask == 0) {
         result.ipart = x;
         result.fpart = @bitCast(f32, us);
@@ -74,7 +74,7 @@ fn modf64(x: f64) modf64_result {
     var result: modf64_result = undefined;
 
     const u = @bitCast(u64, x);
-    const e = i32((u >> 52) & 0x7FF) - 0x3FF;
+    const e = @intCast(i32, (u >> 52) & 0x7FF) - 0x3FF;
     const us = u & (1 << 63);
 
     if (math.isInf(x)) {
@@ -101,7 +101,7 @@ fn modf64(x: f64) modf64_result {
         return result;
     }
 
-    const mask = u64(@maxValue(u64) >> 12) >> u6(e);
+    const mask = u64(@maxValue(u64) >> 12) >> @intCast(u6, e);
     if (u & mask == 0) {
         result.ipart = x;
         result.fpart = @bitCast(f64, us);

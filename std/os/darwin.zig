@@ -290,7 +290,7 @@ pub fn WIFSIGNALED(x: i32) bool {
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) usize {
     const signed_r = @bitCast(isize, r);
-    return if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0;
+    return if (signed_r > -4096 and signed_r < 0) @intCast(usize, -signed_r) else 0;
 }
 
 pub fn close(fd: i32) usize {
@@ -339,7 +339,14 @@ pub fn write(fd: i32, buf: [*]const u8, nbyte: usize) usize {
 }
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
-    const ptr_result = c.mmap(@ptrCast(*c_void, address), length, @bitCast(c_int, c_uint(prot)), @bitCast(c_int, c_uint(flags)), fd, offset);
+    const ptr_result = c.mmap(
+        @ptrCast(*c_void, address),
+        length,
+        @bitCast(c_int, @intCast(c_uint, prot)),
+        @bitCast(c_int, c_uint(flags)),
+        fd,
+        offset,
+    );
     const isize_result = @bitCast(isize, @ptrToInt(ptr_result));
     return errnoWrap(isize_result);
 }

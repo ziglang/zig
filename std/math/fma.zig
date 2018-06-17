@@ -17,10 +17,10 @@ fn fma32(x: f32, y: f32, z: f32) f32 {
     const e = (u >> 52) & 0x7FF;
 
     if ((u & 0x1FFFFFFF) != 0x10000000 or e == 0x7FF or xy_z - xy == z) {
-        return f32(xy_z);
+        return @floatCast(f32, xy_z);
     } else {
         // TODO: Handle inexact case with double-rounding
-        return f32(xy_z);
+        return @floatCast(f32, xy_z);
     }
 }
 
@@ -124,7 +124,7 @@ fn add_and_denorm(a: f64, b: f64, scale: i32) f64 {
     var sum = dd_add(a, b);
     if (sum.lo != 0) {
         var uhii = @bitCast(u64, sum.hi);
-        const bits_lost = -i32((uhii >> 52) & 0x7FF) - scale + 1;
+        const bits_lost = -@intCast(i32, (uhii >> 52) & 0x7FF) - scale + 1;
         if ((bits_lost != 1) == (uhii & 1 != 0)) {
             const uloi = @bitCast(u64, sum.lo);
             uhii += 1 - (((uhii ^ uloi) >> 62) & 2);

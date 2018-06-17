@@ -413,7 +413,7 @@ pub const ChildProcess = struct {
         }
 
         // we are the parent
-        const pid = i32(pid_result);
+        const pid = @intCast(i32, pid_result);
         if (self.stdin_behavior == StdIo.Pipe) {
             self.stdin = os.File.openHandle(stdin_pipe[1]);
         } else {

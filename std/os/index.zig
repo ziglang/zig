@@ -126,7 +126,7 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
             defer _ = windows.CryptReleaseContext(hCryptProv, 0);
 
-            if (windows.CryptGenRandom(hCryptProv, windows.DWORD(buf.len), buf.ptr) == 0) {
+            if (windows.CryptGenRandom(hCryptProv, @intCast(windows.DWORD, buf.len), buf.ptr) == 0) {
                 const err = windows.GetLastError();
                 return switch (err) {
                     else => unexpectedErrorWindows(err),
@@ -343,7 +343,7 @@ pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
                 else => return unexpectedErrorPosix(err),
             }
         }
-        return i32(result);
+        return @intCast(i32, result);
     }
 }
 
@@ -586,7 +586,7 @@ pub fn getCwd(allocator: *Allocator) ![]u8 {
             errdefer allocator.free(buf);
 
             while (true) {
-                const result = windows.GetCurrentDirectoryA(windows.WORD(buf.len), buf.ptr);
+                const result = windows.GetCurrentDirectoryA(@intCast(windows.WORD, buf.len), buf.ptr);
 
                 if (result == 0) {
                     const err = windows.GetLastError();
@@ -2019,7 +2019,7 @@ pub fn posixSocket(domain: u32, socket_type: u32, protocol: u32) !i32 {
     const rc = posix.socket(domain, socket_type, protocol);
     const err = posix.getErrno(rc);
     switch (err) {
-        0 => return i32(rc),
+        0 => return @intCast(i32, rc),
         posix.EACCES => return PosixSocketError.PermissionDenied,
         posix.EAFNOSUPPORT => return PosixSocketError.AddressFamilyNotSupported,
         posix.EINVAL => return PosixSocketError.ProtocolFamilyNotAvailable,
@@ -2183,7 +2183,7 @@ pub fn posixAccept(fd: i32, addr: *posix.sockaddr, flags: u32) PosixAcceptError!
         const rc = posix.accept4(fd, addr, &sockaddr_size, flags);
         const err = posix.getErrno(rc);
         switch (err) {
-            0 => return i32(rc),
+            0 => return @intCast(i32, rc),
             posix.EINTR => continue,
             else => return unexpectedErrorPosix(err),
 
@@ -2226,7 +2226,7 @@ pub fn linuxEpollCreate(flags: u32) LinuxEpollCreateError!i32 {
     const rc = posix.epoll_create1(flags);
     const err = posix.getErrno(rc);
     switch (err) {
-        0 => return i32(rc),
+        0 => return @intCast(i32, rc),
         else => return unexpectedErrorPosix(err),
 
         posix.EINVAL => return LinuxEpollCreateError.InvalidSyscall,
@@ -2296,7 +2296,7 @@ pub fn linuxEpollCtl(epfd: i32, op: u32, fd: i32, event: *linux.epoll_event) Lin
 
 pub fn linuxEpollWait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
     while (true) {
-        const rc = posix.epoll_wait(epfd, events.ptr, u32(events.len), timeout);
+        const rc = posix.epoll_wait(epfd, events.ptr, @intCast(u32, events.len), timeout);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return rc,
@@ -2661,7 +2661,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
             posix.EAGAIN => return SpawnThreadError.SystemResources,
             posix.EPERM => unreachable,
             posix.EINVAL => unreachable,
-            else => return unexpectedErrorPosix(usize(err)),
+            else => return unexpectedErrorPosix(@intCast(usize, err)),
         }
     } else if (builtin.os == builtin.Os.linux) {
         // use linux API directly.  TODO use posix.CLONE_SETTLS and initialize thread local storage correctly
