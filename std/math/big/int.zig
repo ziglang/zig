@@ -18,39 +18,6 @@ comptime {
     debug.assert(Limb.is_signed == false);
 }
 
-const wrapped_buffer_size = 512;
-
-// Converts primitive integer values onto a stack-based big integer, or passes through existing
-// Int types with no modifications. This can fail at runtime if using a very large dynamic
-// integer but it is very unlikely and is considered a user error.
-fn wrapInt(allocator: *Allocator, bn: var) *const Int {
-    const T = @typeOf(bn);
-    switch (@typeInfo(T)) {
-        TypeId.Pointer => |info| {
-            if (info.child == Int) {
-                return bn;
-            } else {
-                @compileError("cannot set Int using type " ++ @typeName(T));
-            }
-        },
-        else => {
-            var s = allocator.create(Int) catch unreachable;
-            s.* = Int{
-                .allocator = allocator,
-                .positive = false,
-                .limbs = block: {
-                    var limbs = allocator.alloc(Limb, Int.default_capacity) catch unreachable;
-                    limbs[0] = 0;
-                    break :block limbs;
-                },
-                .len = 1,
-            };
-            s.set(bn) catch unreachable;
-            return s;
-        },
-    }
-}
-
 pub const Int = struct {
     allocator: *Allocator,
     positive: bool,
@@ -93,11 +60,11 @@ pub const Int = struct {
         self.limbs = try self.allocator.realloc(Limb, self.limbs, capacity);
     }
 
-    pub fn deinit(self: *const Int) void {
+    pub fn deinit(self: Int) void {
         self.allocator.free(self.limbs);
     }
 
-    pub fn clone(other: *const Int) !Int {
+    pub fn clone(other: Int) !Int {
         return Int{
             .allocator = other.allocator,
             .positive = other.positive,
@@ -110,8 +77,8 @@ pub const Int = struct {
         };
     }
 
-    pub fn copy(self: *Int, other: *const Int) !void {
-        if (self == other) {
+    pub fn copy(self: *Int, other: Int) !void {
+        if (self == &other) {
             return;
         }
 
@@ -125,7 +92,7 @@ pub const Int = struct {
         mem.swap(Int, self, other);
     }
 
-    pub fn dump(self: *const Int) void {
+    pub fn dump(self: Int) void {
         for (self.limbs) |limb| {
             debug.warn("{x} ", limb);
         }
@@ -140,20 +107,20 @@ pub const Int = struct {
         r.positive = true;
     }
 
-    pub fn isOdd(r: *const Int) bool {
+    pub fn isOdd(r: Int) bool {
         return r.limbs[0] & 1 != 0;
     }
 
-    pub fn isEven(r: *const Int) bool {
+    pub fn isEven(r: Int) bool {
         return !r.isOdd();
     }
 
-    fn bitcount(self: *const Int) usize {
+    fn bitcount(self: Int) usize {
         const u_bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
         return usize(!self.positive) + u_bit_count;
     }
 
-    pub fn sizeInBase(self: *const Int, base: usize) usize {
+    pub fn sizeInBase(self: Int, base: usize) usize {
         return (self.bitcount() / math.log2(base)) + 1;
     }
 
@@ -219,7 +186,7 @@ pub const Int = struct {
         TargetTooSmall,
     };
 
-    pub fn to(self: *const Int, comptime T: type) ConvertError!T {
+    pub fn to(self: Int, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
                 const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
@@ -286,16 +253,28 @@ pub const Int = struct {
             i += 1;
         }
 
+        // TODO values less than limb size should guarantee non allocating
+        var base_buffer: [512]u8 = undefined;
+        const base_al = &std.heap.FixedBufferAllocator.init(base_buffer[0..]).allocator;
+        const base_ap = try Int.initSet(base_al, base);
+
+        var d_buffer: [512]u8 = undefined;
+        var d_fba = std.heap.FixedBufferAllocator.init(d_buffer[0..]);
+        const d_al = &d_fba.allocator;
+
         try self.set(0);
         for (value[i..]) |ch| {
             const d = try charToDigit(ch, base);
-            try self.mul(self, base);
-            try self.add(self, d);
+            d_fba.end_index = 0;
+            const d_ap = try Int.initSet(d_al, d);
+
+            try self.mul(self.*, base_ap);
+            try self.add(self.*, d_ap);
         }
         self.positive = positive;
     }
 
-    pub fn toString(self: *const Int, allocator: *Allocator, base: u8) ![]const u8 {
+    pub fn toString(self: Int, allocator: *Allocator, base: u8) ![]const u8 {
         if (base < 2 or base > 16) {
             return error.InvalidBase;
         }
@@ -345,7 +324,7 @@ pub const Int = struct {
             var b = try Int.initSet(allocator, limb_base);
 
             while (q.len >= 2) {
-                try Int.divTrunc(&q, &r, &q, &b);
+                try Int.divTrunc(&q, &r, q, b);
 
                 var r_word = r.limbs[0];
                 var i: usize = 0;
@@ -378,12 +357,7 @@ pub const Int = struct {
     }
 
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
-    pub fn cmpAbs(a: *const Int, bv: var) i8 {
-        // TODO: Thread-local buffer.
-        var buffer: [wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var b = wrapInt(&stack.allocator, bv);
-
+    pub fn cmpAbs(a: Int, b: Int) i8 {
         if (a.len < b.len) {
             return -1;
         }
@@ -408,11 +382,7 @@ pub const Int = struct {
     }
 
     // returns -1, 0, 1 if a < b, a == b or a > b respectively.
-    pub fn cmp(a: *const Int, bv: var) i8 {
-        var buffer: [wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var b = wrapInt(&stack.allocator, bv);
-
+    pub fn cmp(a: Int, b: Int) i8 {
         if (a.positive != b.positive) {
             return if (a.positive) i8(1) else -1;
         } else {
@@ -422,17 +392,17 @@ pub const Int = struct {
     }
 
     // if a == 0
-    pub fn eqZero(a: *const Int) bool {
+    pub fn eqZero(a: Int) bool {
         return a.len == 1 and a.limbs[0] == 0;
     }
 
     // if |a| == |b|
-    pub fn eqAbs(a: *const Int, b: var) bool {
+    pub fn eqAbs(a: Int, b: Int) bool {
         return cmpAbs(a, b) == 0;
     }
 
     // if a == b
-    pub fn eq(a: *const Int, b: var) bool {
+    pub fn eq(a: Int, b: Int) bool {
         return cmp(a, b) == 0;
     }
 
@@ -473,12 +443,7 @@ pub const Int = struct {
     }
 
     // r = a + b
-    pub fn add(r: *Int, av: var, bv: var) Allocator.Error!void {
-        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-        var b = wrapInt(&stack.allocator, bv);
-
+    pub fn add(r: *Int, a: Int, b: Int) Allocator.Error!void {
         if (a.eqZero()) {
             try r.copy(b);
             return;
@@ -547,12 +512,7 @@ pub const Int = struct {
     }
 
     // r = a - b
-    pub fn sub(r: *Int, av: var, bv: var) !void {
-        var buffer: [wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-        var b = wrapInt(&stack.allocator, bv);
-
+    pub fn sub(r: *Int, a: Int, b: Int) !void {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
@@ -632,14 +592,9 @@ pub const Int = struct {
     // rma = a * b
     //
     // For greatest efficiency, ensure rma does not alias a or b.
-    pub fn mul(rma: *Int, av: var, bv: var) !void {
-        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-        var b = wrapInt(&stack.allocator, bv);
-
+    pub fn mul(rma: *Int, a: Int, b: Int) !void {
         var r = rma;
-        var aliased = rma == a or rma == b;
+        var aliased = rma.limbs.ptr == a.limbs.ptr or rma.limbs.ptr == b.limbs.ptr;
 
         var sr: Int = undefined;
         if (aliased) {
@@ -714,29 +669,29 @@ pub const Int = struct {
         }
     }
 
-    pub fn divFloor(q: *Int, r: *Int, a: var, b: var) !void {
+    pub fn divFloor(q: *Int, r: *Int, a: Int, b: Int) !void {
         try div(q, r, a, b);
 
         // Trunc -> Floor.
         if (!q.positive) {
-            try q.sub(q, 1);
-            try r.add(q, 1);
+            // TODO values less than limb size should guarantee non allocating
+            var one_buffer: [512]u8 = undefined;
+            const one_al = &std.heap.FixedBufferAllocator.init(one_buffer[0..]).allocator;
+            const one_ap = try Int.initSet(one_al, 1);
+
+            try q.sub(q.*, one_ap);
+            try r.add(q.*, one_ap);
         }
         r.positive = b.positive;
     }
 
-    pub fn divTrunc(q: *Int, r: *Int, a: var, b: var) !void {
+    pub fn divTrunc(q: *Int, r: *Int, a: Int, b: Int) !void {
         try div(q, r, a, b);
         r.positive = a.positive;
     }
 
     // Truncates by default.
-    fn div(quo: *Int, rem: *Int, av: var, bv: var) !void {
-        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-        var b = wrapInt(&stack.allocator, bv);
-
+    fn div(quo: *Int, rem: *Int, a: Int, b: Int) !void {
         if (b.eqZero()) {
             @panic("division by zero");
         }
@@ -821,8 +776,8 @@ pub const Int = struct {
 
         // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set)
         const norm_shift = @clz(y.limbs[y.len - 1]);
-        try x.shiftLeft(x, norm_shift);
-        try y.shiftLeft(y, norm_shift);
+        try x.shiftLeft(x.*, norm_shift);
+        try y.shiftLeft(y.*, norm_shift);
 
         const n = x.len - 1;
         const t = y.len - 1;
@@ -832,10 +787,10 @@ pub const Int = struct {
         mem.set(Limb, q.limbs[0..q.len], 0);
 
         // 2.
-        try tmp.shiftLeft(y, Limb.bit_count * (n - t));
-        while (x.cmp(&tmp) >= 0) {
+        try tmp.shiftLeft(y.*, Limb.bit_count * (n - t));
+        while (x.cmp(tmp) >= 0) {
             q.limbs[n - t] += 1;
-            try x.sub(x, tmp);
+            try x.sub(x.*, tmp);
         }
 
         // 3.
@@ -864,7 +819,7 @@ pub const Int = struct {
                 r.limbs[2] = carry;
                 r.normN(3);
 
-                if (r.cmpAbs(&tmp) <= 0) {
+                if (r.cmpAbs(tmp) <= 0) {
                     break;
                 }
 
@@ -873,13 +828,13 @@ pub const Int = struct {
 
             // 3.3
             try tmp.set(q.limbs[i - t - 1]);
-            try tmp.mul(&tmp, y);
-            try tmp.shiftLeft(&tmp, Limb.bit_count * (i - t - 1));
-            try x.sub(x, &tmp);
+            try tmp.mul(tmp, y.*);
+            try tmp.shiftLeft(tmp, Limb.bit_count * (i - t - 1));
+            try x.sub(x.*, tmp);
 
             if (!x.positive) {
-                try tmp.shiftLeft(y, Limb.bit_count * (i - t - 1));
-                try x.add(x, &tmp);
+                try tmp.shiftLeft(y.*, Limb.bit_count * (i - t - 1));
+                try x.add(x.*, tmp);
                 q.limbs[i - t - 1] -= 1;
             }
         }
@@ -887,16 +842,12 @@ pub const Int = struct {
         // Denormalize
         q.normN(q.len);
 
-        try r.shiftRight(x, norm_shift);
+        try r.shiftRight(x.*, norm_shift);
         r.normN(r.len);
     }
 
     // r = a << shift, in other words, r = a * 2^shift
-    pub fn shiftLeft(r: *Int, av: var, shift: usize) !void {
-        var buffer: [wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-
+    pub fn shiftLeft(r: *Int, a: Int, shift: usize) !void {
         try r.ensureCapacity(a.len + (shift / Limb.bit_count) + 1);
         llshl(r.limbs[0..], a.limbs[0..a.len], shift);
         r.norm1(a.len + (shift / Limb.bit_count) + 1);
@@ -927,11 +878,7 @@ pub const Int = struct {
     }
 
     // r = a >> shift
-    pub fn shiftRight(r: *Int, av: var, shift: usize) !void {
-        var buffer: [wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-
+    pub fn shiftRight(r: *Int, a: Int, shift: usize) !void {
         if (a.len <= shift / Limb.bit_count) {
             r.len = 1;
             r.limbs[0] = 0;
@@ -966,12 +913,7 @@ pub const Int = struct {
     }
 
     // r = a | b
-    pub fn bitOr(r: *Int, av: var, bv: var) !void {
-        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-        var b = wrapInt(&stack.allocator, bv);
-
+    pub fn bitOr(r: *Int, a: Int, b: Int) !void {
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
             llor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
@@ -998,12 +940,7 @@ pub const Int = struct {
     }
 
     // r = a & b
-    pub fn bitAnd(r: *Int, av: var, bv: var) !void {
-        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-        var b = wrapInt(&stack.allocator, bv);
-
+    pub fn bitAnd(r: *Int, a: Int, b: Int) !void {
         if (a.len > b.len) {
             try r.ensureCapacity(b.len);
             lland(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
@@ -1027,12 +964,7 @@ pub const Int = struct {
     }
 
     // r = a ^ b
-    pub fn bitXor(r: *Int, av: var, bv: var) !void {
-        var buffer: [2 * wrapped_buffer_size]u8 = undefined;
-        var stack = std.heap.FixedBufferAllocator.init(buffer[0..]);
-        var a = wrapInt(&stack.allocator, av);
-        var b = wrapInt(&stack.allocator, bv);
-
+    pub fn bitXor(r: *Int, a: Int, b: Int) !void {
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
             llxor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
@@ -1065,7 +997,7 @@ pub const Int = struct {
 // may be untested in some cases.
 
 const u256 = @IntType(false, 256);
-var al = debug.global_allocator;
+const al = debug.global_allocator;
 
 test "big.int comptime_int set" {
     comptime var s = 0xefffffff00000001eeeeeeefaaaaaaab;
@@ -1198,7 +1130,7 @@ test "big.int bitcount + sizeInBase" {
     debug.assert(a.sizeInBase(2) >= 32);
     debug.assert(a.sizeInBase(10) >= 10);
 
-    try a.shiftLeft(&a, 5000);
+    try a.shiftLeft(a, 5000);
     debug.assert(a.bitcount() == 5032);
     debug.assert(a.sizeInBase(2) >= 5032);
     a.positive = false;
@@ -1320,40 +1252,40 @@ test "big.int compare" {
     var a = try Int.initSet(al, -11);
     var b = try Int.initSet(al, 10);
 
-    debug.assert(a.cmpAbs(&b) == 1);
-    debug.assert(a.cmp(&b) == -1);
+    debug.assert(a.cmpAbs(b) == 1);
+    debug.assert(a.cmp(b) == -1);
 }
 
 test "big.int compare similar" {
     var a = try Int.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeee);
     var b = try Int.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeef);
 
-    debug.assert(a.cmpAbs(&b) == -1);
-    debug.assert(b.cmpAbs(&a) == 1);
+    debug.assert(a.cmpAbs(b) == -1);
+    debug.assert(b.cmpAbs(a) == 1);
 }
 
 test "big.int compare different limb size" {
     var a = try Int.initSet(al, @maxValue(Limb) + 1);
     var b = try Int.initSet(al, 1);
 
-    debug.assert(a.cmpAbs(&b) == 1);
-    debug.assert(b.cmpAbs(&a) == -1);
+    debug.assert(a.cmpAbs(b) == 1);
+    debug.assert(b.cmpAbs(a) == -1);
 }
 
 test "big.int compare multi-limb" {
     var a = try Int.initSet(al, -0x7777777799999999ffffeeeeffffeeeeffffeeeef);
     var b = try Int.initSet(al, 0x7777777799999999ffffeeeeffffeeeeffffeeeee);
 
-    debug.assert(a.cmpAbs(&b) == 1);
-    debug.assert(a.cmp(&b) == -1);
+    debug.assert(a.cmpAbs(b) == 1);
+    debug.assert(a.cmp(b) == -1);
 }
 
 test "big.int equality" {
     var a = try Int.initSet(al, 0xffffffff1);
     var b = try Int.initSet(al, -0xffffffff1);
 
-    debug.assert(a.eqAbs(&b));
-    debug.assert(!a.eq(&b));
+    debug.assert(a.eqAbs(b));
+    debug.assert(!a.eq(b));
 }
 
 test "big.int abs" {
@@ -1381,7 +1313,7 @@ test "big.int add single-single" {
     var b = try Int.initSet(al, 5);
 
     var c = try Int.init(al);
-    try c.add(&a, &b);
+    try c.add(a, b);
 
     debug.assert((try c.to(u32)) == 55);
 }
@@ -1392,10 +1324,10 @@ test "big.int add multi-single" {
 
     var c = try Int.init(al);
 
-    try c.add(&a, &b);
+    try c.add(a, b);
     debug.assert((try c.to(DoubleLimb)) == @maxValue(Limb) + 2);
 
-    try c.add(&b, &a);
+    try c.add(b, a);
     debug.assert((try c.to(DoubleLimb)) == @maxValue(Limb) + 2);
 }
 
@@ -1406,7 +1338,7 @@ test "big.int add multi-multi" {
     var b = try Int.initSet(al, op2);
 
     var c = try Int.init(al);
-    try c.add(&a, &b);
+    try c.add(a, b);
 
     debug.assert((try c.to(u128)) == op1 + op2);
 }
@@ -1416,7 +1348,7 @@ test "big.int add zero-zero" {
     var b = try Int.initSet(al, 0);
 
     var c = try Int.init(al);
-    try c.add(&a, &b);
+    try c.add(a, b);
 
     debug.assert((try c.to(u32)) == 0);
 }
@@ -1426,7 +1358,7 @@ test "big.int add alias multi-limb nonzero-zero" {
     var a = try Int.initSet(al, op1);
     var b = try Int.initSet(al, 0);
 
-    try a.add(&a, &b);
+    try a.add(a, b);
 
     debug.assert((try a.to(u128)) == op1);
 }
@@ -1434,16 +1366,21 @@ test "big.int add alias multi-limb nonzero-zero" {
 test "big.int add sign" {
     var a = try Int.init(al);
 
-    try a.add(1, 2);
+    const one = try Int.initSet(al, 1);
+    const two = try Int.initSet(al, 2);
+    const neg_one = try Int.initSet(al, -1);
+    const neg_two = try Int.initSet(al, -2);
+
+    try a.add(one, two);
     debug.assert((try a.to(i32)) == 3);
 
-    try a.add(-1, 2);
+    try a.add(neg_one, two);
     debug.assert((try a.to(i32)) == 1);
 
-    try a.add(1, -2);
+    try a.add(one, neg_two);
     debug.assert((try a.to(i32)) == -1);
 
-    try a.add(-1, -2);
+    try a.add(neg_one, neg_two);
     debug.assert((try a.to(i32)) == -3);
 }
 
@@ -1452,7 +1389,7 @@ test "big.int sub single-single" {
     var b = try Int.initSet(al, 5);
 
     var c = try Int.init(al);
-    try c.sub(&a, &b);
+    try c.sub(a, b);
 
     debug.assert((try c.to(u32)) == 45);
 }
@@ -1462,7 +1399,7 @@ test "big.int sub multi-single" {
     var b = try Int.initSet(al, 1);
 
     var c = try Int.init(al);
-    try c.sub(&a, &b);
+    try c.sub(a, b);
 
     debug.assert((try c.to(Limb)) == @maxValue(Limb));
 }
@@ -1475,7 +1412,7 @@ test "big.int sub multi-multi" {
     var b = try Int.initSet(al, op2);
 
     var c = try Int.init(al);
-    try c.sub(&a, &b);
+    try c.sub(a, b);
 
     debug.assert((try c.to(u128)) == op1 - op2);
 }
@@ -1485,7 +1422,7 @@ test "big.int sub equal" {
     var b = try Int.initSet(al, 0x11efefefefefefefefefefefef);
 
     var c = try Int.init(al);
-    try c.sub(&a, &b);
+    try c.sub(a, b);
 
     debug.assert((try c.to(u32)) == 0);
 }
@@ -1493,19 +1430,24 @@ test "big.int sub equal" {
 test "big.int sub sign" {
     var a = try Int.init(al);
 
-    try a.sub(1, 2);
+    const one = try Int.initSet(al, 1);
+    const two = try Int.initSet(al, 2);
+    const neg_one = try Int.initSet(al, -1);
+    const neg_two = try Int.initSet(al, -2);
+
+    try a.sub(one, two);
     debug.assert((try a.to(i32)) == -1);
 
-    try a.sub(-1, 2);
+    try a.sub(neg_one, two);
     debug.assert((try a.to(i32)) == -3);
 
-    try a.sub(1, -2);
+    try a.sub(one, neg_two);
     debug.assert((try a.to(i32)) == 3);
 
-    try a.sub(-1, -2);
+    try a.sub(neg_one, neg_two);
     debug.assert((try a.to(i32)) == 1);
 
-    try a.sub(-2, -1);
+    try a.sub(neg_two, neg_one);
     debug.assert((try a.to(i32)) == -1);
 }
 
@@ -1514,7 +1456,7 @@ test "big.int mul single-single" {
     var b = try Int.initSet(al, 5);
 
     var c = try Int.init(al);
-    try c.mul(&a, &b);
+    try c.mul(a, b);
 
     debug.assert((try c.to(u64)) == 250);
 }
@@ -1524,7 +1466,7 @@ test "big.int mul multi-single" {
     var b = try Int.initSet(al, 2);
 
     var c = try Int.init(al);
-    try c.mul(&a, &b);
+    try c.mul(a, b);
 
     debug.assert((try c.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
@@ -1536,7 +1478,7 @@ test "big.int mul multi-multi" {
     var b = try Int.initSet(al, op2);
 
     var c = try Int.init(al);
-    try c.mul(&a, &b);
+    try c.mul(a, b);
 
     debug.assert((try c.to(u256)) == op1 * op2);
 }
@@ -1545,7 +1487,7 @@ test "big.int mul alias r with a" {
     var a = try Int.initSet(al, @maxValue(Limb));
     var b = try Int.initSet(al, 2);
 
-    try a.mul(&a, &b);
+    try a.mul(a, b);
 
     debug.assert((try a.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
@@ -1554,7 +1496,7 @@ test "big.int mul alias r with b" {
     var a = try Int.initSet(al, @maxValue(Limb));
     var b = try Int.initSet(al, 2);
 
-    try a.mul(&b, &a);
+    try a.mul(b, a);
 
     debug.assert((try a.to(DoubleLimb)) == 2 * @maxValue(Limb));
 }
@@ -1562,7 +1504,7 @@ test "big.int mul alias r with b" {
 test "big.int mul alias r with a and b" {
     var a = try Int.initSet(al, @maxValue(Limb));
 
-    try a.mul(&a, &a);
+    try a.mul(a, a);
 
     debug.assert((try a.to(DoubleLimb)) == @maxValue(Limb) * @maxValue(Limb));
 }
@@ -1572,7 +1514,7 @@ test "big.int mul a*0" {
     var b = try Int.initSet(al, 0);
 
     var c = try Int.init(al);
-    try c.mul(&a, &b);
+    try c.mul(a, b);
 
     debug.assert((try c.to(u32)) == 0);
 }
@@ -1582,7 +1524,7 @@ test "big.int mul 0*0" {
     var b = try Int.initSet(al, 0);
 
     var c = try Int.init(al);
-    try c.mul(&a, &b);
+    try c.mul(a, b);
 
     debug.assert((try c.to(u32)) == 0);
 }
@@ -1593,7 +1535,7 @@ test "big.int div single-single no rem" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u32)) == 10);
     debug.assert((try r.to(u32)) == 0);
@@ -1605,7 +1547,7 @@ test "big.int div single-single with rem" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u32)) == 9);
     debug.assert((try r.to(u32)) == 4);
@@ -1620,7 +1562,7 @@ test "big.int div multi-single no rem" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u64)) == op1 / op2);
     debug.assert((try r.to(u64)) == 0);
@@ -1635,7 +1577,7 @@ test "big.int div multi-single with rem" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u64)) == op1 / op2);
     debug.assert((try r.to(u64)) == 3);
@@ -1650,7 +1592,7 @@ test "big.int div multi>2-single" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u128)) == op1 / op2);
     debug.assert((try r.to(u32)) == 0x3e4e);
@@ -1662,7 +1604,7 @@ test "big.int div single-single q < r" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u64)) == 0);
     debug.assert((try r.to(u64)) == 0x0078f432);
@@ -1674,7 +1616,7 @@ test "big.int div single-single q == r" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u64)) == 1);
     debug.assert((try r.to(u64)) == 0);
@@ -1684,7 +1626,7 @@ test "big.int div q=0 alias" {
     var a = try Int.initSet(al, 3);
     var b = try Int.initSet(al, 10);
 
-    try Int.divTrunc(&a, &b, &a, &b);
+    try Int.divTrunc(&a, &b, a, b);
 
     debug.assert((try a.to(u64)) == 0);
     debug.assert((try b.to(u64)) == 3);
@@ -1698,7 +1640,7 @@ test "big.int div multi-multi q < r" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u128)) == 0);
     debug.assert((try r.to(u128)) == op1);
@@ -1713,7 +1655,7 @@ test "big.int div trunc single-single +/+" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     // n = q * d + r
     // 5 = 1 * 3 + 2
@@ -1733,7 +1675,7 @@ test "big.int div trunc single-single -/+" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     //  n = q *  d + r
     // -5 = 1 * -3 - 2
@@ -1753,7 +1695,7 @@ test "big.int div trunc single-single +/-" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     // n =  q *  d + r
     // 5 = -1 * -3 + 2
@@ -1773,7 +1715,7 @@ test "big.int div trunc single-single -/-" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     //  n = q *  d + r
     // -5 = 1 * -3 - 2
@@ -1793,7 +1735,7 @@ test "big.int div floor single-single +/+" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divFloor(&q, &r, &a, &b);
+    try Int.divFloor(&q, &r, a, b);
 
     //  n =  q *  d + r
     //  5 =  1 *  3 + 2
@@ -1813,7 +1755,7 @@ test "big.int div floor single-single -/+" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divFloor(&q, &r, &a, &b);
+    try Int.divFloor(&q, &r, a, b);
 
     //  n =  q *  d + r
     // -5 = -2 *  3 + 1
@@ -1833,7 +1775,7 @@ test "big.int div floor single-single +/-" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divFloor(&q, &r, &a, &b);
+    try Int.divFloor(&q, &r, a, b);
 
     //  n =  q *  d + r
     //  5 = -2 * -3 - 1
@@ -1853,7 +1795,7 @@ test "big.int div floor single-single -/-" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divFloor(&q, &r, &a, &b);
+    try Int.divFloor(&q, &r, a, b);
 
     //  n =  q *  d + r
     // -5 =  2 * -3 + 1
@@ -1870,7 +1812,7 @@ test "big.int div multi-multi with rem" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     debug.assert((try r.to(u128)) == 0x28de0acacd806823638);
@@ -1882,7 +1824,7 @@ test "big.int div multi-multi no rem" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     debug.assert((try r.to(u128)) == 0);
@@ -1894,7 +1836,7 @@ test "big.int div multi-multi (2 branch)" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u128)) == 0x10000000000000000);
     debug.assert((try r.to(u128)) == 0x44444443444444431111111111111111);
@@ -1906,7 +1848,7 @@ test "big.int div multi-multi (3.1/3.3 branch)" {
 
     var q = try Int.init(al);
     var r = try Int.init(al);
-    try Int.divTrunc(&q, &r, &a, &b);
+    try Int.divTrunc(&q, &r, a, b);
 
     debug.assert((try q.to(u128)) == 0xfffffffffffffffffff);
     debug.assert((try r.to(u256)) == 0x1111111111111111111110b12222222222222222282);
@@ -1943,17 +1885,17 @@ test "big.int shift-left multi" {
 test "big.int shift-right negative" {
     var a = try Int.init(al);
 
-    try a.shiftRight(-20, 2);
+    try a.shiftRight(try Int.initSet(al, -20), 2);
     debug.assert((try a.to(i32)) == -20 >> 2);
 
-    try a.shiftRight(-5, 10);
+    try a.shiftRight(try Int.initSet(al, -5), 10);
     debug.assert((try a.to(i32)) == -5 >> 10);
 }
 
 test "big.int shift-left negative" {
     var a = try Int.init(al);
 
-    try a.shiftRight(-10, 1232);
+    try a.shiftRight(try Int.initSet(al, -10), 1232);
     debug.assert((try a.to(i32)) == -10 >> 1232);
 }
 
@@ -1961,7 +1903,7 @@ test "big.int bitwise and simple" {
     var a = try Int.initSet(al, 0xffffffff11111111);
     var b = try Int.initSet(al, 0xeeeeeeee22222222);
 
-    try a.bitAnd(&a, &b);
+    try a.bitAnd(a, b);
 
     debug.assert((try a.to(u64)) == 0xeeeeeeee00000000);
 }
@@ -1970,7 +1912,7 @@ test "big.int bitwise and multi-limb" {
     var a = try Int.initSet(al, @maxValue(Limb) + 1);
     var b = try Int.initSet(al, @maxValue(Limb));
 
-    try a.bitAnd(&a, &b);
+    try a.bitAnd(a, b);
 
     debug.assert((try a.to(u128)) == 0);
 }
@@ -1979,7 +1921,7 @@ test "big.int bitwise xor simple" {
     var a = try Int.initSet(al, 0xffffffff11111111);
     var b = try Int.initSet(al, 0xeeeeeeee22222222);
 
-    try a.bitXor(&a, &b);
+    try a.bitXor(a, b);
 
     debug.assert((try a.to(u64)) == 0x1111111133333333);
 }
@@ -1988,7 +1930,7 @@ test "big.int bitwise xor multi-limb" {
     var a = try Int.initSet(al, @maxValue(Limb) + 1);
     var b = try Int.initSet(al, @maxValue(Limb));
 
-    try a.bitXor(&a, &b);
+    try a.bitXor(a, b);
 
     debug.assert((try a.to(DoubleLimb)) == (@maxValue(Limb) + 1) ^ @maxValue(Limb));
 }
@@ -1997,7 +1939,7 @@ test "big.int bitwise or simple" {
     var a = try Int.initSet(al, 0xffffffff11111111);
     var b = try Int.initSet(al, 0xeeeeeeee22222222);
 
-    try a.bitOr(&a, &b);
+    try a.bitOr(a, b);
 
     debug.assert((try a.to(u64)) == 0xffffffff33333333);
 }
@@ -2006,7 +1948,7 @@ test "big.int bitwise or multi-limb" {
     var a = try Int.initSet(al, @maxValue(Limb) + 1);
     var b = try Int.initSet(al, @maxValue(Limb));
 
-    try a.bitOr(&a, &b);
+    try a.bitOr(a, b);
 
     // TODO: big.int.cpp or is wrong on multi-limb.
     debug.assert((try a.to(DoubleLimb)) == (@maxValue(Limb) + 1) + @maxValue(Limb));
@@ -2015,9 +1957,9 @@ test "big.int bitwise or multi-limb" {
 test "big.int var args" {
     var a = try Int.initSet(al, 5);
 
-    try a.add(&a, 6);
+    try a.add(a, try Int.initSet(al, 6));
     debug.assert((try a.to(u64)) == 11);
 
-    debug.assert(a.cmp(11) == 0);
-    debug.assert(a.cmp(14) <= 0);
+    debug.assert(a.cmp(try Int.initSet(al, 11)) == 0);
+    debug.assert(a.cmp(try Int.initSet(al, 14)) <= 0);
 }

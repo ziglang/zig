@@ -1326,7 +1326,7 @@ pub const Parser = struct {
             },
             // Array Parent -> [ ..., <array>, value ]
             Value.Array => |*array| {
-                try array.append(value);
+                try array.append(value.*);
                 p.state = State.ArrayValue;
             },
             else => {

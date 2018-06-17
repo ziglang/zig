@@ -119,3 +119,60 @@ test "assign inline fn to const variable" {
 }
 
 inline fn inlineFn() void {}
+
+test "pass by non-copying value" {
+    assert(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
+}
+
+const Point = struct {
+    x: i32,
+    y: i32,
+};
+
+fn addPointCoords(pt: Point) i32 {
+    return pt.x + pt.y;
+}
+
+test "pass by non-copying value through var arg" {
+    assert(addPointCoordsVar(Point{ .x = 1, .y = 2 }) == 3);
+}
+
+fn addPointCoordsVar(pt: var) i32 {
+    comptime assert(@typeOf(pt) == Point);
+    return pt.x + pt.y;
+}
+
+test "pass by non-copying value as method" {
+    var pt = Point2{ .x = 1, .y = 2 };
+    assert(pt.addPointCoords() == 3);
+}
+
+const Point2 = struct {
+    x: i32,
+    y: i32,
+
+    fn addPointCoords(self: Point2) i32 {
+        return self.x + self.y;
+    }
+};
+
+test "pass by non-copying value as method, which is generic" {
+    var pt = Point3{ .x = 1, .y = 2 };
+    assert(pt.addPointCoords(i32) == 3);
+}
+
+const Point3 = struct {
+    x: i32,
+    y: i32,
+
+    fn addPointCoords(self: Point3, comptime T: type) i32 {
+        return self.x + self.y;
+    }
+};
+
+test "pass by non-copying value as method, at comptime" {
+    comptime {
+        var pt = Point2{ .x = 1, .y = 2 };
+        assert(pt.addPointCoords() == 3);
+    }
+}

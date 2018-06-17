@@ -10463,13 +10463,6 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Typ
     zig_unreachable();
 }
 
-static IrInstruction *ir_implicit_byval_const_ref_cast(IrAnalyze *ira, IrInstruction *inst) {
-    if (type_is_copyable(ira->codegen, inst->value.type))
-        return inst;
-    TypeTableEntry *const_ref_type = get_pointer_to_type(ira->codegen, inst->value.type, true);
-    return ir_implicit_cast(ira, inst, const_ref_type);
-}
-
 static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr) {
     TypeTableEntry *type_entry = ptr->value.type;
     if (type_is_invalid(type_entry)) {
@@ -12283,7 +12276,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     IrInstruction *casted_arg;
     if (is_var_args) {
         arg_part_of_generic_id = true;
-        casted_arg = ir_implicit_byval_const_ref_cast(ira, arg);
+        casted_arg = arg;
     } else {
         if (param_decl_node->data.param_decl.var_token == nullptr) {
             AstNode *param_type_node = param_decl_node->data.param_decl.type;
@@ -12296,7 +12289,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
                 return false;
         } else {
             arg_part_of_generic_id = true;
-            casted_arg = ir_implicit_byval_const_ref_cast(ira, arg);
+            casted_arg = arg;
         }
     }
 
@@ -12515,9 +12508,18 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         size_t next_proto_i = 0;
         if (first_arg_ptr) {
-            IrInstruction *first_arg;
             assert(first_arg_ptr->value.type->id == TypeTableEntryIdPointer);
-            if (handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
+
+            bool first_arg_known_bare = false;
+            if (fn_type_id->next_param_index >= 1) {
+                TypeTableEntry *param_type = fn_type_id->param_info[next_proto_i].type;
+                if (type_is_invalid(param_type))
+                    return ira->codegen->builtin_types.entry_invalid;
+                first_arg_known_bare = param_type->id != TypeTableEntryIdPointer;
+            }
+
+            IrInstruction *first_arg;
+            if (!first_arg_known_bare && handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
                 first_arg = first_arg_ptr;
             } else {
                 first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
@@ -12667,9 +12669,18 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         size_t next_proto_i = 0;
 
         if (first_arg_ptr) {
-            IrInstruction *first_arg;
             assert(first_arg_ptr->value.type->id == TypeTableEntryIdPointer);
-            if (handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
+
+            bool first_arg_known_bare = false;
+            if (fn_type_id->next_param_index >= 1) {
+                TypeTableEntry *param_type = fn_type_id->param_info[next_proto_i].type;
+                if (type_is_invalid(param_type))
+                    return ira->codegen->builtin_types.entry_invalid;
+                first_arg_known_bare = param_type->id != TypeTableEntryIdPointer;
+            }
+
+            IrInstruction *first_arg;
+            if (!first_arg_known_bare && handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
                 first_arg = first_arg_ptr;
             } else {
                 first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
@@ -12802,10 +12813,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                     return ira->codegen->builtin_types.entry_invalid;
             }
             if (inst_fn_type_id.async_allocator_type == nullptr) {
-                IrInstruction *casted_inst = ir_implicit_byval_const_ref_cast(ira, uncasted_async_allocator_inst);
-                if (type_is_invalid(casted_inst->value.type))
-                    return ira->codegen->builtin_types.entry_invalid;
-                inst_fn_type_id.async_allocator_type = casted_inst->value.type;
+                inst_fn_type_id.async_allocator_type = uncasted_async_allocator_inst->value.type;
             }
             async_allocator_inst = ir_implicit_cast(ira, uncasted_async_allocator_inst, inst_fn_type_id.async_allocator_type);
             if (type_is_invalid(async_allocator_inst->value.type))
@@ -12866,19 +12874,22 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     IrInstruction **casted_args = allocate<IrInstruction *>(call_param_count);
     size_t next_arg_index = 0;
     if (first_arg_ptr) {
-        IrInstruction *first_arg;
         assert(first_arg_ptr->value.type->id == TypeTableEntryIdPointer);
-        if (handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
+
+        TypeTableEntry *param_type = fn_type_id->param_info[next_arg_index].type;
+        if (type_is_invalid(param_type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        IrInstruction *first_arg;
+        if (param_type->id == TypeTableEntryIdPointer &&
+            handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type))
+        {
             first_arg = first_arg_ptr;
         } else {
             first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
             if (type_is_invalid(first_arg->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
         }
-
-        TypeTableEntry *param_type = fn_type_id->param_info[next_arg_index].type;
-        if (type_is_invalid(param_type))
-            return ira->codegen->builtin_types.entry_invalid;
 
         IrInstruction *casted_arg = ir_implicit_cast(ira, first_arg, param_type);
         if (type_is_invalid(casted_arg->value.type))

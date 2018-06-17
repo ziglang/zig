@@ -326,13 +326,6 @@ static void addLLVMArgAttr(LLVMValueRef arg_val, unsigned param_index, const cha
     return addLLVMAttr(arg_val, param_index + 1, attr_name);
 }
 
-static void addLLVMCallsiteAttr(LLVMValueRef call_instr, unsigned param_index, const char *attr_name) {
-    unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
-    assert(kind_id != 0);
-    LLVMAttributeRef llvm_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), kind_id, 0);
-    LLVMAddCallSiteAttribute(call_instr, param_index + 1, llvm_attr);
-}
-
 static bool is_symbol_available(CodeGen *g, Buf *name) {
     return g->exported_symbol_names.maybe_get(name) == nullptr && g->external_prototypes.maybe_get(name) == nullptr;
 }
@@ -580,11 +573,6 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
         if (param_type->id == TypeTableEntryIdPointer) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "nonnull");
-        }
-        // Note: byval is disabled on windows due to an LLVM bug:
-        // https://github.com/ziglang/zig/issues/536
-        if (is_byval && g->zig_target.os != OsWindows) {
-            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "byval");
         }
     }
 
@@ -3113,15 +3101,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
     }
 
-
-    for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
-        FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
-        // Note: byval is disabled on windows due to an LLVM bug:
-        // https://github.com/ziglang/zig/issues/536
-        if (gen_info->is_byval && g->zig_target.os != OsWindows) {
-            addLLVMCallsiteAttr(result, (unsigned)gen_info->gen_index, "byval");
-        }
-    }
 
     if (instruction->is_async) {
         LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");

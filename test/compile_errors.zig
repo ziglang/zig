@@ -2215,7 +2215,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    derp.init();
         \\}
     ,
-        ".tmp_source.zig:14:5: error: expected type 'i32', found '*const Foo'",
+        ".tmp_source.zig:14:5: error: expected type 'i32', found 'Foo'",
     );
 
     cases.add(
@@ -2572,15 +2572,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
         break :x tc;
     });
-
-    cases.add(
-        "pass non-copyable type by value to function",
-        \\const Point = struct { x: i32, y: i32, };
-        \\fn foo(p: Point) void { }
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    ,
-        ".tmp_source.zig:2:11: error: type 'Point' is not copyable; cannot pass by value",
-    );
 
     cases.add(
         "implicit cast from array to mutable slice",
@@ -4064,20 +4055,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:11:20: error: runtime cast to union 'Value' which has non-void fields",
         ".tmp_source.zig:3:5: note: field 'A' has type 'i32'",
-    );
-
-    cases.add(
-        "self-referencing function pointer field",
-        \\const S = struct {
-        \\    f: fn(_: S) void,
-        \\};
-        \\fn f(_: S) void {
-        \\}
-        \\export fn entry() void {
-        \\    var _ = S { .f = f };
-        \\}
-    ,
-        ".tmp_source.zig:4:9: error: type 'S' is not copyable; cannot pass by value",
     );
 
     cases.add(
