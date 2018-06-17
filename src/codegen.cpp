@@ -4722,6 +4722,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPromiseResultType:
         case IrInstructionIdAwaitBookkeeping:
         case IrInstructionIdAddImplicitReturnType:
+        case IrInstructionIdIntCast:
+        case IrInstructionIdFloatCast:
+        case IrInstructionIdIntToFloat:
+        case IrInstructionIdFloatToInt:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -6310,6 +6314,10 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCmpxchgStrong, "cmpxchgStrong", 6);
     create_builtin_fn(g, BuiltinFnIdFence, "fence", 1);
     create_builtin_fn(g, BuiltinFnIdTruncate, "truncate", 2);
+    create_builtin_fn(g, BuiltinFnIdIntCast, "intCast", 2);
+    create_builtin_fn(g, BuiltinFnIdFloatCast, "floatCast", 2);
+    create_builtin_fn(g, BuiltinFnIdIntToFloat, "intToFloat", 2);
+    create_builtin_fn(g, BuiltinFnIdFloatToInt, "floatToInt", 2);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int

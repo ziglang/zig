@@ -1355,7 +1355,7 @@ var some_integers: [100]i32 = undefined;
 
 test "modify an array" {
     for (some_integers) |*item, i| {
-        item.* = i32(i);
+        item.* = @intCast(i32, i);
     }
     assert(some_integers[10] == 10);
     assert(some_integers[99] == 99);
@@ -1397,8 +1397,8 @@ var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (initial_value) |*pt, i| {
         pt.* = Point{
-            .x = i32(i),
-            .y = i32(i) * 2,
+            .x = @intCast(i32, i),
+            .y = @intCast(i32, i) * 2,
         };
     }
     break :init initial_value;
@@ -2410,7 +2410,7 @@ test "for basics" {
     var sum2: i32 = 0;
     for (items) |value, i| {
         assert(@typeOf(i) == usize);
-        sum2 += i32(i);
+        sum2 += @intCast(i32, i);
     }
     assert(sum2 == 10);
 }
@@ -5730,7 +5730,7 @@ comptime {
       {#code_begin|test_err|attempt to cast negative value to unsigned integer#}
 comptime {
     const value: i32 = -1;
-    const unsigned = u32(value);
+    const unsigned = @intCast(u32, value);
 }
       {#code_end#}
       <p>At runtime crashes with the message <code>attempt to cast negative value to unsigned integer</code> and a stack trace.</p>
@@ -5744,7 +5744,7 @@ comptime {
       {#code_begin|test_err|cast from 'u16' to 'u8' truncates bits#}
 comptime {
     const spartan_count: u16 = 300;
-    const byte = u8(spartan_count);
+    const byte = @intCast(u8, spartan_count);
 }
       {#code_end#}
       <p>At runtime crashes with the message <code>integer cast truncated bits</code> and a stack trace.</p>

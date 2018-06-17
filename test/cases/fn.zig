@@ -80,7 +80,7 @@ test "function pointers" {
         fn4,
     };
     for (fns) |f, i| {
-        assert(f() == u32(i) + 5);
+        assert(f() == @intCast(u32, i) + 5);
     }
 }
 fn fn1() u32 {

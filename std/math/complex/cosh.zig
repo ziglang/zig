@@ -83,12 +83,12 @@ fn cosh64(z: *const Complex(f64)) Complex(f64) {
     const y = z.im;
 
     const fx = @bitCast(u64, x);
-    const hx = u32(fx >> 32);
+    const hx = @intCast(u32, fx >> 32);
     const lx = @truncate(u32, fx);
     const ix = hx & 0x7fffffff;
 
     const fy = @bitCast(u64, y);
-    const hy = u32(fy >> 32);
+    const hy = @intCast(u32, fy >> 32);
     const ly = @truncate(u32, fy);
     const iy = hy & 0x7fffffff;
 

@@ -55,16 +55,16 @@ pub const Random = struct {
         if (T.is_signed) {
             const uint = @IntType(false, T.bit_count);
             if (start >= 0 and end >= 0) {
-                return T(r.range(uint, uint(start), uint(end)));
+                return @intCast(T, r.range(uint, @intCast(uint, start), @intCast(uint, end)));
             } else if (start < 0 and end < 0) {
                 // Can't overflow because the range is over signed ints
                 return math.negateCast(r.range(uint, math.absCast(end), math.absCast(start)) + 1) catch unreachable;
             } else if (start < 0 and end >= 0) {
-                const end_uint = uint(end);
+                const end_uint = @intCast(uint, end);
                 const total_range = math.absCast(start) + end_uint;
                 const value = r.range(uint, 0, total_range);
                 const result = if (value < end_uint) x: {
-                    break :x T(value);
+                    break :x @intCast(T, value);
                 } else if (value == end_uint) x: {
                     break :x start;
                 } else x: {
@@ -213,9 +213,9 @@ pub const Pcg = struct {
         self.s = l *% default_multiplier +% (self.i | 1);
 
         const xor_s = @truncate(u32, ((l >> 18) ^ l) >> 27);
-        const rot = u32(l >> 59);
+        const rot = @intCast(u32, l >> 59);
 
-        return (xor_s >> u5(rot)) | (xor_s << u5((0 -% rot) & 31));
+        return (xor_s >> @intCast(u5, rot)) | (xor_s << @intCast(u5, (0 -% rot) & 31));
     }
 
     fn seed(self: *Pcg, init_s: u64) void {
@@ -322,7 +322,7 @@ pub const Xoroshiro128 = struct {
         inline for (table) |entry| {
             var b: usize = 0;
             while (b < 64) : (b += 1) {
-                if ((entry & (u64(1) << u6(b))) != 0) {
+                if ((entry & (u64(1) << @intCast(u6, b))) != 0) {
                     s0 ^= self.s[0];
                     s1 ^= self.s[1];
                 }
@@ -667,13 +667,13 @@ test "Random range" {
 }
 
 fn testRange(r: *Random, start: i32, end: i32) void {
-    const count = usize(end - start);
+    const count = @intCast(usize, end - start);
     var values_buffer = []bool{false} ** 20;
     const values = values_buffer[0..count];
     var i: usize = 0;
     while (i < count) {
         const value = r.range(i32, start, end);
-        const index = usize(value - start);
+        const index = @intCast(usize, value - start);
         if (!values[index]) {
             i += 1;
             values[index] = true;

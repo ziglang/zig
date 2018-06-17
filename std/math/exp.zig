@@ -29,7 +29,7 @@ fn exp32(x_: f32) f32 {
 
     var x = x_;
     var hx = @bitCast(u32, x);
-    const sign = i32(hx >> 31);
+    const sign = @intCast(i32, hx >> 31);
     hx &= 0x7FFFFFFF;
 
     if (math.isNan(x)) {
@@ -63,12 +63,12 @@ fn exp32(x_: f32) f32 {
     if (hx > 0x3EB17218) {
         // |x| > 1.5 * ln2
         if (hx > 0x3F851592) {
-            k = i32(invln2 * x + half[usize(sign)]);
+            k = @floatToInt(i32, invln2 * x + half[@intCast(usize, sign)]);
         } else {
             k = 1 - sign - sign;
         }
 
-        const fk = f32(k);
+        const fk = @intToFloat(f32, k);
         hi = x - fk * ln2hi;
         lo = fk * ln2lo;
         x = hi - lo;
@@ -110,7 +110,7 @@ fn exp64(x_: f64) f64 {
     var x = x_;
     var ux = @bitCast(u64, x);
     var hx = ux >> 32;
-    const sign = i32(hx >> 31);
+    const sign = @intCast(i32, hx >> 31);
     hx &= 0x7FFFFFFF;
 
     if (math.isNan(x)) {
@@ -148,12 +148,12 @@ fn exp64(x_: f64) f64 {
     if (hx > 0x3EB17218) {
         // |x| >= 1.5 * ln2
         if (hx > 0x3FF0A2B2) {
-            k = i32(invln2 * x + half[usize(sign)]);
+            k = @floatToInt(i32, invln2 * x + half[@intCast(usize, sign)]);
         } else {
             k = 1 - sign - sign;
         }
 
-        const dk = f64(k);
+        const dk = @intToFloat(f64, k);
         hi = x - dk * ln2hi;
         lo = dk * ln2lo;
         x = hi - lo;

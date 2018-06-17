@@ -34,7 +34,7 @@ static int usage(const char *arg0) {
         "  --assembly [source]          add assembly file to build\n"
         "  --cache-dir [path]           override the cache directory\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
-        "  --emit [filetype]            emit a specific file format as compilation output\n"
+        "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  --enable-timing-info         print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --name [name]                override output name\n"

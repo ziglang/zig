@@ -554,7 +554,7 @@ const LineNumberProgram = struct {
             const file_name = try os.path.join(self.file_entries.allocator, dir_name, file_entry.file_name);
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
-                .line = if (self.prev_line >= 0) usize(self.prev_line) else 0,
+                .line = if (self.prev_line >= 0) @intCast(usize, self.prev_line) else 0,
                 .column = self.prev_column,
                 .file_name = file_name,
                 .allocator = self.file_entries.allocator,
@@ -1070,7 +1070,7 @@ fn readULeb128(in_stream: var) !u64 {
 
         var operand: u64 = undefined;
 
-        if (@shlWithOverflow(u64, byte & 0b01111111, u6(shift), &operand)) return error.InvalidDebugInfo;
+        if (@shlWithOverflow(u64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
 
         result |= operand;
 
@@ -1089,13 +1089,13 @@ fn readILeb128(in_stream: var) !i64 {
 
         var operand: i64 = undefined;
 
-        if (@shlWithOverflow(i64, byte & 0b01111111, u6(shift), &operand)) return error.InvalidDebugInfo;
+        if (@shlWithOverflow(i64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
 
         result |= operand;
         shift += 7;
 
         if ((byte & 0b10000000) == 0) {
-            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << u6(shift));
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << @intCast(u6, shift));
             return result;
         }
     }

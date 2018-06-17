@@ -266,7 +266,7 @@ pub const File = struct {
     pub fn getEndPos(self: *File) !usize {
         if (is_posix) {
             const stat = try os.posixFStat(self.handle);
-            return usize(stat.size);
+            return @intCast(usize, stat.size);
         } else if (is_windows) {
             var file_size: windows.LARGE_INTEGER = undefined;
             if (windows.GetFileSizeEx(self.handle, &file_size) == 0) {
@@ -277,7 +277,7 @@ pub const File = struct {
             }
             if (file_size < 0)
                 return error.Overflow;
-            return math.cast(usize, u64(file_size));
+            return math.cast(usize, @intCast(u64, file_size));
         } else {
             @compileError("TODO support getEndPos on this OS");
         }
@@ -343,7 +343,7 @@ pub const File = struct {
         } else if (is_windows) {
             var index: usize = 0;
             while (index < buffer.len) {
-                const want_read_count = windows.DWORD(math.min(windows.DWORD(@maxValue(windows.DWORD)), buffer.len - index));
+                const want_read_count = @intCast(windows.DWORD, math.min(windows.DWORD(@maxValue(windows.DWORD)), buffer.len - index));
                 var amt_read: windows.DWORD = undefined;
                 if (windows.ReadFile(self.handle, @ptrCast(*c_void, buffer.ptr + index), want_read_count, &amt_read, null) == 0) {
                     const err = windows.GetLastError();

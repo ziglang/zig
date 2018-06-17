@@ -334,7 +334,7 @@ pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
         builtin.Endian.Little => {
             const ShiftType = math.Log2Int(T);
             for (bytes) |b, index| {
-                result = result | (T(b) << ShiftType(index * 8));
+                result = result | (T(b) << @intCast(ShiftType, index * 8));
             }
         },
     }

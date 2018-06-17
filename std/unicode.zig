@@ -35,22 +35,22 @@ pub fn utf8Encode(c: u32, out: []u8) !u3 {
         // - Increasing the initial shift by 6 each time
         // - Each time after the first shorten the shifted
         //   value to a max of 0b111111 (63)
-        1 => out[0] = u8(c), // Can just do 0 + codepoint for initial range
+        1 => out[0] = @intCast(u8, c), // Can just do 0 + codepoint for initial range
         2 => {
-            out[0] = u8(0b11000000 | (c >> 6));
-            out[1] = u8(0b10000000 | (c & 0b111111));
+            out[0] = @intCast(u8, 0b11000000 | (c >> 6));
+            out[1] = @intCast(u8, 0b10000000 | (c & 0b111111));
         },
         3 => {
             if (0xd800 <= c and c <= 0xdfff) return error.Utf8CannotEncodeSurrogateHalf;
-            out[0] = u8(0b11100000 | (c >> 12));
-            out[1] = u8(0b10000000 | ((c >> 6) & 0b111111));
-            out[2] = u8(0b10000000 | (c & 0b111111));
+            out[0] = @intCast(u8, 0b11100000 | (c >> 12));
+            out[1] = @intCast(u8, 0b10000000 | ((c >> 6) & 0b111111));
+            out[2] = @intCast(u8, 0b10000000 | (c & 0b111111));
         },
         4 => {
-            out[0] = u8(0b11110000 | (c >> 18));
-            out[1] = u8(0b10000000 | ((c >> 12) & 0b111111));
-            out[2] = u8(0b10000000 | ((c >> 6) & 0b111111));
-            out[3] = u8(0b10000000 | (c & 0b111111));
+            out[0] = @intCast(u8, 0b11110000 | (c >> 18));
+            out[1] = @intCast(u8, 0b10000000 | ((c >> 12) & 0b111111));
+            out[2] = @intCast(u8, 0b10000000 | ((c >> 6) & 0b111111));
+            out[3] = @intCast(u8, 0b10000000 | (c & 0b111111));
         },
         else => unreachable,
     }

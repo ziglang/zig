@@ -4,7 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
-pub fn tanh(z: var) Complex(@typeOf(z.re)) {
+pub fn tanh(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
     return switch (T) {
         f32 => tanh32(z),
@@ -13,7 +13,7 @@ pub fn tanh(z: var) Complex(@typeOf(z.re)) {
     };
 }
 
-fn tanh32(z: *const Complex(f32)) Complex(f32) {
+fn tanh32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -51,12 +51,14 @@ fn tanh32(z: *const Complex(f32)) Complex(f32) {
     return Complex(f32).new((beta * rho * s) / den, t / den);
 }
 
-fn tanh64(z: *const Complex(f64)) Complex(f64) {
+fn tanh64(z: Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 
     const fx = @bitCast(u64, x);
-    const hx = u32(fx >> 32);
+    // TODO: zig should allow this conversion implicitly because it can notice that the value necessarily
+    // fits in range.
+    const hx = @intCast(u32, fx >> 32);
     const lx = @truncate(u32, fx);
     const ix = hx & 0x7fffffff;
 

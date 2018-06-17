@@ -138,7 +138,7 @@ fn atan64(x_: f64) f64 {
 
     var x = x_;
     var ux = @bitCast(u64, x);
-    var ix = u32(ux >> 32);
+    var ix = @intCast(u32, ux >> 32);
     const sign = ix >> 31;
     ix &= 0x7FFFFFFF;
 
@@ -159,7 +159,7 @@ fn atan64(x_: f64) f64 {
         // |x| < 2^(-27)
         if (ix < 0x3E400000) {
             if (ix < 0x00100000) {
-                math.forceEval(f32(x));
+                math.forceEval(@floatCast(f32, x));
             }
             return x;
         }

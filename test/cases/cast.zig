@@ -343,7 +343,7 @@ fn testPeerErrorAndArray2(x: u8) error![]const u8 {
 test "explicit cast float number literal to integer if no fraction component" {
     const x = i32(1e4);
     assert(x == 10000);
-    const y = i32(f32(1e4));
+    const y = @floatToInt(i32, f32(1e4));
     assert(y == 10000);
 }
 
@@ -397,4 +397,20 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{c"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
     assert(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
+}
+
+test "@intCast comptime_int" {
+    const result = @intCast(i32, 1234);
+    assert(@typeOf(result) == i32);
+    assert(result == 1234);
+}
+
+test "@floatCast comptime_int and comptime_float" {
+    const result = @floatCast(f32, 1234);
+    assert(@typeOf(result) == f32);
+    assert(result == 1234.0);
+
+    const result2 = @floatCast(f32, 1234.0);
+    assert(@typeOf(result) == f32);
+    assert(result == 1234.0);
 }
