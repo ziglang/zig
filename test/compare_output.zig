@@ -299,7 +299,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\export fn main() c_int {
         \\    var array = []u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
-        \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), c_ulong(array.len), @sizeOf(i32), compare_fn);
+        \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
         \\
         \\    for (array) |item, i| {
         \\        if (item != i) {
