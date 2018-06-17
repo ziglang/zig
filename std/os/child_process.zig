@@ -640,7 +640,7 @@ pub const ChildProcess = struct {
 };
 
 fn windowsCreateProcess(app_name: [*]u8, cmd_line: [*]u8, envp_ptr: ?[*]u8, cwd_ptr: ?[*]u8, lpStartupInfo: *windows.STARTUPINFOA, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
-    if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0, @ptrCast(?*c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0) {
+    if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0, @elemCast(c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.FILE_NOT_FOUND, windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,

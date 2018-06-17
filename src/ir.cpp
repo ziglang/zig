@@ -544,8 +544,8 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTestComptime *) 
     return IrInstructionIdTestComptime;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrCast *) {
-    return IrInstructionIdPtrCast;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionElemCast *) {
+    return IrInstructionIdElemCast;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCast *) {
@@ -2201,10 +2201,10 @@ static IrInstruction *ir_build_test_comptime(IrBuilder *irb, Scope *scope, AstNo
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_ptr_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstruction *ir_build_elem_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *dest_type, IrInstruction *ptr)
 {
-    IrInstructionPtrCast *instruction = ir_build_instruction<IrInstructionPtrCast>(
+    IrInstructionElemCast *instruction = ir_build_instruction<IrInstructionElemCast>(
             irb, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->ptr = ptr;
@@ -4127,7 +4127,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *panic = ir_build_panic(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, panic, lval);
             }
-        case BuiltinFnIdPtrCast:
+        case BuiltinFnIdElemCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
@@ -4139,8 +4139,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *ptr_cast = ir_build_ptr_cast(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, ptr_cast, lval);
+                IrInstruction *elem_cast = ir_build_elem_cast(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, elem_cast, lval);
             }
         case BuiltinFnIdBitCast:
             {
@@ -6641,10 +6641,11 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(irb->current_basic_block);
 
+    IrInstruction *u8_type = ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_u8);
+
     FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
     IrInstruction *coro_id;
-    IrInstruction *u8_ptr_type;
     IrInstruction *const_bool_false;
     IrInstruction *coro_promise_ptr;
     IrInstruction *err_ret_trace_ptr;
@@ -6672,9 +6673,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_build_var_decl(irb, coro_scope, node, await_handle_var, await_handle_type_val, nullptr, null_value);
         irb->exec->await_handle_var_ptr = ir_build_var_ptr(irb, coro_scope, node, await_handle_var);
 
-        u8_ptr_type = ir_build_const_type(irb, coro_scope, node,
-                get_pointer_to_type(irb->codegen, irb->codegen->builtin_types.entry_u8, false));
-        IrInstruction *promise_as_u8_ptr = ir_build_ptr_cast(irb, coro_scope, node, u8_ptr_type, coro_promise_ptr);
+        IrInstruction *promise_as_u8_ptr = ir_build_elem_cast(irb, coro_scope, node, u8_type, coro_promise_ptr);
         coro_id = ir_build_coro_id(irb, coro_scope, node, promise_as_u8_ptr);
         coro_size_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
         IrInstruction *coro_size = ir_build_coro_size(irb, coro_scope, node);
@@ -6698,7 +6697,8 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_build_return(irb, coro_scope, node, undef);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_ok_block);
-        IrInstruction *coro_mem_ptr = ir_build_ptr_cast(irb, coro_scope, node, u8_ptr_type, maybe_coro_mem_ptr);
+
+        IrInstruction *coro_mem_ptr = ir_build_elem_cast(irb, coro_scope, node, u8_type, maybe_coro_mem_ptr);
         irb->exec->coro_handle = ir_build_coro_begin(irb, coro_scope, node, coro_id, coro_mem_ptr);
 
         Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
@@ -6772,13 +6772,10 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
         ir_set_cursor_at_end_and_append_block(irb, irb->exec->coro_normal_final);
         if (type_has_bits(return_type)) {
-            IrInstruction *u8_ptr_type_unknown_len = ir_build_const_type(irb, scope, node,
-                    get_pointer_to_type_extra(irb->codegen, irb->codegen->builtin_types.entry_u8,
-                        false, false, PtrLenUnknown, get_abi_alignment(irb->codegen, irb->codegen->builtin_types.entry_u8),
-                        0, 0));
             IrInstruction *result_ptr = ir_build_load_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr);
-            IrInstruction *result_ptr_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type_unknown_len, result_ptr);
-            IrInstruction *return_value_ptr_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type_unknown_len,
+
+            IrInstruction *result_ptr_as_u8_ptr = ir_build_elem_cast(irb, scope, node, u8_type, result_ptr);
+            IrInstruction *return_value_ptr_as_u8_ptr = ir_build_elem_cast(irb, scope, node, u8_type,
                     irb->exec->coro_result_field_ptr);
             IrInstruction *return_type_inst = ir_build_const_type(irb, scope, node,
                     fn_entry->type_entry->data.fn.fn_type_id.return_type);
@@ -6812,11 +6809,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *free_fn = ir_build_load_ptr(irb, scope, node, free_fn_ptr);
         IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
         IrInstruction *coro_mem_ptr_maybe = ir_build_coro_free(irb, scope, node, coro_id, irb->exec->coro_handle);
-        IrInstruction *u8_ptr_type_unknown_len = ir_build_const_type(irb, scope, node,
-                get_pointer_to_type_extra(irb->codegen, irb->codegen->builtin_types.entry_u8,
-                    false, false, PtrLenUnknown, get_abi_alignment(irb->codegen, irb->codegen->builtin_types.entry_u8),
-                    0, 0));
-        IrInstruction *coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type_unknown_len, coro_mem_ptr_maybe);
+        IrInstruction *coro_mem_ptr = ir_build_elem_cast(irb, scope, node, u8_type, coro_mem_ptr_maybe);
         IrInstruction *coro_mem_ptr_ref = ir_build_ref(irb, scope, node, coro_mem_ptr, true, false);
         IrInstruction *coro_size_ptr = ir_build_var_ptr(irb, scope, node, coro_size_var);
         IrInstruction *coro_size = ir_build_load_ptr(irb, scope, node, coro_size_ptr);
@@ -18695,7 +18688,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
     return result;
 }
 
-static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtrCast *instruction) {
+static TypeTableEntry *ir_analyze_instruction_elem_cast(IrAnalyze *ira, IrInstructionElemCast *instruction) {
     IrInstruction *dest_type_value = instruction->dest_type->other;
     TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
     if (type_is_invalid(dest_type))
@@ -18703,24 +18696,62 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
 
     IrInstruction *ptr = instruction->ptr->other;
     TypeTableEntry *src_type = ptr->value.type;
+
     if (type_is_invalid(src_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (get_codegen_ptr_type(src_type) == nullptr) {
-        ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
+    // @TODO
+    // Tests for error messages, tests for pointer and promise types.
+
+    // Check wether we can cast the source type and wrap up the destination type in the same "template" as the source type.
+    bool is_optional = false;
+
+    if (src_type->id == TypeTableEntryIdOptional) {
+        src_type = src_type->data.maybe.child_type;
+        is_optional = true;
     }
 
-    if (get_codegen_ptr_type(dest_type) == nullptr) {
-        ir_add_error(ira, dest_type_value,
-                buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
+    switch (src_type->id) {
+        case TypeTableEntryIdPointer:
+        {
+            const auto& pointer_type = src_type->data.pointer;
+
+            auto ptr_len = pointer_type.ptr_len;
+            if (ptr_len == PtrLenUnknown && dest_type->id == TypeTableEntryIdOpaque) {
+                ptr_len = PtrLenSingle;
+            } else if (pointer_type.child_type->id == TypeTableEntryIdOpaque &&
+                    dest_type->id != TypeTableEntryIdOpaque) {
+
+                ptr_len = PtrLenUnknown;
+            }
+
+            dest_type = get_pointer_to_type_extra(ira->codegen, dest_type, pointer_type.is_const,
+                                pointer_type.is_volatile, ptr_len, pointer_type.alignment,
+                                pointer_type.bit_offset, pointer_type.unaligned_bit_count);
+        } break;
+        case TypeTableEntryIdPromise:
+        {
+            const auto& promise_type = src_type->data.promise;
+
+            if (promise_type.result_type == nullptr) {
+                ir_add_error(ira, ptr, buf_create_from_str("Trying to cast non-returning promise."));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+
+            dest_type = get_promise_type(ira->codegen, dest_type);
+        } break;
+        default:
+        {
+            ir_add_error(ira, ptr, buf_sprintf("Expected pointer or promise type, found '%s'", buf_ptr(&src_type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     }
 
-    if (get_ptr_const(src_type) && !get_ptr_const(dest_type)) {
-        ir_add_error(ira, &instruction->base, buf_sprintf("cast discards const qualifier"));
-        return ira->codegen->builtin_types.entry_invalid;
+    if (is_optional) {
+        dest_type = get_maybe_type(ira->codegen, dest_type);
     }
+
+    assert(get_codegen_ptr_type(dest_type) != nullptr);
 
     if (instr_is_comptime(ptr)) {
         ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
@@ -18745,7 +18776,7 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    IrInstruction *casted_ptr = ir_build_ptr_cast(&ira->new_irb, instruction->base.scope,
+    IrInstruction *casted_ptr = ir_build_elem_cast(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, nullptr, ptr);
     casted_ptr->value.type = dest_type;
 
@@ -19943,8 +19974,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_decl_ref(ira, (IrInstructionDeclRef *)instruction);
         case IrInstructionIdPanic:
             return ir_analyze_instruction_panic(ira, (IrInstructionPanic *)instruction);
-        case IrInstructionIdPtrCast:
-            return ir_analyze_instruction_ptr_cast(ira, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdElemCast:
+            return ir_analyze_instruction_elem_cast(ira, (IrInstructionElemCast *)instruction);
         case IrInstructionIdBitCast:
             return ir_analyze_instruction_bit_cast(ira, (IrInstructionBitCast *)instruction);
         case IrInstructionIdIntToPtr:
@@ -20211,7 +20242,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdErrWrapPayload:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
-        case IrInstructionIdPtrCast:
+        case IrInstructionIdElemCast:
         case IrInstructionIdBitCast:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdPtrToInt:

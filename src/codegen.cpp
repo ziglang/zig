@@ -2593,8 +2593,8 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
     zig_unreachable();
 }
 
-static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
-        IrInstructionPtrCast *instruction)
+static LLVMValueRef ir_render_elem_cast(CodeGen *g, IrExecutable *executable,
+        IrInstructionElemCast *instruction)
 {
     TypeTableEntry *wanted_type = instruction->base.value.type;
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
@@ -4812,8 +4812,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
         case IrInstructionIdUnionInit:
             return ir_render_union_init(g, executable, (IrInstructionUnionInit *)instruction);
-        case IrInstructionIdPtrCast:
-            return ir_render_ptr_cast(g, executable, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdElemCast:
+            return ir_render_elem_cast(g, executable, (IrInstructionElemCast *)instruction);
         case IrInstructionIdBitCast:
             return ir_render_bit_cast(g, executable, (IrInstructionBitCast *)instruction);
         case IrInstructionIdWidenOrShorten:
@@ -6317,7 +6317,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetRuntimeSafety, "setRuntimeSafety", 1);
     create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 2);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
-    create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrCast", 2);
+    create_builtin_fn(g, BuiltinFnIdElemCast, "elemCast", 2);
     create_builtin_fn(g, BuiltinFnIdBitCast, "bitCast", 2);
     create_builtin_fn(g, BuiltinFnIdIntToPtr, "intToPtr", 2);
     create_builtin_fn(g, BuiltinFnIdPtrToInt, "ptrToInt", 1);

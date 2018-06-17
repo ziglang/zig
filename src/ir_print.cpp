@@ -822,8 +822,8 @@ static void ir_print_test_comptime(IrPrint *irp, IrInstructionTestComptime *inst
     fprintf(irp->f, ")");
 }
 
-static void ir_print_ptr_cast(IrPrint *irp, IrInstructionPtrCast *instruction) {
-    fprintf(irp->f, "@ptrCast(");
+static void ir_print_elem_cast(IrPrint *irp, IrInstructionElemCast *instruction) {
+    fprintf(irp->f, "@elemCast(");
     if (instruction->dest_type) {
         ir_print_other_instruction(irp, instruction->dest_type);
     }
@@ -1480,8 +1480,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
             ir_print_test_comptime(irp, (IrInstructionTestComptime *)instruction);
             break;
-        case IrInstructionIdPtrCast:
-            ir_print_ptr_cast(irp, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdElemCast:
+            ir_print_elem_cast(irp, (IrInstructionElemCast *)instruction);
             break;
         case IrInstructionIdBitCast:
             ir_print_bit_cast(irp, (IrInstructionBitCast *)instruction);
