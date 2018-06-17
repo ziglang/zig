@@ -4,18 +4,17 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
-// TODO when #733 is solved this can be @typeOf(z) instead of Complex(@typeOf(z.re))
-pub fn sqrt(z: var) Complex(@typeOf(z.re)) {
+pub fn sqrt(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
 
     return switch (T) {
         f32 => sqrt32(z),
         f64 => sqrt64(z),
-        else => @compileError("sqrt not implemented for " ++ @typeName(z)),
+        else => @compileError("sqrt not implemented for " ++ @typeName(T)),
     };
 }
 
-fn sqrt32(z: *const Complex(f32)) Complex(f32) {
+fn sqrt32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -57,7 +56,7 @@ fn sqrt32(z: *const Complex(f32)) Complex(f32) {
     }
 }
 
-fn sqrt64(z: *const Complex(f64)) Complex(f64) {
+fn sqrt64(z: Complex(f64)) Complex(f64) {
     // may encounter overflow for im,re >= DBL_MAX / (1 + sqrt(2))
     const threshold = 0x1.a827999fcef32p+1022;
 
