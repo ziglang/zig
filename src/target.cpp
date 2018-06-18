@@ -697,7 +697,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                             return 16;
                         case CIntTypeLong:
                         case CIntTypeULong:
-                            return get_arch_pointer_bit_width(target->arch.arch);
+                            return 32;
                         case CIntTypeLongLong:
                         case CIntTypeULongLong:
                             return 64;
