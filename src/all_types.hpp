@@ -1376,6 +1376,8 @@ enum BuiltinFnId {
     BuiltinFnIdIntToFloat,
     BuiltinFnIdFloatToInt,
     BuiltinFnIdBoolToInt,
+    BuiltinFnIdErrToInt,
+    BuiltinFnIdIntToErr,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,

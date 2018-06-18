@@ -318,7 +318,7 @@ pub const ChildProcess = struct {
         // Here we potentially return the fork child's error
         // from the parent pid.
         if (err_int != @maxValue(ErrInt)) {
-            return SpawnError(err_int);
+            return @errSetCast(SpawnError, @intToError(err_int));
         }
 
         return statusToTerm(status);
@@ -756,7 +756,7 @@ fn destroyPipe(pipe: *const [2]i32) void {
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    _ = writeIntFd(fd, ErrInt(err));
+    _ = writeIntFd(fd, ErrInt(@errorToInt(err)));
     posix.exit(1);
 }
 

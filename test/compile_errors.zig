@@ -467,25 +467,34 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "int to err global invalid number",
-        \\const Set1 = error{A, B};
+        \\const Set1 = error{
+        \\    A,
+        \\    B,
+        \\};
         \\comptime {
-        \\    var x: usize = 3;
-        \\    var y = error(x);
+        \\    var x: u16 = 3;
+        \\    var y = @intToError(x);
         \\}
     ,
-        ".tmp_source.zig:4:18: error: integer value 3 represents no error",
+        ".tmp_source.zig:7:13: error: integer value 3 represents no error",
     );
 
     cases.add(
         "int to err non global invalid number",
-        \\const Set1 = error{A, B};
-        \\const Set2 = error{A, C};
+        \\const Set1 = error{
+        \\    A,
+        \\    B,
+        \\};
+        \\const Set2 = error{
+        \\    A,
+        \\    C,
+        \\};
         \\comptime {
-        \\    var x = usize(Set1.B);
-        \\    var y = Set2(x);
+        \\    var x = @errorToInt(Set1.B);
+        \\    var y = @errSetCast(Set2, @intToError(x));
         \\}
     ,
-        ".tmp_source.zig:5:17: error: integer value 2 represents no error in 'Set2'",
+        ".tmp_source.zig:11:13: error: error.B not a member of error set 'Set2'",
     );
 
     cases.add(
@@ -2610,17 +2619,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:2:21: error: expected pointer, found 'usize'",
-    );
-
-    cases.add(
-        "too many error values to cast to small integer",
-        \\const Error = error { A, B, C, D, E, F, G, H };
-        \\fn foo(e: Error) u2 {
-        \\    return u2(e);
-        \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    ,
-        ".tmp_source.zig:3:14: error: too many error values to fit in 'u2'",
     );
 
     cases.add(

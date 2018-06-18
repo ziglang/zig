@@ -130,7 +130,7 @@ fn testErrorSet() void {
     assert(TypeId(error_set_info) == TypeId.ErrorSet);
     assert(error_set_info.ErrorSet.errors.len == 3);
     assert(mem.eql(u8, error_set_info.ErrorSet.errors[0].name, "First"));
-    assert(error_set_info.ErrorSet.errors[2].value == usize(TestErrorSet.Third));
+    assert(error_set_info.ErrorSet.errors[2].value == @errorToInt(TestErrorSet.Third));
 
     const error_union_info = @typeInfo(TestErrorSet!usize);
     assert(TypeId(error_union_info) == TypeId.ErrorUnion);

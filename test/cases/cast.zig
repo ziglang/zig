@@ -140,8 +140,8 @@ test "explicit cast from integer to error type" {
     comptime testCastIntToErr(error.ItBroke);
 }
 fn testCastIntToErr(err: error) void {
-    const x = usize(err);
-    const y = error(x);
+    const x = @errorToInt(err);
+    const y = @intToError(x);
     assert(error.ItBroke == y);
 }
 

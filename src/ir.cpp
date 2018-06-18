@@ -4167,6 +4167,26 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *result = ir_build_float_to_int(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, result, lval);
             }
+        case BuiltinFnIdErrToInt:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                IrInstruction *result = ir_build_err_to_int(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdIntToErr:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                IrInstruction *result = ir_build_int_to_err(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
         case BuiltinFnIdBoolToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -10463,21 +10483,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         (actual_type->id == TypeTableEntryIdFloat && wanted_type->id == TypeTableEntryIdComptimeFloat)))
     {
         return ir_analyze_number_to_literal(ira, source_instr, value, wanted_type);
-    }
-
-    // explicit cast from T!void to integer type which can fit it
-    bool actual_type_is_void_err = actual_type->id == TypeTableEntryIdErrorUnion &&
-        !type_has_bits(actual_type->data.error_union.payload_type);
-    bool actual_type_is_err_set = actual_type->id == TypeTableEntryIdErrorSet;
-    if ((actual_type_is_void_err || actual_type_is_err_set) && wanted_type->id == TypeTableEntryIdInt) {
-        return ir_analyze_err_to_int(ira, source_instr, value, wanted_type);
-    }
-
-    // explicit cast from integer to error set
-    if (wanted_type->id == TypeTableEntryIdErrorSet && actual_type->id == TypeTableEntryIdInt &&
-        !actual_type->data.integral.is_signed)
-    {
-        return ir_analyze_int_to_err(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from integer to enum type with no payload
@@ -17785,6 +17790,39 @@ static TypeTableEntry *ir_analyze_instruction_float_to_int(IrAnalyze *ira, IrIns
     return dest_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_err_to_int(IrAnalyze *ira, IrInstructionErrToInt *instruction) {
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_target;
+    if (target->value.type->id == TypeTableEntryIdErrorSet) {
+        casted_target = target;
+    } else {
+        casted_target = ir_implicit_cast(ira, target, ira->codegen->builtin_types.entry_global_error_set);
+        if (type_is_invalid(casted_target->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *result = ir_analyze_err_to_int(ira, &instruction->base, casted_target, ira->codegen->err_tag_type);
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_int_to_err(IrAnalyze *ira, IrInstructionIntToErr *instruction) {
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_target = ir_implicit_cast(ira, target, ira->codegen->err_tag_type);
+    if (type_is_invalid(casted_target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_analyze_int_to_err(ira, &instruction->base, casted_target, ira->codegen->builtin_types.entry_global_error_set);
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_bool_to_int(IrAnalyze *ira, IrInstructionBoolToInt *instruction) {
     IrInstruction *target = instruction->target->other;
     if (type_is_invalid(target->value.type))
@@ -20229,8 +20267,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdInvalid:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdIntToEnum:
-        case IrInstructionIdIntToErr:
-        case IrInstructionIdErrToInt:
         case IrInstructionIdStructInit:
         case IrInstructionIdUnionInit:
         case IrInstructionIdStructFieldPtr:
@@ -20491,6 +20527,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_mark_err_ret_trace_ptr(ira, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_analyze_instruction_sqrt(ira, (IrInstructionSqrt *)instruction);
+        case IrInstructionIdIntToErr:
+            return ir_analyze_instruction_int_to_err(ira, (IrInstructionIntToErr *)instruction);
+        case IrInstructionIdErrToInt:
+            return ir_analyze_instruction_err_to_int(ira, (IrInstructionErrToInt *)instruction);
     }
     zig_unreachable();
 }

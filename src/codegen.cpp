@@ -6323,6 +6323,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdIntToFloat, "intToFloat", 2);
     create_builtin_fn(g, BuiltinFnIdFloatToInt, "floatToInt", 2);
     create_builtin_fn(g, BuiltinFnIdBoolToInt, "boolToInt", 1);
+    create_builtin_fn(g, BuiltinFnIdErrToInt, "errorToInt", 1);
+    create_builtin_fn(g, BuiltinFnIdIntToErr, "intToError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
