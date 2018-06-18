@@ -994,23 +994,24 @@ int os_self_exe_path(Buf *out_path) {
     int ret1 = _NSGetExecutablePath(nullptr, &u32_len);
     assert(ret1 != 0);
 
-    // Make room for the executable path and resolved path in out_path,
-    // then subslice it for convenience.
-    buf_resize(out_path, u32_len + PATH_MAX);
-    Buf *tmp = buf_slice(out_path, 0, u32_len);
-    Buf *resolved = buf_slice(out_path, u32_len, u32_len + PATH_MAX);
+    // Make a buffer having room for the temp path.
+    Buf *tmp = buf_alloc_fixed(u32_len);
 
     // Fill the executable path.
     int ret2 = _NSGetExecutablePath(buf_ptr(tmp), &u32_len);
     assert(ret2 == 0);
 
     // Resolve the real path from that.
-    char *real_path = realpath(buf_ptr(tmp), buf_ptr(resolved));
-    assert(real_path == buf_ptr(resolved));
+    buf_resize(out_path, PATH_MAX);
+    char *real_path = realpath(buf_ptr(tmp), buf_ptr(out_path));
+    assert(real_path == buf_ptr(out_path));
 
-    // Write the real path back into the beginning of out_path, resize.
-    buf_init_from_buf(out_path, resolved);
-    assert(buf_len(out_path) == buf_len(resolved));
+    // Deallocate our scratch space.
+    buf_deinit(tmp);
+
+    // Resize out_path for the correct length.
+    buf_resize(out_path, strlen(buf_ptr(out_path)));
+
     return 0;
 #elif defined(ZIG_OS_LINUX)
     buf_resize(out_path, 256);
