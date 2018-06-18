@@ -700,6 +700,36 @@ const args_fmt_spec = []Flag{
     }),
 };
 
+const Fmt = struct {
+    seen: std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8),
+    queue: std.LinkedList([]const u8),
+    any_error: bool,
+
+    // file_path must outlive Fmt
+    fn addToQueue(self: *Fmt, file_path: []const u8) !void {
+        const new_node = try self.seen.allocator.construct(std.LinkedList([]const u8).Node{
+            .prev = undefined,
+            .next = undefined,
+            .data = file_path,
+        });
+
+        if (try self.seen.put(file_path, {})) |_| return;
+
+        self.queue.append(new_node);
+    }
+
+    fn addDirToQueue(self: *Fmt, file_path: []const u8) !void {
+        var dir = try std.os.Dir.open(self.seen.allocator, file_path);
+        defer dir.close();
+        while (try dir.next()) |entry| {
+            if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
+                const full_path = try os.path.join(self.seen.allocator, file_path, entry.name);
+                try self.addToQueue(full_path);
+            }
+        }
+    }
+};
+
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);
     defer flags.deinit();
@@ -728,21 +758,38 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         }
     };
 
-    var fmt_errors = false;
+    var fmt = Fmt{
+        .seen = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator),
+        .queue = std.LinkedList([]const u8).init(),
+        .any_error = false,
+    };
+
     for (flags.positionals.toSliceConst()) |file_path| {
+        try fmt.addToQueue(file_path);
+    }
+
+    while (fmt.queue.popFirst()) |node| {
+        const file_path = node.data;
+
         var file = try os.File.openRead(allocator, file_path);
         defer file.close();
 
-        const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
-            try stderr.print("unable to open '{}': {}\n", file_path, err);
-            fmt_errors = true;
-            continue;
+        const source_code = io.readFileAlloc(allocator, file_path) catch |err| switch (err) {
+            error.IsDir => {
+                try fmt.addDirToQueue(file_path);
+                continue;
+            },
+            else => {
+                try stderr.print("unable to open '{}': {}\n", file_path, err);
+                fmt.any_error = true;
+                continue;
+            },
         };
         defer allocator.free(source_code);
 
         var tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing file '{}': {}\n", file_path, err);
-            fmt_errors = true;
+            fmt.any_error = true;
             continue;
         };
         defer tree.deinit();
@@ -755,7 +802,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
             try errmsg.printToFile(&stderr_file, msg, color);
         }
         if (tree.errors.len != 0) {
-            fmt_errors = true;
+            fmt.any_error = true;
             continue;
         }
 
@@ -769,7 +816,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         }
     }
 
-    if (fmt_errors) {
+    if (fmt.any_error) {
         os.exit(1);
     }
 }
