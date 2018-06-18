@@ -989,12 +989,29 @@ int os_self_exe_path(Buf *out_path) {
     }
 
 #elif defined(ZIG_OS_DARWIN)
+    // How long is the executable's path?
     uint32_t u32_len = 0;
     int ret1 = _NSGetExecutablePath(nullptr, &u32_len);
     assert(ret1 != 0);
-    buf_resize(out_path, u32_len);
-    int ret2 = _NSGetExecutablePath(buf_ptr(out_path), &u32_len);
+
+    // Make a buffer having room for the temp path.
+    Buf *tmp = buf_alloc_fixed(u32_len);
+
+    // Fill the executable path.
+    int ret2 = _NSGetExecutablePath(buf_ptr(tmp), &u32_len);
     assert(ret2 == 0);
+
+    // Resolve the real path from that.
+    buf_resize(out_path, PATH_MAX);
+    char *real_path = realpath(buf_ptr(tmp), buf_ptr(out_path));
+    if (!real_path) {
+        buf_init_from_buf(out_path, tmp);
+        return 0;
+    }
+
+    // Resize out_path for the correct length.
+    buf_resize(out_path, strlen(buf_ptr(out_path)));
+
     return 0;
 #elif defined(ZIG_OS_LINUX)
     buf_resize(out_path, 256);
