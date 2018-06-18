@@ -4919,12 +4919,15 @@ test "main" {
       </p>
       {#see_also|@import#}
       {#header_close#}
-      {#header_open|@export#}
-      <pre><code class="zig">@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) []const u8</code></pre>
+
+      {#header_open|@errSetCast#}
+      <pre><code class="zig">@errSetCast(comptime T: DestType, value: var) DestType</code></pre>
       <p>
-      Creates a symbol in the output object file.
+      Converts an error value from one error set to another error set. Attempting to convert an error
+      which is not in the destination error set results in {#link|Undefined Behavior#}.
       </p>
       {#header_close#}
+
       {#header_open|@errorName#}
       <pre><code class="zig">@errorName(err: error) []u8</code></pre>
       <p>
@@ -4949,6 +4952,14 @@ test "main" {
       stack trace object. Otherwise returns `null`.
       </p>
       {#header_close#}
+
+      {#header_open|@export#}
+      <pre><code class="zig">@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) []const u8</code></pre>
+      <p>
+      Creates a symbol in the output object file.
+      </p>
+      {#header_close#}
+
       {#header_open|@fence#}
       <pre><code class="zig">@fence(order: AtomicOrder)</code></pre>
       <p>
@@ -5817,10 +5828,10 @@ pub fn build(b: &Builder) void {
       {#header_open|Undefined Behavior#}
       <p>
       Zig has many instances of undefined behavior. If undefined behavior is
-      detected at compile-time, Zig emits an error. Most undefined behavior that
-      cannot be detected at compile-time can be detected at runtime. In these cases,
-      Zig has safety checks. Safety checks can be disabled on a per-block basis
-      with {#link|setRuntimeSafety#}. The {#link|ReleaseFast#}
+      detected at compile-time, Zig emits a compile error and refuses to continue.
+      Most undefined behavior that cannot be detected at compile-time can be detected
+      at runtime. In these cases, Zig has safety checks. Safety checks can be disabled
+      on a per-block basis with {#link|setRuntimeSafety#}. The {#link|ReleaseFast#}
       build mode disables all safety checks in order to facilitate optimizations.
       </p>
       <p>
@@ -6101,6 +6112,11 @@ comptime {
       <p>TODO</p>
 
       {#header_close#}
+
+      {#header_open|Invalid Error Set Cast#}
+      <p>TODO</p>
+      {#header_close#}
+
       {#header_open|Incorrect Pointer Alignment#}
       <p>TODO</p>
 
@@ -6109,6 +6125,7 @@ comptime {
       <p>TODO</p>
 
       {#header_close#}
+
       {#header_close#}
       {#header_open|Memory#}
       <p>TODO: explain no default allocator in zig</p>

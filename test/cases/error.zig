@@ -124,8 +124,8 @@ const Set2 = error{
 };
 
 fn testExplicitErrorSetCast(set1: Set1) void {
-    var x = Set2(set1);
-    var y = Set1(x);
+    var x = @errSetCast(Set2, set1);
+    var y = @errSetCast(Set1, x);
     assert(y == error.A);
 }
 

@@ -1359,6 +1359,7 @@ enum BuiltinFnId {
     BuiltinFnIdTruncate,
     BuiltinFnIdIntCast,
     BuiltinFnIdFloatCast,
+    BuiltinFnIdErrSetCast,
     BuiltinFnIdIntToFloat,
     BuiltinFnIdFloatToInt,
     BuiltinFnIdBoolToInt,
@@ -2121,6 +2122,7 @@ enum IrInstructionId {
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdSqrt,
+    IrInstructionIdErrSetCast,
 };
 
 struct IrInstruction {
@@ -2650,6 +2652,13 @@ struct IrInstructionIntCast {
 };
 
 struct IrInstructionFloatCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionErrSetCast {
     IrInstruction base;
 
     IrInstruction *dest_type;

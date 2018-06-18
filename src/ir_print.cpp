@@ -664,6 +664,14 @@ static void ir_print_float_cast(IrPrint *irp, IrInstructionFloatCast *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_err_set_cast(IrPrint *irp, IrInstructionErrSetCast *instruction) {
+    fprintf(irp->f, "@errSetCast(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_to_float(IrPrint *irp, IrInstructionIntToFloat *instruction) {
     fprintf(irp->f, "@intToFloat(");
     ir_print_other_instruction(irp, instruction->dest_type);
@@ -1460,6 +1468,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFloatCast:
             ir_print_float_cast(irp, (IrInstructionFloatCast *)instruction);
+            break;
+        case IrInstructionIdErrSetCast:
+            ir_print_err_set_cast(irp, (IrInstructionErrSetCast *)instruction);
             break;
         case IrInstructionIdIntToFloat:
             ir_print_int_to_float(irp, (IrInstructionIntToFloat *)instruction);

@@ -468,6 +468,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFloatCast *) {
     return IrInstructionIdFloatCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionErrSetCast *) {
+    return IrInstructionIdErrSetCast;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToFloat *) {
     return IrInstructionIdIntToFloat;
 }
@@ -1932,6 +1936,17 @@ static IrInstruction *ir_build_int_cast(IrBuilder *irb, Scope *scope, AstNode *s
 
 static IrInstruction *ir_build_float_cast(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_type, IrInstruction *target) {
     IrInstructionFloatCast *instruction = ir_build_instruction<IrInstructionFloatCast>(irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->target = target;
+
+    ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_err_set_cast(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_type, IrInstruction *target) {
+    IrInstructionErrSetCast *instruction = ir_build_instruction<IrInstructionErrSetCast>(irb, scope, source_node);
     instruction->dest_type = dest_type;
     instruction->target = target;
 
@@ -4052,6 +4067,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_float_cast(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdErrSetCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_err_set_cast(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, result, lval);
             }
         case BuiltinFnIdIntToFloat:
@@ -10103,13 +10133,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
     }
 
-
-    // explicit error set cast
-    if (wanted_type->id == TypeTableEntryIdErrorSet &&
-        actual_type->id == TypeTableEntryIdErrorSet)
-    {
-        return ir_analyze_err_set_cast(ira, source_instr, value, wanted_type);
-    }
 
     // explicit cast from [N]T to []const T
     if (is_slice(wanted_type) && actual_type->id == TypeTableEntryIdArray) {
@@ -17593,6 +17616,34 @@ static TypeTableEntry *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstr
     return dest_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_err_set_cast(IrAnalyze *ira, IrInstructionErrSetCast *instruction) {
+    TypeTableEntry *dest_type = ir_resolve_type(ira, instruction->dest_type->other);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (dest_type->id != TypeTableEntryIdErrorSet) {
+        ir_add_error(ira, instruction->dest_type,
+                buf_sprintf("expected error set type, found '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (target->value.type->id != TypeTableEntryIdErrorSet) {
+        ir_add_error(ira, instruction->target,
+                buf_sprintf("expected error set type, found '%s'", buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *result = ir_analyze_err_set_cast(ira, &instruction->base, target, dest_type);
+    if (type_is_invalid(result->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+    ir_link_new_instruction(result, &instruction->base);
+    return dest_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_int_to_float(IrAnalyze *ira, IrInstructionIntToFloat *instruction) {
     TypeTableEntry *dest_type = ir_resolve_type(ira, instruction->dest_type->other);
     if (type_is_invalid(dest_type))
@@ -20193,6 +20244,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_cast(ira, (IrInstructionIntCast *)instruction);
         case IrInstructionIdFloatCast:
             return ir_analyze_instruction_float_cast(ira, (IrInstructionFloatCast *)instruction);
+        case IrInstructionIdErrSetCast:
+            return ir_analyze_instruction_err_set_cast(ira, (IrInstructionErrSetCast *)instruction);
         case IrInstructionIdIntToFloat:
             return ir_analyze_instruction_int_to_float(ira, (IrInstructionIntToFloat *)instruction);
         case IrInstructionIdFloatToInt:
@@ -20544,6 +20597,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAtomicLoad:
         case IrInstructionIdIntCast:
         case IrInstructionIdFloatCast:
+        case IrInstructionIdErrSetCast:
         case IrInstructionIdIntToFloat:
         case IrInstructionIdFloatToInt:
         case IrInstructionIdBoolToInt:
