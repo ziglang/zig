@@ -91,5 +91,5 @@ pub extern fn __unordtf2(a: f128, b: f128) c_int {
 
     const aAbs = @bitCast(rep_t, a) & absMask;
     const bAbs = @bitCast(rep_t, b) & absMask;
-    return c_int(aAbs > infRep or bAbs > infRep);
+    return @boolToInt(aAbs > infRep or bAbs > infRep);
 }

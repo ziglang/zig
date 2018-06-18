@@ -680,6 +680,12 @@ static void ir_print_float_to_int(IrPrint *irp, IrInstructionFloatToInt *instruc
     fprintf(irp->f, ")");
 }
 
+static void ir_print_bool_to_int(IrPrint *irp, IrInstructionBoolToInt *instruction) {
+    fprintf(irp->f, "@boolToInt(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_type(IrPrint *irp, IrInstructionIntType *instruction) {
     fprintf(irp->f, "@IntType(");
     ir_print_other_instruction(irp, instruction->is_signed);
@@ -1460,6 +1466,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFloatToInt:
             ir_print_float_to_int(irp, (IrInstructionFloatToInt *)instruction);
+            break;
+        case IrInstructionIdBoolToInt:
+            ir_print_bool_to_int(irp, (IrInstructionBoolToInt *)instruction);
             break;
         case IrInstructionIdIntType:
             ir_print_int_type(irp, (IrInstructionIntType *)instruction);
