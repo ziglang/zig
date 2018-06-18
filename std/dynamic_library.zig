@@ -16,7 +16,7 @@ pub const DynLib = struct {
         const fd = try std.os.posixOpen(allocator, path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
         errdefer std.os.close(fd);
 
-        const size = usize((try std.os.posixFStat(fd)).size);
+        const size = @intCast(usize, (try std.os.posixFStat(fd)).size);
 
         const addr = linux.mmap(
             null,
@@ -126,8 +126,8 @@ pub const ElfLib = struct {
 
         var i: usize = 0;
         while (i < self.hashtab[1]) : (i += 1) {
-            if (0 == (u32(1) << u5(self.syms[i].st_info & 0xf) & OK_TYPES)) continue;
-            if (0 == (u32(1) << u5(self.syms[i].st_info >> 4) & OK_BINDS)) continue;
+            if (0 == (u32(1) << @intCast(u5, self.syms[i].st_info & 0xf) & OK_TYPES)) continue;
+            if (0 == (u32(1) << @intCast(u5, self.syms[i].st_info >> 4) & OK_BINDS)) continue;
             if (0 == self.syms[i].st_shndx) continue;
             if (!mem.eql(u8, name, cstr.toSliceConst(self.strings + self.syms[i].st_name))) continue;
             if (maybe_versym) |versym| {
