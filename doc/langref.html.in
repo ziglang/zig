@@ -1651,7 +1651,7 @@ fn foo(bytes: []u8) u32 {
       <pre><code class="zig">@ptrCast(*u32, f32(12.34)).*</code></pre>
       <p>Instead, use {#link|@bitCast#}:
       <pre><code class="zig">@bitCast(u32, f32(12.34))</code></pre>
-      <p>As an added benefit, the <code>@bitcast</code> version works at compile-time.</p>
+      <p>As an added benefit, the <code>@bitCast</code> version works at compile-time.</p>
       {#see_also|Slices|Memory#}
       {#header_close#}
       {#header_close#}
@@ -3551,13 +3551,91 @@ const optional_value: ?i32 = null;
       <p>TODO: ptrcast builtin</p>
       <p>TODO: explain number literals vs concrete types</p>
       {#header_close#}
+
       {#header_open|void#}
-      <p>TODO: assigning void has no codegen</p>
-      <p>TODO: hashmap with void becomes a set</p>
-      <p>TODO: difference between c_void and void</p>
-      <p>TODO: void is the default return value of functions</p>
-      <p>TODO: functions require assigning the return value</p>
+      <p>
+      <code>void</code> represents a type that has no value. Code that makes use of void values is
+      not included in the final generated code:
+      </p>
+      {#code_begin|syntax#}
+export fn entry() void {
+    var x: void = {};
+    var y: void = {};
+    x = y;
+}
+      {#code_end#}
+      <p>When this turns into LLVM IR, there is no code generated in the body of <code>entry</code>,
+      even in debug mode. For example, on x86_64:</p>
+      <pre><code>0000000000000010 &lt;entry&gt;:
+  10:	55                   	push   %rbp
+  11:	48 89 e5             	mov    %rsp,%rbp
+  14:	5d                   	pop    %rbp
+  15:	c3                   	retq   </code></pre>
+      <p>These assembly instructions do not have any code associated with the void values -
+      they only perform the function call prologue and epilog.</p>
+      <p>
+      <code>void</code> can be useful for instantiating generic types. For example, given a
+      <code>Map(Key, Value)</code>, one can pass <code>void</code> for the <code>Value</code>
+      type to make it into a <code>Set</code>:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "turn HashMap into a set with void" {
+    var map = std.HashMap(i32, void, hash_i32, eql_i32).init(std.debug.global_allocator);
+    defer map.deinit();
+
+    _ = try map.put(1, {});
+    _ = try map.put(2, {});
+
+    assert(map.contains(2));
+    assert(!map.contains(3));
+
+    _ = map.remove(2);
+    assert(!map.contains(2));
+}
+
+fn hash_i32(x: i32) u32 {
+    return @bitCast(u32, x);
+}
+
+fn eql_i32(a: i32, b: i32) bool {
+    return a == b;
+}
+      {#code_end#}
+      <p>Note that this is different than using a dummy value for the hash map value.
+      By using <code>void</code> as the type of the value, the hash map entry type has no value field, and
+      thus the hash map takes up less space. Further, all the code that deals with storing and loading the
+      value is deleted, as seen above.
+      </p>
+      <p>
+      <code>void</code> is distinct from <code>c_void</code>, which is defined like this:
+      <code>pub const c_void = @OpaqueType();</code>.
+      <code>void</code> has a known size of 0 bytes, and <code>c_void</code> has an unknown, but non-zero, size.
+      </p>
+      <p>
+      Expressions of type <code>void</code> are the only ones whose value can be ignored. For example:
+      </p>
+      {#code_begin|test_err|expression value is ignored#}
+test "ignoring expression value" {
+    foo();
+}
+
+fn foo() i32 {
+    return 1234;
+}
+      {#code_end#}
+      <p>However, if the expression has type <code>void</code>:</p>
+      {#code_begin|test#}
+test "ignoring expression value" {
+    foo();
+}
+
+fn foo() void {}
+      {#code_end#}
       {#header_close#}
+
       {#header_open|this#}
       <p>TODO: example of this referring to Self struct</p>
       <p>TODO: example of this referring to recursion function</p>
