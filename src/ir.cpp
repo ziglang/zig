@@ -10215,7 +10215,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // explicit cast from [N]T to &const []const N
+    // explicit cast from [N]T to &const []const T
     if (wanted_type->id == TypeTableEntryIdPointer &&
         wanted_type->data.pointer.is_const &&
         is_slice(wanted_type->data.pointer.child_type) &&
