@@ -2,6 +2,14 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "non int passed to @intToFloat",
+        \\export fn entry() void {
+        \\    const x = @intToFloat(f32, 1.1);
+        \\}
+    ,
+        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
+    );
+    cases.add(
         "use implicit casts to assign null to non-nullable pointer",
         \\export fn entry() void {
         \\    var x: i32 = 1234;

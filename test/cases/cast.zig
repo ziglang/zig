@@ -414,3 +414,9 @@ test "@floatCast comptime_int and comptime_float" {
     assert(@typeOf(result) == f32);
     assert(result == 1234.0);
 }
+
+test "comptime_int @intToFloat" {
+    const result = @intToFloat(f32, 1234);
+    assert(@typeOf(result) == f32);
+    assert(result == 1234.0);
+}
