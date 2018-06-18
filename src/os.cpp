@@ -994,15 +994,15 @@ int os_self_exe_path(Buf *out_path) {
     int ret1 = _NSGetExecutablePath(nullptr, &u32_len);
     assert(ret1 != 0);
 
-    // Make a buffer having room for the temp path.
     Buf *tmp = buf_alloc_fixed(u32_len);
 
     // Fill the executable path.
     int ret2 = _NSGetExecutablePath(buf_ptr(tmp), &u32_len);
     assert(ret2 == 0);
 
-    // Resolve the real path from that.
-    buf_resize(out_path, PATH_MAX);
+    // According to libuv project, PATH_MAX*2 works around a libc bug where
+    // the resolved path is sometimes bigger than PATH_MAX.
+    buf_resize(out_path, PATH_MAX*2);
     char *real_path = realpath(buf_ptr(tmp), buf_ptr(out_path));
     if (!real_path) {
         buf_init_from_buf(out_path, tmp);
