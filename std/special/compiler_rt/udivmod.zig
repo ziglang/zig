@@ -71,7 +71,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
                 r[high] = n[high] & (d[high] - 1);
                 rem.* = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
             }
-            return n[high] >> Log2SingleInt(@ctz(d[high]));
+            return n[high] >> @intCast(Log2SingleInt, @ctz(d[high]));
         }
         // K K
         // ---
@@ -88,10 +88,10 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
         // 1 <= sr <= SingleInt.bit_count - 1
         // q.all = a << (DoubleInt.bit_count - sr);
         q[low] = 0;
-        q[high] = n[low] << Log2SingleInt(SingleInt.bit_count - sr);
+        q[high] = n[low] << @intCast(Log2SingleInt, SingleInt.bit_count - sr);
         // r.all = a >> sr;
-        r[high] = n[high] >> Log2SingleInt(sr);
-        r[low] = (n[high] << Log2SingleInt(SingleInt.bit_count - sr)) | (n[low] >> Log2SingleInt(sr));
+        r[high] = n[high] >> @intCast(Log2SingleInt, sr);
+        r[low] = (n[high] << @intCast(Log2SingleInt, SingleInt.bit_count - sr)) | (n[low] >> @intCast(Log2SingleInt, sr));
     } else {
         // d[low] != 0
         if (d[high] == 0) {
@@ -107,8 +107,8 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
                     return a;
                 }
                 sr = @ctz(d[low]);
-                q[high] = n[high] >> Log2SingleInt(sr);
-                q[low] = (n[high] << Log2SingleInt(SingleInt.bit_count - sr)) | (n[low] >> Log2SingleInt(sr));
+                q[high] = n[high] >> @intCast(Log2SingleInt, sr);
+                q[low] = (n[high] << @intCast(Log2SingleInt, SingleInt.bit_count - sr)) | (n[low] >> @intCast(Log2SingleInt, sr));
                 return @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &q[0]).*; // TODO issue #421
             }
             // K X
@@ -126,15 +126,15 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             } else if (sr < SingleInt.bit_count) {
                 // 2 <= sr <= SingleInt.bit_count - 1
                 q[low] = 0;
-                q[high] = n[low] << Log2SingleInt(SingleInt.bit_count - sr);
-                r[high] = n[high] >> Log2SingleInt(sr);
-                r[low] = (n[high] << Log2SingleInt(SingleInt.bit_count - sr)) | (n[low] >> Log2SingleInt(sr));
+                q[high] = n[low] << @intCast(Log2SingleInt, SingleInt.bit_count - sr);
+                r[high] = n[high] >> @intCast(Log2SingleInt, sr);
+                r[low] = (n[high] << @intCast(Log2SingleInt, SingleInt.bit_count - sr)) | (n[low] >> @intCast(Log2SingleInt, sr));
             } else {
                 // SingleInt.bit_count + 1 <= sr <= DoubleInt.bit_count - 1
-                q[low] = n[low] << Log2SingleInt(DoubleInt.bit_count - sr);
-                q[high] = (n[high] << Log2SingleInt(DoubleInt.bit_count - sr)) | (n[low] >> Log2SingleInt(sr - SingleInt.bit_count));
+                q[low] = n[low] << @intCast(Log2SingleInt, DoubleInt.bit_count - sr);
+                q[high] = (n[high] << @intCast(Log2SingleInt, DoubleInt.bit_count - sr)) | (n[low] >> @intCast(Log2SingleInt, sr - SingleInt.bit_count));
                 r[high] = 0;
-                r[low] = n[high] >> Log2SingleInt(sr - SingleInt.bit_count);
+                r[low] = n[high] >> @intCast(Log2SingleInt, sr - SingleInt.bit_count);
             }
         } else {
             // K X
@@ -158,9 +158,9 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
                 r[high] = 0;
                 r[low] = n[high];
             } else {
-                r[high] = n[high] >> Log2SingleInt(sr);
-                r[low] = (n[high] << Log2SingleInt(SingleInt.bit_count - sr)) | (n[low] >> Log2SingleInt(sr));
-                q[high] = n[low] << Log2SingleInt(SingleInt.bit_count - sr);
+                r[high] = n[high] >> @intCast(Log2SingleInt, sr);
+                r[low] = (n[high] << @intCast(Log2SingleInt, SingleInt.bit_count - sr)) | (n[low] >> @intCast(Log2SingleInt, sr));
+                q[high] = n[low] << @intCast(Log2SingleInt, SingleInt.bit_count - sr);
             }
         }
     }
@@ -184,8 +184,8 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
         //      carry = 1;
         // }
         r_all = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
-        const s: SignedDoubleInt = SignedDoubleInt(b -% r_all -% 1) >> (DoubleInt.bit_count - 1);
-        carry = u32(s & 1);
+        const s: SignedDoubleInt = @intCast(SignedDoubleInt, b -% r_all -% 1) >> (DoubleInt.bit_count - 1);
+        carry = @intCast(u32, s & 1);
         r_all -= b & @bitCast(DoubleInt, s);
         r = @ptrCast(*[2]SingleInt, &r_all).*; // TODO issue #421
     }

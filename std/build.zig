@@ -234,7 +234,7 @@ pub const Builder = struct {
         defer wanted_steps.deinit();
 
         if (step_names.len == 0) {
-            try wanted_steps.append(&self.default_step);
+            try wanted_steps.append(self.default_step);
         } else {
             for (step_names) |step_name| {
                 const s = try self.getTopLevelStepByName(step_name);

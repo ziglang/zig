@@ -26,7 +26,7 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
             var tables: [8][256]u32 = undefined;
 
             for (tables[0]) |*e, i| {
-                var crc = u32(i);
+                var crc = @intCast(u32, i);
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
@@ -122,7 +122,7 @@ pub fn Crc32SmallWithPoly(comptime poly: u32) type {
             var table: [16]u32 = undefined;
 
             for (table) |*e, i| {
-                var crc = u32(i * 16);
+                var crc = @intCast(u32, i * 16);
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {

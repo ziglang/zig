@@ -648,6 +648,44 @@ static void ir_print_truncate(IrPrint *irp, IrInstructionTruncate *instruction) 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_int_cast(IrPrint *irp, IrInstructionIntCast *instruction) {
+    fprintf(irp->f, "@intCast(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_float_cast(IrPrint *irp, IrInstructionFloatCast *instruction) {
+    fprintf(irp->f, "@floatCast(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_int_to_float(IrPrint *irp, IrInstructionIntToFloat *instruction) {
+    fprintf(irp->f, "@intToFloat(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_float_to_int(IrPrint *irp, IrInstructionFloatToInt *instruction) {
+    fprintf(irp->f, "@floatToInt(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bool_to_int(IrPrint *irp, IrInstructionBoolToInt *instruction) {
+    fprintf(irp->f, "@boolToInt(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_type(IrPrint *irp, IrInstructionIntType *instruction) {
     fprintf(irp->f, "@IntType(");
     ir_print_other_instruction(irp, instruction->is_signed);
@@ -1416,6 +1454,21 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTruncate:
             ir_print_truncate(irp, (IrInstructionTruncate *)instruction);
+            break;
+        case IrInstructionIdIntCast:
+            ir_print_int_cast(irp, (IrInstructionIntCast *)instruction);
+            break;
+        case IrInstructionIdFloatCast:
+            ir_print_float_cast(irp, (IrInstructionFloatCast *)instruction);
+            break;
+        case IrInstructionIdIntToFloat:
+            ir_print_int_to_float(irp, (IrInstructionIntToFloat *)instruction);
+            break;
+        case IrInstructionIdFloatToInt:
+            ir_print_float_to_int(irp, (IrInstructionFloatToInt *)instruction);
+            break;
+        case IrInstructionIdBoolToInt:
+            ir_print_bool_to_int(irp, (IrInstructionBoolToInt *)instruction);
             break;
         case IrInstructionIdIntType:
             ir_print_int_type(irp, (IrInstructionIntType *)instruction);

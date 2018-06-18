@@ -188,7 +188,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shorten_cast(x: i32) i8 {
-        \\    return i8(x);
+        \\    return @intCast(i8, x);
         \\}
     );
 
@@ -201,7 +201,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn unsigned_cast(x: i32) u32 {
-        \\    return u32(x);
+        \\    return @intCast(u32, x);
         \\}
     );
 

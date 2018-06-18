@@ -80,7 +80,7 @@ extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*]u8, c_envp)[0..env_count];
-    return callMainWithArgs(usize(c_argc), c_argv, envp);
+    return callMainWithArgs(@intCast(usize, c_argc), c_argv, envp);
 }
 
 fn callMain() u8 {

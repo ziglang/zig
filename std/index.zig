@@ -8,6 +8,7 @@ pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const IntrusiveLinkedList = @import("linked_list.zig").IntrusiveLinkedList;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
+pub const DynLib = @import("dynamic_library.zig").DynLib;
 
 pub const atomic = @import("atomic/index.zig");
 pub const base64 = @import("base64.zig");

@@ -2,6 +2,24 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "use c_void as return type of fn ptr",
+        \\export fn entry() void {
+        \\    const a: fn () c_void = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:20: error: return type cannot be opaque",
+    );
+
+    cases.add(
+        "non int passed to @intToFloat",
+        \\export fn entry() void {
+        \\    const x = @intToFloat(f32, 1.1);
+        \\}
+    ,
+        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
+    );
+
+    cases.add(
         "use implicit casts to assign null to non-nullable pointer",
         \\export fn entry() void {
         \\    var x: i32 = 1234;
@@ -2215,7 +2233,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    derp.init();
         \\}
     ,
-        ".tmp_source.zig:14:5: error: expected type 'i32', found '*const Foo'",
+        ".tmp_source.zig:14:5: error: expected type 'i32', found 'Foo'",
     );
 
     cases.add(
@@ -2572,15 +2590,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
         break :x tc;
     });
-
-    cases.add(
-        "pass non-copyable type by value to function",
-        \\const Point = struct { x: i32, y: i32, };
-        \\fn foo(p: Point) void { }
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    ,
-        ".tmp_source.zig:2:11: error: type 'Point' is not copyable; cannot pass by value",
-    );
 
     cases.add(
         "implicit cast from array to mutable slice",
@@ -2940,10 +2949,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "cast negative value to unsigned integer",
         \\comptime {
         \\    const value: i32 = -1;
-        \\    const unsigned = u32(value);
+        \\    const unsigned = @intCast(u32, value);
         \\}
     ,
-        ".tmp_source.zig:3:25: error: attempt to cast negative value to unsigned integer",
+        ".tmp_source.zig:3:22: error: attempt to cast negative value to unsigned integer",
     );
 
     cases.add(
@@ -2972,10 +2981,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "compile-time integer cast truncates bits",
         \\comptime {
         \\    const spartan_count: u16 = 300;
-        \\    const byte = u8(spartan_count);
+        \\    const byte = @intCast(u8, spartan_count);
         \\}
     ,
-        ".tmp_source.zig:3:20: error: cast from 'u16' to 'u8' truncates bits",
+        ".tmp_source.zig:3:18: error: cast from 'u16' to 'u8' truncates bits",
     );
 
     cases.add(
@@ -4064,20 +4073,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:11:20: error: runtime cast to union 'Value' which has non-void fields",
         ".tmp_source.zig:3:5: note: field 'A' has type 'i32'",
-    );
-
-    cases.add(
-        "self-referencing function pointer field",
-        \\const S = struct {
-        \\    f: fn(_: S) void,
-        \\};
-        \\fn f(_: S) void {
-        \\}
-        \\export fn entry() void {
-        \\    var _ = S { .f = f };
-        \\}
-    ,
-        ".tmp_source.zig:4:9: error: type 'S' is not copyable; cannot pass by value",
     );
 
     cases.add(

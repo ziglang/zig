@@ -13,7 +13,7 @@ pub extern fn __divti3(a: i128, b: i128) i128 {
 
     const r = udivmod(u128, @bitCast(u128, an), @bitCast(u128, bn), null);
     const s = s_a ^ s_b;
-    return (i128(r) ^ s) -% s;
+    return (@bitCast(i128, r) ^ s) -% s;
 }
 
 pub extern fn __divti3_windows_x86_64(a: *const i128, b: *const i128) void {

@@ -8,14 +8,14 @@ test "bool literals" {
 test "cast bool to int" {
     const t = true;
     const f = false;
-    assert(i32(t) == i32(1));
-    assert(i32(f) == i32(0));
+    assert(@boolToInt(t) == u32(1));
+    assert(@boolToInt(f) == u32(0));
     nonConstCastBoolToInt(t, f);
 }
 
 fn nonConstCastBoolToInt(t: bool, f: bool) void {
-    assert(i32(t) == i32(1));
-    assert(i32(f) == i32(0));
+    assert(@boolToInt(t) == u32(1));
+    assert(@boolToInt(f) == u32(0));
 }
 
 test "bool cmp" {

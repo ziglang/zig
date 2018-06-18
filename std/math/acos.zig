@@ -95,12 +95,12 @@ fn acos64(x: f64) f64 {
     const pio2_lo: f64 = 6.12323399573676603587e-17;
 
     const ux = @bitCast(u64, x);
-    const hx = u32(ux >> 32);
+    const hx = @intCast(u32, ux >> 32);
     const ix = hx & 0x7FFFFFFF;
 
     // |x| >= 1 or nan
     if (ix >= 0x3FF00000) {
-        const lx = u32(ux & 0xFFFFFFFF);
+        const lx = @intCast(u32, ux & 0xFFFFFFFF);
 
         // acos(1) = 0, acos(-1) = pi
         if ((ix - 0x3FF00000) | lx == 0) {

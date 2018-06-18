@@ -1022,6 +1022,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         ensure_complete_type(g, fn_type_id->return_type);
         if (type_is_invalid(fn_type_id->return_type))
             return g->builtin_types.entry_invalid;
+        assert(fn_type_id->return_type->id != TypeTableEntryIdOpaque);
     } else {
         zig_panic("TODO implement inferred return types https://github.com/ziglang/zig/issues/447");
     }
@@ -1135,7 +1136,10 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_param_info->src_index = i;
             gen_param_info->gen_index = SIZE_MAX;
 
-            type_ensure_zero_bits_known(g, type_entry);
+            ensure_complete_type(g, type_entry);
+            if (type_is_invalid(type_entry))
+                return g->builtin_types.entry_invalid;
+
             if (type_has_bits(type_entry)) {
                 TypeTableEntry *gen_type;
                 if (handle_is_ptr(type_entry)) {
@@ -1546,12 +1550,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
             case TypeTableEntryIdPromise:
-                ensure_complete_type(g, type_entry);
-                if (calling_convention_allows_zig_types(fn_type_id.cc) && !type_is_copyable(g, type_entry)) {
-                    add_node_error(g, param_node->data.param_decl.type,
-                        buf_sprintf("type '%s' is not copyable; cannot pass by value", buf_ptr(&type_entry->name)));
-                    return g->builtin_types.entry_invalid;
-                }
                 break;
         }
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];

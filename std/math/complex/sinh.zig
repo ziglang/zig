@@ -6,7 +6,7 @@ const Complex = cmath.Complex;
 
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
-pub fn sinh(z: var) Complex(@typeOf(z.re)) {
+pub fn sinh(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
     return switch (T) {
         f32 => sinh32(z),
@@ -15,7 +15,7 @@ pub fn sinh(z: var) Complex(@typeOf(z.re)) {
     };
 }
 
-fn sinh32(z: *const Complex(f32)) Complex(f32) {
+fn sinh32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
@@ -78,17 +78,17 @@ fn sinh32(z: *const Complex(f32)) Complex(f32) {
     return Complex(f32).new((x * x) * (y - y), (x + x) * (y - y));
 }
 
-fn sinh64(z: *const Complex(f64)) Complex(f64) {
+fn sinh64(z: Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 
     const fx = @bitCast(u64, x);
-    const hx = u32(fx >> 32);
+    const hx = @intCast(u32, fx >> 32);
     const lx = @truncate(u32, fx);
     const ix = hx & 0x7fffffff;
 
     const fy = @bitCast(u64, y);
-    const hy = u32(fy >> 32);
+    const hy = @intCast(u32, fy >> 32);
     const ly = @truncate(u32, fy);
     const iy = hy & 0x7fffffff;
 

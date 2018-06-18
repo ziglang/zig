@@ -1128,7 +1128,7 @@ pub const Tokenizer = struct {
             // check utf8-encoded character.
             const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
             if (self.index + length > self.buffer.len) {
-                return u3(self.buffer.len - self.index);
+                return @intCast(u3, self.buffer.len - self.index);
             }
             const bytes = self.buffer[self.index .. self.index + length];
             switch (length) {

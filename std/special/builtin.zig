@@ -135,9 +135,9 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     const mask = if (T == f32) 0xff else 0x7ff;
     var ux = @bitCast(uint, x);
     var uy = @bitCast(uint, y);
-    var ex = i32((ux >> digits) & mask);
-    var ey = i32((uy >> digits) & mask);
-    const sx = if (T == f32) u32(ux & 0x80000000) else i32(ux >> bits_minus_1);
+    var ex = @intCast(i32, (ux >> digits) & mask);
+    var ey = @intCast(i32, (uy >> digits) & mask);
+    const sx = if (T == f32) @intCast(u32, ux & 0x80000000) else @intCast(i32, ux >> bits_minus_1);
     var i: uint = undefined;
 
     if (uy << 1 == 0 or isNan(uint, uy) or ex == mask)
@@ -156,7 +156,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
             ex -= 1;
             i <<= 1;
         }) {}
-        ux <<= log2uint(@bitCast(u32, -ex + 1));
+        ux <<= @intCast(log2uint, @bitCast(u32, -ex + 1));
     } else {
         ux &= @maxValue(uint) >> exp_bits;
         ux |= 1 << digits;
@@ -167,7 +167,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
             ey -= 1;
             i <<= 1;
         }) {}
-        uy <<= log2uint(@bitCast(u32, -ey + 1));
+        uy <<= @intCast(log2uint, @bitCast(u32, -ey + 1));
     } else {
         uy &= @maxValue(uint) >> exp_bits;
         uy |= 1 << digits;
@@ -199,12 +199,12 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         ux -%= 1 << digits;
         ux |= uint(@bitCast(u32, ex)) << digits;
     } else {
-        ux >>= log2uint(@bitCast(u32, -ex + 1));
+        ux >>= @intCast(log2uint, @bitCast(u32, -ex + 1));
     }
     if (T == f32) {
         ux |= sx;
     } else {
-        ux |= uint(sx) << bits_minus_1;
+        ux |= @intCast(uint, sx) << bits_minus_1;
     }
     return @bitCast(T, ux);
 }
@@ -229,8 +229,8 @@ export fn sqrt(x: f64) f64 {
     const sign: u32 = 0x80000000;
     const u = @bitCast(u64, x);
 
-    var ix0 = u32(u >> 32);
-    var ix1 = u32(u & 0xFFFFFFFF);
+    var ix0 = @intCast(u32, u >> 32);
+    var ix1 = @intCast(u32, u & 0xFFFFFFFF);
 
     // sqrt(nan) = nan, sqrt(+inf) = +inf, sqrt(-inf) = nan
     if (ix0 & 0x7FF00000 == 0x7FF00000) {
@@ -247,7 +247,7 @@ export fn sqrt(x: f64) f64 {
     }
 
     // normalize x
-    var m = i32(ix0 >> 20);
+    var m = @intCast(i32, ix0 >> 20);
     if (m == 0) {
         // subnormal
         while (ix0 == 0) {
@@ -261,9 +261,9 @@ export fn sqrt(x: f64) f64 {
         while (ix0 & 0x00100000 == 0) : (i += 1) {
             ix0 <<= 1;
         }
-        m -= i32(i) - 1;
-        ix0 |= ix1 >> u5(32 - i);
-        ix1 <<= u5(i);
+        m -= @intCast(i32, i) - 1;
+        ix0 |= ix1 >> @intCast(u5, 32 - i);
+        ix1 <<= @intCast(u5, i);
     }
 
     // unbias exponent
@@ -347,10 +347,10 @@ export fn sqrt(x: f64) f64 {
 
     // NOTE: musl here appears to rely on signed twos-complement wraparound. +% has the same
     // behaviour at least.
-    var iix0 = i32(ix0);
+    var iix0 = @intCast(i32, ix0);
     iix0 = iix0 +% (m << 20);
 
-    const uz = (u64(iix0) << 32) | ix1;
+    const uz = (@intCast(u64, iix0) << 32) | ix1;
     return @bitCast(f64, uz);
 }
 

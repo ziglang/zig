@@ -42,7 +42,7 @@ pub const WriteError = error{
 };
 
 pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) WriteError!void {
-    if (windows.WriteFile(handle, @ptrCast(*const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
+    if (windows.WriteFile(handle, @ptrCast(*const c_void, bytes.ptr), @intCast(u32, bytes.len), null, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.INVALID_USER_BUFFER => WriteError.SystemResources,
@@ -68,7 +68,12 @@ pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
     const size = @sizeOf(windows.FILE_NAME_INFO);
     var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8{0} ** (size + windows.MAX_PATH);
 
-    if (windows.GetFileInformationByHandleEx(handle, windows.FileNameInfo, @ptrCast(*c_void, &name_info_bytes[0]), u32(name_info_bytes.len)) == 0) {
+    if (windows.GetFileInformationByHandleEx(
+        handle,
+        windows.FileNameInfo,
+        @ptrCast(*c_void, &name_info_bytes[0]),
+        @intCast(u32, name_info_bytes.len),
+    ) == 0) {
         return true;
     }
 

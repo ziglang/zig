@@ -4,7 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
-pub fn atan(z: var) Complex(@typeOf(z.re)) {
+pub fn atan(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
     return switch (T) {
         f32 => atan32(z),
@@ -25,11 +25,11 @@ fn redupif32(x: f32) f32 {
         t -= 0.5;
     }
 
-    const u = f32(i32(t));
+    const u = @intToFloat(f32, @floatToInt(i32, t));
     return ((x - u * DP1) - u * DP2) - t * DP3;
 }
 
-fn atan32(z: *const Complex(f32)) Complex(f32) {
+fn atan32(z: Complex(f32)) Complex(f32) {
     const maxnum = 1.0e38;
 
     const x = z.re;
@@ -74,11 +74,11 @@ fn redupif64(x: f64) f64 {
         t -= 0.5;
     }
 
-    const u = f64(i64(t));
+    const u = @intToFloat(f64, @floatToInt(i64, t));
     return ((x - u * DP1) - u * DP2) - t * DP3;
 }
 
-fn atan64(z: *const Complex(f64)) Complex(f64) {
+fn atan64(z: Complex(f64)) Complex(f64) {
     const maxnum = 1.0e308;
 
     const x = z.re;

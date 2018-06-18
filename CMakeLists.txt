@@ -30,7 +30,7 @@ if(GIT_EXE)
             message("WARNING: Tag does not match configured Zig version")
         endif()
     else()
-        set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}.${ZIG_GIT_REV}")
+        set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
     endif()
 endif()
 message("Configuring zig version ${ZIG_VERSION}")
@@ -438,6 +438,7 @@ set(ZIG_STD_FILES
     "debug/failing_allocator.zig"
     "debug/index.zig"
     "dwarf.zig"
+    "dynamic_library.zig"
     "elf.zig"
     "empty.zig"
     "event.zig"

@@ -99,7 +99,7 @@ pub const Base64Decoder = struct {
             assert(!result.char_in_alphabet[c]);
             assert(c != pad_char);
 
-            result.char_to_index[c] = u8(i);
+            result.char_to_index[c] = @intCast(u8, i);
             result.char_in_alphabet[c] = true;
         }
 
@@ -284,7 +284,7 @@ pub const Base64DecoderUnsafe = struct {
         };
         for (alphabet_chars) |c, i| {
             assert(c != pad_char);
-            result.char_to_index[c] = u8(i);
+            result.char_to_index[c] = @intCast(u8, i);
         }
         return result;
     }

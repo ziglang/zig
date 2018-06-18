@@ -57,7 +57,7 @@ fn sinh64(x: f64) f64 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const u = @bitCast(u64, x);
-    const w = u32(u >> 32);
+    const w = @intCast(u32, u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
 
     if (x == 0.0 or math.isNan(x)) {

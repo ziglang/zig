@@ -292,7 +292,7 @@ extern fn __udivmodsi4(a: u32, b: u32, rem: *u32) u32 {
     @setRuntimeSafety(is_test);
 
     const d = __udivsi3(a, b);
-    rem.* = u32(i32(a) -% (i32(d) * i32(b)));
+    rem.* = @bitCast(u32, @bitCast(i32, a) -% (@bitCast(i32, d) * @bitCast(i32, b)));
     return d;
 }
 
@@ -316,12 +316,12 @@ extern fn __udivsi3(n: u32, d: u32) u32 {
     sr += 1;
     // 1 <= sr <= n_uword_bits - 1
     // Not a special case
-    var q: u32 = n << u5(n_uword_bits - sr);
-    var r: u32 = n >> u5(sr);
+    var q: u32 = n << @intCast(u5, n_uword_bits - sr);
+    var r: u32 = n >> @intCast(u5, sr);
     var carry: u32 = 0;
     while (sr > 0) : (sr -= 1) {
         // r:q = ((r:q)  << 1) | carry
-        r = (r << 1) | (q >> u5(n_uword_bits - 1));
+        r = (r << 1) | (q >> @intCast(u5, n_uword_bits - 1));
         q = (q << 1) | carry;
         // carry = 0;
         // if (r.all >= d.all)
@@ -329,8 +329,8 @@ extern fn __udivsi3(n: u32, d: u32) u32 {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s = i32(d -% r -% 1) >> u5(n_uword_bits - 1);
-        carry = u32(s & 1);
+        const s = @intCast(i32, d -% r -% 1) >> @intCast(u5, n_uword_bits - 1);
+        carry = @intCast(u32, s & 1);
         r -= d & @bitCast(u32, s);
     }
     q = (q << 1) | carry;

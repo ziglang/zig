@@ -180,7 +180,7 @@ pub const StreamingParser = struct {
         pub fn fromInt(x: var) State {
             debug.assert(x == 0 or x == 1);
             const T = @TagType(State);
-            return State(T(x));
+            return State(@intCast(T, x));
         }
     };
 
@@ -1326,7 +1326,7 @@ pub const Parser = struct {
             },
             // Array Parent -> [ ..., <array>, value ]
             Value.Array => |*array| {
-                try array.append(value);
+                try array.append(value.*);
                 p.state = State.ArrayValue;
             },
             else => {

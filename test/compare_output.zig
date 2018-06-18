@@ -299,7 +299,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\export fn main() c_int {
         \\    var array = []u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
-        \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), c_ulong(array.len), @sizeOf(i32), compare_fn);
+        \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
         \\
         \\    for (array) |item, i| {
         \\        if (item != i) {
@@ -331,8 +331,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    }
         \\    const small: f32 = 3.25;
         \\    const x: f64 = small;
-        \\    const y = i32(x);
-        \\    const z = f64(y);
+        \\    const y = @floatToInt(i32, x);
+        \\    const z = @intToFloat(f64, y);
         \\    _ = c.printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, f64(-0.4));
         \\    return 0;
         \\}

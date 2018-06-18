@@ -326,17 +326,6 @@ static void addLLVMArgAttr(LLVMValueRef fn_val, unsigned param_index, const char
     return addLLVMAttr(fn_val, param_index + 1, attr_name);
 }
 
-//static void addLLVMArgAttrInt(LLVMValueRef fn_val, unsigned param_index, const char *attr_name, uint64_t attr_val) {
-//    return addLLVMAttrInt(fn_val, param_index + 1, attr_name, attr_val);
-//}
-
-static void addLLVMCallsiteAttr(LLVMValueRef call_instr, unsigned param_index, const char *attr_name) {
-    unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
-    assert(kind_id != 0);
-    LLVMAttributeRef llvm_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), kind_id, 0);
-    LLVMAddCallSiteAttribute(call_instr, param_index + 1, llvm_attr);
-}
-
 static bool is_symbol_available(CodeGen *g, Buf *name) {
     return g->exported_symbol_names.maybe_get(name) == nullptr && g->external_prototypes.maybe_get(name) == nullptr;
 }
@@ -584,11 +573,6 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
         if (param_type->id == TypeTableEntryIdPointer) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "nonnull");
-        }
-        // Note: byval is disabled on windows due to an LLVM bug:
-        // https://github.com/ziglang/zig/issues/536
-        if (is_byval && g->zig_target.os != OsWindows) {
-            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "byval");
         }
     }
 
@@ -3053,15 +3037,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
 
 
-    for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
-        FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
-        // Note: byval is disabled on windows due to an LLVM bug:
-        // https://github.com/ziglang/zig/issues/536
-        if (gen_info->is_byval && g->zig_target.os != OsWindows) {
-            addLLVMCallsiteAttr(result, (unsigned)gen_info->gen_index, "byval");
-        }
-    }
-
     if (instruction->is_async) {
         LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
         LLVMBuildStore(g->builder, result, payload_ptr);
@@ -4658,6 +4633,11 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPromiseResultType:
         case IrInstructionIdAwaitBookkeeping:
         case IrInstructionIdAddImplicitReturnType:
+        case IrInstructionIdIntCast:
+        case IrInstructionIdFloatCast:
+        case IrInstructionIdIntToFloat:
+        case IrInstructionIdFloatToInt:
+        case IrInstructionIdBoolToInt:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -6246,6 +6226,11 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCmpxchgStrong, "cmpxchgStrong", 6);
     create_builtin_fn(g, BuiltinFnIdFence, "fence", 1);
     create_builtin_fn(g, BuiltinFnIdTruncate, "truncate", 2);
+    create_builtin_fn(g, BuiltinFnIdIntCast, "intCast", 2);
+    create_builtin_fn(g, BuiltinFnIdFloatCast, "floatCast", 2);
+    create_builtin_fn(g, BuiltinFnIdIntToFloat, "intToFloat", 2);
+    create_builtin_fn(g, BuiltinFnIdFloatToInt, "floatToInt", 2);
+    create_builtin_fn(g, BuiltinFnIdBoolToInt, "boolToInt", 1);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
@@ -6683,7 +6668,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
     int err;
     Buf *abs_full_path = buf_alloc();
     if ((err = os_path_real(builtin_zig_path, abs_full_path))) {
-        fprintf(stderr, "unable to open '%s': %s", buf_ptr(builtin_zig_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(builtin_zig_path), err_str(err));
         exit(1);
     }
 
@@ -6851,11 +6836,11 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
     Buf *abs_full_path = buf_alloc();
     int err;
     if ((err = os_path_real(&path_to_code_src, abs_full_path))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
+        zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
     Buf *import_code = buf_alloc();
     if ((err = os_fetch_file_path(abs_full_path, import_code, false))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
+        zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
 
     return add_source_file(g, package, abs_full_path, import_code);
@@ -6939,13 +6924,13 @@ static void gen_root_source(CodeGen *g) {
     Buf *abs_full_path = buf_alloc();
     int err;
     if ((err = os_path_real(rel_full_path, abs_full_path))) {
-        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(rel_full_path), err_str(err));
         exit(1);
     }
 
     Buf *source_code = buf_alloc();
     if ((err = os_fetch_file_path(rel_full_path, source_code, true))) {
-        fprintf(stderr, "unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(rel_full_path), err_str(err));
         exit(1);
     }
 
@@ -7289,7 +7274,7 @@ static void gen_h_file(CodeGen *g) {
 
     FILE *out_h = fopen(buf_ptr(g->out_h_path), "wb");
     if (!out_h)
-        zig_panic("unable to open %s: %s", buf_ptr(g->out_h_path), strerror(errno));
+        zig_panic("unable to open %s: %s\n", buf_ptr(g->out_h_path), strerror(errno));
 
     Buf *export_macro = preprocessor_mangle(buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name)));
     buf_upcase(export_macro);

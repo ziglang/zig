@@ -370,17 +370,17 @@ pub fn main() void {
         <tr>
           <td><code>f32</code></td>
           <td><code>float</code></td>
-          <td>32-bit floating point (23-bit mantissa)</td>
+          <td>32-bit floating point (23-bit mantissa) IEEE-754-2008 binary32</td>
         </tr>
         <tr>
           <td><code>f64</code></td>
           <td><code>double</code></td>
-          <td>64-bit floating point (52-bit mantissa)</td>
+          <td>64-bit floating point (52-bit mantissa) IEEE-754-2008 binary64</td>
         </tr>
         <tr>
           <td><code>f128</code></td>
           <td>(none)</td>
-          <td>128-bit floating point (112-bit mantissa)</td>
+          <td>128-bit floating point (112-bit mantissa) IEEE-754-2008 binary128</td>
         </tr>
         <tr>
           <td><code>bool</code></td>
@@ -406,6 +406,16 @@ pub fn main() void {
           <td><code>error</code></td>
           <td>(none)</td>
           <td>an error code</td>
+        </tr>
+        <tr>
+          <td><code>comptime_int</code></td>
+          <td>(none)</td>
+          <td>Only allowed for {#link|comptime#}-known values. The type of integer literals.</td>
+        </tr>
+        <tr>
+          <td><code>comptime_float</code></td>
+          <td>(none)</td>
+          <td>Only allowed for {#link|comptime#}-known values. The type of float literals.</td>
         </tr>
       </table>
       </div>
@@ -642,7 +652,18 @@ fn divide(a: i32, b: i32) i32 {
       {#header_close#}
       {#header_close#}
       {#header_open|Floats#}
+      <p>Zig has the following floating point types:</p>
+      <ul>
+          <li><code>f32</code> - IEEE-754-2008 binary32</li>
+          <li><code>f64</code> - IEEE-754-2008 binary64</li>
+          <li><code>f128</code> - IEEE-754-2008 binary128</li>
+          <li><code>c_longdouble</code> - matches <code>long double</code> for the target C ABI</li>
+      </ul>
       {#header_open|Float Literals#}
+      <p>
+      Float literals have type <code>comptime_float</code> which is guaranteed to hold at least all possible values
+      that the largest other floating point type can hold. Float literals implicitly cast to any other type.
+      </p>
       {#code_begin|syntax#}
 const floating_point = 123.0E+77;
 const another_float = 123.0;
@@ -1334,7 +1355,7 @@ var some_integers: [100]i32 = undefined;
 
 test "modify an array" {
     for (some_integers) |*item, i| {
-        item.* = i32(i);
+        item.* = @intCast(i32, i);
     }
     assert(some_integers[10] == 10);
     assert(some_integers[99] == 99);
@@ -1376,8 +1397,8 @@ var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (initial_value) |*pt, i| {
         pt.* = Point{
-            .x = i32(i),
-            .y = i32(i) * 2,
+            .x = @intCast(i32, i),
+            .y = @intCast(i32, i) * 2,
         };
     }
     break :init initial_value;
@@ -1630,7 +1651,7 @@ fn foo(bytes: []u8) u32 {
       <pre><code class="zig">@ptrCast(*u32, f32(12.34)).*</code></pre>
       <p>Instead, use {#link|@bitCast#}:
       <pre><code class="zig">@bitCast(u32, f32(12.34))</code></pre>
-      <p>As an added benefit, the <code>@bitcast</code> version works at compile-time.</p>
+      <p>As an added benefit, the <code>@bitCast</code> version works at compile-time.</p>
       {#see_also|Slices|Memory#}
       {#header_close#}
       {#header_close#}
@@ -2389,7 +2410,7 @@ test "for basics" {
     var sum2: i32 = 0;
     for (items) |value, i| {
         assert(@typeOf(i) == usize);
-        sum2 += i32(i);
+        sum2 += @intCast(i32, i);
     }
     assert(sum2 == 10);
 }
@@ -2797,39 +2818,30 @@ fn foo() void { }
       {#code_end#}
       {#header_open|Pass-by-value Parameters#}
       <p>
-      In Zig, structs, unions, and enums with payloads cannot be passed by value
-      to a function.
-      </p>
-      {#code_begin|test_err|not copyable; cannot pass by value#}
-const Foo = struct {
-    x: i32,
-};
-
-fn bar(foo: Foo) void {}
-
-test "pass aggregate type by value to function" {
-    bar(Foo {.x = 12,});
-}
-      {#code_end#}
-      <p>
-      Instead, one must use <code>*const</code>. Zig allows implicitly casting something
-      to a const pointer to it:
+      In Zig, structs, unions, and enums with payloads can be passed directly to a function:
       </p>
       {#code_begin|test#}
-const Foo = struct {
+const Point = struct {
     x: i32,
+    y: i32,
 };
 
-fn bar(foo: *const Foo) void {}
+fn foo(point: Point) i32 {
+    return point.x + point.y;
+}
 
-test "implicitly cast to const pointer" {
-    bar(Foo {.x = 12,});
+const assert = @import("std").debug.assert;
+
+test "pass aggregate type by non-copy value to function" {
+    assert(foo(Point{ .x = 1, .y = 2 }) == 3);
 }
       {#code_end#}
       <p>
-      However,
-      the C ABI does allow passing structs and unions by value. So functions which
-      use the C calling convention may pass structs and unions by value.
+      In this case, the value may be passed by reference, or by value, whichever way
+      Zig decides will be faster.
+      </p>
+      <p>
+      For extern functions, Zig follows the C ABI for passing structs and unions by value.
       </p>
       {#header_close#}
       {#header_open|Function Reflection#}
@@ -3539,13 +3551,91 @@ const optional_value: ?i32 = null;
       <p>TODO: ptrcast builtin</p>
       <p>TODO: explain number literals vs concrete types</p>
       {#header_close#}
+
       {#header_open|void#}
-      <p>TODO: assigning void has no codegen</p>
-      <p>TODO: hashmap with void becomes a set</p>
-      <p>TODO: difference between c_void and void</p>
-      <p>TODO: void is the default return value of functions</p>
-      <p>TODO: functions require assigning the return value</p>
+      <p>
+      <code>void</code> represents a type that has no value. Code that makes use of void values is
+      not included in the final generated code:
+      </p>
+      {#code_begin|syntax#}
+export fn entry() void {
+    var x: void = {};
+    var y: void = {};
+    x = y;
+}
+      {#code_end#}
+      <p>When this turns into LLVM IR, there is no code generated in the body of <code>entry</code>,
+      even in debug mode. For example, on x86_64:</p>
+      <pre><code>0000000000000010 &lt;entry&gt;:
+  10:	55                   	push   %rbp
+  11:	48 89 e5             	mov    %rsp,%rbp
+  14:	5d                   	pop    %rbp
+  15:	c3                   	retq   </code></pre>
+      <p>These assembly instructions do not have any code associated with the void values -
+      they only perform the function call prologue and epilog.</p>
+      <p>
+      <code>void</code> can be useful for instantiating generic types. For example, given a
+      <code>Map(Key, Value)</code>, one can pass <code>void</code> for the <code>Value</code>
+      type to make it into a <code>Set</code>:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "turn HashMap into a set with void" {
+    var map = std.HashMap(i32, void, hash_i32, eql_i32).init(std.debug.global_allocator);
+    defer map.deinit();
+
+    _ = try map.put(1, {});
+    _ = try map.put(2, {});
+
+    assert(map.contains(2));
+    assert(!map.contains(3));
+
+    _ = map.remove(2);
+    assert(!map.contains(2));
+}
+
+fn hash_i32(x: i32) u32 {
+    return @bitCast(u32, x);
+}
+
+fn eql_i32(a: i32, b: i32) bool {
+    return a == b;
+}
+      {#code_end#}
+      <p>Note that this is different than using a dummy value for the hash map value.
+      By using <code>void</code> as the type of the value, the hash map entry type has no value field, and
+      thus the hash map takes up less space. Further, all the code that deals with storing and loading the
+      value is deleted, as seen above.
+      </p>
+      <p>
+      <code>void</code> is distinct from <code>c_void</code>, which is defined like this:
+      <code>pub const c_void = @OpaqueType();</code>.
+      <code>void</code> has a known size of 0 bytes, and <code>c_void</code> has an unknown, but non-zero, size.
+      </p>
+      <p>
+      Expressions of type <code>void</code> are the only ones whose value can be ignored. For example:
+      </p>
+      {#code_begin|test_err|expression value is ignored#}
+test "ignoring expression value" {
+    foo();
+}
+
+fn foo() i32 {
+    return 1234;
+}
+      {#code_end#}
+      <p>However, if the expression has type <code>void</code>:</p>
+      {#code_begin|test#}
+test "ignoring expression value" {
+    foo();
+}
+
+fn foo() void {}
+      {#code_end#}
       {#header_close#}
+
       {#header_open|this#}
       <p>TODO: example of this referring to Self struct</p>
       <p>TODO: example of this referring to recursion function</p>
@@ -4548,6 +4638,19 @@ comptime {
       </p>
       {#see_also|Alignment#}
       {#header_close#}
+
+      {#header_open|@boolToInt#}
+      <pre><code class="zig">@boolToInt(value: bool) u1</code></pre>
+      <p>
+      Converts <code>true</code> to <code>u1(1)</code> and <code>false</code> to
+      <code>u1(0)</code>.
+      </p>
+      <p>
+      If the value is known at compile-time, the return type is <code>comptime_int</code>
+      instead of <code>u1</code>.
+      </p>
+      {#header_close#}
+
       {#header_open|@cDefine#}
       <pre><code class="zig">@cDefine(comptime name: []u8, value)</code></pre>
       <p>
@@ -4822,21 +4925,6 @@ test "main" {
       Creates a symbol in the output object file.
       </p>
       {#header_close#}
-      {#header_open|@tagName#}
-      <pre><code class="zig">@tagName(value: var) []const u8</code></pre>
-      <p>
-      Converts an enum value or union value to a slice of bytes representing the name.
-      </p>
-      {#header_close#}
-      {#header_open|@TagType#}
-      <pre><code class="zig">@TagType(T: type) type</code></pre>
-      <p>
-      For an enum, returns the integer type that is used to store the enumeration value.
-      </p>
-      <p>
-      For a union, returns the enum type that is used to store the tag value.
-      </p>
-      {#header_close#}
       {#header_open|@errorName#}
       <pre><code class="zig">@errorName(err: error) []u8</code></pre>
       <p>
@@ -4871,6 +4959,12 @@ test "main" {
       </p>
       {#see_also|Compile Variables#}
       {#header_close#}
+
+      {#header_open|@field#}
+      <pre><code class="zig">@field(lhs: var, comptime field_name: []const u8) (field)</code></pre>
+      <p>Preforms field access equivalent to <code>lhs.-&gtfield_name-&lt</code>.</p>
+      {#header_close#}
+
       {#header_open|@fieldParentPtr#}
       <pre><code class="zig">@fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8,
     field_ptr: *T) *ParentType</code></pre>
@@ -4878,6 +4972,23 @@ test "main" {
       Given a pointer to a field, returns the base pointer of a struct.
       </p>
       {#header_close#}
+
+      {#header_open|@floatCast#}
+      <pre><code class="zig">@floatCast(comptime DestType: type, value: var) DestType</code></pre>
+      <p>
+      Convert from one float type to another. This cast is safe, but may cause the
+      numeric value to lose precision.
+      </p>
+      {#header_close#}
+
+      {#header_open|@floatToInt#}
+      <pre><code class="zig">@floatToInt(comptime DestType: type, float: var) DestType</code></pre>
+      <p>
+      Converts the integer part of a floating point number to the destination type.
+      To convert the other way, use {#link|@intToFloat#}. This cast is always safe.
+      </p>
+      {#header_close#}
+
       {#header_open|@frameAddress#}
       <pre><code class="zig">@frameAddress()</code></pre>
       <p>
@@ -4932,12 +5043,30 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       {#see_also|@noInlineCall#}
       {#header_close#}
+
+      {#header_open|@intCast#}
+      <pre><code class="zig">@intCast(comptime DestType: type, int: var) DestType</code></pre>
+      <p>
+      Converts an integer to another integer while keeping the same numerical value.
+      Attempting to convert a number which is out of range of the destination type results in
+      {#link|Undefined Behavior#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|@intToFloat#}
+      <pre><code class="zig">@intToFloat(comptime DestType: type, int: var) DestType</code></pre>
+      <p>
+      Converts an integer to the closest floating point representation. To convert the other way, use {#link|@floatToInt#}. This cast is always safe.
+      </p>
+      {#header_close#}
+
       {#header_open|@intToPtr#}
       <pre><code class="zig">@intToPtr(comptime DestType: type, int: usize) DestType</code></pre>
       <p>
       Converts an integer to a pointer. To convert the other way, use {#link|@ptrToInt#}.
       </p>
       {#header_close#}
+
       {#header_open|@IntType#}
       <pre><code class="zig">@IntType(comptime is_signed: bool, comptime bit_count: u8) type</code></pre>
       <p>
@@ -4974,10 +5103,6 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       <p>
       It does not include functions, variables, or constants.
       </p>
-      {#header_close#}
-      {#header_open|@field#}
-      <pre><code class="zig">@field(lhs: var, comptime field_name: []const u8) (field)</code></pre>
-      <p>Preforms field access equivalent to <code>lhs.-&gtfield_name-&lt</code>.</p>
       {#header_close#}
       {#header_open|@memberType#}
       <pre><code class="zig">@memberType(comptime T: type, comptime index: usize) type</code></pre>
@@ -5358,6 +5483,21 @@ pub const FloatMode = enum {
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
       {#header_close#}
+      {#header_open|@tagName#}
+      <pre><code class="zig">@tagName(value: var) []const u8</code></pre>
+      <p>
+      Converts an enum value or union value to a slice of bytes representing the name.
+      </p>
+      {#header_close#}
+      {#header_open|@TagType#}
+      <pre><code class="zig">@TagType(T: type) type</code></pre>
+      <p>
+      For an enum, returns the integer type that is used to store the enumeration value.
+      </p>
+      <p>
+      For a union, returns the enum type that is used to store the tag value.
+      </p>
+      {#header_close#}
       {#header_open|@truncate#}
       <pre><code class="zig">@truncate(comptime T: type, integer) T</code></pre>
       <p>
@@ -5718,7 +5858,7 @@ comptime {
       {#code_begin|test_err|attempt to cast negative value to unsigned integer#}
 comptime {
     const value: i32 = -1;
-    const unsigned = u32(value);
+    const unsigned = @intCast(u32, value);
 }
       {#code_end#}
       <p>At runtime crashes with the message <code>attempt to cast negative value to unsigned integer</code> and a stack trace.</p>
@@ -5732,7 +5872,7 @@ comptime {
       {#code_begin|test_err|cast from 'u16' to 'u8' truncates bits#}
 comptime {
     const spartan_count: u16 = 300;
-    const byte = u8(spartan_count);
+    const byte = @intCast(u8, spartan_count);
 }
       {#code_end#}
       <p>At runtime crashes with the message <code>integer cast truncated bits</code> and a stack trace.</p>
@@ -6653,7 +6793,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong resume cancel await async orelse",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

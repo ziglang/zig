@@ -14,12 +14,12 @@ pub const epoch = @import("epoch.zig");
 pub fn sleep(seconds: usize, nanoseconds: usize) void {
     switch (builtin.os) {
         Os.linux, Os.macosx, Os.ios => {
-            posixSleep(u63(seconds), u63(nanoseconds));
+            posixSleep(@intCast(u63, seconds), @intCast(u63, nanoseconds));
         },
         Os.windows => {
             const ns_per_ms = ns_per_s / ms_per_s;
             const milliseconds = seconds * ms_per_s + nanoseconds / ns_per_ms;
-            windows.Sleep(windows.DWORD(milliseconds));
+            windows.Sleep(@intCast(windows.DWORD, milliseconds));
         },
         else => @compileError("Unsupported OS"),
     }
@@ -83,8 +83,8 @@ fn milliTimestampDarwin() u64 {
     var tv: darwin.timeval = undefined;
     var err = darwin.gettimeofday(&tv, null);
     debug.assert(err == 0);
-    const sec_ms = u64(tv.tv_sec) * ms_per_s;
-    const usec_ms = @divFloor(u64(tv.tv_usec), us_per_s / ms_per_s);
+    const sec_ms = @intCast(u64, tv.tv_sec) * ms_per_s;
+    const usec_ms = @divFloor(@intCast(u64, tv.tv_usec), us_per_s / ms_per_s);
     return u64(sec_ms) + u64(usec_ms);
 }
 
@@ -95,8 +95,8 @@ fn milliTimestampPosix() u64 {
     var ts: posix.timespec = undefined;
     const err = posix.clock_gettime(posix.CLOCK_REALTIME, &ts);
     debug.assert(err == 0);
-    const sec_ms = u64(ts.tv_sec) * ms_per_s;
-    const nsec_ms = @divFloor(u64(ts.tv_nsec), ns_per_s / ms_per_s);
+    const sec_ms = @intCast(u64, ts.tv_sec) * ms_per_s;
+    const nsec_ms = @divFloor(@intCast(u64, ts.tv_nsec), ns_per_s / ms_per_s);
     return sec_ms + nsec_ms;
 }
 
@@ -162,13 +162,13 @@ pub const Timer = struct {
                 var freq: i64 = undefined;
                 var err = windows.QueryPerformanceFrequency(&freq);
                 if (err == windows.FALSE) return error.TimerUnsupported;
-                self.frequency = u64(freq);
+                self.frequency = @intCast(u64, freq);
                 self.resolution = @divFloor(ns_per_s, self.frequency);
 
                 var start_time: i64 = undefined;
                 err = windows.QueryPerformanceCounter(&start_time);
                 debug.assert(err != windows.FALSE);
-                self.start_time = u64(start_time);
+                self.start_time = @intCast(u64, start_time);
             },
             Os.linux => {
                 //On Linux, seccomp can do arbitrary things to our ability to call
@@ -184,12 +184,12 @@ pub const Timer = struct {
                     posix.EINVAL => return error.TimerUnsupported,
                     else => return std.os.unexpectedErrorPosix(errno),
                 }
-                self.resolution = u64(ts.tv_sec) * u64(ns_per_s) + u64(ts.tv_nsec);
+                self.resolution = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
 
                 result = posix.clock_gettime(monotonic_clock_id, &ts);
                 errno = posix.getErrno(result);
                 if (errno != 0) return std.os.unexpectedErrorPosix(errno);
-                self.start_time = u64(ts.tv_sec) * u64(ns_per_s) + u64(ts.tv_nsec);
+                self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
             },
             Os.macosx, Os.ios => {
                 darwin.mach_timebase_info(&self.frequency);
@@ -236,7 +236,7 @@ pub const Timer = struct {
         var result: i64 = undefined;
         var err = windows.QueryPerformanceCounter(&result);
         debug.assert(err != windows.FALSE);
-        return u64(result);
+        return @intCast(u64, result);
     }
 
     fn clockDarwin() u64 {
@@ -247,7 +247,7 @@ pub const Timer = struct {
         var ts: posix.timespec = undefined;
         var result = posix.clock_gettime(monotonic_clock_id, &ts);
         debug.assert(posix.getErrno(result) == 0);
-        return u64(ts.tv_sec) * u64(ns_per_s) + u64(ts.tv_nsec);
+        return @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
     }
 };
 

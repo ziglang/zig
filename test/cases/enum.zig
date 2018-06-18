@@ -99,7 +99,7 @@ test "int to enum" {
     testIntToEnumEval(3);
 }
 fn testIntToEnumEval(x: i32) void {
-    assert(IntToEnumNumber(u3(x)) == IntToEnumNumber.Three);
+    assert(IntToEnumNumber(@intCast(u3, x)) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum {
     Zero,

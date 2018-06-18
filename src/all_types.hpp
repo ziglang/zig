@@ -1357,6 +1357,11 @@ enum BuiltinFnId {
     BuiltinFnIdMod,
     BuiltinFnIdSqrt,
     BuiltinFnIdTruncate,
+    BuiltinFnIdIntCast,
+    BuiltinFnIdFloatCast,
+    BuiltinFnIdIntToFloat,
+    BuiltinFnIdFloatToInt,
+    BuiltinFnIdBoolToInt,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
@@ -2038,6 +2043,11 @@ enum IrInstructionId {
     IrInstructionIdCmpxchg,
     IrInstructionIdFence,
     IrInstructionIdTruncate,
+    IrInstructionIdIntCast,
+    IrInstructionIdFloatCast,
+    IrInstructionIdIntToFloat,
+    IrInstructionIdFloatToInt,
+    IrInstructionIdBoolToInt,
     IrInstructionIdIntType,
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
@@ -2627,6 +2637,40 @@ struct IrInstructionTruncate {
     IrInstruction base;
 
     IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionIntCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionFloatCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionIntToFloat {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionFloatToInt {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionBoolToInt {
+    IrInstruction base;
+
     IrInstruction *target;
 };
 
