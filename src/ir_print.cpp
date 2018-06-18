@@ -672,6 +672,20 @@ static void ir_print_err_set_cast(IrPrint *irp, IrInstructionErrSetCast *instruc
     fprintf(irp->f, ")");
 }
 
+static void ir_print_from_bytes(IrPrint *irp, IrInstructionFromBytes *instruction) {
+    fprintf(irp->f, "@bytesToSlice(");
+    ir_print_other_instruction(irp, instruction->dest_child_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_to_bytes(IrPrint *irp, IrInstructionToBytes *instruction) {
+    fprintf(irp->f, "@sliceToBytes(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_to_float(IrPrint *irp, IrInstructionIntToFloat *instruction) {
     fprintf(irp->f, "@intToFloat(");
     ir_print_other_instruction(irp, instruction->dest_type);
@@ -1471,6 +1485,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdErrSetCast:
             ir_print_err_set_cast(irp, (IrInstructionErrSetCast *)instruction);
+            break;
+        case IrInstructionIdFromBytes:
+            ir_print_from_bytes(irp, (IrInstructionFromBytes *)instruction);
+            break;
+        case IrInstructionIdToBytes:
+            ir_print_to_bytes(irp, (IrInstructionToBytes *)instruction);
             break;
         case IrInstructionIdIntToFloat:
             ir_print_int_to_float(irp, (IrInstructionIntToFloat *)instruction);

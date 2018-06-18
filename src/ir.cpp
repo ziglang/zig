@@ -472,6 +472,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionErrSetCast *) {
     return IrInstructionIdErrSetCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionToBytes *) {
+    return IrInstructionIdToBytes;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFromBytes *) {
+    return IrInstructionIdFromBytes;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToFloat *) {
     return IrInstructionIdIntToFloat;
 }
@@ -1951,6 +1959,26 @@ static IrInstruction *ir_build_err_set_cast(IrBuilder *irb, Scope *scope, AstNod
     instruction->target = target;
 
     ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_to_bytes(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *target) {
+    IrInstructionToBytes *instruction = ir_build_instruction<IrInstructionToBytes>(irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_from_bytes(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_child_type, IrInstruction *target) {
+    IrInstructionFromBytes *instruction = ir_build_instruction<IrInstructionFromBytes>(irb, scope, source_node);
+    instruction->dest_child_type = dest_child_type;
+    instruction->target = target;
+
+    ir_ref_instruction(dest_child_type, irb->current_basic_block);
     ir_ref_instruction(target, irb->current_basic_block);
 
     return &instruction->base;
@@ -4082,6 +4110,31 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_err_set_cast(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdFromBytes:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_from_bytes(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdToBytes:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                IrInstruction *result = ir_build_to_bytes(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, result, lval);
             }
         case BuiltinFnIdIntToFloat:
@@ -9103,11 +9156,6 @@ static bool is_container(TypeTableEntry *type) {
         type->id == TypeTableEntryIdUnion;
 }
 
-static bool is_u8(TypeTableEntry *type) {
-    return type->id == TypeTableEntryIdInt &&
-        !type->data.integral.is_signed && type->data.integral.bit_count == 8;
-}
-
 static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrInstruction *ref_old_instruction) {
     assert(old_bb);
 
@@ -9661,6 +9709,8 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     IrInstruction *result = ir_build_slice(&ira->new_irb, source_instr->scope,
             source_instr->source_node, array_ptr, start, end, false);
     result->value.type = wanted_type;
+    result->value.data.rh_slice.id = RuntimeHintSliceIdLen;
+    result->value.data.rh_slice.len = array_type->data.array.len;
     ir_add_alloca(ira, result, result->value.type);
 
     return result;
@@ -10103,7 +10153,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ira->codegen->invalid_instruction;
     }
 
-    // explicit match or non-const to const
+    // perfect match or non-const to const
     if (types_match_const_cast_only(ira, wanted_type, actual_type, source_node, false).id == ConstCastResultIdOk) {
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop, false);
     }
@@ -10211,52 +10261,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
 
             return cast2;
-        }
-    }
-
-    // explicit cast from []T to []u8 or []u8 to []T
-    if (is_slice(wanted_type) && is_slice(actual_type)) {
-        TypeTableEntry *wanted_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
-        TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
-        if ((is_u8(wanted_ptr_type->data.pointer.child_type) || is_u8(actual_ptr_type->data.pointer.child_type)) &&
-            (wanted_ptr_type->data.pointer.is_const || !actual_ptr_type->data.pointer.is_const))
-        {
-            uint32_t src_align_bytes = get_ptr_align(actual_ptr_type);
-            uint32_t dest_align_bytes = get_ptr_align(wanted_ptr_type);
-
-            if (dest_align_bytes > src_align_bytes) {
-                ErrorMsg *msg = ir_add_error(ira, source_instr,
-                        buf_sprintf("cast increases pointer alignment"));
-                add_error_note(ira->codegen, msg, source_instr->source_node,
-                        buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&actual_type->name), src_align_bytes));
-                add_error_note(ira->codegen, msg, source_instr->source_node,
-                        buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&wanted_type->name), dest_align_bytes));
-                return ira->codegen->invalid_instruction;
-            }
-
-            if (!ir_emit_global_runtime_side_effect(ira, source_instr))
-                return ira->codegen->invalid_instruction;
-            return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpResizeSlice, true);
-        }
-    }
-
-    // explicit cast from [N]u8 to []const T
-    if (is_slice(wanted_type) &&
-        wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const &&
-        actual_type->id == TypeTableEntryIdArray &&
-        is_u8(actual_type->data.array.child_type))
-    {
-        if (!ir_emit_global_runtime_side_effect(ira, source_instr))
-            return ira->codegen->invalid_instruction;
-        uint64_t child_type_size = type_size(ira->codegen,
-                wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type);
-        if (actual_type->data.array.len % child_type_size == 0) {
-            return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpBytesToSlice, true);
-        } else {
-            ir_add_error_node(ira, source_instr->source_node,
-                    buf_sprintf("unable to convert %s to %s: size mismatch",
-                        buf_ptr(&actual_type->name), buf_ptr(&wanted_type->name)));
-            return ira->codegen->invalid_instruction;
         }
     }
 
@@ -17644,6 +17648,109 @@ static TypeTableEntry *ir_analyze_instruction_err_set_cast(IrAnalyze *ira, IrIns
     return dest_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstructionFromBytes *instruction) {
+    TypeTableEntry *dest_child_type = ir_resolve_type(ira, instruction->dest_child_type->other);
+    if (type_is_invalid(dest_child_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    bool src_ptr_const;
+    bool src_ptr_volatile;
+    uint32_t src_ptr_align;
+    if (target->value.type->id == TypeTableEntryIdPointer) {
+        src_ptr_const = target->value.type->data.pointer.is_const;
+        src_ptr_volatile = target->value.type->data.pointer.is_volatile;
+        src_ptr_align = target->value.type->data.pointer.alignment;
+    } else if (is_slice(target->value.type)) {
+        TypeTableEntry *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+        src_ptr_const = src_ptr_type->data.pointer.is_const;
+        src_ptr_volatile = src_ptr_type->data.pointer.is_volatile;
+        src_ptr_align = src_ptr_type->data.pointer.alignment;
+    } else {
+        src_ptr_const = true;
+        src_ptr_volatile = false;
+        src_ptr_align = get_abi_alignment(ira->codegen, target->value.type);
+    }
+
+    TypeTableEntry *dest_ptr_type = get_pointer_to_type_extra(ira->codegen, dest_child_type,
+            src_ptr_const, src_ptr_volatile, PtrLenUnknown,
+            src_ptr_align, 0, 0);
+    TypeTableEntry *dest_slice_type = get_slice_type(ira->codegen, dest_ptr_type);
+
+    TypeTableEntry *u8_ptr = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
+            src_ptr_const, src_ptr_volatile, PtrLenUnknown,
+            src_ptr_align, 0, 0);
+    TypeTableEntry *u8_slice = get_slice_type(ira->codegen, u8_ptr);
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, target, u8_slice);
+    if (type_is_invalid(casted_value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    bool have_known_len = false;
+    uint64_t known_len;
+
+    if (instr_is_comptime(casted_value)) {
+        ConstExprValue *val = ir_resolve_const(ira, casted_value, UndefBad);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *len_val = &val->data.x_struct.fields[slice_len_index];
+        if (value_is_comptime(len_val)) {
+            known_len = bigint_as_unsigned(&len_val->data.x_bigint);
+            have_known_len = true;
+        }
+    }
+
+    if (casted_value->value.data.rh_slice.id == RuntimeHintSliceIdLen) {
+        known_len = casted_value->value.data.rh_slice.len;
+        have_known_len = true;
+    }
+
+    if (have_known_len) {
+        uint64_t child_type_size = type_size(ira->codegen, dest_child_type);
+        uint64_t remainder = known_len % child_type_size;
+        if (remainder != 0) {
+            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+                    buf_sprintf("unable to convert [%" ZIG_PRI_u64 "]u8 to %s: size mismatch",
+                        known_len, buf_ptr(&dest_slice_type->name)));
+            add_error_note(ira->codegen, msg, instruction->dest_child_type->source_node,
+                buf_sprintf("%s has size %" ZIG_PRI_u64 "; remaining bytes: %" ZIG_PRI_u64,
+                buf_ptr(&dest_child_type->name), child_type_size, remainder));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    }
+
+    IrInstruction *result = ir_resolve_cast(ira, &instruction->base, casted_value, dest_slice_type, CastOpResizeSlice, true);
+    ir_link_new_instruction(result, &instruction->base);
+    return dest_slice_type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstructionToBytes *instruction) {
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (!is_slice(target->value.type)) {
+        ir_add_error(ira, instruction->target,
+                buf_sprintf("expected slice, found '%s'", buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+
+    TypeTableEntry *dest_ptr_type = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
+            src_ptr_type->data.pointer.is_const, src_ptr_type->data.pointer.is_volatile, PtrLenUnknown,
+            src_ptr_type->data.pointer.alignment, 0, 0);
+    TypeTableEntry *dest_slice_type = get_slice_type(ira->codegen, dest_ptr_type);
+
+    IrInstruction *result = ir_resolve_cast(ira, &instruction->base, target, dest_slice_type, CastOpResizeSlice, true);
+    ir_link_new_instruction(result, &instruction->base);
+    return dest_slice_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_int_to_float(IrAnalyze *ira, IrInstructionIntToFloat *instruction) {
     TypeTableEntry *dest_type = ir_resolve_type(ira, instruction->dest_type->other);
     if (type_is_invalid(dest_type))
@@ -20246,6 +20353,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_float_cast(ira, (IrInstructionFloatCast *)instruction);
         case IrInstructionIdErrSetCast:
             return ir_analyze_instruction_err_set_cast(ira, (IrInstructionErrSetCast *)instruction);
+        case IrInstructionIdFromBytes:
+            return ir_analyze_instruction_from_bytes(ira, (IrInstructionFromBytes *)instruction);
+        case IrInstructionIdToBytes:
+            return ir_analyze_instruction_to_bytes(ira, (IrInstructionToBytes *)instruction);
         case IrInstructionIdIntToFloat:
             return ir_analyze_instruction_int_to_float(ira, (IrInstructionIntToFloat *)instruction);
         case IrInstructionIdFloatToInt:
@@ -20601,6 +20712,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdIntToFloat:
         case IrInstructionIdFloatToInt:
         case IrInstructionIdBoolToInt:
+        case IrInstructionIdFromBytes:
+        case IrInstructionIdToBytes:
             return false;
 
         case IrInstructionIdAsm:

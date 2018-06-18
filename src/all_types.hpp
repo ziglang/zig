@@ -234,6 +234,16 @@ enum RuntimeHintPtr {
     RuntimeHintPtrNonStack,
 };
 
+enum RuntimeHintSliceId {
+    RuntimeHintSliceIdUnknown,
+    RuntimeHintSliceIdLen,
+};
+
+struct RuntimeHintSlice {
+    enum RuntimeHintSliceId id;
+    uint64_t len;
+};
+
 struct ConstGlobalRefs {
     LLVMValueRef llvm_value;
     LLVMValueRef llvm_global;
@@ -270,6 +280,7 @@ struct ConstExprValue {
         RuntimeHintErrorUnion rh_error_union;
         RuntimeHintOptional rh_maybe;
         RuntimeHintPtr rh_ptr;
+        RuntimeHintSlice rh_slice;
     } data;
 };
 
@@ -1360,6 +1371,8 @@ enum BuiltinFnId {
     BuiltinFnIdIntCast,
     BuiltinFnIdFloatCast,
     BuiltinFnIdErrSetCast,
+    BuiltinFnIdToBytes,
+    BuiltinFnIdFromBytes,
     BuiltinFnIdIntToFloat,
     BuiltinFnIdFloatToInt,
     BuiltinFnIdBoolToInt,
@@ -2123,6 +2136,8 @@ enum IrInstructionId {
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdSqrt,
     IrInstructionIdErrSetCast,
+    IrInstructionIdToBytes,
+    IrInstructionIdFromBytes,
 };
 
 struct IrInstruction {
@@ -2662,6 +2677,19 @@ struct IrInstructionErrSetCast {
     IrInstruction base;
 
     IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionToBytes {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionFromBytes {
+    IrInstruction base;
+
+    IrInstruction *dest_child_type;
     IrInstruction *target;
 };
 

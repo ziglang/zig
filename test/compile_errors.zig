@@ -404,10 +404,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Set2 = error {A, C};
         \\comptime {
         \\    var x = Set1.B;
-        \\    var y = Set2(x);
+        \\    var y = @errSetCast(Set2, x);
         \\}
     ,
-        ".tmp_source.zig:5:17: error: error.B not a member of error set 'Set2'",
+        ".tmp_source.zig:5:13: error: error.B not a member of error set 'Set2'",
     );
 
     cases.add(
@@ -2086,10 +2086,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "convert fixed size array to slice with invalid size",
         \\export fn f() void {
         \\    var array: [5]u8 = undefined;
-        \\    var foo = ([]const u32)(array)[0];
+        \\    var foo = @bytesToSlice(u32, array)[0];
         \\}
     ,
-        ".tmp_source.zig:3:28: error: unable to convert [5]u8 to []const u32: size mismatch",
+        ".tmp_source.zig:3:15: error: unable to convert [5]u8 to []align(1) const u32: size mismatch",
+        ".tmp_source.zig:3:29: note: u32 has size 4; remaining bytes: 1",
     );
 
     cases.add(
@@ -3237,18 +3238,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:3:17: error: cast increases pointer alignment",
         ".tmp_source.zig:3:38: note: '*u8' has alignment 1",
         ".tmp_source.zig:3:26: note: '*u32' has alignment 4",
-    );
-
-    cases.add(
-        "increase pointer alignment in slice resize",
-        \\export fn entry() u32 {
-        \\    var bytes = []u8{0x01, 0x02, 0x03, 0x04};
-        \\    return ([]u32)(bytes[0..])[0];
-        \\}
-    ,
-        ".tmp_source.zig:3:19: error: cast increases pointer alignment",
-        ".tmp_source.zig:3:19: note: '[]u8' has alignment 1",
-        ".tmp_source.zig:3:19: note: '[]u32' has alignment 4",
     );
 
     cases.add(

@@ -372,7 +372,7 @@ test "const slice widen cast" {
         0x12,
     };
 
-    const u32_value = ([]const u32)(bytes[0..])[0];
+    const u32_value = @bytesToSlice(u32, bytes[0..])[0];
     assert(u32_value == 0x12121212);
 
     assert(@bitCast(u32, bytes) == 0x12121212);
@@ -419,4 +419,10 @@ test "comptime_int @intToFloat" {
     const result = @intToFloat(f32, 1234);
     assert(@typeOf(result) == f32);
     assert(result == 1234.0);
+}
+
+test "@bytesToSlice keeps pointer alignment" {
+    var bytes = []u8{ 0x01, 0x02, 0x03, 0x04 };
+    const numbers = @bytesToSlice(u32, bytes[0..]);
+    comptime assert(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
 }

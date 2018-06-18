@@ -4728,6 +4728,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdFloatToInt:
         case IrInstructionIdBoolToInt:
         case IrInstructionIdErrSetCast:
+        case IrInstructionIdFromBytes:
+        case IrInstructionIdToBytes:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -6358,6 +6360,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdAtomicRmw, "atomicRmw", 5);
     create_builtin_fn(g, BuiltinFnIdAtomicLoad, "atomicLoad", 3);
     create_builtin_fn(g, BuiltinFnIdErrSetCast, "errSetCast", 2);
+    create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
+    create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
 }
 
 static const char *bool_to_str(bool b) {
