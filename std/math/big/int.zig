@@ -117,7 +117,7 @@ pub const Int = struct {
 
     fn bitcount(self: Int) usize {
         const u_bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
-        return usize(!self.positive) + u_bit_count;
+        return usize(@boolToInt(!self.positive)) + u_bit_count;
     }
 
     pub fn sizeInBase(self: Int, base: usize) usize {
@@ -499,13 +499,13 @@ pub const Int = struct {
 
         while (i < b.len) : (i += 1) {
             var c: Limb = 0;
-            c += Limb(@addWithOverflow(Limb, a[i], b[i], &r[i]));
-            c += Limb(@addWithOverflow(Limb, r[i], carry, &r[i]));
+            c += @boolToInt(@addWithOverflow(Limb, a[i], b[i], &r[i]));
+            c += @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
             carry = c;
         }
 
         while (i < a.len) : (i += 1) {
-            carry = Limb(@addWithOverflow(Limb, a[i], carry, &r[i]));
+            carry = @boolToInt(@addWithOverflow(Limb, a[i], carry, &r[i]));
         }
 
         r[i] = carry;
@@ -577,13 +577,13 @@ pub const Int = struct {
 
         while (i < b.len) : (i += 1) {
             var c: Limb = 0;
-            c += Limb(@subWithOverflow(Limb, a[i], b[i], &r[i]));
-            c += Limb(@subWithOverflow(Limb, r[i], borrow, &r[i]));
+            c += @boolToInt(@subWithOverflow(Limb, a[i], b[i], &r[i]));
+            c += @boolToInt(@subWithOverflow(Limb, r[i], borrow, &r[i]));
             borrow = c;
         }
 
         while (i < a.len) : (i += 1) {
-            borrow = Limb(@subWithOverflow(Limb, a[i], borrow, &r[i]));
+            borrow = @boolToInt(@subWithOverflow(Limb, a[i], borrow, &r[i]));
         }
 
         debug.assert(borrow == 0);
@@ -624,7 +624,7 @@ pub const Int = struct {
         var r1: Limb = undefined;
 
         // r1 = a + *carry
-        const c1 = Limb(@addWithOverflow(Limb, a, carry.*, &r1));
+        const c1: Limb = @boolToInt(@addWithOverflow(Limb, a, carry.*, &r1));
 
         // r2 = b * c
         //
@@ -639,7 +639,7 @@ pub const Int = struct {
         const c2 = @truncate(Limb, bc >> Limb.bit_count);
 
         // r1 = r1 + r2
-        const c3 = Limb(@addWithOverflow(Limb, r1, r2, &r1));
+        const c3: Limb = @boolToInt(@addWithOverflow(Limb, r1, r2, &r1));
 
         // This never overflows, c1, c3 are either 0 or 1 and if both are 1 then
         // c2 is at least <= @maxValue(Limb) - 2.

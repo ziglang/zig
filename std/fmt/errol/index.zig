@@ -329,7 +329,7 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
     var mi: i32 = mismatch10(l64, h64);
     var x: u64 = 1;
     {
-        var i = i32(lf == hf);
+        var i: i32 = @boolToInt(lf == hf);
         while (i < mi) : (i += 1) {
             x *= 10;
         }
@@ -341,7 +341,7 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
     var buf_index = u64toa(m64, buffer) - 1;
 
     if (mi != 0) {
-        buffer[buf_index - 1] += u8(buffer[buf_index] >= '5');
+        buffer[buf_index - 1] += @boolToInt(buffer[buf_index] >= '5');
     } else {
         buf_index += 1;
     }

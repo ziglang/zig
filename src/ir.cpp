@@ -476,6 +476,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFloatToInt *) {
     return IrInstructionIdFloatToInt;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBoolToInt *) {
+    return IrInstructionIdBoolToInt;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionIntType *) {
     return IrInstructionIdIntType;
 }
@@ -1954,6 +1958,15 @@ static IrInstruction *ir_build_float_to_int(IrBuilder *irb, Scope *scope, AstNod
     instruction->target = target;
 
     ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_bool_to_int(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *target) {
+    IrInstructionBoolToInt *instruction = ir_build_instruction<IrInstructionBoolToInt>(irb, scope, source_node);
+    instruction->target = target;
+
     ir_ref_instruction(target, irb->current_basic_block);
 
     return &instruction->base;
@@ -4069,6 +4082,16 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_float_to_int(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdBoolToInt:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                IrInstruction *result = ir_build_bool_to_int(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, result, lval);
             }
         case BuiltinFnIdIntType:
@@ -10053,13 +10076,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // explicit match or non-const to const
     if (types_match_const_cast_only(ira, wanted_type, actual_type, source_node, false).id == ConstCastResultIdOk) {
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop, false);
-    }
-
-    // explicit cast from bool to int
-    if (wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdBool)
-    {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpBoolToInt, false);
     }
 
     // explicit widening conversion
@@ -17605,6 +17621,33 @@ static TypeTableEntry *ir_analyze_instruction_float_to_int(IrAnalyze *ira, IrIns
     return dest_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_bool_to_int(IrAnalyze *ira, IrInstructionBoolToInt *instruction) {
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (target->value.type->id != TypeTableEntryIdBool) {
+        ir_add_error(ira, instruction->target, buf_sprintf("expected bool, found '%s'",
+                    buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(target)) {
+        bool is_true;
+        if (!ir_resolve_bool(ira, target, &is_true))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        bigint_init_unsigned(&out_val->data.x_bigint, is_true ? 1 : 0);
+        return ira->codegen->builtin_types.entry_num_lit_int;
+    }
+
+    TypeTableEntry *u1_type = get_int_type(ira->codegen, false, 1);
+    IrInstruction *result = ir_resolve_cast(ira, &instruction->base, target, u1_type, CastOpBoolToInt, false);
+    ir_link_new_instruction(result, &instruction->base);
+    return u1_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstructionIntType *instruction) {
     IrInstruction *is_signed_value = instruction->is_signed->other;
     bool is_signed;
@@ -20143,6 +20186,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_to_float(ira, (IrInstructionIntToFloat *)instruction);
         case IrInstructionIdFloatToInt:
             return ir_analyze_instruction_float_to_int(ira, (IrInstructionFloatToInt *)instruction);
+        case IrInstructionIdBoolToInt:
+            return ir_analyze_instruction_bool_to_int(ira, (IrInstructionBoolToInt *)instruction);
         case IrInstructionIdIntType:
             return ir_analyze_instruction_int_type(ira, (IrInstructionIntType *)instruction);
         case IrInstructionIdBoolNot:
@@ -20490,6 +20535,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFloatCast:
         case IrInstructionIdIntToFloat:
         case IrInstructionIdFloatToInt:
+        case IrInstructionIdBoolToInt:
             return false;
 
         case IrInstructionIdAsm:

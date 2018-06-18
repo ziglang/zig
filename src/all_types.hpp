@@ -1361,6 +1361,7 @@ enum BuiltinFnId {
     BuiltinFnIdFloatCast,
     BuiltinFnIdIntToFloat,
     BuiltinFnIdFloatToInt,
+    BuiltinFnIdBoolToInt,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
@@ -2048,6 +2049,7 @@ enum IrInstructionId {
     IrInstructionIdFloatCast,
     IrInstructionIdIntToFloat,
     IrInstructionIdFloatToInt,
+    IrInstructionIdBoolToInt,
     IrInstructionIdIntType,
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
@@ -2665,6 +2667,12 @@ struct IrInstructionFloatToInt {
     IrInstruction base;
 
     IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionBoolToInt {
+    IrInstruction base;
+
     IrInstruction *target;
 };
 
