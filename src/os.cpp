@@ -1004,10 +1004,10 @@ int os_self_exe_path(Buf *out_path) {
     // Resolve the real path from that.
     buf_resize(out_path, PATH_MAX);
     char *real_path = realpath(buf_ptr(tmp), buf_ptr(out_path));
-    assert(real_path == buf_ptr(out_path));
-
-    // Deallocate our scratch space.
-    buf_deinit(tmp);
+    if (!real_path) {
+        buf_init_from_buf(out_path, tmp);
+        return 0;
+    }
 
     // Resize out_path for the correct length.
     buf_resize(out_path, strlen(buf_ptr(out_path)));
