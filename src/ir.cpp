@@ -18676,6 +18676,11 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
     fn_type_id.return_type = ir_resolve_type(ira, return_type_value);
     if (type_is_invalid(fn_type_id.return_type))
         return ira->codegen->builtin_types.entry_invalid;
+    if (fn_type_id.return_type->id == TypeTableEntryIdOpaque) {
+        ir_add_error(ira, instruction->return_type,
+            buf_sprintf("return type cannot be opaque"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
     if (fn_type_id.cc == CallingConventionAsync) {
         if (instruction->async_allocator_type_value == nullptr) {

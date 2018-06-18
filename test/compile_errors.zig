@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "use c_void as return type of fn ptr",
+        \\export fn entry() void {
+        \\    const a: fn () c_void = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:20: error: return type cannot be opaque",
+    );
+
+    cases.add(
         "non int passed to @intToFloat",
         \\export fn entry() void {
         \\    const x = @intToFloat(f32, 1.1);
@@ -9,6 +18,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
     );
+
     cases.add(
         "use implicit casts to assign null to non-nullable pointer",
         \\export fn entry() void {

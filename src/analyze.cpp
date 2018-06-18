@@ -1022,6 +1022,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         ensure_complete_type(g, fn_type_id->return_type);
         if (type_is_invalid(fn_type_id->return_type))
             return g->builtin_types.entry_invalid;
+        assert(fn_type_id->return_type->id != TypeTableEntryIdOpaque);
     } else {
         zig_panic("TODO implement inferred return types https://github.com/ziglang/zig/issues/447");
     }
