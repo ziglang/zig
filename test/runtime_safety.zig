@@ -1,6 +1,45 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("@floatToInt cannot fit - negative to unsigned",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    baz(bar(-1.1));
+        \\}
+        \\fn bar(a: f32) u8 {
+        \\    return @floatToInt(u8, a);
+        \\}
+        \\fn baz(a: u8) void { }
+    );
+
+    cases.addRuntimeSafety("@floatToInt cannot fit - negative out of range",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    baz(bar(-129.1));
+        \\}
+        \\fn bar(a: f32) i8 {
+        \\    return @floatToInt(i8, a);
+        \\}
+        \\fn baz(a: i8) void { }
+    );
+
+    cases.addRuntimeSafety("@floatToInt cannot fit - positive out of range",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    baz(bar(256.2));
+        \\}
+        \\fn bar(a: f32) u8 {
+        \\    return @floatToInt(u8, a);
+        \\}
+        \\fn baz(a: u8) void { }
+    );
+
     cases.addRuntimeSafety("calling panic",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

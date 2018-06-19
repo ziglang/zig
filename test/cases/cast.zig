@@ -340,11 +340,23 @@ fn testPeerErrorAndArray2(x: u8) error![]const u8 {
     };
 }
 
-test "explicit cast float number literal to integer if no fraction component" {
+test "@floatToInt" {
+    testFloatToInts();
+    comptime testFloatToInts();
+}
+
+fn testFloatToInts() void {
     const x = i32(1e4);
     assert(x == 10000);
     const y = @floatToInt(i32, f32(1e4));
     assert(y == 10000);
+    expectFloatToInt(u8, 255.1, 255);
+    expectFloatToInt(i8, 127.2, 127);
+    expectFloatToInt(i8, -128.2, -128);
+}
+
+fn expectFloatToInt(comptime T: type, f: f32, i: T) void {
+    assert(@floatToInt(T, f) == i);
 }
 
 test "cast u128 to f128 and back" {
@@ -425,4 +437,11 @@ test "@bytesToSlice keeps pointer alignment" {
     var bytes = []u8{ 0x01, 0x02, 0x03, 0x04 };
     const numbers = @bytesToSlice(u32, bytes[0..]);
     comptime assert(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
+}
+
+test "@intCast i32 to u7" {
+    var x: u128 = @maxValue(u128);
+    var y: i32 = 120;
+    var z = x >> @intCast(u7, y);
+    assert(z == 0xff);
 }

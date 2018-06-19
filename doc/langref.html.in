@@ -5035,8 +5035,12 @@ test "main" {
       <pre><code class="zig">@floatToInt(comptime DestType: type, float: var) DestType</code></pre>
       <p>
       Converts the integer part of a floating point number to the destination type.
-      To convert the other way, use {#link|@intToFloat#}. This cast is always safe.
       </p>
+      <p>
+      If the integer part of the floating point number cannot fit in the destination type,
+      it invokes safety-checked {#link|Undefined Behavior#}.
+      </p>
+      {#see_also|@intToFloat#}
       {#header_close#}
 
       {#header_open|@frameAddress#}
@@ -6207,7 +6211,10 @@ comptime {
       {#header_close#}
       {#header_open|Wrong Union Field Access#}
       <p>TODO</p>
+      {#header_close#}
 
+      {#header_open|Out of Bounds Float To Integer Cast#}
+      <p>TODO</p>
       {#header_close#}
 
       {#header_close#}

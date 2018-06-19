@@ -1434,6 +1434,7 @@ enum PanicMsgId {
     PanicMsgIdIncorrectAlignment,
     PanicMsgIdBadUnionField,
     PanicMsgIdBadEnumValue,
+    PanicMsgIdFloatToInt,
 
     PanicMsgIdCount,
 };

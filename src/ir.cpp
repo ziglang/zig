@@ -9057,7 +9057,8 @@ static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_
     }
 }
 
-static void eval_const_expr_implicit_cast(CastOp cast_op,
+static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_instr,
+        CastOp cast_op,
         ConstExprValue *other_val, TypeTableEntry *other_type,
         ConstExprValue *const_val, TypeTableEntry *new_type)
 {
@@ -9129,6 +9130,20 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
             }
         case CastOpFloatToInt:
             float_init_bigint(&const_val->data.x_bigint, other_val);
+            if (new_type->id == TypeTableEntryIdInt) {
+                if (!bigint_fits_in_bits(&const_val->data.x_bigint, new_type->data.integral.bit_count,
+                    new_type->data.integral.is_signed))
+                {
+                    Buf *int_buf = buf_alloc();
+                    bigint_append_buf(int_buf, &const_val->data.x_bigint, 10);
+
+                    ir_add_error(ira, source_instr,
+                        buf_sprintf("integer value '%s' cannot be stored in type '%s'",
+                            buf_ptr(int_buf), buf_ptr(&new_type->name)));
+                    return false;
+                }
+            }
+
             const_val->special = ConstValSpecialStatic;
             break;
         case CastOpBoolToInt:
@@ -9136,6 +9151,7 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
             const_val->special = ConstValSpecialStatic;
             break;
     }
+    return true;
 }
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         TypeTableEntry *wanted_type, CastOp cast_op, bool need_alloca)
@@ -9145,8 +9161,11 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
     {
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
-        eval_const_expr_implicit_cast(cast_op, &value->value, value->value.type,
-                &result->value, wanted_type);
+        if (!eval_const_expr_implicit_cast(ira, source_instr, cast_op, &value->value, value->value.type,
+            &result->value, wanted_type))
+        {
+            return ira->codegen->invalid_instruction;
+        }
         return result;
     } else {
         IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node, wanted_type, value, cast_op);

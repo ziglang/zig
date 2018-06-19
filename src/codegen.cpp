@@ -865,6 +865,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("access of inactive union field");
         case PanicMsgIdBadEnumValue:
             return buf_create_from_str("invalid enum value");
+        case PanicMsgIdFloatToInt:
+            return buf_create_from_str("integer part of floating point value out of bounds");
     }
     zig_unreachable();
 }
@@ -1671,7 +1673,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, T
                 return trunc_val;
             }
             LLVMValueRef orig_val;
-            if (actual_type->data.integral.is_signed) {
+            if (wanted_type->data.integral.is_signed) {
                 orig_val = LLVMBuildSExt(g->builder, trunc_val, actual_type->type_ref, "");
             } else {
                 orig_val = LLVMBuildZExt(g->builder, trunc_val, actual_type->type_ref, "");
@@ -2546,15 +2548,41 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             } else {
                 return LLVMBuildUIToFP(g->builder, expr_val, wanted_type->type_ref, "");
             }
-        case CastOpFloatToInt:
+        case CastOpFloatToInt: {
             assert(wanted_type->id == TypeTableEntryIdInt);
             ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &cast_instruction->base));
+
+            bool want_safety = ir_want_runtime_safety(g, &cast_instruction->base);
+
+            LLVMValueRef result;
             if (wanted_type->data.integral.is_signed) {
-                return LLVMBuildFPToSI(g->builder, expr_val, wanted_type->type_ref, "");
+                result = LLVMBuildFPToSI(g->builder, expr_val, wanted_type->type_ref, "");
             } else {
-                return LLVMBuildFPToUI(g->builder, expr_val, wanted_type->type_ref, "");
+                result = LLVMBuildFPToUI(g->builder, expr_val, wanted_type->type_ref, "");
             }
 
+            if (want_safety) {
+                LLVMValueRef back_to_float;
+                if (wanted_type->data.integral.is_signed) {
+                    back_to_float = LLVMBuildSIToFP(g->builder, result, LLVMTypeOf(expr_val), "");
+                } else {
+                    back_to_float = LLVMBuildUIToFP(g->builder, result, LLVMTypeOf(expr_val), "");
+                }
+                LLVMValueRef difference = LLVMBuildFSub(g->builder, expr_val, back_to_float, "");
+                LLVMValueRef one_pos = LLVMConstReal(LLVMTypeOf(expr_val), 1.0f);
+                LLVMValueRef one_neg = LLVMConstReal(LLVMTypeOf(expr_val), -1.0f);
+                LLVMValueRef ok_bit_pos = LLVMBuildFCmp(g->builder, LLVMRealOLT, difference, one_pos, "");
+                LLVMValueRef ok_bit_neg = LLVMBuildFCmp(g->builder, LLVMRealOGT, difference, one_neg, "");
+                LLVMValueRef ok_bit = LLVMBuildAnd(g->builder, ok_bit_pos, ok_bit_neg, "");
+                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "FloatCheckOk");
+                LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "FloatCheckFail");
+                LLVMBuildCondBr(g->builder, ok_bit, ok_block, bad_block);
+                LLVMPositionBuilderAtEnd(g->builder, bad_block);
+                gen_safety_crash(g, PanicMsgIdFloatToInt);
+                LLVMPositionBuilderAtEnd(g->builder, ok_block);
+            }
+            return result;
+        }
         case CastOpBoolToInt:
             assert(wanted_type->id == TypeTableEntryIdInt);
             assert(actual_type->id == TypeTableEntryIdBool);

@@ -568,6 +568,7 @@ set(ZIG_STD_FILES
     "special/compiler_rt/fixunstfdi.zig"
     "special/compiler_rt/fixunstfsi.zig"
     "special/compiler_rt/fixunstfti.zig"
+    "special/compiler_rt/floatuntidf.zig"
     "special/compiler_rt/muloti4.zig"
     "special/compiler_rt/index.zig"
     "special/compiler_rt/udivmod.zig"
