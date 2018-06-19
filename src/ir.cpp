@@ -16789,16 +16789,20 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 ConstExprValue *fields = create_const_vals(1);
                 result->data.x_struct.fields = fields;
 
-                // @TODO ?type instead of using @typeOf(undefined) when we have no type.
-                // child: type
+                // child: ?type
                 ensure_field_index(result->type, "child", 0);
                 fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_type;
+                fields[0].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
 
                 if (type_entry->data.promise.result_type == nullptr)
-                    fields[0].data.x_type = ira->codegen->builtin_types.entry_undef;
-                else
-                    fields[0].data.x_type = type_entry->data.promise.result_type;
+                    fields[0].data.x_optional = nullptr;
+                else {
+                    ConstExprValue *child_type = create_const_vals(1);
+                    child_type->special = ConstValSpecialStatic;
+                    child_type->type = ira->codegen->builtin_types.entry_type;
+                    child_type->data.x_type = type_entry->data.promise.result_type;
+                    fields[0].data.x_optional = child_type;
+                }
 
                 break;
             }
@@ -16939,19 +16943,23 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 fields[0].special = ConstValSpecialStatic;
                 fields[0].type = ir_type_info_get_type(ira, "ContainerLayout");
                 bigint_init_unsigned(&fields[0].data.x_enum_tag, type_entry->data.unionation.layout);
-                // tag_type: type
+                // tag_type: ?type
                 ensure_field_index(result->type, "tag_type", 1);
                 fields[1].special = ConstValSpecialStatic;
-                fields[1].type = ira->codegen->builtin_types.entry_type;
-                // @TODO ?type instead of using @typeOf(undefined) when we have no type.
+                fields[1].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+
                 AstNode *union_decl_node = type_entry->data.unionation.decl_node;
                 if (union_decl_node->data.container_decl.auto_enum ||
                     union_decl_node->data.container_decl.init_arg_expr != nullptr)
                 {
-                    fields[1].data.x_type = type_entry->data.unionation.tag_type;
+                    ConstExprValue *tag_type = create_const_vals(1);
+                    tag_type->special = ConstValSpecialStatic;
+                    tag_type->type = ira->codegen->builtin_types.entry_type;
+                    tag_type->data.x_type = type_entry->data.unionation.tag_type;
+                    fields[1].data.x_optional = tag_type;
                 }
                 else
-                    fields[1].data.x_type = ira->codegen->builtin_types.entry_undef;
+                    fields[1].data.x_optional = nullptr;
                 // fields: []TypeInfo.UnionField
                 ensure_field_index(result->type, "fields", 2);
 
@@ -16980,7 +16988,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     inner_fields[1].special = ConstValSpecialStatic;
                     inner_fields[1].type = get_maybe_type(ira->codegen, type_info_enum_field_type);
 
-                    if (fields[1].data.x_type == ira->codegen->builtin_types.entry_undef) {
+                    if (fields[1].data.x_optional == nullptr) {
                         inner_fields[1].data.x_optional = nullptr;
                     } else {
                         inner_fields[1].data.x_optional = create_const_vals(1);
@@ -17089,8 +17097,6 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 ConstExprValue *fields = create_const_vals(6);
                 result->data.x_struct.fields = fields;
 
-                // @TODO Fix type = undefined with ?type
-
                 // calling_convention: TypeInfo.CallingConvention
                 ensure_field_index(result->type, "calling_convention", 0);
                 fields[0].special = ConstValSpecialStatic;
@@ -17108,22 +17114,32 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 fields[2].special = ConstValSpecialStatic;
                 fields[2].type = ira->codegen->builtin_types.entry_bool;
                 fields[2].data.x_bool = type_entry->data.fn.fn_type_id.is_var_args;
-                // return_type: type
+                // return_type: ?type
                 ensure_field_index(result->type, "return_type", 3);
                 fields[3].special = ConstValSpecialStatic;
-                fields[3].type = ira->codegen->builtin_types.entry_type;
+                fields[3].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
                 if (type_entry->data.fn.fn_type_id.return_type == nullptr)
-                    fields[3].data.x_type = ira->codegen->builtin_types.entry_undef;
-                else
-                    fields[3].data.x_type = type_entry->data.fn.fn_type_id.return_type;
+                    fields[3].data.x_optional = nullptr;
+                else {
+                    ConstExprValue *return_type = create_const_vals(1);
+                    return_type->special = ConstValSpecialStatic;
+                    return_type->type = ira->codegen->builtin_types.entry_type;
+                    return_type->data.x_type = type_entry->data.fn.fn_type_id.return_type;
+                    fields[3].data.x_optional = return_type;
+                }
                 // async_allocator_type: type
                 ensure_field_index(result->type, "async_allocator_type", 4);
                 fields[4].special = ConstValSpecialStatic;
-                fields[4].type = ira->codegen->builtin_types.entry_type;
+                fields[4].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
                 if (type_entry->data.fn.fn_type_id.async_allocator_type == nullptr)
-                    fields[4].data.x_type = ira->codegen->builtin_types.entry_undef;
-                else
-                    fields[4].data.x_type = type_entry->data.fn.fn_type_id.async_allocator_type;
+                    fields[4].data.x_optional = nullptr;
+                else {
+                    ConstExprValue *async_alloc_type = create_const_vals(1);
+                    async_alloc_type->special = ConstValSpecialStatic;
+                    async_alloc_type->type = ira->codegen->builtin_types.entry_type;
+                    async_alloc_type->data.x_type = type_entry->data.fn.fn_type_id.async_allocator_type;
+                    fields[4].data.x_optional = async_alloc_type;
+                }
                 // args: []TypeInfo.FnArg
                 TypeTableEntry *type_info_fn_arg_type = ir_type_info_get_type(ira, "FnArg");
                 size_t fn_arg_count = type_entry->data.fn.fn_type_id.param_count -
@@ -17157,12 +17173,17 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     inner_fields[1].type = ira->codegen->builtin_types.entry_bool;
                     inner_fields[1].data.x_bool = fn_param_info->is_noalias;
                     inner_fields[2].special = ConstValSpecialStatic;
-                    inner_fields[2].type = ira->codegen->builtin_types.entry_type;
+                    inner_fields[2].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
 
                     if (arg_is_generic)
-                        inner_fields[2].data.x_type = ira->codegen->builtin_types.entry_undef;
-                    else
-                        inner_fields[2].data.x_type = fn_param_info->type;
+                        inner_fields[2].data.x_optional = nullptr;
+                    else {
+                        ConstExprValue *arg_type = create_const_vals(1);
+                        arg_type->special = ConstValSpecialStatic;
+                        arg_type->type = ira->codegen->builtin_types.entry_type;
+                        arg_type->data.x_type = fn_param_info->type;
+                        inner_fields[2].data.x_optional = arg_type;
+                    }
 
                     fn_arg_val->data.x_struct.fields = inner_fields;
                     fn_arg_val->data.x_struct.parent.id = ConstParentIdArray;
