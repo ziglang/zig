@@ -5688,10 +5688,17 @@ pub const TypeInfo = union(TypeId) {
     };
 
     pub const Pointer = struct {
+        size: Size,
         is_const: bool,
         is_volatile: bool,
         alignment: u32,
         child: type,
+
+        pub const Size = enum {
+            One,
+            Many,
+            Slice,
+        };
     };
 
     pub const Array = struct {
