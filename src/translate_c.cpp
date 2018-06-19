@@ -872,6 +872,24 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::OCLClkEvent:
                     case BuiltinType::OCLQueue:
                     case BuiltinType::OCLReserveID:
+                    case BuiltinType::ShortFract:
+                    case BuiltinType::Fract:
+                    case BuiltinType::LongFract:
+                    case BuiltinType::UShortFract:
+                    case BuiltinType::UFract:
+                    case BuiltinType::ULongFract:
+                    case BuiltinType::SatShortAccum:
+                    case BuiltinType::SatAccum:
+                    case BuiltinType::SatLongAccum:
+                    case BuiltinType::SatUShortAccum:
+                    case BuiltinType::SatUAccum:
+                    case BuiltinType::SatULongAccum:
+                    case BuiltinType::SatShortFract:
+                    case BuiltinType::SatFract:
+                    case BuiltinType::SatLongFract:
+                    case BuiltinType::SatUShortFract:
+                    case BuiltinType::SatUFract:
+                    case BuiltinType::SatULongFract:
                         emit_warning(c, source_loc, "unsupported builtin type");
                         return nullptr;
                 }
@@ -2452,6 +2470,24 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::UShortAccum:
                 case BuiltinType::UAccum:
                 case BuiltinType::ULongAccum:
+                case BuiltinType::ShortFract:
+                case BuiltinType::Fract:
+                case BuiltinType::LongFract:
+                case BuiltinType::UShortFract:
+                case BuiltinType::UFract:
+                case BuiltinType::ULongFract:
+                case BuiltinType::SatShortAccum:
+                case BuiltinType::SatAccum:
+                case BuiltinType::SatLongAccum:
+                case BuiltinType::SatUShortAccum:
+                case BuiltinType::SatUAccum:
+                case BuiltinType::SatULongAccum:
+                case BuiltinType::SatShortFract:
+                case BuiltinType::SatFract:
+                case BuiltinType::SatLongFract:
+                case BuiltinType::SatUShortFract:
+                case BuiltinType::SatUFract:
+                case BuiltinType::SatULongFract:
                     return res;
             }
             break;
