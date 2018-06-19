@@ -2355,11 +2355,18 @@ fn eventuallyErrorSequence() error!u32 {
         break :blk numbers_left;
     };
 }
+      {#code_end#}
+
+      {#header_open|inline while#}
+      <p>
+      While loops can be inlined. This causes the loop to be unrolled, which
+      allows the code to do some things which only work at compile time,
+      such as use types as first class values.
+      </p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
 
 test "inline while loop" {
-    // While loops can be inlined. This causes the loop to be unrolled, which
-    // allows the code to do some things which only work at compile time,
-    // such as use types as first class values.
     comptime var i = 0;
     var sum: usize = 0;
     inline while (i < 3) : (i += 1) {
@@ -2378,6 +2385,16 @@ fn typeNameLength(comptime T: type) usize {
     return @typeName(T).len;
 }
       {#code_end#}
+      <p>
+      It is recommended to use <code>inline</code> loops only for one of these reasons:
+      </p>
+      <ul>
+        <li>You need the loop to execute at {#link|comptime#} for the semantics to work.</li>
+        <li>
+        You have a benchmark to prove that forcibly unrolling the loop in this way is measurably faster.
+        </li>
+      </ul>
+      {#header_close#}
       {#see_also|if|Optionals|Errors|comptime|unreachable#}
       {#header_close#}
       {#header_open|for#}
@@ -2445,15 +2462,20 @@ test "for else" {
         break :blk sum;
     };
 }
-
+      {#code_end#}
+      {#header_open|inline for#}
+      <p>
+      For loops can be inlined. This causes the loop to be unrolled, which
+      allows the code to do some things which only work at compile time,
+      such as use types as first class values.
+      The capture value and iterator value of inlined for loops are
+      compile-time known.
+      </p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
 
 test "inline for loop" {
     const nums = []i32{2, 4, 6};
-    // For loops can be inlined. This causes the loop to be unrolled, which
-    // allows the code to do some things which only work at compile time,
-    // such as use types as first class values.
-    // The capture value and iterator value of inlined for loops are
-    // compile-time known.
     var sum: usize = 0;
     inline for (nums) |i| {
         const T = switch (i) {
@@ -2471,6 +2493,16 @@ fn typeNameLength(comptime T: type) usize {
     return @typeName(T).len;
 }
       {#code_end#}
+      <p>
+      It is recommended to use <code>inline</code> loops only for one of these reasons:
+      </p>
+      <ul>
+        <li>You need the loop to execute at {#link|comptime#} for the semantics to work.</li>
+        <li>
+        You have a benchmark to prove that forcibly unrolling the loop in this way is measurably faster.
+        </li>
+      </ul>
+      {#header_close#}
       {#see_also|while|comptime|Arrays|Slices#}
       {#header_close#}
       {#header_open|if#}
@@ -4222,13 +4254,8 @@ pub fn main() void {
       task in userland. It does so without introducing another language on top of Zig, such as
       a macro language or a preprocessor language. It's Zig all the way down.
       </p>
-      <p>TODO: suggestion to not use inline unless necessary</p>
       {#header_close#}
-      {#header_close#}
-      {#header_open|inline#}
-      <p>TODO: inline while</p>
-      <p>TODO: inline for</p>
-      <p>TODO: suggestion to not use inline unless necessary</p>
+      {#see_also|inline while|inline for#}
       {#header_close#}
       {#header_open|Assembly#}
       <p>TODO: example of inline assembly</p>
