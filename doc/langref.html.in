@@ -5667,7 +5667,7 @@ pub const TypeInfo = union(TypeId) {
 
     pub const Union = struct {
         layout: ContainerLayout,
-        tag_type: type,
+        tag_type: ?type,
         fields: []UnionField,
         defs: []Definition,
     };
