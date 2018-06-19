@@ -221,7 +221,7 @@ pub const ArenaAllocator = struct {
             if (len >= actual_min_size) break;
         }
         const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
-        const buf_node_slice = ([]BufNode)(buf[0..@sizeOf(BufNode)]);
+        const buf_node_slice = @bytesToSlice(BufNode, buf[0..@sizeOf(BufNode)]);
         const buf_node = &buf_node_slice[0];
         buf_node.* = BufNode{
             .data = buf,

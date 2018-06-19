@@ -180,7 +180,7 @@ pub const StreamingParser = struct {
         pub fn fromInt(x: var) State {
             debug.assert(x == 0 or x == 1);
             const T = @TagType(State);
-            return State(@intCast(T, x));
+            return @intToEnum(State, @intCast(T, x));
         }
     };
 

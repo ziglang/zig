@@ -161,7 +161,7 @@ pub fn loadSymbols(allocator: *mem.Allocator, in: *io.FileInStream) !SymbolTable
 }
 
 fn readNoEof(in: *io.FileInStream, comptime T: type, result: []T) !void {
-    return in.stream.readNoEof(([]u8)(result));
+    return in.stream.readNoEof(@sliceToBytes(result));
 }
 fn readOneNoEof(in: *io.FileInStream, comptime T: type, result: *T) !void {
     return readNoEof(in, T, (*[1]T)(result)[0..]);

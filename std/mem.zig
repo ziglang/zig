@@ -70,7 +70,7 @@ pub const Allocator = struct {
         for (byte_slice) |*byte| {
             byte.* = undefined;
         }
-        return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
+        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }
 
     pub fn realloc(self: *Allocator, comptime T: type, old_mem: []T, n: usize) ![]T {
@@ -86,7 +86,7 @@ pub const Allocator = struct {
             return ([*]align(alignment) T)(undefined)[0..0];
         }
 
-        const old_byte_slice = ([]u8)(old_mem);
+        const old_byte_slice = @sliceToBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
         assert(byte_slice.len == byte_count);
@@ -96,7 +96,7 @@ pub const Allocator = struct {
                 byte.* = undefined;
             }
         }
-        return ([]T)(@alignCast(alignment, byte_slice));
+        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }
 
     /// Reallocate, but `n` must be less than or equal to `old_mem.len`.
@@ -118,13 +118,13 @@ pub const Allocator = struct {
         // n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * n;
 
-        const byte_slice = self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment) catch unreachable;
+        const byte_slice = self.reallocFn(self, @sliceToBytes(old_mem), byte_count, alignment) catch unreachable;
         assert(byte_slice.len == byte_count);
-        return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
+        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }
 
     pub fn free(self: *Allocator, memory: var) void {
-        const bytes = ([]const u8)(memory);
+        const bytes = @sliceToBytes(memory);
         if (bytes.len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         self.freeFn(self, non_const_ptr[0..bytes.len]);

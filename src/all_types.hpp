@@ -234,6 +234,16 @@ enum RuntimeHintPtr {
     RuntimeHintPtrNonStack,
 };
 
+enum RuntimeHintSliceId {
+    RuntimeHintSliceIdUnknown,
+    RuntimeHintSliceIdLen,
+};
+
+struct RuntimeHintSlice {
+    enum RuntimeHintSliceId id;
+    uint64_t len;
+};
+
 struct ConstGlobalRefs {
     LLVMValueRef llvm_value;
     LLVMValueRef llvm_global;
@@ -270,6 +280,7 @@ struct ConstExprValue {
         RuntimeHintErrorUnion rh_error_union;
         RuntimeHintOptional rh_maybe;
         RuntimeHintPtr rh_ptr;
+        RuntimeHintSlice rh_slice;
     } data;
 };
 
@@ -1359,9 +1370,16 @@ enum BuiltinFnId {
     BuiltinFnIdTruncate,
     BuiltinFnIdIntCast,
     BuiltinFnIdFloatCast,
+    BuiltinFnIdErrSetCast,
+    BuiltinFnIdToBytes,
+    BuiltinFnIdFromBytes,
     BuiltinFnIdIntToFloat,
     BuiltinFnIdFloatToInt,
     BuiltinFnIdBoolToInt,
+    BuiltinFnIdErrToInt,
+    BuiltinFnIdIntToErr,
+    BuiltinFnIdEnumToInt,
+    BuiltinFnIdIntToEnum,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
@@ -2076,6 +2094,7 @@ enum IrInstructionId {
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
     IrInstructionIdIntToEnum,
+    IrInstructionIdEnumToInt,
     IrInstructionIdIntToErr,
     IrInstructionIdErrToInt,
     IrInstructionIdCheckSwitchProngs,
@@ -2121,6 +2140,9 @@ enum IrInstructionId {
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdSqrt,
+    IrInstructionIdErrSetCast,
+    IrInstructionIdToBytes,
+    IrInstructionIdFromBytes,
 };
 
 struct IrInstruction {
@@ -2656,6 +2678,26 @@ struct IrInstructionFloatCast {
     IrInstruction *target;
 };
 
+struct IrInstructionErrSetCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionToBytes {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionFromBytes {
+    IrInstruction base;
+
+    IrInstruction *dest_child_type;
+    IrInstruction *target;
+};
+
 struct IrInstructionIntToFloat {
     IrInstruction base;
 
@@ -2864,6 +2906,13 @@ struct IrInstructionIntToPtr {
 };
 
 struct IrInstructionIntToEnum {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionEnumToInt {
     IrInstruction base;
 
     IrInstruction *target;

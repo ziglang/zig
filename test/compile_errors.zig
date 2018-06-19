@@ -404,10 +404,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Set2 = error {A, C};
         \\comptime {
         \\    var x = Set1.B;
-        \\    var y = Set2(x);
+        \\    var y = @errSetCast(Set2, x);
         \\}
     ,
-        ".tmp_source.zig:5:17: error: error.B not a member of error set 'Set2'",
+        ".tmp_source.zig:5:13: error: error.B not a member of error set 'Set2'",
     );
 
     cases.add(
@@ -467,25 +467,34 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "int to err global invalid number",
-        \\const Set1 = error{A, B};
+        \\const Set1 = error{
+        \\    A,
+        \\    B,
+        \\};
         \\comptime {
-        \\    var x: usize = 3;
-        \\    var y = error(x);
+        \\    var x: u16 = 3;
+        \\    var y = @intToError(x);
         \\}
     ,
-        ".tmp_source.zig:4:18: error: integer value 3 represents no error",
+        ".tmp_source.zig:7:13: error: integer value 3 represents no error",
     );
 
     cases.add(
         "int to err non global invalid number",
-        \\const Set1 = error{A, B};
-        \\const Set2 = error{A, C};
+        \\const Set1 = error{
+        \\    A,
+        \\    B,
+        \\};
+        \\const Set2 = error{
+        \\    A,
+        \\    C,
+        \\};
         \\comptime {
-        \\    var x = usize(Set1.B);
-        \\    var y = Set2(x);
+        \\    var x = @errorToInt(Set1.B);
+        \\    var y = @errSetCast(Set2, @intToError(x));
         \\}
     ,
-        ".tmp_source.zig:5:17: error: integer value 2 represents no error in 'Set2'",
+        ".tmp_source.zig:11:13: error: error.B not a member of error set 'Set2'",
     );
 
     cases.add(
@@ -2086,10 +2095,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "convert fixed size array to slice with invalid size",
         \\export fn f() void {
         \\    var array: [5]u8 = undefined;
-        \\    var foo = ([]const u32)(array)[0];
+        \\    var foo = @bytesToSlice(u32, array)[0];
         \\}
     ,
-        ".tmp_source.zig:3:28: error: unable to convert [5]u8 to []const u32: size mismatch",
+        ".tmp_source.zig:3:15: error: unable to convert [5]u8 to []align(1) const u32: size mismatch",
+        ".tmp_source.zig:3:29: note: u32 has size 4; remaining bytes: 1",
     );
 
     cases.add(
@@ -2609,17 +2619,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:2:21: error: expected pointer, found 'usize'",
-    );
-
-    cases.add(
-        "too many error values to cast to small integer",
-        \\const Error = error { A, B, C, D, E, F, G, H };
-        \\fn foo(e: Error) u2 {
-        \\    return u2(e);
-        \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    ,
-        ".tmp_source.zig:3:14: error: too many error values to fit in 'u2'",
     );
 
     cases.add(
@@ -3240,18 +3239,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "increase pointer alignment in slice resize",
-        \\export fn entry() u32 {
-        \\    var bytes = []u8{0x01, 0x02, 0x03, 0x04};
-        \\    return ([]u32)(bytes[0..])[0];
-        \\}
-    ,
-        ".tmp_source.zig:3:19: error: cast increases pointer alignment",
-        ".tmp_source.zig:3:19: note: '[]u8' has alignment 1",
-        ".tmp_source.zig:3:19: note: '[]u32' has alignment 4",
-    );
-
-    cases.add(
         "@alignCast expects pointer or slice",
         \\export fn entry() void {
         \\    @alignCast(4, u32(3));
@@ -3723,22 +3710,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "explicitly casting enum to non tag type",
-        \\const Small = enum(u2) {
-        \\    One,
-        \\    Two,
-        \\    Three,
-        \\    Four,
-        \\};
-        \\
-        \\export fn entry() void {
-        \\    var x = u3(Small.Two);
-        \\}
-    ,
-        ".tmp_source.zig:9:15: error: enum to integer cast to 'u3' instead of its tag type, 'u2'",
-    );
-
-    cases.add(
         "explicitly casting non tag type to enum",
         \\const Small = enum(u2) {
         \\    One,
@@ -3749,10 +3720,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    var y = u3(3);
-        \\    var x = Small(y);
+        \\    var x = @intToEnum(Small, y);
         \\}
     ,
-        ".tmp_source.zig:10:18: error: integer to enum cast from 'u3' instead of its tag type, 'u2'",
+        ".tmp_source.zig:10:31: error: expected type 'u2', found 'u3'",
     );
 
     cases.add(
@@ -4033,10 +4004,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    B = 11,
         \\};
         \\export fn entry() void {
-        \\    var x = Foo(0);
+        \\    var x = @intToEnum(Foo, 0);
         \\}
     ,
-        ".tmp_source.zig:6:16: error: enum 'Foo' has no tag matching integer value 0",
+        ".tmp_source.zig:6:13: error: enum 'Foo' has no tag matching integer value 0",
         ".tmp_source.zig:1:13: note: 'Foo' declared here",
     );
 

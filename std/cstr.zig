@@ -79,7 +79,7 @@ pub const NullTerminated2DArray = struct {
         errdefer allocator.free(buf);
 
         var write_index = index_size;
-        const index_buf = ([]?[*]u8)(buf);
+        const index_buf = @bytesToSlice(?[*]u8, buf);
 
         var i: usize = 0;
         for (slices) |slice| {
