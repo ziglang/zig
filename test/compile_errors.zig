@@ -3710,22 +3710,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "explicitly casting enum to non tag type",
-        \\const Small = enum(u2) {
-        \\    One,
-        \\    Two,
-        \\    Three,
-        \\    Four,
-        \\};
-        \\
-        \\export fn entry() void {
-        \\    var x = u3(Small.Two);
-        \\}
-    ,
-        ".tmp_source.zig:9:15: error: enum to integer cast to 'u3' instead of its tag type, 'u2'",
-    );
-
-    cases.add(
         "explicitly casting non tag type to enum",
         \\const Small = enum(u2) {
         \\    One,
@@ -3736,10 +3720,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    var y = u3(3);
-        \\    var x = Small(y);
+        \\    var x = @intToEnum(Small, y);
         \\}
     ,
-        ".tmp_source.zig:10:18: error: integer to enum cast from 'u3' instead of its tag type, 'u2'",
+        ".tmp_source.zig:10:31: error: expected type 'u2', found 'u3'",
     );
 
     cases.add(
@@ -4020,10 +4004,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    B = 11,
         \\};
         \\export fn entry() void {
-        \\    var x = Foo(0);
+        \\    var x = @intToEnum(Foo, 0);
         \\}
     ,
-        ".tmp_source.zig:6:16: error: enum 'Foo' has no tag matching integer value 0",
+        ".tmp_source.zig:6:13: error: enum 'Foo' has no tag matching integer value 0",
         ".tmp_source.zig:1:13: note: 'Foo' declared here",
     );
 

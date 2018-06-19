@@ -600,6 +600,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToEnum *) {
     return IrInstructionIdIntToEnum;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumToInt *) {
+    return IrInstructionIdEnumToInt;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToErr *) {
     return IrInstructionIdIntToErr;
 }
@@ -2378,9 +2382,25 @@ static IrInstruction *ir_build_ptr_to_int(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_build_int_to_enum(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *target)
+        IrInstruction *dest_type, IrInstruction *target)
 {
     IrInstructionIntToEnum *instruction = ir_build_instruction<IrInstructionIntToEnum>(
+            irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->target = target;
+
+    if (dest_type) ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+
+
+static IrInstruction *ir_build_enum_to_int(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionEnumToInt *instruction = ir_build_instruction<IrInstructionEnumToInt>(
             irb, scope, source_node);
     instruction->target = target;
 
@@ -4707,6 +4727,31 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 return ir_build_atomic_load(irb, scope, node, arg0_value, arg1_value, arg2_value,
                         // this value does not mean anything since we passed non-null values for other arg
                         AtomicOrderMonotonic);
+            }
+        case BuiltinFnIdIntToEnum:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_int_to_enum(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdEnumToInt:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                IrInstruction *result = ir_build_enum_to_int(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, result, lval);
             }
     }
     zig_unreachable();
@@ -9951,7 +9996,7 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
     }
 
     IrInstruction *result = ir_build_int_to_enum(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, target);
+            source_instr->source_node, nullptr, target);
     result->value.type = wanted_type;
     return result;
 }
@@ -10483,16 +10528,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         (actual_type->id == TypeTableEntryIdFloat && wanted_type->id == TypeTableEntryIdComptimeFloat)))
     {
         return ir_analyze_number_to_literal(ira, source_instr, value, wanted_type);
-    }
-
-    // explicit cast from integer to enum type with no payload
-    if (actual_type->id == TypeTableEntryIdInt && wanted_type->id == TypeTableEntryIdEnum) {
-        return ir_analyze_int_to_enum(ira, source_instr, value, wanted_type);
-    }
-
-    // explicit cast from enum type with no payload to integer
-    if (wanted_type->id == TypeTableEntryIdInt && actual_type->id == TypeTableEntryIdEnum) {
-        return ir_analyze_enum_to_int(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from union to the enum type of the union
@@ -20262,11 +20297,63 @@ static TypeTableEntry *ir_analyze_instruction_sqrt(IrAnalyze *ira, IrInstruction
     return result->value.type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstructionEnumToInt *instruction) {
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (target->value.type->id != TypeTableEntryIdEnum) {
+        ir_add_error(ira, instruction->target,
+            buf_sprintf("expected enum, found type '%s'", buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    type_ensure_zero_bits_known(ira->codegen, target->value.type);
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *tag_type = target->value.type->data.enumeration.tag_int_type;
+
+    IrInstruction *result = ir_analyze_enum_to_int(ira, &instruction->base, target, tag_type);
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_int_to_enum(IrAnalyze *ira, IrInstructionIntToEnum *instruction) {
+    IrInstruction *dest_type_value = instruction->dest_type->other;
+    TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (dest_type->id != TypeTableEntryIdEnum) {
+        ir_add_error(ira, instruction->dest_type,
+            buf_sprintf("expected enum, found type '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    type_ensure_zero_bits_known(ira->codegen, dest_type);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *tag_type = dest_type->data.enumeration.tag_int_type;
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_target = ir_implicit_cast(ira, target, tag_type);
+    if (type_is_invalid(casted_target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_analyze_int_to_enum(ira, &instruction->base, casted_target, dest_type);
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
         case IrInstructionIdWidenOrShorten:
-        case IrInstructionIdIntToEnum:
         case IrInstructionIdStructInit:
         case IrInstructionIdUnionInit:
         case IrInstructionIdStructFieldPtr:
@@ -20531,6 +20618,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_to_err(ira, (IrInstructionIntToErr *)instruction);
         case IrInstructionIdErrToInt:
             return ir_analyze_instruction_err_to_int(ira, (IrInstructionErrToInt *)instruction);
+        case IrInstructionIdIntToEnum:
+            return ir_analyze_instruction_int_to_enum(ira, (IrInstructionIntToEnum *)instruction);
+        case IrInstructionIdEnumToInt:
+            return ir_analyze_instruction_enum_to_int(ira, (IrInstructionEnumToInt *)instruction);
     }
     zig_unreachable();
 }
@@ -20754,6 +20845,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdBoolToInt:
         case IrInstructionIdFromBytes:
         case IrInstructionIdToBytes:
+        case IrInstructionIdEnumToInt:
             return false;
 
         case IrInstructionIdAsm:

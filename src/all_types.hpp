@@ -1378,6 +1378,8 @@ enum BuiltinFnId {
     BuiltinFnIdBoolToInt,
     BuiltinFnIdErrToInt,
     BuiltinFnIdIntToErr,
+    BuiltinFnIdEnumToInt,
+    BuiltinFnIdIntToEnum,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
@@ -2092,6 +2094,7 @@ enum IrInstructionId {
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
     IrInstructionIdIntToEnum,
+    IrInstructionIdEnumToInt,
     IrInstructionIdIntToErr,
     IrInstructionIdErrToInt,
     IrInstructionIdCheckSwitchProngs,
@@ -2903,6 +2906,13 @@ struct IrInstructionIntToPtr {
 };
 
 struct IrInstructionIntToEnum {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionEnumToInt {
     IrInstruction base;
 
     IrInstruction *target;

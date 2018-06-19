@@ -928,6 +928,17 @@ static void ir_print_int_to_ptr(IrPrint *irp, IrInstructionIntToPtr *instruction
 
 static void ir_print_int_to_enum(IrPrint *irp, IrInstructionIntToEnum *instruction) {
     fprintf(irp->f, "@intToEnum(");
+    if (instruction->dest_type == nullptr) {
+        fprintf(irp->f, "(null)");
+    } else {
+        ir_print_other_instruction(irp, instruction->dest_type);
+    }
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_enum_to_int(IrPrint *irp, IrInstructionEnumToInt *instruction) {
+    fprintf(irp->f, "@enumToInt(");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
@@ -1716,6 +1727,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAtomicLoad:
             ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);
+            break;
+        case IrInstructionIdEnumToInt:
+            ir_print_enum_to_int(irp, (IrInstructionEnumToInt *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
