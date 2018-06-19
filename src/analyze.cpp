@@ -1470,6 +1470,17 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                             calling_convention_name(fn_type_id.cc)));
                 return g->builtin_types.entry_invalid;
             }
+            if (param_node->data.param_decl.type != nullptr) {
+                TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
+                if (type_is_invalid(type_entry)) {
+                    return g->builtin_types.entry_invalid;
+                }
+                FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
+                param_info->type = type_entry;
+                param_info->is_noalias = param_node->data.param_decl.is_noalias;
+                fn_type_id.next_param_index += 1;
+            }
+
             return get_generic_fn_type(g, &fn_type_id);
         } else if (param_is_var_args) {
             if (fn_type_id.cc == CallingConventionC) {

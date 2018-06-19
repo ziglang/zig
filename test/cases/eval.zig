@@ -623,3 +623,17 @@ test "function which returns struct with type field causes implicit comptime" {
     const ty = wrap(i32).T;
     assert(ty == i32);
 }
+
+test "call method with comptime pass-by-non-copying-value self parameter" {
+    const S = struct {
+        a: u8,
+
+        fn b(comptime s: this) u8 {
+            return s.a;
+        }
+    };
+
+    const s = S{ .a = 2 };
+    var b = s.b();
+    assert(b == 2);
+}
