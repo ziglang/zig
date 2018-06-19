@@ -100,7 +100,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var rule_set = try Foo.init();
         \\}
     ,
-        ".tmp_source.zig:2:13: error: invalid cast from type 'type' to 'i32'",
+        ".tmp_source.zig:2:13: error: expected type 'i32', found 'type'",
     );
 
     cases.add(
@@ -122,7 +122,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "invalid deref on switch target",
+        "nested error set mismatch",
         \\const NextError = error{NextError};
         \\const OtherError = error{OutOfMemory};
         \\
@@ -134,7 +134,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return null;
         \\}
     ,
-        ".tmp_source.zig:5:34: error: expected 'NextError!i32', found 'OtherError!i32'",
+        ".tmp_source.zig:5:34: error: expected type '?NextError!i32', found '?OtherError!i32'",
+        ".tmp_source.zig:5:34: note: optional type child 'OtherError!i32' cannot cast into optional type child 'NextError!i32'",
+        ".tmp_source.zig:5:34: note: error set 'OtherError' cannot cast into error set 'NextError'",
         ".tmp_source.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
     );
 
@@ -437,8 +439,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:35: error: expected 'SmallErrorSet!i32', found 'error!i32'",
-        ".tmp_source.zig:3:35: note: unable to cast global error set into smaller set",
+        ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'error!i32'",
+        ".tmp_source.zig:3:35: note: error set 'error' cannot cast into error set 'SmallErrorSet'",
+        ".tmp_source.zig:3:35: note: cannot cast global error set into smaller set",
     );
 
     cases.add(
@@ -451,8 +454,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:31: error: expected 'SmallErrorSet', found 'error'",
-        ".tmp_source.zig:3:31: note: unable to cast global error set into smaller set",
+        ".tmp_source.zig:3:31: error: expected type 'SmallErrorSet', found 'error'",
+        ".tmp_source.zig:3:31: note: cannot cast global error set into smaller set",
     );
 
     cases.add(
@@ -478,7 +481,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: Set2 = set1;
         \\}
     ,
-        ".tmp_source.zig:7:19: error: expected 'Set2', found 'Set1'",
+        ".tmp_source.zig:7:19: error: expected type 'Set2', found 'Set1'",
         ".tmp_source.zig:1:23: note: 'error.B' not a member of destination error set",
     );
 
