@@ -5684,20 +5684,20 @@ pub const TypeInfo = union(TypeId) {
     pub const FnArg = struct {
         is_generic: bool,
         is_noalias: bool,
-        arg_type: type,
+        arg_type: ?type,
     };
 
     pub const Fn = struct {
         calling_convention: CallingConvention,
         is_generic: bool,
         is_var_args: bool,
-        return_type: type,
-        async_allocator_type: type,
+        return_type: ?type,
+        async_allocator_type: ?type,
         args: []FnArg,
     };
 
     pub const Promise = struct {
-        child: type,
+        child: ?type,
     };
 
     pub const Definition = struct {
