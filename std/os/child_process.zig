@@ -85,10 +85,7 @@ pub const ChildProcess = struct {
     /// First argument in argv is the executable.
     /// On success must call deinit.
     pub fn init(argv: []const []const u8, allocator: *mem.Allocator) !*ChildProcess {
-        const child = try allocator.create(ChildProcess);
-        errdefer allocator.destroy(child);
-
-        child.* = ChildProcess{
+        const child = try allocator.create(ChildProcess{
             .allocator = allocator,
             .argv = argv,
             .pid = undefined,
@@ -109,8 +106,8 @@ pub const ChildProcess = struct {
             .stdin_behavior = StdIo.Inherit,
             .stdout_behavior = StdIo.Inherit,
             .stderr_behavior = StdIo.Inherit,
-        };
-
+        });
+        errdefer allocator.destroy(child);
         return child;
     }
 
