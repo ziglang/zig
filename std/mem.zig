@@ -31,7 +31,7 @@ pub const Allocator = struct {
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
-    /// Call destroy with the result
+    /// Call `destroy` with the result
     pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
         if (@sizeOf(T) == 0) return &{};
@@ -41,8 +41,8 @@ pub const Allocator = struct {
         return ptr;
     }
 
-    /// Alias of create
-    /// Call destroy with the result
+    /// Alias of `create`
+    /// Call `destroy` with the result
     pub fn construct(self: *Allocator, init: var) Error!*@typeOf(init) {
       return self.create(init);
     }
