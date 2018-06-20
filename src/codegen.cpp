@@ -2246,12 +2246,12 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             } else if (type_entry->id == TypeTableEntryIdInt) {
                 LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, type_entry->data.integral.is_signed);
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
-            } else if (type_entry->id == TypeTableEntryIdEnum) {
-                LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
-                return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
-            } else if (type_entry->id == TypeTableEntryIdErrorSet ||
+            } else if (type_entry->id == TypeTableEntryIdEnum ||
+                    type_entry->id == TypeTableEntryIdErrorSet ||
                     type_entry->id == TypeTableEntryIdPointer ||
-                    type_entry->id == TypeTableEntryIdBool)
+                    type_entry->id == TypeTableEntryIdBool ||
+                    type_entry->id == TypeTableEntryIdPromise ||
+                    type_entry->id == TypeTableEntryIdFn)
             {
                 LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");

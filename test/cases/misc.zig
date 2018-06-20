@@ -701,3 +701,8 @@ test "comptime cast fn to ptr" {
     const addr2 = @ptrCast(*const u8, emptyFn);
     comptime assert(addr1 == addr2);
 }
+
+test "equality compare fn ptrs" {
+    var a = emptyFn;
+    assert(a == a);
+}
