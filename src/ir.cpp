@@ -7710,6 +7710,14 @@ static void float_rem(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
     }
 }
 
+// c = a - b * trunc(a / b)
+static void zig_f128M_mod(const float128_t* a, const float128_t* b, float128_t* c) {
+    f128M_div(a, b, c);
+    f128M_roundToInt(c, softfloat_round_min, true, c);
+    f128M_mul(b, c, c);
+    f128M_sub(a, c, c);
+}
+
 static void float_mod(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
     assert(op1->type == op2->type);
     out_val->type = op1->type;
@@ -7724,9 +7732,7 @@ static void float_mod(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 out_val->data.x_f64 = fmod(fmod(op1->data.x_f64, op2->data.x_f64) + op2->data.x_f64, op2->data.x_f64);
                 return;
             case 128:
-                f128M_rem(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
-                f128M_add(&out_val->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
-                f128M_rem(&out_val->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                zig_f128M_mod(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
