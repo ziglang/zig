@@ -41,13 +41,7 @@ pub const Allocator = struct {
         return ptr;
     }
 
-    /// Alias of `create`
-    /// Call `destroy` with the result
-    pub fn construct(self: *Allocator, init: var) Error!*@typeOf(init) {
-        return self.create(init);
-    }
-
-    /// `ptr` should be the return value of `construct` or `create`
+    /// `ptr` should be the return value of `create`
     pub fn destroy(self: *Allocator, ptr: var) void {
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
         self.freeFn(self, non_const_ptr[0..@sizeOf(@typeOf(ptr).Child)]);

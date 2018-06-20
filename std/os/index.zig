@@ -2468,7 +2468,7 @@ pub const Thread = struct {
     data: Data,
 
     pub const use_pthreads = is_posix and builtin.link_libc;
-    const Data = if (use_pthreads)
+    pub const Data = if (use_pthreads)
         struct {
             handle: c.pthread_t,
             stack_addr: usize,
@@ -2583,12 +2583,15 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
         const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
         const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext{
-            .thread = undefined,
+            .thread = Thread{
+                .data = Thread.Data{
+                    .heap_handle = heap_handle,
+                    .alloc_start = bytes_ptr,
+                    .handle = undefined,
+                },
+            },
             .inner = context,
         }) catch unreachable;
-
-        outer_context.thread.data.heap_handle = heap_handle;
-        outer_context.thread.data.alloc_start = bytes_ptr;
 
         const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
         outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {

@@ -17,7 +17,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
     defer stack.deinit();
 
     const arena = &tree_arena.allocator;
-    const root_node = try arena.construct(ast.Node.Root{
+    const root_node = try arena.create(ast.Node.Root{
         .base = ast.Node{ .id = ast.Node.Id.Root },
         .decls = ast.Node.Root.DeclList.init(arena),
         .doc_comments = null,
@@ -65,14 +65,14 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Keyword_test => {
                         stack.append(State.TopLevel) catch unreachable;
 
-                        const block = try arena.construct(ast.Node.Block{
+                        const block = try arena.create(ast.Node.Block{
                             .base = ast.Node{ .id = ast.Node.Id.Block },
                             .label = null,
                             .lbrace = undefined,
                             .statements = ast.Node.Block.StatementList.init(arena),
                             .rbrace = undefined,
                         });
-                        const test_node = try arena.construct(ast.Node.TestDecl{
+                        const test_node = try arena.create(ast.Node.TestDecl{
                             .base = ast.Node{ .id = ast.Node.Id.TestDecl },
                             .doc_comments = comments,
                             .test_token = token_index,
@@ -109,14 +109,14 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_comptime => {
-                        const block = try arena.construct(ast.Node.Block{
+                        const block = try arena.create(ast.Node.Block{
                             .base = ast.Node{ .id = ast.Node.Id.Block },
                             .label = null,
                             .lbrace = undefined,
                             .statements = ast.Node.Block.StatementList.init(arena),
                             .rbrace = undefined,
                         });
-                        const node = try arena.construct(ast.Node.Comptime{
+                        const node = try arena.create(ast.Node.Comptime{
                             .base = ast.Node{ .id = ast.Node.Id.Comptime },
                             .comptime_token = token_index,
                             .expr = &block.base,
@@ -225,7 +225,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             return tree;
                         }
 
-                        const node = try arena.construct(ast.Node.Use{
+                        const node = try arena.create(ast.Node.Use{
                             .base = ast.Node{ .id = ast.Node.Id.Use },
                             .use_token = token_index,
                             .visib_token = ctx.visib_token,
@@ -266,7 +266,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_fn, Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc, Token.Id.Keyword_async => {
-                        const fn_proto = try arena.construct(ast.Node.FnProto{
+                        const fn_proto = try arena.create(ast.Node.FnProto{
                             .base = ast.Node{ .id = ast.Node.Id.FnProto },
                             .doc_comments = ctx.comments,
                             .visib_token = ctx.visib_token,
@@ -298,7 +298,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                                 continue;
                             },
                             Token.Id.Keyword_async => {
-                                const async_node = try arena.construct(ast.Node.AsyncAttribute{
+                                const async_node = try arena.create(ast.Node.AsyncAttribute{
                                     .base = ast.Node{ .id = ast.Node.Id.AsyncAttribute },
                                     .async_token = token_index,
                                     .allocator_type = null,
@@ -330,7 +330,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
             State.TopLevelExternOrField => |ctx| {
                 if (eatToken(&tok_it, &tree, Token.Id.Identifier)) |identifier| {
-                    const node = try arena.construct(ast.Node.StructField{
+                    const node = try arena.create(ast.Node.StructField{
                         .base = ast.Node{ .id = ast.Node.Id.StructField },
                         .doc_comments = ctx.comments,
                         .visib_token = ctx.visib_token,
@@ -375,7 +375,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
-                const node = try arena.construct(ast.Node.ContainerDecl{
+                const node = try arena.create(ast.Node.ContainerDecl{
                     .base = ast.Node{ .id = ast.Node.Id.ContainerDecl },
                     .layout_token = ctx.layout_token,
                     .kind_token = switch (token_ptr.id) {
@@ -448,7 +448,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Identifier => {
                         switch (tree.tokens.at(container_decl.kind_token).id) {
                             Token.Id.Keyword_struct => {
-                                const node = try arena.construct(ast.Node.StructField{
+                                const node = try arena.create(ast.Node.StructField{
                                     .base = ast.Node{ .id = ast.Node.Id.StructField },
                                     .doc_comments = comments,
                                     .visib_token = null,
@@ -464,7 +464,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                                 continue;
                             },
                             Token.Id.Keyword_union => {
-                                const node = try arena.construct(ast.Node.UnionTag{
+                                const node = try arena.create(ast.Node.UnionTag{
                                     .base = ast.Node{ .id = ast.Node.Id.UnionTag },
                                     .name_token = token_index,
                                     .type_expr = null,
@@ -480,7 +480,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                                 continue;
                             },
                             Token.Id.Keyword_enum => {
-                                const node = try arena.construct(ast.Node.EnumTag{
+                                const node = try arena.create(ast.Node.EnumTag{
                                     .base = ast.Node{ .id = ast.Node.Id.EnumTag },
                                     .name_token = token_index,
                                     .value = null,
@@ -562,7 +562,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.VarDecl => |ctx| {
-                const var_decl = try arena.construct(ast.Node.VarDecl{
+                const var_decl = try arena.create(ast.Node.VarDecl{
                     .base = ast.Node{ .id = ast.Node.Id.VarDecl },
                     .doc_comments = ctx.comments,
                     .visib_token = ctx.visib_token,
@@ -660,7 +660,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.LBrace => {
-                        const block = try arena.construct(ast.Node.Block{
+                        const block = try arena.create(ast.Node.Block{
                             .base = ast.Node{ .id = ast.Node.Id.Block },
                             .label = null,
                             .lbrace = token_index,
@@ -712,7 +712,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         // TODO: this is a special case. Remove this when #760 is fixed
                         if (token_ptr.id == Token.Id.Keyword_error) {
                             if (tok_it.peek().?.id == Token.Id.LBrace) {
-                                const error_type_node = try arena.construct(ast.Node.ErrorType{
+                                const error_type_node = try arena.create(ast.Node.ErrorType{
                                     .base = ast.Node{ .id = ast.Node.Id.ErrorType },
                                     .token = token_index,
                                 });
@@ -733,7 +733,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 if (eatToken(&tok_it, &tree, Token.Id.RParen)) |_| {
                     continue;
                 }
-                const param_decl = try arena.construct(ast.Node.ParamDecl{
+                const param_decl = try arena.create(ast.Node.ParamDecl{
                     .base = ast.Node{ .id = ast.Node.Id.ParamDecl },
                     .comptime_token = null,
                     .noalias_token = null,
@@ -819,7 +819,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.LBrace => {
-                        const block = try arena.construct(ast.Node.Block{
+                        const block = try arena.create(ast.Node.Block{
                             .base = ast.Node{ .id = ast.Node.Id.Block },
                             .label = ctx.label,
                             .lbrace = token_index,
@@ -853,7 +853,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_suspend => {
-                        const node = try arena.construct(ast.Node.Suspend{
+                        const node = try arena.create(ast.Node.Suspend{
                             .base = ast.Node{ .id = ast.Node.Id.Suspend },
                             .label = ctx.label,
                             .suspend_token = token_index,
@@ -925,7 +925,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.While => |ctx| {
-                const node = try arena.construct(ast.Node.While{
+                const node = try arena.create(ast.Node.While{
                     .base = ast.Node{ .id = ast.Node.Id.While },
                     .label = ctx.label,
                     .inline_token = ctx.inline_token,
@@ -954,7 +954,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.For => |ctx| {
-                const node = try arena.construct(ast.Node.For{
+                const node = try arena.create(ast.Node.For{
                     .base = ast.Node{ .id = ast.Node.Id.For },
                     .label = ctx.label,
                     .inline_token = ctx.inline_token,
@@ -975,7 +975,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
             State.Else => |dest| {
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_else)) |else_token| {
-                    const node = try arena.construct(ast.Node.Else{
+                    const node = try arena.create(ast.Node.Else{
                         .base = ast.Node{ .id = ast.Node.Id.Else },
                         .else_token = else_token,
                         .payload = null,
@@ -1038,7 +1038,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_defer, Token.Id.Keyword_errdefer => {
-                        const node = try arena.construct(ast.Node.Defer{
+                        const node = try arena.create(ast.Node.Defer{
                             .base = ast.Node{ .id = ast.Node.Id.Defer },
                             .defer_token = token_index,
                             .kind = switch (token_ptr.id) {
@@ -1056,7 +1056,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.LBrace => {
-                        const inner_block = try arena.construct(ast.Node.Block{
+                        const inner_block = try arena.create(ast.Node.Block{
                             .base = ast.Node{ .id = ast.Node.Id.Block },
                             .label = null,
                             .lbrace = token_index,
@@ -1124,7 +1124,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try arena.construct(ast.Node.AsmOutput{
+                const node = try arena.create(ast.Node.AsmOutput{
                     .base = ast.Node{ .id = ast.Node.Id.AsmOutput },
                     .lbracket = lbracket_index,
                     .symbolic_name = undefined,
@@ -1178,7 +1178,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try arena.construct(ast.Node.AsmInput{
+                const node = try arena.create(ast.Node.AsmInput{
                     .base = ast.Node{ .id = ast.Node.Id.AsmInput },
                     .lbracket = lbracket_index,
                     .symbolic_name = undefined,
@@ -1243,7 +1243,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try arena.construct(ast.Node.FieldInitializer{
+                const node = try arena.create(ast.Node.FieldInitializer{
                     .base = ast.Node{ .id = ast.Node.Id.FieldInitializer },
                     .period_token = undefined,
                     .name_token = undefined,
@@ -1332,7 +1332,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
 
                 const comments = try eatDocComments(arena, &tok_it, &tree);
-                const node = try arena.construct(ast.Node.SwitchCase{
+                const node = try arena.create(ast.Node.SwitchCase{
                     .base = ast.Node{ .id = ast.Node.Id.SwitchCase },
                     .items = ast.Node.SwitchCase.ItemList.init(arena),
                     .payload = null,
@@ -1369,7 +1369,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (token_ptr.id == Token.Id.Keyword_else) {
-                    const else_node = try arena.construct(ast.Node.SwitchElse{
+                    const else_node = try arena.create(ast.Node.SwitchElse{
                         .base = ast.Node{ .id = ast.Node.Id.SwitchElse },
                         .token = token_index,
                     });
@@ -1468,7 +1468,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
             State.ExternType => |ctx| {
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_fn)) |fn_token| {
-                    const fn_proto = try arena.construct(ast.Node.FnProto{
+                    const fn_proto = try arena.create(ast.Node.FnProto{
                         .base = ast.Node{ .id = ast.Node.Id.FnProto },
                         .doc_comments = ctx.comments,
                         .visib_token = null,
@@ -1641,7 +1641,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try arena.construct(ast.Node.Payload{
+                const node = try arena.create(ast.Node.Payload{
                     .base = ast.Node{ .id = ast.Node.Id.Payload },
                     .lpipe = token_index,
                     .error_symbol = undefined,
@@ -1677,7 +1677,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try arena.construct(ast.Node.PointerPayload{
+                const node = try arena.create(ast.Node.PointerPayload{
                     .base = ast.Node{ .id = ast.Node.Id.PointerPayload },
                     .lpipe = token_index,
                     .ptr_token = null,
@@ -1720,7 +1720,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try arena.construct(ast.Node.PointerIndexPayload{
+                const node = try arena.create(ast.Node.PointerIndexPayload{
                     .base = ast.Node{ .id = ast.Node.Id.PointerIndexPayload },
                     .lpipe = token_index,
                     .ptr_token = null,
@@ -1754,7 +1754,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.Keyword_return, Token.Id.Keyword_break, Token.Id.Keyword_continue => {
-                        const node = try arena.construct(ast.Node.ControlFlowExpression{
+                        const node = try arena.create(ast.Node.ControlFlowExpression{
                             .base = ast.Node{ .id = ast.Node.Id.ControlFlowExpression },
                             .ltoken = token_index,
                             .kind = undefined,
@@ -1783,7 +1783,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_try, Token.Id.Keyword_cancel, Token.Id.Keyword_resume => {
-                        const node = try arena.construct(ast.Node.PrefixOp{
+                        const node = try arena.create(ast.Node.PrefixOp{
                             .base = ast.Node{ .id = ast.Node.Id.PrefixOp },
                             .op_token = token_index,
                             .op = switch (token_ptr.id) {
@@ -1817,7 +1817,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Ellipsis3)) |ellipsis3| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = ellipsis3,
@@ -1842,7 +1842,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToAssignment(token_ptr.id)) |ass_id| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = token_index,
@@ -1872,7 +1872,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToUnwrapExpr(token_ptr.id)) |unwrap_id| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = token_index,
@@ -1904,7 +1904,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_or)) |or_token| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = or_token,
@@ -1928,7 +1928,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_and)) |and_token| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = and_token,
@@ -1955,7 +1955,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToComparison(token_ptr.id)) |comp_id| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = token_index,
@@ -1982,7 +1982,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Pipe)) |pipe| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = pipe,
@@ -2006,7 +2006,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Caret)) |caret| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = caret,
@@ -2030,7 +2030,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Ampersand)) |ampersand| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = ampersand,
@@ -2057,7 +2057,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToBitShift(token_ptr.id)) |bitshift_id| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = token_index,
@@ -2087,7 +2087,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToAddition(token_ptr.id)) |add_id| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = token_index,
@@ -2117,7 +2117,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToMultiply(token_ptr.id)) |mult_id| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = token_index,
@@ -2145,7 +2145,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() orelse continue;
 
                 if (tok_it.peek().?.id == Token.Id.Period) {
-                    const node = try arena.construct(ast.Node.SuffixOp{
+                    const node = try arena.create(ast.Node.SuffixOp{
                         .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
                         .lhs = lhs,
                         .op = ast.Node.SuffixOp.Op{ .StructInitializer = ast.Node.SuffixOp.Op.InitList.init(arena) },
@@ -2164,7 +2164,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try arena.construct(ast.Node.SuffixOp{
+                const node = try arena.create(ast.Node.SuffixOp{
                     .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
                     .lhs = lhs,
                     .op = ast.Node.SuffixOp.Op{ .ArrayInitializer = ast.Node.SuffixOp.Op.InitList.init(arena) },
@@ -2193,7 +2193,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const lhs = opt_ctx.get() orelse continue;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Bang)) |bang| {
-                    const node = try arena.construct(ast.Node.InfixOp{
+                    const node = try arena.create(ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                         .lhs = lhs,
                         .op_token = bang,
@@ -2212,7 +2212,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToPrefixOp(token_ptr.id)) |prefix_id| {
-                    var node = try arena.construct(ast.Node.PrefixOp{
+                    var node = try arena.create(ast.Node.PrefixOp{
                         .base = ast.Node{ .id = ast.Node.Id.PrefixOp },
                         .op_token = token_index,
                         .op = prefix_id,
@@ -2222,7 +2222,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
                     // Treat '**' token as two pointer types
                     if (token_ptr.id == Token.Id.AsteriskAsterisk) {
-                        const child = try arena.construct(ast.Node.PrefixOp{
+                        const child = try arena.create(ast.Node.PrefixOp{
                             .base = ast.Node{ .id = ast.Node.Id.PrefixOp },
                             .op_token = token_index,
                             .op = prefix_id,
@@ -2246,7 +2246,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
             State.SuffixOpExpressionBegin => |opt_ctx| {
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_async)) |async_token| {
-                    const async_node = try arena.construct(ast.Node.AsyncAttribute{
+                    const async_node = try arena.create(ast.Node.AsyncAttribute{
                         .base = ast.Node{ .id = ast.Node.Id.AsyncAttribute },
                         .async_token = async_token,
                         .allocator_type = null,
@@ -2277,7 +2277,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
                     Token.Id.LParen => {
-                        const node = try arena.construct(ast.Node.SuffixOp{
+                        const node = try arena.create(ast.Node.SuffixOp{
                             .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
                             .lhs = lhs,
                             .op = ast.Node.SuffixOp.Op{
@@ -2301,7 +2301,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.LBracket => {
-                        const node = try arena.construct(ast.Node.SuffixOp{
+                        const node = try arena.create(ast.Node.SuffixOp{
                             .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
                             .lhs = lhs,
                             .op = ast.Node.SuffixOp.Op{ .ArrayAccess = undefined },
@@ -2316,7 +2316,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     Token.Id.Period => {
                         if (eatToken(&tok_it, &tree, Token.Id.Asterisk)) |asterisk_token| {
-                            const node = try arena.construct(ast.Node.SuffixOp{
+                            const node = try arena.create(ast.Node.SuffixOp{
                                 .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
                                 .lhs = lhs,
                                 .op = ast.Node.SuffixOp.Op.Deref,
@@ -2327,7 +2327,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             continue;
                         }
                         if (eatToken(&tok_it, &tree, Token.Id.QuestionMark)) |question_token| {
-                            const node = try arena.construct(ast.Node.SuffixOp{
+                            const node = try arena.create(ast.Node.SuffixOp{
                                 .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
                                 .lhs = lhs,
                                 .op = ast.Node.SuffixOp.Op.UnwrapOptional,
@@ -2337,7 +2337,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             stack.append(State{ .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                             continue;
                         }
-                        const node = try arena.construct(ast.Node.InfixOp{
+                        const node = try arena.create(ast.Node.InfixOp{
                             .base = ast.Node{ .id = ast.Node.Id.InfixOp },
                             .lhs = lhs,
                             .op_token = token_index,
@@ -2397,7 +2397,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_promise => {
-                        const node = try arena.construct(ast.Node.PromiseType{
+                        const node = try arena.create(ast.Node.PromiseType{
                             .base = ast.Node{ .id = ast.Node.Id.PromiseType },
                             .promise_token = token.index,
                             .result = null,
@@ -2423,7 +2423,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.LParen => {
-                        const node = try arena.construct(ast.Node.GroupedExpression{
+                        const node = try arena.create(ast.Node.GroupedExpression{
                             .base = ast.Node{ .id = ast.Node.Id.GroupedExpression },
                             .lparen = token.index,
                             .expr = undefined,
@@ -2441,7 +2441,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Builtin => {
-                        const node = try arena.construct(ast.Node.BuiltinCall{
+                        const node = try arena.create(ast.Node.BuiltinCall{
                             .base = ast.Node{ .id = ast.Node.Id.BuiltinCall },
                             .builtin_token = token.index,
                             .params = ast.Node.BuiltinCall.ParamList.init(arena),
@@ -2460,7 +2460,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.LBracket => {
-                        const node = try arena.construct(ast.Node.PrefixOp{
+                        const node = try arena.create(ast.Node.PrefixOp{
                             .base = ast.Node{ .id = ast.Node.Id.PrefixOp },
                             .op_token = token.index,
                             .op = undefined,
@@ -2519,7 +2519,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_fn => {
-                        const fn_proto = try arena.construct(ast.Node.FnProto{
+                        const fn_proto = try arena.create(ast.Node.FnProto{
                             .base = ast.Node{ .id = ast.Node.Id.FnProto },
                             .doc_comments = null,
                             .visib_token = null,
@@ -2540,7 +2540,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
-                        const fn_proto = try arena.construct(ast.Node.FnProto{
+                        const fn_proto = try arena.create(ast.Node.FnProto{
                             .base = ast.Node{ .id = ast.Node.Id.FnProto },
                             .doc_comments = null,
                             .visib_token = null,
@@ -2567,7 +2567,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_asm => {
-                        const node = try arena.construct(ast.Node.Asm{
+                        const node = try arena.create(ast.Node.Asm{
                             .base = ast.Node{ .id = ast.Node.Id.Asm },
                             .asm_token = token.index,
                             .volatile_token = null,
@@ -2629,7 +2629,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                const node = try arena.construct(ast.Node.ErrorSetDecl{
+                const node = try arena.create(ast.Node.ErrorSetDecl{
                     .base = ast.Node{ .id = ast.Node.Id.ErrorSetDecl },
                     .error_token = ctx.error_token,
                     .decls = ast.Node.ErrorSetDecl.DeclList.init(arena),
@@ -2695,7 +2695,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     return tree;
                 }
 
-                const node = try arena.construct(ast.Node.ErrorTag{
+                const node = try arena.create(ast.Node.ErrorTag{
                     .base = ast.Node{ .id = ast.Node.Id.ErrorTag },
                     .doc_comments = comments,
                     .name_token = ident_token_index,
@@ -3032,7 +3032,7 @@ fn pushDocComment(arena: *mem.Allocator, line_comment: TokenIndex, result: *?*as
         if (result.*) |comment_node| {
             break :blk comment_node;
         } else {
-            const comment_node = try arena.construct(ast.Node.DocComment{
+            const comment_node = try arena.create(ast.Node.DocComment{
                 .base = ast.Node{ .id = ast.Node.Id.DocComment },
                 .lines = ast.Node.DocComment.LineList.init(arena),
             });
@@ -3061,7 +3061,7 @@ fn parseStringLiteral(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterato
             return &(try createLiteral(arena, ast.Node.StringLiteral, token_index)).base;
         },
         Token.Id.MultilineStringLiteralLine => {
-            const node = try arena.construct(ast.Node.MultilineStringLiteral{
+            const node = try arena.create(ast.Node.MultilineStringLiteral{
                 .base = ast.Node{ .id = ast.Node.Id.MultilineStringLiteral },
                 .lines = ast.Node.MultilineStringLiteral.LineList.init(arena),
             });
@@ -3089,7 +3089,7 @@ fn parseStringLiteral(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterato
 fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *const OptionalCtx, token_ptr: *const Token, token_index: TokenIndex) !bool {
     switch (token_ptr.id) {
         Token.Id.Keyword_suspend => {
-            const node = try arena.construct(ast.Node.Suspend{
+            const node = try arena.create(ast.Node.Suspend{
                 .base = ast.Node{ .id = ast.Node.Id.Suspend },
                 .label = null,
                 .suspend_token = token_index,
@@ -3103,7 +3103,7 @@ fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *con
             return true;
         },
         Token.Id.Keyword_if => {
-            const node = try arena.construct(ast.Node.If{
+            const node = try arena.create(ast.Node.If{
                 .base = ast.Node{ .id = ast.Node.Id.If },
                 .if_token = token_index,
                 .condition = undefined,
@@ -3144,7 +3144,7 @@ fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *con
             return true;
         },
         Token.Id.Keyword_switch => {
-            const node = try arena.construct(ast.Node.Switch{
+            const node = try arena.create(ast.Node.Switch{
                 .base = ast.Node{ .id = ast.Node.Id.Switch },
                 .switch_token = token_index,
                 .expr = undefined,
@@ -3166,7 +3166,7 @@ fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *con
             return true;
         },
         Token.Id.Keyword_comptime => {
-            const node = try arena.construct(ast.Node.Comptime{
+            const node = try arena.create(ast.Node.Comptime{
                 .base = ast.Node{ .id = ast.Node.Id.Comptime },
                 .comptime_token = token_index,
                 .expr = undefined,
@@ -3178,7 +3178,7 @@ fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *con
             return true;
         },
         Token.Id.LBrace => {
-            const block = try arena.construct(ast.Node.Block{
+            const block = try arena.create(ast.Node.Block{
                 .base = ast.Node{ .id = ast.Node.Id.Block },
                 .label = null,
                 .lbrace = token_index,
@@ -3318,7 +3318,7 @@ fn tokenIdToPrefixOp(id: @TagType(Token.Id)) ?ast.Node.PrefixOp.Op {
 }
 
 fn createLiteral(arena: *mem.Allocator, comptime T: type, token_index: TokenIndex) !*T {
-    return arena.construct(T{
+    return arena.create(T{
         .base = ast.Node{ .id = ast.Node.typeToId(T) },
         .token = token_index,
     });

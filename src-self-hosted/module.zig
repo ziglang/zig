@@ -114,7 +114,7 @@ pub const Module = struct {
                 .name = name,
                 .path = path,
                 .children = ArrayList(*CliPkg).init(allocator),
-                .parent = parent
+                .parent = parent,
             });
             return pkg;
         }
@@ -127,7 +127,16 @@ pub const Module = struct {
         }
     };
 
-    pub fn create(allocator: *mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: *const Target, kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) !*Module {
+    pub fn create(
+        allocator: *mem.Allocator,
+        name: []const u8,
+        root_src_path: ?[]const u8,
+        target: *const Target,
+        kind: Kind,
+        build_mode: builtin.Mode,
+        zig_lib_dir: []const u8,
+        cache_dir: []const u8,
+    ) !*Module {
         var name_buffer = try Buffer.init(allocator, name);
         errdefer name_buffer.deinit();
 

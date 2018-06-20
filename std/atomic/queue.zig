@@ -115,7 +115,7 @@ fn startPuts(ctx: *Context) u8 {
         std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
         const node = ctx.allocator.create(Queue(i32).Node{
-            .next = null,
+            .next = undefined,
             .data = x,
         }) catch unreachable;
         ctx.queue.put(node);
