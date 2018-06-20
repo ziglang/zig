@@ -407,8 +407,7 @@ fn testAllocator(allocator: *mem.Allocator) !void {
     var slice = try allocator.alloc(*i32, 100);
 
     for (slice) |*item, i| {
-        item.* = try allocator.create(i32);
-        item.*.* = @intCast(i32, i);
+        item.* = try allocator.create(@intCast(i32, i));
     }
 
     for (slice) |item, i| {

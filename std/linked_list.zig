@@ -193,7 +193,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///     A pointer to the new node.
         pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
             comptime assert(!isIntrusive());
-            return allocator.create(Node);
+            return allocator.create(Node(undefined));
         }
 
         /// Deallocate a node.

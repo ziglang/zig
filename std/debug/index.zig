@@ -249,9 +249,7 @@ fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: us
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
     switch (builtin.object_format) {
         builtin.ObjectFormat.elf => {
-            const st = try allocator.create(ElfStackTrace);
-            errdefer allocator.destroy(st);
-            st.* = ElfStackTrace{
+            const st = try allocator.create(ElfStackTrace{
                 .self_exe_file = undefined,
                 .elf = undefined,
                 .debug_info = undefined,
@@ -261,7 +259,8 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
                 .debug_ranges = null,
                 .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
                 .compile_unit_list = ArrayList(CompileUnit).init(allocator),
-            };
+            });
+            errdefer allocator.destroy(st);
             st.self_exe_file = try os.openSelfExe();
             errdefer st.self_exe_file.close();
 
@@ -280,11 +279,8 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
             var exe_file = try os.openSelfExe();
             defer exe_file.close();
 
-            const st = try allocator.create(ElfStackTrace);
+            const st = try allocator.create(ElfStackTrace{ .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)) });
             errdefer allocator.destroy(st);
-
-            st.* = ElfStackTrace{ .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)) };
-
             return st;
         },
         builtin.ObjectFormat.coff => {
@@ -974,8 +970,7 @@ fn scanAllCompileUnits(st: *ElfStackTrace) !void {
 
         try st.self_exe_file.seekTo(compile_unit_pos);
 
-        const compile_unit_die = try st.allocator().create(Die);
-        compile_unit_die.* = try parseDie(st, abbrev_table, is_64);
+        const compile_unit_die = try st.allocator().create(try parseDie(st, abbrev_table, is_64));
 
         if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
 

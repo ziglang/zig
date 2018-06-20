@@ -110,11 +110,12 @@ pub const Module = struct {
         parent: ?*CliPkg,
 
         pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
-            var pkg = try allocator.create(CliPkg);
-            pkg.name = name;
-            pkg.path = path;
-            pkg.children = ArrayList(*CliPkg).init(allocator);
-            pkg.parent = parent;
+            var pkg = try allocator.create(CliPkg{
+                .name = name,
+                .path = path,
+                .children = ArrayList(*CliPkg).init(allocator),
+                .parent = parent,
+            });
             return pkg;
         }
 
@@ -126,7 +127,16 @@ pub const Module = struct {
         }
     };
 
-    pub fn create(allocator: *mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: *const Target, kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) !*Module {
+    pub fn create(
+        allocator: *mem.Allocator,
+        name: []const u8,
+        root_src_path: ?[]const u8,
+        target: *const Target,
+        kind: Kind,
+        build_mode: builtin.Mode,
+        zig_lib_dir: []const u8,
+        cache_dir: []const u8,
+    ) !*Module {
         var name_buffer = try Buffer.init(allocator, name);
         errdefer name_buffer.deinit();
 
@@ -139,10 +149,7 @@ pub const Module = struct {
         const builder = c.LLVMCreateBuilderInContext(context) orelse return error.OutOfMemory;
         errdefer c.LLVMDisposeBuilder(builder);
 
-        const module_ptr = try allocator.create(Module);
-        errdefer allocator.destroy(module_ptr);
-
-        module_ptr.* = Module{
+        const module_ptr = try allocator.create(Module{
             .allocator = allocator,
             .name = name_buffer,
             .root_src_path = root_src_path,
@@ -196,7 +203,8 @@ pub const Module = struct {
             .test_filters = [][]const u8{},
             .test_name_prefix = null,
             .emit_file_type = Emit.Binary,
-        };
+        });
+        errdefer allocator.destroy(module_ptr);
         return module_ptr;
     }
 
@@ -279,13 +287,12 @@ pub const Module = struct {
             }
         }
 
-        const link_lib = try self.allocator.create(LinkLib);
-        link_lib.* = LinkLib{
+        const link_lib = try self.allocator.create(LinkLib{
             .name = name,
             .path = null,
             .provided_explicitly = provided_explicitly,
             .symbols = ArrayList([]u8).init(self.allocator),
-        };
+        });
         try self.link_libs_list.append(link_lib);
         if (is_libc) {
             self.libc_link_lib = link_lib;

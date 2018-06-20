@@ -31,16 +31,8 @@ pub const Allocator = struct {
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
-    /// Call destroy with the result
-    pub fn create(self: *Allocator, comptime T: type) !*T {
-        if (@sizeOf(T) == 0) return *{};
-        const slice = try self.alloc(T, 1);
-        return &slice[0];
-    }
-
-    /// Call destroy with the result
-    /// TODO once #733 is solved, this will replace create
-    pub fn construct(self: *Allocator, init: var) Error!*@typeOf(init) {
+    /// Call `destroy` with the result
+    pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
         if (@sizeOf(T) == 0) return &{};
         const slice = try self.alloc(T, 1);
@@ -49,7 +41,7 @@ pub const Allocator = struct {
         return ptr;
     }
 
-    /// `ptr` should be the return value of `construct` or `create`
+    /// `ptr` should be the return value of `create`
     pub fn destroy(self: *Allocator, ptr: var) void {
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
         self.freeFn(self, non_const_ptr[0..@sizeOf(@typeOf(ptr).Child)]);

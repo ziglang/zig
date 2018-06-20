@@ -707,7 +707,7 @@ const Fmt = struct {
 
     // file_path must outlive Fmt
     fn addToQueue(self: *Fmt, file_path: []const u8) !void {
-        const new_node = try self.seen.allocator.construct(std.LinkedList([]const u8).Node{
+        const new_node = try self.seen.allocator.create(std.LinkedList([]const u8).Node{
             .prev = undefined,
             .next = undefined,
             .data = file_path,
