@@ -146,7 +146,7 @@ test "null with default unwrap" {
 
 test "optional types" {
     comptime {
-        const opt_type_struct = StructWithOptionalType { .t=u8, };
+        const opt_type_struct = StructWithOptionalType{ .t = u8 };
         assert(opt_type_struct.t != null and opt_type_struct.t.? == u8);
     }
 }

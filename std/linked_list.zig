@@ -194,9 +194,9 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
             comptime assert(!isIntrusive());
             return allocator.create(Node{
-              .prev = null,
-              .next = null,
-              .data = undefined
+                .prev = null,
+                .next = null,
+                .data = undefined,
             });
         }
 

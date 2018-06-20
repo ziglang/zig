@@ -116,7 +116,7 @@ fn startPuts(ctx: *Context) u8 {
         const x = @bitCast(i32, r.random.scalar(u32));
         const node = ctx.allocator.create(Queue(i32).Node{
             .next = null,
-            .data = x
+            .data = x,
         }) catch unreachable;
         ctx.queue.put(node);
         _ = @atomicRmw(isize, &ctx.put_sum, builtin.AtomicRmwOp.Add, x, AtomicOrder.SeqCst);

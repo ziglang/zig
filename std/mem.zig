@@ -44,7 +44,7 @@ pub const Allocator = struct {
     /// Alias of `create`
     /// Call `destroy` with the result
     pub fn construct(self: *Allocator, init: var) Error!*@typeOf(init) {
-      return self.create(init);
+        return self.create(init);
     }
 
     /// `ptr` should be the return value of `construct` or `create`

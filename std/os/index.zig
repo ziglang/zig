@@ -2583,8 +2583,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
         const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
         const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext{
-          .thread = undefined,
-          .inner = context
+            .thread = undefined,
+            .inner = context,
         }) catch unreachable;
 
         outer_context.thread.data.heap_handle = heap_handle;

@@ -279,9 +279,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
             var exe_file = try os.openSelfExe();
             defer exe_file.close();
 
-            const st = try allocator.create(ElfStackTrace{
-                .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file))
-            });
+            const st = try allocator.create(ElfStackTrace{ .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)) });
             errdefer allocator.destroy(st);
             return st;
         },
@@ -972,7 +970,7 @@ fn scanAllCompileUnits(st: *ElfStackTrace) !void {
 
         try st.self_exe_file.seekTo(compile_unit_pos);
 
-        const compile_unit_die = try st.allocator().create( try parseDie(st, abbrev_table, is_64) );
+        const compile_unit_die = try st.allocator().create(try parseDie(st, abbrev_table, is_64));
 
         if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
 
