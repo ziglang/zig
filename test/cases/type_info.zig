@@ -26,9 +26,23 @@ fn testIntFloat() void {
     assert(!u8_info.Int.is_signed);
     assert(u8_info.Int.bits == 8);
 
+    const f32_info = @typeInfo(f32);
+    assert(TypeId(f32_info) == TypeId.Float);
+    assert(f32_info.Float.bits == 32);
+    assert(f32_info.Float.exponent_bits == 8);
+    assert(f32_info.Float.mantissa_bits == 23);
+
     const f64_info = @typeInfo(f64);
     assert(TypeId(f64_info) == TypeId.Float);
     assert(f64_info.Float.bits == 64);
+    assert(f64_info.Float.exponent_bits == 11);
+    assert(f64_info.Float.mantissa_bits == 52);
+
+    const f128_info = @typeInfo(f128);
+    assert(TypeId(f128_info) == TypeId.Float);
+    assert(f128_info.Float.bits == 128);
+    assert(f128_info.Float.exponent_bits == 15);
+    assert(f128_info.Float.mantissa_bits == 112);
 }
 
 test "type info: pointer type info" {
