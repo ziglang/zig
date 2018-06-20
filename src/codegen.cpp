@@ -6589,6 +6589,8 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "\n"
             "    pub const Float = struct {\n"
             "        bits: u8,\n"
+            "        exponent_bits: u8,\n"
+            "        mantissa_bits: u8,\n"
             "    };\n"
             "\n"
             "    pub const Pointer = struct {\n"

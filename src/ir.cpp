@@ -16536,14 +16536,60 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Float");
 
-                ConstExprValue *fields = create_const_vals(1);
+                ConstExprValue *fields = create_const_vals(3);
                 result->data.x_struct.fields = fields;
+
+                uint8_t exponent_bits;
+                uint8_t mantissa_bits;
+                switch (type_entry->data.floating.bit_count) {
+                    case 16:
+                        exponent_bits = 5;
+                        mantissa_bits = 10;
+                        break;
+
+                    case 32:
+                        exponent_bits = 8;
+                        mantissa_bits = 23;
+                        break;
+
+                    case 64:
+                        exponent_bits = 11;
+                        mantissa_bits = 52;
+                        break;
+
+                    // extended precision. This may have an explicit integer
+                    // bit instead of a hidden bit as in standard IEEE variants.
+                    case 80:
+                        exponent_bits = 15;
+                        mantissa_bits = 64;
+                        break;
+
+                    case 128:
+                        exponent_bits = 15;
+                        mantissa_bits = 112;
+                        break;
+
+                    default:
+                        zig_unreachable();
+                }
+
+                assert(exponent_bits + mantissa_bits + 1 == type_entry->data.floating.bit_count);
 
                 // bits: u8
                 ensure_field_index(result->type, "bits", 0);
                 fields[0].special = ConstValSpecialStatic;
                 fields[0].type = ira->codegen->builtin_types.entry_u8;
-                bigint_init_unsigned(&fields->data.x_bigint, type_entry->data.floating.bit_count);
+                bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.floating.bit_count);
+                // exponent_bits: u8
+                ensure_field_index(result->type, "exponent_bits", 1);
+                fields[1].special = ConstValSpecialStatic;
+                fields[1].type = ira->codegen->builtin_types.entry_u8;
+                bigint_init_unsigned(&fields[1].data.x_bigint, exponent_bits);
+                // mantissa_bits: u8
+                ensure_field_index(result->type, "mantissa_bits", 2);
+                fields[2].special = ConstValSpecialStatic;
+                fields[2].type = ira->codegen->builtin_types.entry_u8;
+                bigint_init_unsigned(&fields[2].data.x_bigint, mantissa_bits);
 
                 break;
             }
