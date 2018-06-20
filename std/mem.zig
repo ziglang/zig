@@ -32,21 +32,20 @@ pub const Allocator = struct {
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
     /// Call destroy with the result
-    pub fn create(self: *Allocator, comptime T: type) !*T {
-        if (@sizeOf(T) == 0) return *{};
-        const slice = try self.alloc(T, 1);
-        return &slice[0];
-    }
-
-    /// Call destroy with the result
-    /// TODO once #733 is solved, this will replace create
-    pub fn construct(self: *Allocator, init: var) Error!*@typeOf(init) {
+    pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
         if (@sizeOf(T) == 0) return &{};
         const slice = try self.alloc(T, 1);
         const ptr = &slice[0];
         ptr.* = init;
         return ptr;
+    }
+
+    /// Alias of create
+    /// Call destroy with the result
+    pub fn construct(self: *Allocator, init: var) Error!*@typeOf(init) {
+      debug.warn("std.mem.Allocator.construct is deprecated;\n");
+      return self.create(init);
     }
 
     /// `ptr` should be the return value of `construct` or `create`
