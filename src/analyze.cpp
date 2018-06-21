@@ -1720,6 +1720,11 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
 
+        if (enum_field->name == nullptr) {
+            add_node_error(g, decl_node, buf_sprintf("enum '%s' contains invalid field", buf_ptr(&enum_type->name)));
+            return;
+        }
+
         // TODO send patch to LLVM to support APInt in createEnumerator instead of int64_t
         // http://lists.llvm.org/pipermail/llvm-dev/2017-December/119456.html
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(enum_field->name),
