@@ -183,6 +183,32 @@ test "math" {
     _ = @import("big/index.zig");
 }
 
+pub fn floatMantissaBits(comptime T: type) comptime_int {
+    assert(@typeId(T) == builtin.TypeId.Float);
+
+    return switch (T.bit_count) {
+        16 => 10,
+        32 => 23,
+        64 => 52,
+        80 => 64,
+        128 => 112,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
+}
+
+pub fn floatExponentBits(comptime T: type) comptime_int {
+    assert(@typeId(T) == builtin.TypeId.Float);
+
+    return switch (T.bit_count) {
+        16 => 5,
+        32 => 8,
+        64 => 11,
+        80 => 15,
+        128 => 15,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
+}
+
 pub fn min(x: var, y: var) @typeOf(x + y) {
     return if (x < y) x else y;
 }
@@ -607,4 +633,3 @@ pub fn lossyCast(comptime T: type, value: var) T {
         else => @compileError("bad type"),
     }
 }
-
