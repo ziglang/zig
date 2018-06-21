@@ -1683,10 +1683,15 @@ void bigint_incr(BigInt *x) {
         bigint_init_unsigned(x, 1);
         return;
     }
-    
-    if (x->digit_count == 1 && x->data.digit != UINT64_MAX) {
-        x->data.digit += 1;
-        return;
+
+    if (x->digit_count == 1) {
+        if (x->is_negative && x->data.digit != 0) {
+            x->data.digit -= 1;
+            return;
+        } else if (!x->is_negative && x->data.digit != UINT64_MAX) {
+            x->data.digit += 1;
+            return;
+        }
     }
 
     BigInt copy;
