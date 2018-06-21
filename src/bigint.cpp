@@ -1685,16 +1685,11 @@ void bigint_incr(BigInt *x) {
     }
 
     if (x->digit_count == 1) {
-        if (x->is_negative) {
-            if (x->data.digit != 0) {
-                x->data.digit -= 1;
-            }
+        if (x->is_negative && x->data.digit != 0) {
+            x->data.digit -= 1;
             return;
-        }
-        else {
-            if (x->data.digit != UINT64_MAX) {
-                x->data.digit += 1;
-            }
+        } else if (!x->is_negative && x->data.digit != UINT64_MAX) {
+            x->data.digit += 1;
             return;
         }
     }
