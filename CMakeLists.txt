@@ -558,6 +558,7 @@ set(ZIG_STD_FILES
     "special/compiler_rt/aullrem.zig"
     "special/compiler_rt/comparetf2.zig"
     "special/compiler_rt/divti3.zig"
+    "special/compiler_rt/extendXfYf2.zig"
     "special/compiler_rt/fixuint.zig"
     "special/compiler_rt/fixunsdfdi.zig"
     "special/compiler_rt/fixunsdfsi.zig"

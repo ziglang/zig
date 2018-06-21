@@ -20,6 +20,8 @@ comptime {
     @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
 
     @export("__floatuntidf", @import("floatuntidf.zig").__floatuntidf, linkage);
+    @export("__extenddftf2", @import("extendXfYf2.zig").__extenddftf2, linkage);
+    @export("__extendsftf2", @import("extendXfYf2.zig").__extendsftf2, linkage);
 
     @export("__fixunssfsi", @import("fixunssfsi.zig").__fixunssfsi, linkage);
     @export("__fixunssfdi", @import("fixunssfdi.zig").__fixunssfdi, linkage);

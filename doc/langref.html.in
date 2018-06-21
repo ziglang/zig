@@ -3573,14 +3573,161 @@ const optional_value: ?i32 = null;
       {#header_close#}
       {#header_close#}
       {#header_open|Casting#}
-      <p>TODO: explain implicit vs explicit casting</p>
-      <p>TODO: resolve peer types builtin</p>
-      <p>TODO: truncate builtin</p>
-      <p>TODO: bitcast builtin</p>
-      <p>TODO: int to ptr builtin</p>
-      <p>TODO: ptr to int builtin</p>
-      <p>TODO: ptrcast builtin</p>
-      <p>TODO: explain number literals vs concrete types</p>
+      <p>
+      A <strong>type cast</strong> converts a value of one type to another.
+      Zig has {#link|Implicit Casts#} for conversions that are known to be completely safe and unambiguous,
+      and {#link|Explicit Casts#} for conversions that one would not want to happen on accident.
+      There is also a third kind of type conversion called {#link|Peer Type Resolution#} for
+      the case when a result type must be decided given multiple operand types.
+      </p>
+      {#header_open|Implicit Casts#}
+      <p>
+      An implicit cast occurs when one type is expected, but different type is provided:
+      </p>
+      {#code_begin|test#}
+test "implicit cast - variable declaration" {
+    var a: u8 = 1;
+    var b: u16 = a;
+}
+
+test "implicit cast - function call" {
+    var a: u8 = 1;
+    foo(a);
+}
+
+fn foo(b: u16) void {}
+
+test "implicit cast - invoke a type as a function" {
+    var a: u8 = 1;
+    var b = u16(a);
+}
+      {#code_end#}
+      {#header_open|Implicit Cast: Stricter Qualification#}
+      <p>
+      Values which have the same representation at runtime can be cast to increase the strictness
+      of the qualifiers, no matter how nested the qualifiers are:
+      </p>
+      <ul>
+          <li><code>const</code> - non-const to const is allowed</li>
+          <li><code>volatile</code> - non-volatile to volatile is allowed</li>
+          <li><code>align</code> - bigger to smaller alignment is allowed </li>
+          <li>{#link|error sets|Error Set Type#} to supersets is allowed</li>
+      </ul>
+      <p>
+      These casts are no-ops at runtime since the value representation does not change.
+      </p>
+      {#code_begin|test#}
+test "implicit cast - const qualification" {
+    var a: i32 = 1;
+    var b: *i32 = &a;
+    foo(b);
+}
+
+fn foo(a: *const i32) void {}
+      {#code_end#}
+      <p>
+      In addition, pointers implicitly cast to const optional pointers:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
+
+test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
+    const window_name = [1][*]const u8{c"window name"};
+    const x: [*]const ?[*]const u8 = &window_name;
+    assert(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Implicit Cast: Integer and Float Widening#}
+      <p>
+      {#link|Integers#} implicitly cast to integer types which can represent every value of the old type, and likewise
+      {#link|Floats#} implicitly cast to float types which can represent every value of the old type.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
+
+test "integer widening" {
+    var a: u8 = 250;
+    var b: u16 = a;
+    var c: u32 = b;
+    var d: u64 = c;
+    var e: u64 = d;
+    var f: u128 = e;
+    assert(f == a);
+}
+
+test "implicit unsigned integer to signed integer" {
+    var a: u8 = 250;
+    var b: i16 = a;
+    assert(b == 250);
+}
+
+test "float widening" {
+    var a: f32 = 12.34;
+    var b: f64 = a;
+    var c: f128 = b;
+    assert(c == a);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Implicit Cast: Arrays#}
+      <p>TODO: [N]T to []const T</p>
+      <p>TODO: *const [N]T to []const T</p>
+      <p>TODO: [N]T to *const []const T</p>
+      <p>TODO: [N]T to ?[]const T</p>
+      <p>TODO: *[N]T to []T</p>
+      <p>TODO: *[N]T to [*]T</p>
+      <p>TODO: *T to *[1]T</p>
+      <p>TODO: [N]T to E![]const T</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: Optionals#}
+      <p>TODO: T to ?T</p>
+      <p>TODO: T to E!?T</p>
+      <p>TODO: null to ?T</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: T to E!T#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: E to E!T#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: comptime_int to *const integer#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: comptime_float to *const float#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: compile-time known numbers#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: union to enum#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: enum to union#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: T to *T when @sizeOf(T) == 0#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: undefined#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_open|Implicit Cast: T to *const T#}
+      <p>TODO</p>
+      {#header_close#}
+      {#header_close#}
+
+      {#header_open|Explicit Casts#}
+      <p>TODO</p>
+      {#header_close#}
+
+      {#header_open|Peer Type Resolution#}
+      <p>TODO</p>
+      {#header_close#}
       {#header_close#}
 
       {#header_open|void#}
@@ -5522,12 +5669,6 @@ pub const FloatMode = enum {
       </p>
       {#see_also|Compile Variables#}
       {#header_close#}
-      {#header_open|@setGlobalSection#}
-      <pre><code class="zig">@setGlobalSection(global_variable_name, comptime section_name: []const u8) bool</code></pre>
-      <p>
-      Puts the global variable in the specified section.
-      </p>
-      {#header_close#}
       {#header_open|@shlExact#}
       <pre><code class="zig">@shlExact(value: T, shift_amt: Log2T) T</code></pre>
       <p>
@@ -6928,7 +7069,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong resume cancel await async orelse",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bytesToSlice sliceToBytes errSetCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall errorToInt intToError enumToInt intToEnum",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bytesToSlice sliceToBytes errSetCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall errorToInt intToError enumToInt intToEnum",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

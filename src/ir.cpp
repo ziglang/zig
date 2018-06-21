@@ -10092,7 +10092,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // cast from &const [N]T to []const T
+    // cast from *const [N]T to []const T
     if (is_slice(wanted_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.is_const &&
@@ -10111,7 +10111,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // cast from [N]T to &const []const T
+    // cast from [N]T to *const []const T
     if (wanted_type->id == TypeTableEntryIdPointer &&
         wanted_type->data.pointer.is_const &&
         is_slice(wanted_type->data.pointer.child_type) &&
@@ -10136,7 +10136,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // cast from [N]T to ?[]const N
+    // cast from [N]T to ?[]const T
     if (wanted_type->id == TypeTableEntryIdOptional &&
         is_slice(wanted_type->data.maybe.child_type) &&
         actual_type->id == TypeTableEntryIdArray)
