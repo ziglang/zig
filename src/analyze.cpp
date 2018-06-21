@@ -2318,8 +2318,9 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
         return;
 
     if (enum_type->data.enumeration.zero_bits_loop_flag) {
-        enum_type->data.enumeration.zero_bits_known = true;
-        enum_type->data.enumeration.zero_bits_loop_flag = false;
+        add_node_error(g, enum_type->data.enumeration.decl_node,
+            buf_sprintf("'%s' depends on itself", buf_ptr(&enum_type->name)));
+        enum_type->data.enumeration.is_invalid = true;
         return;
     }
 

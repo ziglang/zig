@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "enum field value references enum",
+        \\pub const Foo = extern enum {
+        \\    A = Foo.B,
+        \\    C = D,
+        \\};
+        \\export fn entry() void {
+        \\    var s: Foo = Foo.E;
+        \\}
+    ,
+        ".tmp_source.zig:1:17: error: 'Foo' depends on itself",
+    );
+
+    cases.add(
         "@floatToInt comptime safety",
         \\comptime {
         \\    _ = @floatToInt(i8, f32(-129.1));
