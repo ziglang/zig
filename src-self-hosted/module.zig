@@ -103,30 +103,6 @@ pub const Module = struct {
         LlvmIr,
     };
 
-    pub const CliPkg = struct {
-        name: []const u8,
-        path: []const u8,
-        children: ArrayList(*CliPkg),
-        parent: ?*CliPkg,
-
-        pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
-            var pkg = try allocator.create(CliPkg{
-                .name = name,
-                .path = path,
-                .children = ArrayList(*CliPkg).init(allocator),
-                .parent = parent,
-            });
-            return pkg;
-        }
-
-        pub fn deinit(self: *CliPkg) void {
-            for (self.children.toSliceConst()) |child| {
-                child.deinit();
-            }
-            self.children.deinit();
-        }
-    };
-
     pub fn create(
         allocator: *mem.Allocator,
         name: []const u8,

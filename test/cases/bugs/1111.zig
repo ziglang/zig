@@ -5,8 +5,8 @@ const Foo = extern enum {
 test "issue 1111 fixed" {
     const v = Foo.Bar;
 
-    switch(v) {
-    Foo.Bar => return,
-    else => return,
+    switch (v) {
+        Foo.Bar => return,
+        else => return,
     }
 }
