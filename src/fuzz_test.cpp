@@ -20,7 +20,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     }
 
     char arg0[] = "zig";
-    char arg1[] = "build-exe";
+    char arg1[] = "build-obj";
     char* argv[] = { arg0, arg1, tmp_file_name };
     int argc = sizeof(argv) / sizeof(argv[0]);
     zig_main(argc, argv);
