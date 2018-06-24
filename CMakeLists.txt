@@ -792,11 +792,23 @@ foreach(file ${ZIG_STD_FILES})
     install(FILES "${CMAKE_SOURCE_DIR}/std/${file}" DESTINATION "${file_dir}")
 endforeach()
 
+include(CheckCXXSourceCompiles)
 include(CTest)
-if(BUILD_TESTING AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+
+set(fuzzer_flags "-fsanitize=address,undefined,fuzzer")
+set(CMAKE_REQUIRED_FLAGS "${fuzzer_flags}")
+check_cxx_source_compiles("
+#include <stdint.h>
+#include <stdlib.h>
+extern \"C\" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+    return 0;
+}"
+    have_fuzzer_support)
+if(BUILD_TESTING AND have_fuzzer_support)
     add_executable(fuzz_test src/fuzz_test.cpp ${ZIG_SOURCES} ${ZIG_CPP_SOURCES})
-    target_compile_options(fuzz_test PRIVATE "-fsanitize=address,undefined,fuzzer")
-    target_link_libraries(fuzz_test PRIVATE "-fsanitize=address,undefined,fuzzer"
+    target_compile_options(fuzz_test PRIVATE "${fuzzer_flags}")
+    target_link_libraries(fuzz_test PRIVATE
+      "${fuzzer_flags}"
       ${SOFTFLOAT_LIBRARIES}
       ${CLANG_LIBRARIES}
       ${LLD_LIBRARIES}

@@ -1,5 +1,3 @@
-#include <unistd.h>
-
 #define main zig_main
 #include "main.cpp"
 #undef main
@@ -12,8 +10,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         perror("Cannot create temporary file");
         return 0;
     }
-    const int num_written = write(fd, data, size);
-    close(fd);
+    FILE* f = fdopen(fd, "w");
+    if (f == NULL) {
+        perror("Cannot open file handle");
+        return 0;
+    }
+    const int num_written = fwrite(data, 1, size, f);
+    fclose(f);
     if (num_written != size) {
         fprintf(stderr, "Cannot write to file\n");
         return 0;
