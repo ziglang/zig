@@ -52,14 +52,14 @@ find_package(clang)
 
 if(NOT MSVC)
     find_library(LIBXML2 NAMES xml2 libxml2)
-    if(${LIBXML2} STREQUAL "LIBXML2-NOTFOUND")
+    if(NOT LIBXML2)
         message(FATAL_ERROR "Could not find libxml2")
     else()
         message("${LIBXML2} found")
     endif()
 
     find_library(ZLIB NAMES z zlib libz)
-    if(${ZLIB} STREQUAL "ZLIB-NOTFOUND")
+    if(NOT ZLIB)
         message(FATAL_ERROR "Could not find zlib")
     else()
         message("${ZLIB} found")
@@ -400,7 +400,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
-    "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
@@ -727,7 +726,7 @@ if(MSVC)
 elseif(MINGW)
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
 else()
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror -Wall")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
 endif()
 
 if(MSVC)
@@ -756,7 +755,7 @@ set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
 
-add_executable(zig ${ZIG_SOURCES})
+add_executable(zig "${CMAKE_SOURCE_DIR}/src/main.cpp" ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
@@ -792,3 +791,15 @@ foreach(file ${ZIG_STD_FILES})
     get_filename_component(file_dir "${ZIG_STD_DEST}/${file}" DIRECTORY)
     install(FILES "${CMAKE_SOURCE_DIR}/std/${file}" DESTINATION "${file_dir}")
 endforeach()
+
+include(CTest)
+if(BUILD_TESTING AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_executable(fuzz_test src/fuzz_test.cpp ${ZIG_SOURCES} ${ZIG_CPP_SOURCES})
+    target_compile_options(fuzz_test PRIVATE "-fsanitize=address,undefined,fuzzer")
+    target_link_libraries(fuzz_test PRIVATE "-fsanitize=address,undefined,fuzzer"
+      ${SOFTFLOAT_LIBRARIES}
+      ${CLANG_LIBRARIES}
+      ${LLD_LIBRARIES}
+      ${LLVM_LIBRARIES}
+      ${CMAKE_THREAD_LIBS_INIT})
+endif()
