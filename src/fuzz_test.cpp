@@ -1,6 +1,8 @@
 #include <unistd.h>
 
-#include "main.hpp"
+#define main zig_main
+#include "main.cpp"
+#undef main
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
@@ -17,8 +19,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         return 0;
     }
 
-    const char* argv[] = { "zig", "build-exe", (const char*) tmp_file_name };
-    const int argc = sizeof(argv) / sizeof(argv[0]);
+    char arg0[] = "zig";
+    char arg1[] = "build-exe";
+    char* argv[] = { arg0, arg1, tmp_file_name };
+    int argc = sizeof(argv) / sizeof(argv[0]);
     zig_main(argc, argv);
 
     remove(tmp_file_name);
