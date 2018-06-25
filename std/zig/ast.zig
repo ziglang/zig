@@ -858,6 +858,7 @@ pub const Node = struct {
 
         pub fn firstToken(self: *FnProto) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
+            if (self.async_attr) |async_attr| return async_attr.firstToken();
             if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
             assert(self.lib_name == null);
             if (self.cc_token) |cc_token| return cc_token;
