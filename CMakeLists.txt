@@ -726,7 +726,7 @@ if(MSVC)
 elseif(MINGW)
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
 else()
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror")
 endif()
 
 if(MSVC)
@@ -795,11 +795,11 @@ endforeach()
 include(CheckCXXSourceCompiles)
 include(CTest)
 
-set(fuzzer_flags "-fsanitize=address,undefined,fuzzer")
+set(fuzzer_flags "-fsanitize=undefined,fuzzer")
 set(CMAKE_REQUIRED_FLAGS "${fuzzer_flags}")
 check_cxx_source_compiles("
+#include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 extern \"C\" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     return 0;
 }"

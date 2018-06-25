@@ -15,7 +15,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         perror("Cannot open file handle");
         return 0;
     }
-    const int num_written = fwrite(data, 1, size, f);
+    const size_t num_written = fwrite(data, 1, size, f);
     fclose(f);
     if (num_written != size) {
         fprintf(stderr, "Cannot write to file\n");
@@ -24,8 +24,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 
     char arg0[] = "zig";
     char arg1[] = "build-obj";
-    char* argv[] = { arg0, arg1, tmp_file_name };
-    int argc = sizeof(argv) / sizeof(argv[0]);
+    char* argv[] = { arg0, arg1, tmp_file_name, nullptr };
+    int argc = sizeof(argv) / sizeof(argv[0]) - 1;  // Exclude nullptr
     zig_main(argc, argv);
 
     remove(tmp_file_name);
