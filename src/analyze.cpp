@@ -482,7 +482,7 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
         return return_type->promise_frame_parent;
     }
 
-    TypeTableEntry *awaiter_handle_type = get_maybe_type(g, g->builtin_types.entry_promise);
+    TypeTableEntry *awaiter_handle_type = get_optional_type(g, g->builtin_types.entry_promise);
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
 
     ZigList<const char *> field_names = {};
@@ -513,9 +513,9 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     return entry;
 }
 
-TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
-    if (child_type->maybe_parent) {
-        TypeTableEntry *entry = child_type->maybe_parent;
+TypeTableEntry *get_optional_type(CodeGen *g, TypeTableEntry *child_type) {
+    if (child_type->optional_parent) {
+        TypeTableEntry *entry = child_type->optional_parent;
         return entry;
     } else {
         ensure_complete_type(g, child_type);
@@ -592,7 +592,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
 
         entry->data.maybe.child_type = child_type;
 
-        child_type->maybe_parent = entry;
+        child_type->optional_parent = entry;
         return entry;
     }
 }
@@ -2996,7 +2996,7 @@ static void typecheck_panic_fn(CodeGen *g, FnTableEntry *panic_fn) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
 
-    TypeTableEntry *optional_ptr_to_stack_trace_type = get_maybe_type(g, get_ptr_to_stack_trace_type(g));
+    TypeTableEntry *optional_ptr_to_stack_trace_type = get_optional_type(g, get_ptr_to_stack_trace_type(g));
     if (fn_type_id->param_info[1].type != optional_ptr_to_stack_trace_type) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }

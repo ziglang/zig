@@ -1233,7 +1233,7 @@ struct TypeTableEntry {
 
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
-    TypeTableEntry *maybe_parent;
+    TypeTableEntry *optional_parent;
     TypeTableEntry *promise_parent;
     TypeTableEntry *promise_frame_parent;
     // If we generate a constant name value for this type, we memoize it here.

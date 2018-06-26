@@ -3044,7 +3044,7 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
 
     ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_field_ptr, return_value);
     IrInstruction *promise_type_val = ir_build_const_type(irb, scope, node,
-            get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+            get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
     // TODO replace replacement_value with @intToPtr(?promise, 0x1) when it doesn't crash zig
     IrInstruction *replacement_value = irb->exec->coro_handle;
     IrInstruction *maybe_await_handle = ir_build_atomic_rmw(irb, scope, node,
@@ -6654,7 +6654,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
     ir_build_store_ptr(irb, parent_scope, node, result_ptr_field_ptr, my_result_var_ptr);
     IrInstruction *save_token = ir_build_coro_save(irb, parent_scope, node, irb->exec->coro_handle);
     IrInstruction *promise_type_val = ir_build_const_type(irb, parent_scope, node,
-            get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+            get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
     IrInstruction *maybe_await_handle = ir_build_atomic_rmw(irb, parent_scope, node, 
             promise_type_val, awaiter_field_ptr, nullptr, irb->exec->coro_handle, nullptr,
             AtomicRmwOp_xchg, AtomicOrderSeqCst);
@@ -6988,7 +6988,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         VariableTableEntry *await_handle_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
         IrInstruction *null_value = ir_build_const_null(irb, coro_scope, node);
         IrInstruction *await_handle_type_val = ir_build_const_type(irb, coro_scope, node,
-                get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+                get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
         ir_build_var_decl(irb, coro_scope, node, await_handle_var, await_handle_type_val, nullptr, null_value);
         irb->exec->await_handle_var_ptr = ir_build_var_ptr(irb, coro_scope, node, await_handle_var);
 
@@ -8762,7 +8762,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         } else if (prev_inst->value.type->id == TypeTableEntryIdOptional) {
             return prev_inst->value.type;
         } else {
-            return get_maybe_type(ira->codegen, prev_inst->value.type);
+            return get_optional_type(ira->codegen, prev_inst->value.type);
         }
     } else {
         return prev_inst->value.type;
@@ -12127,7 +12127,7 @@ static TypeTableEntry *ir_analyze_instruction_error_return_trace(IrAnalyze *ira,
 {
     if (instruction->optional == IrInstructionErrorReturnTrace::Null) {
         TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(ira->codegen);
-        TypeTableEntry *optional_type = get_maybe_type(ira->codegen, ptr_to_stack_trace_type);
+        TypeTableEntry *optional_type = get_optional_type(ira->codegen, ptr_to_stack_trace_type);
         if (!exec_has_err_ret_trace(ira->codegen, ira->new_irb.exec)) {
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
             assert(get_codegen_ptr_type(optional_type) != nullptr);
@@ -13105,7 +13105,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
         case TypeTableEntryIdPromise:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
-                out_val->data.x_type = get_maybe_type(ira->codegen, type_entry);
+                out_val->data.x_type = get_optional_type(ira->codegen, type_entry);
                 return ira->codegen->builtin_types.entry_type;
             }
         case TypeTableEntryIdUnreachable:
@@ -16326,7 +16326,7 @@ static bool ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Scop
                         true, false, PtrLenUnknown,
                         get_abi_alignment(ira->codegen, ira->codegen->builtin_types.entry_u8),
                         0, 0);
-                    fn_def_fields[6].type = get_maybe_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
+                    fn_def_fields[6].type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
                     if (fn_node->is_extern && buf_len(fn_node->lib_name) > 0) {
                         fn_def_fields[6].data.x_optional = create_const_vals(1);
                         ConstExprValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name);
@@ -16609,7 +16609,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 // child: ?type
                 ensure_field_index(result->type, "child", 0);
                 fields[0].special = ConstValSpecialStatic;
-                fields[0].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                fields[0].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
 
                 if (type_entry->data.promise.result_type == nullptr)
                     fields[0].data.x_optional = nullptr;
@@ -16763,7 +16763,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 // tag_type: ?type
                 ensure_field_index(result->type, "tag_type", 1);
                 fields[1].special = ConstValSpecialStatic;
-                fields[1].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
 
                 AstNode *union_decl_node = type_entry->data.unionation.decl_node;
                 if (union_decl_node->data.container_decl.auto_enum ||
@@ -16803,7 +16803,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
 
                     ConstExprValue *inner_fields = create_const_vals(3);
                     inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = get_maybe_type(ira->codegen, type_info_enum_field_type);
+                    inner_fields[1].type = get_optional_type(ira->codegen, type_info_enum_field_type);
 
                     if (fields[1].data.x_optional == nullptr) {
                         inner_fields[1].data.x_optional = nullptr;
@@ -16874,7 +16874,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
 
                     ConstExprValue *inner_fields = create_const_vals(3);
                     inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_usize);
+                    inner_fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_usize);
 
                     if (!type_has_bits(struct_field->type_entry)) {
                         inner_fields[1].data.x_optional = nullptr;
@@ -16934,7 +16934,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 // return_type: ?type
                 ensure_field_index(result->type, "return_type", 3);
                 fields[3].special = ConstValSpecialStatic;
-                fields[3].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                fields[3].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
                 if (type_entry->data.fn.fn_type_id.return_type == nullptr)
                     fields[3].data.x_optional = nullptr;
                 else {
@@ -16947,7 +16947,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                 // async_allocator_type: type
                 ensure_field_index(result->type, "async_allocator_type", 4);
                 fields[4].special = ConstValSpecialStatic;
-                fields[4].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                fields[4].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
                 if (type_entry->data.fn.fn_type_id.async_allocator_type == nullptr)
                     fields[4].data.x_optional = nullptr;
                 else {
@@ -16990,7 +16990,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
                     inner_fields[1].type = ira->codegen->builtin_types.entry_bool;
                     inner_fields[1].data.x_bool = fn_param_info->is_noalias;
                     inner_fields[2].special = ConstValSpecialStatic;
-                    inner_fields[2].type = get_maybe_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                    inner_fields[2].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
 
                     if (arg_is_generic)
                         inner_fields[2].data.x_optional = nullptr;
@@ -17342,7 +17342,7 @@ static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstruct
     IrInstruction *result = ir_build_cmpxchg(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
             nullptr, casted_ptr, casted_cmp_value, casted_new_value, nullptr, nullptr, instruction->is_weak,
             operand_type, success_order, failure_order);
-    result->value.type = get_maybe_type(ira->codegen, operand_type);
+    result->value.type = get_optional_type(ira->codegen, operand_type);
     ir_link_new_instruction(result, &instruction->base);
     ir_add_alloca(ira, result, result->value.type);
     return result->value.type;
@@ -19013,7 +19013,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         old_align_bytes = ptr_type->data.pointer.alignment;
         TypeTableEntry *better_ptr_type = adjust_ptr_align(ira->codegen, ptr_type, align_bytes);
 
-        result_type = get_maybe_type(ira->codegen, better_ptr_type);
+        result_type = get_optional_type(ira->codegen, better_ptr_type);
     } else if (target_type->id == TypeTableEntryIdOptional &&
             target_type->data.maybe.child_type->id == TypeTableEntryIdFn)
     {
@@ -19021,7 +19021,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         old_align_bytes = fn_type_id.alignment;
         fn_type_id.alignment = align_bytes;
         TypeTableEntry *fn_type = get_fn_type(ira->codegen, &fn_type_id);
-        result_type = get_maybe_type(ira->codegen, fn_type);
+        result_type = get_optional_type(ira->codegen, fn_type);
     } else if (is_slice(target_type)) {
         TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
         old_align_bytes = slice_ptr_type->data.pointer.alignment;
@@ -19782,7 +19782,7 @@ static TypeTableEntry *ir_analyze_instruction_coro_free(IrAnalyze *ira, IrInstru
             instruction->base.source_node, coro_id, coro_handle);
     ir_link_new_instruction(result, &instruction->base);
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, false);
-    result->value.type = get_maybe_type(ira->codegen, ptr_type);
+    result->value.type = get_optional_type(ira->codegen, ptr_type);
     return result->value.type;
 }
 
@@ -19850,7 +19850,7 @@ static TypeTableEntry *ir_analyze_instruction_coro_alloc_helper(IrAnalyze *ira, 
             instruction->base.source_node, alloc_fn, coro_size);
     ir_link_new_instruction(result, &instruction->base);
     TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, false);
-    result->value.type = get_maybe_type(ira->codegen, u8_ptr_type);
+    result->value.type = get_optional_type(ira->codegen, u8_ptr_type);
     return result->value.type;
 }
 
