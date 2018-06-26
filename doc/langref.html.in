@@ -3602,6 +3602,10 @@ test "implicit cast - invoke a type as a function" {
     var b = u16(a);
 }
       {#code_end#}
+      <p>
+      Implicit casts are only allowed when it is completely unambiguous how to get from one type to another,
+      and the transformation is guaranteed to be safe.
+      </p>
       {#header_open|Implicit Cast: Stricter Qualification#}
       <p>
       Values which have the same representation at runtime can be cast to increase the strictness
@@ -3722,7 +3726,32 @@ test "float widening" {
       {#header_close#}
 
       {#header_open|Explicit Casts#}
-      <p>TODO</p>
+      <p>
+      Explicit casts are performed via {#link|Builtin Functions#}.
+      Some explicit casts are safe; some are not.
+      Some explicit casts perform language-level assertions; some do not.
+      Some explicit casts are no-ops at runtime; some are not.
+      </p>
+      <ul>
+          <li>{#link|@bitCast#} - change type but maintain bit representation</li>
+          <li>{#link|@alignCast#} - make a pointer have more alignment</li>
+          <li>{#link|@boolToInt#} - convert true to 1 and false to 0</li>
+          <li>{#link|@bytesToSlice#} - convert a slice of bytes to a slice of another type</li>
+          <li>{#link|@enumToInt#} - obtain the integer tag value of an enum or tagged union</li>
+          <li>{#link|@errSetCast#} - convert to a smaller error set</li>
+          <li>{#link|@errorToInt#} - obtain the integer value of an error code</li>
+          <li>{#link|@floatCast#} - convert a larger float to a smaller float</li>
+          <li>{#link|@floatToInt#} - obtain the integer part of a float value</li>
+          <li>{#link|@intCast#} - convert between integer types</li>
+          <li>{#link|@intToEnum#} - obtain an enum value based on its integer tag value</li>
+          <li>{#link|@intToError#} - obtain an error code based on its integer value</li>
+          <li>{#link|@intToFloat#} - convert an integer to a float value</li>
+          <li>{#link|@intToPtr#} - convert an address to a pointer</li>
+          <li>{#link|@ptrCast#} - convert between pointer types</li>
+          <li>{#link|@ptrToInt#} - obtain the address of a pointer</li>
+          <li>{#link|@sliceToBytes#} - convert a slice of anything to a slice of bytes</li>
+          <li>{#link|@truncate#} - convert between integer types, chopping off bits</li>
+      </ul>
       {#header_close#}
 
       {#header_open|Peer Type Resolution#}
