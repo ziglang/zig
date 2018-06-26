@@ -35,6 +35,7 @@ comptime {
     _ = @import("cases/math.zig");
     _ = @import("cases/merge_error_sets.zig");
     _ = @import("cases/misc.zig");
+    _ = @import("cases/optional.zig");
     _ = @import("cases/namespace_depends_on_compile_var/index.zig");
     _ = @import("cases/new_stack_call.zig");
     _ = @import("cases/null.zig");

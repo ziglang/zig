@@ -7985,9 +7985,10 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
 
     // * and [*] can do a const-cast-only to ?* and ?[*], respectively
     // but not if there is a mutable parent pointer
+    // and not if the pointer is zero bits
     if (!wanted_is_mutable && wanted_type->id == TypeTableEntryIdOptional &&
         wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer &&
-        actual_type->id == TypeTableEntryIdPointer)
+        actual_type->id == TypeTableEntryIdPointer && type_has_bits(actual_type))
     {
         ConstCastOnly child = types_match_const_cast_only(ira,
                 wanted_type->data.maybe.child_type, actual_type, source_node, wanted_is_mutable);
