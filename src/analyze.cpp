@@ -5583,7 +5583,7 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, TypeT
                 return;
             }
         case ConstPtrSpecialHardCodedAddr:
-            buf_appendf(buf, "(*%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->data.pointer.child_type->name),
+            buf_appendf(buf, "(%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->name),
                     const_val->data.x_ptr.data.hard_coded_addr.addr);
             return;
         case ConstPtrSpecialDiscard:

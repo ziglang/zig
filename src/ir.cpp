@@ -7112,6 +7112,12 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
             IrInstruction *dest_err_ret_trace_ptr = ir_build_load_ptr(irb, scope, node, err_ret_trace_ptr_field_ptr);
             ir_build_merge_err_ret_traces(irb, scope, node, coro_promise_ptr, err_ret_trace_ptr, dest_err_ret_trace_ptr);
         }
+        // Before we destroy the coroutine frame, we need to load the target promise into
+        // a register or local variable which does not get spilled into the frame,
+        // otherwise llvm tries to access memory inside the destroyed frame.
+        IrInstruction *unwrapped_await_handle_ptr = ir_build_unwrap_maybe(irb, scope, node,
+                irb->exec->await_handle_var_ptr, false);
+        IrInstruction *await_handle_in_block = ir_build_load_ptr(irb, scope, node, unwrapped_await_handle_ptr);
         ir_build_br(irb, scope, node, check_free_block, const_bool_false);
 
         ir_set_cursor_at_end_and_append_block(irb, irb->exec->coro_final_cleanup_block);
@@ -7125,6 +7131,14 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         incoming_blocks[1] = irb->exec->coro_normal_final;
         incoming_values[1] = const_bool_true;
         IrInstruction *resume_awaiter = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+
+        IrBasicBlock **merge_incoming_blocks = allocate<IrBasicBlock *>(2);
+        IrInstruction **merge_incoming_values = allocate<IrInstruction *>(2);
+        merge_incoming_blocks[0] = irb->exec->coro_final_cleanup_block;
+        merge_incoming_values[0] = ir_build_const_undefined(irb, scope, node);
+        merge_incoming_blocks[1] = irb->exec->coro_normal_final;
+        merge_incoming_values[1] = await_handle_in_block;
+        IrInstruction *awaiter_handle = ir_build_phi(irb, scope, node, 2, merge_incoming_blocks, merge_incoming_values);
 
         Buf *free_field_name = buf_create_from_str(ASYNC_FREE_FIELD_NAME);
         IrInstruction *implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node,
@@ -7152,9 +7166,6 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, irb->exec->coro_suspend_block, const_bool_false);
 
         ir_set_cursor_at_end_and_append_block(irb, resume_block);
-        IrInstruction *unwrapped_await_handle_ptr = ir_build_unwrap_maybe(irb, scope, node,
-                irb->exec->await_handle_var_ptr, false);
-        IrInstruction *awaiter_handle = ir_build_load_ptr(irb, scope, node, unwrapped_await_handle_ptr);
         ir_build_coro_resume(irb, scope, node, awaiter_handle);
         ir_build_br(irb, scope, node, irb->exec->coro_suspend_block, const_bool_false);
     }
