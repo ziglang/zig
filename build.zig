@@ -63,6 +63,7 @@ pub fn build(b: *Builder) !void {
             exe.addObjectFile(lib);
         }
     } else {
+        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_wasm");
         addCppLib(b, exe, cmake_binary_dir, "embedded_lld_elf");
         addCppLib(b, exe, cmake_binary_dir, "embedded_lld_coff");
         addCppLib(b, exe, cmake_binary_dir, "embedded_lld_lib");
@@ -74,7 +75,7 @@ pub fn build(b: *Builder) !void {
             cxx_compiler,
             "-print-file-name=libstdc++.a",
         });
-        const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
+        const libstdcxx_path = mem.split(libstdcxx_path_padded, "\r\n").next().?;
         if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
             warn(
                 \\Unable to determine path to libstdc++.a
@@ -101,11 +102,11 @@ pub fn build(b: *Builder) !void {
 
     b.default_step.dependOn(&exe.step);
 
-    const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") ?? false;
+    const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
     }
-    const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") ?? false;
+    const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") orelse false;
     exe.setVerboseLink(verbose_link_exe);
 
     b.installArtifact(exe);
@@ -113,7 +114,7 @@ pub fn build(b: *Builder) !void {
     installCHeaders(b, c_header_files);
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
-    const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") ?? false;
+    const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") orelse false;
 
     test_step.dependOn(docs_step);
 

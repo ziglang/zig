@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 const reflection = this;
 
-test "reflection: array, pointer, nullable, error union type child" {
+test "reflection: array, pointer, optional, error union type child" {
     comptime {
         assert(([10]u8).Child == u8);
         assert((*u8).Child == u8);

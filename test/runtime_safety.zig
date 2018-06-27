@@ -1,6 +1,45 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("@floatToInt cannot fit - negative to unsigned",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    baz(bar(-1.1));
+        \\}
+        \\fn bar(a: f32) u8 {
+        \\    return @floatToInt(u8, a);
+        \\}
+        \\fn baz(a: u8) void { }
+    );
+
+    cases.addRuntimeSafety("@floatToInt cannot fit - negative out of range",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    baz(bar(-129.1));
+        \\}
+        \\fn bar(a: f32) i8 {
+        \\    return @floatToInt(i8, a);
+        \\}
+        \\fn baz(a: i8) void { }
+    );
+
+    cases.addRuntimeSafety("@floatToInt cannot fit - positive out of range",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    baz(bar(256.2));
+        \\}
+        \\fn bar(a: f32) u8 {
+        \\    return @floatToInt(u8, a);
+        \\}
+        \\fn baz(a: u8) void { }
+    );
+
     cases.addRuntimeSafety("calling panic",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -175,7 +214,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    if (x.len == 0) return error.Whatever;
         \\}
         \\fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {
-        \\    return ([]align(1) const i32)(slice);
+        \\    return @bytesToSlice(i32, slice);
         \\}
     );
 
@@ -188,7 +227,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shorten_cast(x: i32) i8 {
-        \\    return i8(x);
+        \\    return @intCast(i8, x);
         \\}
     );
 
@@ -201,7 +240,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn unsigned_cast(x: i32) u32 {
-        \\    return u32(x);
+        \\    return @intCast(u32, x);
         \\}
     );
 
@@ -227,12 +266,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    _ = bar(9999);
         \\}
-        \\fn bar(x: u32) error {
-        \\    return error(x);
+        \\fn bar(x: u16) error {
+        \\    return @intToError(x);
         \\}
     );
 
-    cases.addRuntimeSafety("cast integer to non-global error set and no match",
+    cases.addRuntimeSafety("@errSetCast error not present in destination",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
@@ -242,7 +281,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    _ = foo(Set1.B);
         \\}
         \\fn foo(set1: Set1) Set2 {
-        \\    return Set2(set1);
+        \\    return @errSetCast(Set2, set1);
         \\}
     );
 
@@ -252,12 +291,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\pub fn main() !void {
         \\    var array align(4) = []u32{0x11111111, 0x11111111};
-        \\    const bytes = ([]u8)(array[0..]);
+        \\    const bytes = @sliceToBytes(array[0..]);
         \\    if (foo(bytes) != 0x11111111) return error.Wrong;
         \\}
         \\fn foo(bytes: []u8) u32 {
         \\    const slice4 = bytes[1..5];
-        \\    const int_slice = ([]u32)(@alignCast(4, slice4));
+        \\    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
         \\    return int_slice[0];
         \\}
     );

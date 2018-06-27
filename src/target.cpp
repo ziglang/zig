@@ -597,10 +597,13 @@ void resolve_target_object_format(ZigTarget *target) {
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
         case ZigLLVM_thumbeb:
-        case ZigLLVM_wasm32:
-        case ZigLLVM_wasm64:
         case ZigLLVM_xcore:
             target->oformat= ZigLLVM_ELF;
+            return;
+
+        case ZigLLVM_wasm32:
+        case ZigLLVM_wasm64:
+            target->oformat = ZigLLVM_Wasm;
             return;
 
         case ZigLLVM_ppc:
@@ -683,21 +686,41 @@ static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
 uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     switch (target->os) {
         case OsFreestanding:
-            switch (id) {
-                case CIntTypeShort:
-                case CIntTypeUShort:
-                    return 16;
-                case CIntTypeInt:
-                case CIntTypeUInt:
-                    return 32;
-                case CIntTypeLong:
-                case CIntTypeULong:
-                    return get_arch_pointer_bit_width(target->arch.arch);
-                case CIntTypeLongLong:
-                case CIntTypeULongLong:
-                    return 64;
-                case CIntTypeCount:
-                    zig_unreachable();
+            switch (target->arch.arch) {
+                case ZigLLVM_msp430:
+                    switch (id) {
+                        case CIntTypeShort:
+                        case CIntTypeUShort:
+                            return 16;
+                        case CIntTypeInt:
+                        case CIntTypeUInt:
+                            return 16;
+                        case CIntTypeLong:
+                        case CIntTypeULong:
+                            return 32;
+                        case CIntTypeLongLong:
+                        case CIntTypeULongLong:
+                            return 64;
+                        case CIntTypeCount:
+                            zig_unreachable();
+                    }
+                default:
+                    switch (id) {
+                        case CIntTypeShort:
+                        case CIntTypeUShort:
+                            return 16;
+                        case CIntTypeInt:
+                        case CIntTypeUInt:
+                            return 32;
+                        case CIntTypeLong:
+                        case CIntTypeULong:
+                            return get_arch_pointer_bit_width(target->arch.arch);
+                        case CIntTypeLongLong:
+                        case CIntTypeULongLong:
+                            return 64;
+                        case CIntTypeCount:
+                            zig_unreachable();
+                    }
             }
         case OsLinux:
         case OsMacOSX:

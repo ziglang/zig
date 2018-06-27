@@ -99,7 +99,7 @@ fn sqrt_int(comptime T: type, value: T) @IntType(false, T.bit_count / 2) {
     }
 
     const ResultType = @IntType(false, T.bit_count / 2);
-    return ResultType(res);
+    return @intCast(ResultType, res);
 }
 
 test "math.sqrt_int" {

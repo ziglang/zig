@@ -434,6 +434,20 @@ test "comptime float rem int" {
     }
 }
 
+test "remainder division" {
+    comptime remdiv(f32);
+    comptime remdiv(f64);
+    comptime remdiv(f128);
+    remdiv(f32);
+    remdiv(f64);
+    remdiv(f128);
+}
+
+fn remdiv(comptime T: type) void {
+    assert(T(1) == T(1) % T(2));
+    assert(T(1) == T(7) % T(3));
+}
+
 test "@sqrt" {
     testSqrt(f64, 12.0);
     comptime testSqrt(f64, 12.0);

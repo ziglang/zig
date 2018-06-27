@@ -734,7 +734,7 @@ pub const Node = struct {
             var i = index;
 
             if (self.doc_comments) |comments| {
-                if (i < 1) return *comments.base;
+                if (i < 1) return &comments.base;
                 i -= 1;
             }
 
@@ -858,6 +858,7 @@ pub const Node = struct {
 
         pub fn firstToken(self: *FnProto) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
+            if (self.async_attr) |async_attr| return async_attr.firstToken();
             if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
             assert(self.lib_name == null);
             if (self.cc_token) |cc_token| return cc_token;
@@ -1243,7 +1244,7 @@ pub const Node = struct {
             i -= 1;
 
             if (self.@"else") |@"else"| {
-                if (i < 1) return *@"else".base;
+                if (i < 1) return &@"else".base;
                 i -= 1;
             }
 
@@ -1296,7 +1297,7 @@ pub const Node = struct {
             i -= 1;
 
             if (self.@"else") |@"else"| {
-                if (i < 1) return *@"else".base;
+                if (i < 1) return &@"else".base;
                 i -= 1;
             }
 
@@ -1347,7 +1348,7 @@ pub const Node = struct {
             i -= 1;
 
             if (self.@"else") |@"else"| {
-                if (i < 1) return *@"else".base;
+                if (i < 1) return &@"else".base;
                 i -= 1;
             }
 
@@ -1417,7 +1418,7 @@ pub const Node = struct {
             Range,
             Sub,
             SubWrap,
-            UnwrapMaybe,
+            UnwrapOptional,
         };
 
         pub fn iterate(self: *InfixOp, index: usize) ?*Node {
@@ -1475,7 +1476,7 @@ pub const Node = struct {
                 Op.Range,
                 Op.Sub,
                 Op.SubWrap,
-                Op.UnwrapMaybe,
+                Op.UnwrapOptional,
                 => {},
             }
 
@@ -1507,14 +1508,13 @@ pub const Node = struct {
             BitNot,
             BoolNot,
             Cancel,
-            MaybeType,
+            OptionalType,
             Negation,
             NegationWrap,
             Resume,
             PtrType: PtrInfo,
             SliceType: PtrInfo,
             Try,
-            UnwrapMaybe,
         };
 
         pub const PtrInfo = struct {
@@ -1537,33 +1537,36 @@ pub const Node = struct {
             var i = index;
 
             switch (self.op) {
+                // TODO https://github.com/ziglang/zig/issues/1107
                 Op.SliceType => |addr_of_info| {
                     if (addr_of_info.align_info) |align_info| {
                         if (i < 1) return align_info.node;
                         i -= 1;
                     }
                 },
-                Op.AddrOf => |addr_of_info| {
+
+                Op.PtrType => |addr_of_info| {
                     if (addr_of_info.align_info) |align_info| {
                         if (i < 1) return align_info.node;
                         i -= 1;
                     }
                 },
+
                 Op.ArrayType => |size_expr| {
                     if (i < 1) return size_expr;
                     i -= 1;
                 },
+
+                Op.AddressOf,
                 Op.Await,
                 Op.BitNot,
                 Op.BoolNot,
                 Op.Cancel,
-                Op.MaybeType,
+                Op.OptionalType,
                 Op.Negation,
                 Op.NegationWrap,
                 Op.Try,
                 Op.Resume,
-                Op.UnwrapMaybe,
-                Op.PointerType,
                 => {},
             }
 
@@ -1619,6 +1622,7 @@ pub const Node = struct {
             ArrayInitializer: InitList,
             StructInitializer: InitList,
             Deref,
+            UnwrapOptional,
 
             pub const InitList = SegmentedList(*Node, 2);
 
@@ -1667,7 +1671,9 @@ pub const Node = struct {
                     if (i < fields.len) return fields.at(i).*;
                     i -= fields.len;
                 },
-                Op.Deref => {},
+                Op.UnwrapOptional,
+                Op.Deref,
+                => {},
             }
 
             return null;
@@ -2022,7 +2028,7 @@ pub const Node = struct {
 
             switch (self.kind) {
                 Kind.Variable => |variable_name| {
-                    if (i < 1) return *variable_name.base;
+                    if (i < 1) return &variable_name.base;
                     i -= 1;
                 },
                 Kind.Return => |return_type| {
@@ -2092,10 +2098,10 @@ pub const Node = struct {
         pub fn iterate(self: *Asm, index: usize) ?*Node {
             var i = index;
 
-            if (i < self.outputs.len) return *(self.outputs.at(index).*).base;
+            if (i < self.outputs.len) return &self.outputs.at(index).*.base;
             i -= self.outputs.len;
 
-            if (i < self.inputs.len) return *(self.inputs.at(index).*).base;
+            if (i < self.inputs.len) return &self.inputs.at(index).*.base;
             i -= self.inputs.len;
 
             return null;
@@ -2205,3 +2211,14 @@ pub const Node = struct {
         }
     };
 };
+
+test "iterate" {
+    var root = Node.Root{
+        .base = Node{ .id = Node.Id.Root },
+        .doc_comments = null,
+        .decls = Node.Root.DeclList.init(std.debug.global_allocator),
+        .eof_token = 0,
+    };
+    var base = &root.base;
+    assert(base.iterate(0) == null);
+}

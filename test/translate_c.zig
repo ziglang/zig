@@ -246,13 +246,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern var fn_ptr: ?extern fn() void;
     ,
         \\pub inline fn foo() void {
-        \\    return (??fn_ptr)();
+        \\    return fn_ptr.?();
         \\}
     ,
         \\pub extern var fn_ptr2: ?extern fn(c_int, f32) u8;
     ,
         \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
-        \\    return (??fn_ptr2)(arg0, arg1);
+        \\    return fn_ptr2.?(arg0, arg1);
         \\}
     );
 
@@ -608,7 +608,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    field: c_int,
         \\};
         \\pub export fn read_field(foo: ?[*]struct_Foo) c_int {
-        \\    return (??foo).field;
+        \\    return foo.?.field;
         \\}
     );
 
@@ -969,11 +969,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn bar() void {
         \\    var f: ?extern fn() void = foo;
         \\    var b: ?extern fn() c_int = baz;
-        \\    (??f)();
-        \\    (??f)();
+        \\    f.?();
+        \\    f.?();
         \\    foo();
-        \\    _ = (??b)();
-        \\    _ = (??b)();
+        \\    _ = b.?();
+        \\    _ = b.?();
         \\    _ = baz();
         \\}
     );
@@ -984,7 +984,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub export fn foo(x: ?[*]c_int) void {
-        \\    (??x).* = 1;
+        \\    x.?.* = 1;
         \\}
     );
 
@@ -1012,7 +1012,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo() c_int {
         \\    var x: c_int = 1234;
         \\    var ptr: ?[*]c_int = &x;
-        \\    return (??ptr).*;
+        \\    return ptr.?.*;
         \\}
     );
 
@@ -1119,7 +1119,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const glClearPFN = PFNGLCLEARPROC;
     ,
         \\pub inline fn glClearUnion(arg0: GLbitfield) void {
-        \\    return (??glProcs.gl.Clear)(arg0);
+        \\    return glProcs.gl.Clear.?(arg0);
         \\}
     ,
         \\pub const OpenGLProcs = union_OpenGLProcs;

@@ -46,7 +46,7 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (array) |item, index| {
-        buffer[buf_index] = u8(index);
+        buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
     const unknown_size: []const u8 = array;
@@ -55,7 +55,7 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (unknown_size) |item, index| {
-        buffer[buf_index] = u8(index);
+        buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
 

@@ -5,14 +5,14 @@ const builtin = @import("builtin");
 test "compile time recursion" {
     assert(some_data.len == 21);
 }
-var some_data: [usize(fibonacci(7))]u8 = undefined;
+var some_data: [@intCast(usize, fibonacci(7))]u8 = undefined;
 fn fibonacci(x: i32) i32 {
     if (x <= 1) return 1;
     return fibonacci(x - 1) + fibonacci(x - 2);
 }
 
 fn unwrapAndAddOne(blah: ?i32) i32 {
-    return ??blah + 1;
+    return blah.? + 1;
 }
 const should_be_1235 = unwrapAndAddOne(1234);
 test "static add one" {
@@ -356,7 +356,7 @@ const global_array = x: {
 test "compile-time downcast when the bits fit" {
     comptime {
         const spartan_count: u16 = 255;
-        const byte = u8(spartan_count);
+        const byte = @intCast(u8, spartan_count);
         assert(byte == 255);
     }
 }
@@ -440,7 +440,7 @@ test "binary math operator in partially inlined function" {
     var b: [16]u8 = undefined;
 
     for (b) |*r, i|
-        r.* = u8(i + 1);
+        r.* = @intCast(u8, i + 1);
 
     copyWithPartialInline(s[0..], b[0..]);
     assert(s[0] == 0x1020304);
@@ -480,7 +480,7 @@ fn generateTable(comptime T: type) [1010]T {
     var res: [1010]T = undefined;
     var i: usize = 0;
     while (i < 1010) : (i += 1) {
-        res[i] = T(i);
+        res[i] = @intCast(T, i);
     }
     return res;
 }
@@ -622,4 +622,18 @@ fn wrap(comptime T: type) Wrapper {
 test "function which returns struct with type field causes implicit comptime" {
     const ty = wrap(i32).T;
     assert(ty == i32);
+}
+
+test "call method with comptime pass-by-non-copying-value self parameter" {
+    const S = struct {
+        a: u8,
+
+        fn b(comptime s: this) u8 {
+            return s.a;
+        }
+    };
+
+    const s = S{ .a = 2 };
+    var b = s.b();
+    assert(b == 2);
 }

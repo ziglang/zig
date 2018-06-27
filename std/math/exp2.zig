@@ -38,8 +38,8 @@ const exp2ft = []const f64{
 fn exp2_32(x: f32) f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
-    const tblsiz = u32(exp2ft.len);
-    const redux: f32 = 0x1.8p23 / f32(tblsiz);
+    const tblsiz = @intCast(u32, exp2ft.len);
+    const redux: f32 = 0x1.8p23 / @intToFloat(f32, tblsiz);
     const P1: f32 = 0x1.62e430p-1;
     const P2: f32 = 0x1.ebfbe0p-3;
     const P3: f32 = 0x1.c6b348p-5;
@@ -89,7 +89,7 @@ fn exp2_32(x: f32) f32 {
     var r: f64 = exp2ft[i0];
     const t: f64 = r * z;
     r = r + t * (P1 + z * P2) + t * (z * z) * (P3 + z * P4);
-    return f32(r * uk);
+    return @floatCast(f32, r * uk);
 }
 
 const exp2dt = []f64{
@@ -355,8 +355,8 @@ const exp2dt = []f64{
 fn exp2_64(x: f64) f64 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
-    const tblsiz = u32(exp2dt.len / 2);
-    const redux: f64 = 0x1.8p52 / f64(tblsiz);
+    const tblsiz = @intCast(u32, exp2dt.len / 2);
+    const redux: f64 = 0x1.8p52 / @intToFloat(f64, tblsiz);
     const P1: f64 = 0x1.62e42fefa39efp-1;
     const P2: f64 = 0x1.ebfbdff82c575p-3;
     const P3: f64 = 0x1.c6b08d704a0a6p-5;
@@ -364,7 +364,7 @@ fn exp2_64(x: f64) f64 {
     const P5: f64 = 0x1.5d88003875c74p-10;
 
     const ux = @bitCast(u64, x);
-    const ix = u32(ux >> 32) & 0x7FFFFFFF;
+    const ix = @intCast(u32, ux >> 32) & 0x7FFFFFFF;
 
     // TODO: This should be handled beneath.
     if (math.isNan(x)) {
@@ -386,7 +386,7 @@ fn exp2_64(x: f64) f64 {
         if (ux >> 63 != 0) {
             // underflow
             if (x <= -1075 or x - 0x1.0p52 + 0x1.0p52 != x) {
-                math.forceEval(f32(-0x1.0p-149 / x));
+                math.forceEval(@floatCast(f32, -0x1.0p-149 / x));
             }
             if (x <= -1075) {
                 return 0;

@@ -40,9 +40,9 @@ pub const TcpServer = struct {
         self.listen_address = std.net.Address.initPosix(try std.os.posixGetSockName(self.sockfd));
 
         self.accept_coro = try async<self.loop.allocator> TcpServer.handler(self);
-        errdefer cancel ??self.accept_coro;
+        errdefer cancel self.accept_coro.?;
 
-        try self.loop.addFd(self.sockfd, ??self.accept_coro);
+        try self.loop.addFd(self.sockfd, self.accept_coro.?);
         errdefer self.loop.removeFd(self.sockfd);
     }
 

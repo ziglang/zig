@@ -23,7 +23,7 @@ const fp_ilogb0 = fp_ilogbnan;
 
 fn ilogb32(x: f32) i32 {
     var u = @bitCast(u32, x);
-    var e = i32((u >> 23) & 0xFF);
+    var e = @intCast(i32, (u >> 23) & 0xFF);
 
     // TODO: We should be able to merge this with the lower check.
     if (math.isNan(x)) {
@@ -59,7 +59,7 @@ fn ilogb32(x: f32) i32 {
 
 fn ilogb64(x: f64) i32 {
     var u = @bitCast(u64, x);
-    var e = i32((u >> 52) & 0x7FF);
+    var e = @intCast(i32, (u >> 52) & 0x7FF);
 
     if (math.isNan(x)) {
         return @maxValue(i32);

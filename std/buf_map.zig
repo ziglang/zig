@@ -19,7 +19,7 @@ pub const BufMap = struct {
     pub fn deinit(self: *const BufMap) void {
         var it = self.hash_map.iterator();
         while (true) {
-            const entry = it.next() ?? break;
+            const entry = it.next() orelse break;
             self.free(entry.key);
             self.free(entry.value);
         }
@@ -37,12 +37,12 @@ pub const BufMap = struct {
     }
 
     pub fn get(self: *const BufMap, key: []const u8) ?[]const u8 {
-        const entry = self.hash_map.get(key) ?? return null;
+        const entry = self.hash_map.get(key) orelse return null;
         return entry.value;
     }
 
     pub fn delete(self: *BufMap, key: []const u8) void {
-        const entry = self.hash_map.remove(key) ?? return;
+        const entry = self.hash_map.remove(key) orelse return;
         self.free(entry.key);
         self.free(entry.value);
     }
@@ -72,15 +72,15 @@ test "BufMap" {
     defer bufmap.deinit();
 
     try bufmap.set("x", "1");
-    assert(mem.eql(u8, ??bufmap.get("x"), "1"));
+    assert(mem.eql(u8, bufmap.get("x").?, "1"));
     assert(1 == bufmap.count());
 
     try bufmap.set("x", "2");
-    assert(mem.eql(u8, ??bufmap.get("x"), "2"));
+    assert(mem.eql(u8, bufmap.get("x").?, "2"));
     assert(1 == bufmap.count());
 
     try bufmap.set("x", "3");
-    assert(mem.eql(u8, ??bufmap.get("x"), "3"));
+    assert(mem.eql(u8, bufmap.get("x").?, "3"));
     assert(1 == bufmap.count());
 
     bufmap.delete("x");

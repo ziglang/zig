@@ -208,7 +208,7 @@ fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: us
                 .name = "???",
                 .address = address,
             };
-            const symbol = debug_info.symbol_table.search(address) ?? &unknown;
+            const symbol = debug_info.symbol_table.search(address) orelse &unknown;
             try out_stream.print(WHITE ++ "{}" ++ RESET ++ ": " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n", symbol.name, address);
         },
         else => {
@@ -249,9 +249,7 @@ fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: us
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
     switch (builtin.object_format) {
         builtin.ObjectFormat.elf => {
-            const st = try allocator.create(ElfStackTrace);
-            errdefer allocator.destroy(st);
-            st.* = ElfStackTrace{
+            const st = try allocator.create(ElfStackTrace{
                 .self_exe_file = undefined,
                 .elf = undefined,
                 .debug_info = undefined,
@@ -261,17 +259,18 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
                 .debug_ranges = null,
                 .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
                 .compile_unit_list = ArrayList(CompileUnit).init(allocator),
-            };
+            });
+            errdefer allocator.destroy(st);
             st.self_exe_file = try os.openSelfExe();
             errdefer st.self_exe_file.close();
 
             try st.elf.openFile(allocator, &st.self_exe_file);
             errdefer st.elf.close();
 
-            st.debug_info = (try st.elf.findSection(".debug_info")) ?? return error.MissingDebugInfo;
-            st.debug_abbrev = (try st.elf.findSection(".debug_abbrev")) ?? return error.MissingDebugInfo;
-            st.debug_str = (try st.elf.findSection(".debug_str")) ?? return error.MissingDebugInfo;
-            st.debug_line = (try st.elf.findSection(".debug_line")) ?? return error.MissingDebugInfo;
+            st.debug_info = (try st.elf.findSection(".debug_info")) orelse return error.MissingDebugInfo;
+            st.debug_abbrev = (try st.elf.findSection(".debug_abbrev")) orelse return error.MissingDebugInfo;
+            st.debug_str = (try st.elf.findSection(".debug_str")) orelse return error.MissingDebugInfo;
+            st.debug_line = (try st.elf.findSection(".debug_line")) orelse return error.MissingDebugInfo;
             st.debug_ranges = (try st.elf.findSection(".debug_ranges"));
             try scanAllCompileUnits(st);
             return st;
@@ -280,11 +279,8 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
             var exe_file = try os.openSelfExe();
             defer exe_file.close();
 
-            const st = try allocator.create(ElfStackTrace);
+            const st = try allocator.create(ElfStackTrace{ .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)) });
             errdefer allocator.destroy(st);
-
-            st.* = ElfStackTrace{ .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)) };
-
             return st;
         },
         builtin.ObjectFormat.coff => {
@@ -443,7 +439,7 @@ const Die = struct {
     }
 
     fn getAttrAddr(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Address => |value| value,
             else => error.InvalidDebugInfo,
@@ -451,7 +447,7 @@ const Die = struct {
     }
 
     fn getAttrSecOffset(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Const => |value| value.asUnsignedLe(),
             FormValue.SecOffset => |value| value,
@@ -460,7 +456,7 @@ const Die = struct {
     }
 
     fn getAttrUnsignedLe(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Const => |value| value.asUnsignedLe(),
             else => error.InvalidDebugInfo,
@@ -468,7 +464,7 @@ const Die = struct {
     }
 
     fn getAttrString(self: *const Die, st: *ElfStackTrace, id: u64) ![]u8 {
-        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
             FormValue.StrPtr => |offset| getString(st, offset),
@@ -554,7 +550,7 @@ const LineNumberProgram = struct {
             const file_name = try os.path.join(self.file_entries.allocator, dir_name, file_entry.file_name);
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
-                .line = if (self.prev_line >= 0) usize(self.prev_line) else 0,
+                .line = if (self.prev_line >= 0) @intCast(usize, self.prev_line) else 0,
                 .column = self.prev_column,
                 .file_name = file_name,
                 .allocator = self.file_entries.allocator,
@@ -639,6 +635,7 @@ const ParseFormValueError = error{
     Unexpected,
     InvalidDebugInfo,
     EndOfFile,
+    IsDir,
     OutOfMemory,
 };
 
@@ -748,7 +745,7 @@ fn parseDie(st: *ElfStackTrace, abbrev_table: *const AbbrevTable, is_64: bool) !
     var in_file_stream = io.FileInStream.init(in_file);
     const in_stream = &in_file_stream.stream;
     const abbrev_code = try readULeb128(in_stream);
-    const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) ?? return error.InvalidDebugInfo;
+    const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
 
     var result = Die{
         .tag_id = table_entry.tag_id,
@@ -973,8 +970,7 @@ fn scanAllCompileUnits(st: *ElfStackTrace) !void {
 
         try st.self_exe_file.seekTo(compile_unit_pos);
 
-        const compile_unit_die = try st.allocator().create(Die);
-        compile_unit_die.* = try parseDie(st, abbrev_table, is_64);
+        const compile_unit_die = try st.allocator().create(try parseDie(st, abbrev_table, is_64));
 
         if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
 
@@ -1069,7 +1065,7 @@ fn readULeb128(in_stream: var) !u64 {
 
         var operand: u64 = undefined;
 
-        if (@shlWithOverflow(u64, byte & 0b01111111, u6(shift), &operand)) return error.InvalidDebugInfo;
+        if (@shlWithOverflow(u64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
 
         result |= operand;
 
@@ -1088,13 +1084,13 @@ fn readILeb128(in_stream: var) !i64 {
 
         var operand: i64 = undefined;
 
-        if (@shlWithOverflow(i64, byte & 0b01111111, u6(shift), &operand)) return error.InvalidDebugInfo;
+        if (@shlWithOverflow(i64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
 
         result |= operand;
         shift += 7;
 
         if ((byte & 0b10000000) == 0) {
-            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << u6(shift));
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << @intCast(u6, shift));
             return result;
         }
     }

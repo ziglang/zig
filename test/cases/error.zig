@@ -31,8 +31,8 @@ test "@errorName" {
 }
 
 test "error values" {
-    const a = i32(error.err1);
-    const b = i32(error.err2);
+    const a = @errorToInt(error.err1);
+    const b = @errorToInt(error.err2);
     assert(a != b);
 }
 
@@ -124,8 +124,8 @@ const Set2 = error{
 };
 
 fn testExplicitErrorSetCast(set1: Set1) void {
-    var x = Set2(set1);
-    var y = Set1(x);
+    var x = @errSetCast(Set2, set1);
+    var y = @errSetCast(Set1, x);
     assert(y == error.A);
 }
 
@@ -140,21 +140,21 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
     if (x) |v| assert(v == 1234) else |err| @compileError("bad");
 }
 
-test "syntax: nullable operator in front of error union operator" {
+test "syntax: optional operator in front of error union operator" {
     comptime {
         assert(?error!i32 == ?(error!i32));
     }
 }
 
 test "comptime err to int of error set with only 1 possible value" {
-    testErrToIntWithOnePossibleValue(error.A, u32(error.A));
-    comptime testErrToIntWithOnePossibleValue(error.A, u32(error.A));
+    testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
+    comptime testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
 }
 fn testErrToIntWithOnePossibleValue(
     x: error{A},
     comptime value: u32,
 ) void {
-    if (u32(x) != value) {
+    if (@errorToInt(x) != value) {
         @compileError("bad");
     }
 }

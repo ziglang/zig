@@ -85,10 +85,7 @@ pub const ChildProcess = struct {
     /// First argument in argv is the executable.
     /// On success must call deinit.
     pub fn init(argv: []const []const u8, allocator: *mem.Allocator) !*ChildProcess {
-        const child = try allocator.create(ChildProcess);
-        errdefer allocator.destroy(child);
-
-        child.* = ChildProcess{
+        const child = try allocator.create(ChildProcess{
             .allocator = allocator,
             .argv = argv,
             .pid = undefined,
@@ -109,8 +106,8 @@ pub const ChildProcess = struct {
             .stdin_behavior = StdIo.Inherit,
             .stdout_behavior = StdIo.Inherit,
             .stderr_behavior = StdIo.Inherit,
-        };
-
+        });
+        errdefer allocator.destroy(child);
         return child;
     }
 
@@ -156,7 +153,7 @@ pub const ChildProcess = struct {
             };
         }
         try self.waitUnwrappedWindows();
-        return ??self.term;
+        return self.term.?;
     }
 
     pub fn killPosix(self: *ChildProcess) !Term {
@@ -175,7 +172,7 @@ pub const ChildProcess = struct {
             };
         }
         self.waitUnwrapped();
-        return ??self.term;
+        return self.term.?;
     }
 
     /// Blocks until child process terminates and then cleans up all resources.
@@ -212,8 +209,8 @@ pub const ChildProcess = struct {
         defer Buffer.deinit(&stdout);
         defer Buffer.deinit(&stderr);
 
-        var stdout_file_in_stream = io.FileInStream.init(&??child.stdout);
-        var stderr_file_in_stream = io.FileInStream.init(&??child.stderr);
+        var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
+        var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
 
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
         try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
@@ -232,7 +229,7 @@ pub const ChildProcess = struct {
         }
 
         try self.waitUnwrappedWindows();
-        return ??self.term;
+        return self.term.?;
     }
 
     fn waitPosix(self: *ChildProcess) !Term {
@@ -242,7 +239,7 @@ pub const ChildProcess = struct {
         }
 
         self.waitUnwrapped();
-        return ??self.term;
+        return self.term.?;
     }
 
     pub fn deinit(self: *ChildProcess) void {
@@ -318,7 +315,7 @@ pub const ChildProcess = struct {
         // Here we potentially return the fork child's error
         // from the parent pid.
         if (err_int != @maxValue(ErrInt)) {
-            return SpawnError(err_int);
+            return @errSetCast(SpawnError, @intToError(err_int));
         }
 
         return statusToTerm(status);
@@ -413,7 +410,7 @@ pub const ChildProcess = struct {
         }
 
         // we are the parent
-        const pid = i32(pid_result);
+        const pid = @intCast(i32, pid_result);
         if (self.stdin_behavior == StdIo.Pipe) {
             self.stdin = os.File.openHandle(stdin_pipe[1]);
         } else {
@@ -619,13 +616,13 @@ pub const ChildProcess = struct {
         self.term = null;
 
         if (self.stdin_behavior == StdIo.Pipe) {
-            os.close(??g_hChildStd_IN_Rd);
+            os.close(g_hChildStd_IN_Rd.?);
         }
         if (self.stderr_behavior == StdIo.Pipe) {
-            os.close(??g_hChildStd_ERR_Wr);
+            os.close(g_hChildStd_ERR_Wr.?);
         }
         if (self.stdout_behavior == StdIo.Pipe) {
-            os.close(??g_hChildStd_OUT_Wr);
+            os.close(g_hChildStd_OUT_Wr.?);
         }
     }
 
@@ -756,7 +753,7 @@ fn destroyPipe(pipe: *const [2]i32) void {
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    _ = writeIntFd(fd, ErrInt(err));
+    _ = writeIntFd(fd, ErrInt(@errorToInt(err)));
     posix.exit(1);
 }
 

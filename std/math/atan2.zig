@@ -124,12 +124,12 @@ fn atan2_64(y: f64, x: f64) f64 {
     }
 
     var ux = @bitCast(u64, x);
-    var ix = u32(ux >> 32);
-    var lx = u32(ux & 0xFFFFFFFF);
+    var ix = @intCast(u32, ux >> 32);
+    var lx = @intCast(u32, ux & 0xFFFFFFFF);
 
     var uy = @bitCast(u64, y);
-    var iy = u32(uy >> 32);
-    var ly = u32(uy & 0xFFFFFFFF);
+    var iy = @intCast(u32, uy >> 32);
+    var ly = @intCast(u32, uy & 0xFFFFFFFF);
 
     // x = 1.0
     if ((ix -% 0x3FF00000) | lx == 0) {

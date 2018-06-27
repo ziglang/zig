@@ -132,6 +132,8 @@ pub const tan = @import("tan.zig").tan;
 pub const complex = @import("complex/index.zig");
 pub const Complex = complex.Complex;
 
+pub const big = @import("big/index.zig");
+
 test "math" {
     _ = @import("nan.zig");
     _ = @import("isnan.zig");
@@ -177,6 +179,34 @@ test "math" {
     _ = @import("tan.zig");
 
     _ = @import("complex/index.zig");
+
+    _ = @import("big/index.zig");
+}
+
+pub fn floatMantissaBits(comptime T: type) comptime_int {
+    assert(@typeId(T) == builtin.TypeId.Float);
+
+    return switch (T.bit_count) {
+        16 => 10,
+        32 => 23,
+        64 => 52,
+        80 => 64,
+        128 => 112,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
+}
+
+pub fn floatExponentBits(comptime T: type) comptime_int {
+    assert(@typeId(T) == builtin.TypeId.Float);
+
+    return switch (T.bit_count) {
+        16 => 5,
+        32 => 8,
+        64 => 11,
+        80 => 15,
+        128 => 15,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
 }
 
 pub fn min(x: var, y: var) @typeOf(x + y) {
@@ -223,7 +253,7 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 /// A negative shift amount results in a right shift.
 pub fn shl(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
-    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else Log2Int(T)(abs_shift_amt);
+    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
     if (@typeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
@@ -247,7 +277,7 @@ test "math.shl" {
 /// A negative shift amount results in a lefft shift.
 pub fn shr(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
-    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else Log2Int(T)(abs_shift_amt);
+    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
     if (@typeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
@@ -469,9 +499,9 @@ fn testRem() void {
 /// Result is an unsigned integer.
 pub fn absCast(x: var) @IntType(false, @typeOf(x).bit_count) {
     const uint = @IntType(false, @typeOf(x).bit_count);
-    if (x >= 0) return uint(x);
+    if (x >= 0) return @intCast(uint, x);
 
-    return uint(-(x + 1)) + 1;
+    return @intCast(uint, -(x + 1)) + 1;
 }
 
 test "math.absCast" {
@@ -495,7 +525,7 @@ pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
 
     if (x == -@minValue(int)) return @minValue(int);
 
-    return -int(x);
+    return -@intCast(int, x);
 }
 
 test "math.negateCast" {
@@ -518,7 +548,7 @@ pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     } else if (@minValue(@typeOf(x)) < @minValue(T) and x < @minValue(T)) {
         return error.Overflow;
     } else {
-        return T(x);
+        return @intCast(T, x);
     }
 }
 
@@ -530,6 +560,17 @@ test "math.cast" {
 
     assert((try cast(u8, u32(255))) == u8(255));
     assert(@typeOf(try cast(u8, u32(255))) == u8);
+}
+
+pub const AlignCastError = error{UnalignedMemory};
+
+/// Align cast a pointer but return an error if it's the wrong alignment
+pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alignCast(alignment, ptr)) {
+    const addr = @ptrToInt(ptr);
+    if (addr % alignment != 0) {
+        return error.UnalignedMemory;
+    }
+    return @alignCast(alignment, ptr);
 }
 
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
@@ -550,7 +591,7 @@ test "math.floorPowerOfTwo" {
 
 pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     assert(x != 0);
-    return Log2Int(T)(T.bit_count - 1 - @clz(x));
+    return @intCast(Log2Int(T), T.bit_count - 1 - @clz(x));
 }
 
 pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {
@@ -581,4 +622,14 @@ fn testFloorPowerOfTwo() void {
     assert(floorPowerOfTwo(u4, 7) == 4);
     assert(floorPowerOfTwo(u4, 8) == 8);
     assert(floorPowerOfTwo(u4, 9) == 8);
+}
+
+pub fn lossyCast(comptime T: type, value: var) T {
+    switch (@typeInfo(@typeOf(value))) {
+        builtin.TypeId.Int => return @intToFloat(T, value),
+        builtin.TypeId.Float => return @floatCast(T, value),
+        builtin.TypeId.ComptimeInt => return T(value),
+        builtin.TypeId.ComptimeFloat => return T(value),
+        else => @compileError("bad type"),
+    }
 }

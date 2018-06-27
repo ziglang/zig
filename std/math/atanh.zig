@@ -62,7 +62,7 @@ fn atanh_64(x: f64) f64 {
         if (e < 0x3FF - 32) {
             // underflow
             if (e == 0) {
-                math.forceEval(f32(y));
+                math.forceEval(@floatCast(f32, y));
             }
         }
         // |x| < 0.5

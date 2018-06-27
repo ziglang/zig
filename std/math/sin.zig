@@ -60,7 +60,7 @@ fn sin32(x_: f32) f32 {
     }
 
     var y = math.floor(x * m4pi);
-    var j = i64(y);
+    var j = @floatToInt(i64, y);
 
     if (j & 1 == 1) {
         j += 1;
@@ -112,7 +112,7 @@ fn sin64(x_: f64) f64 {
     }
 
     var y = math.floor(x * m4pi);
-    var j = i64(y);
+    var j = @floatToInt(i64, y);
 
     if (j & 1 == 1) {
         j += 1;

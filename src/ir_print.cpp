@@ -148,7 +148,7 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
             return "-%";
         case IrUnOpDereference:
             return "*";
-        case IrUnOpMaybe:
+        case IrUnOpOptional:
             return "?";
     }
     zig_unreachable();
@@ -481,7 +481,7 @@ static void ir_print_test_null(IrPrint *irp, IrInstructionTestNonNull *instructi
     fprintf(irp->f, " != null");
 }
 
-static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapMaybe *instruction) {
+static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapOptional *instruction) {
     fprintf(irp->f, "&??*");
     ir_print_other_instruction(irp, instruction->value);
     if (!instruction->safety_check_on) {
@@ -648,6 +648,66 @@ static void ir_print_truncate(IrPrint *irp, IrInstructionTruncate *instruction) 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_int_cast(IrPrint *irp, IrInstructionIntCast *instruction) {
+    fprintf(irp->f, "@intCast(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_float_cast(IrPrint *irp, IrInstructionFloatCast *instruction) {
+    fprintf(irp->f, "@floatCast(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_err_set_cast(IrPrint *irp, IrInstructionErrSetCast *instruction) {
+    fprintf(irp->f, "@errSetCast(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_from_bytes(IrPrint *irp, IrInstructionFromBytes *instruction) {
+    fprintf(irp->f, "@bytesToSlice(");
+    ir_print_other_instruction(irp, instruction->dest_child_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_to_bytes(IrPrint *irp, IrInstructionToBytes *instruction) {
+    fprintf(irp->f, "@sliceToBytes(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_int_to_float(IrPrint *irp, IrInstructionIntToFloat *instruction) {
+    fprintf(irp->f, "@intToFloat(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_float_to_int(IrPrint *irp, IrInstructionFloatToInt *instruction) {
+    fprintf(irp->f, "@floatToInt(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bool_to_int(IrPrint *irp, IrInstructionBoolToInt *instruction) {
+    fprintf(irp->f, "@boolToInt(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_type(IrPrint *irp, IrInstructionIntType *instruction) {
     fprintf(irp->f, "@IntType(");
     ir_print_other_instruction(irp, instruction->is_signed);
@@ -777,7 +837,7 @@ static void ir_print_unwrap_err_payload(IrPrint *irp, IrInstructionUnwrapErrPayl
     }
 }
 
-static void ir_print_maybe_wrap(IrPrint *irp, IrInstructionMaybeWrap *instruction) {
+static void ir_print_maybe_wrap(IrPrint *irp, IrInstructionOptionalWrap *instruction) {
     fprintf(irp->f, "@maybeWrap(");
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, ")");
@@ -868,6 +928,17 @@ static void ir_print_int_to_ptr(IrPrint *irp, IrInstructionIntToPtr *instruction
 
 static void ir_print_int_to_enum(IrPrint *irp, IrInstructionIntToEnum *instruction) {
     fprintf(irp->f, "@intToEnum(");
+    if (instruction->dest_type == nullptr) {
+        fprintf(irp->f, "(null)");
+    } else {
+        ir_print_other_instruction(irp, instruction->dest_type);
+    }
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_enum_to_int(IrPrint *irp, IrInstructionEnumToInt *instruction) {
+    fprintf(irp->f, "@enumToInt(");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
@@ -1032,7 +1103,7 @@ static void ir_print_export(IrPrint *irp, IrInstructionExport *instruction) {
 
 static void ir_print_error_return_trace(IrPrint *irp, IrInstructionErrorReturnTrace *instruction) {
     fprintf(irp->f, "@errorReturnTrace(");
-    switch (instruction->nullable) {
+    switch (instruction->optional) {
         case IrInstructionErrorReturnTrace::Null:
             fprintf(irp->f, "Null");
             break;
@@ -1348,8 +1419,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTestNonNull:
             ir_print_test_null(irp, (IrInstructionTestNonNull *)instruction);
             break;
-        case IrInstructionIdUnwrapMaybe:
-            ir_print_unwrap_maybe(irp, (IrInstructionUnwrapMaybe *)instruction);
+        case IrInstructionIdUnwrapOptional:
+            ir_print_unwrap_maybe(irp, (IrInstructionUnwrapOptional *)instruction);
             break;
         case IrInstructionIdCtz:
             ir_print_ctz(irp, (IrInstructionCtz *)instruction);
@@ -1417,6 +1488,30 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTruncate:
             ir_print_truncate(irp, (IrInstructionTruncate *)instruction);
             break;
+        case IrInstructionIdIntCast:
+            ir_print_int_cast(irp, (IrInstructionIntCast *)instruction);
+            break;
+        case IrInstructionIdFloatCast:
+            ir_print_float_cast(irp, (IrInstructionFloatCast *)instruction);
+            break;
+        case IrInstructionIdErrSetCast:
+            ir_print_err_set_cast(irp, (IrInstructionErrSetCast *)instruction);
+            break;
+        case IrInstructionIdFromBytes:
+            ir_print_from_bytes(irp, (IrInstructionFromBytes *)instruction);
+            break;
+        case IrInstructionIdToBytes:
+            ir_print_to_bytes(irp, (IrInstructionToBytes *)instruction);
+            break;
+        case IrInstructionIdIntToFloat:
+            ir_print_int_to_float(irp, (IrInstructionIntToFloat *)instruction);
+            break;
+        case IrInstructionIdFloatToInt:
+            ir_print_float_to_int(irp, (IrInstructionFloatToInt *)instruction);
+            break;
+        case IrInstructionIdBoolToInt:
+            ir_print_bool_to_int(irp, (IrInstructionBoolToInt *)instruction);
+            break;
         case IrInstructionIdIntType:
             ir_print_int_type(irp, (IrInstructionIntType *)instruction);
             break;
@@ -1465,8 +1560,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdUnwrapErrPayload:
             ir_print_unwrap_err_payload(irp, (IrInstructionUnwrapErrPayload *)instruction);
             break;
-        case IrInstructionIdMaybeWrap:
-            ir_print_maybe_wrap(irp, (IrInstructionMaybeWrap *)instruction);
+        case IrInstructionIdOptionalWrap:
+            ir_print_maybe_wrap(irp, (IrInstructionOptionalWrap *)instruction);
             break;
         case IrInstructionIdErrWrapCode:
             ir_print_err_wrap_code(irp, (IrInstructionErrWrapCode *)instruction);
@@ -1632,6 +1727,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAtomicLoad:
             ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);
+            break;
+        case IrInstructionIdEnumToInt:
+            ir_print_enum_to_int(irp, (IrInstructionEnumToInt *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

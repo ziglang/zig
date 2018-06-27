@@ -422,14 +422,14 @@ test "cast slice to u8 slice" {
         4,
     };
     const big_thing_slice: []i32 = big_thing_array[0..];
-    const bytes = ([]u8)(big_thing_slice);
+    const bytes = @sliceToBytes(big_thing_slice);
     assert(bytes.len == 4 * 4);
     bytes[4] = 0;
     bytes[5] = 0;
     bytes[6] = 0;
     bytes[7] = 0;
     assert(big_thing_slice[1] == 0);
-    const big_thing_again = ([]align(1) i32)(bytes);
+    const big_thing_again = @bytesToSlice(i32, bytes);
     assert(big_thing_again[2] == 3);
     big_thing_again[2] = -1;
     assert(bytes[8] == @maxValue(u8));
@@ -505,7 +505,7 @@ test "@typeId" {
         assert(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
         assert(@typeId(@typeOf(undefined)) == Tid.Undefined);
         assert(@typeId(@typeOf(null)) == Tid.Null);
-        assert(@typeId(?i32) == Tid.Nullable);
+        assert(@typeId(?i32) == Tid.Optional);
         assert(@typeId(error!i32) == Tid.ErrorUnion);
         assert(@typeId(error) == Tid.ErrorSet);
         assert(@typeId(AnEnum) == Tid.Enum);
@@ -700,4 +700,9 @@ const addr1 = @ptrCast(*const u8, emptyFn);
 test "comptime cast fn to ptr" {
     const addr2 = @ptrCast(*const u8, emptyFn);
     comptime assert(addr1 == addr2);
+}
+
+test "equality compare fn ptrs" {
+    var a = emptyFn;
+    assert(a == a);
 }

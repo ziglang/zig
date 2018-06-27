@@ -302,7 +302,7 @@ test "packed array 24bits" {
 
     var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
     bytes[bytes.len - 1] = 0xaa;
-    const ptr = &([]FooArray24Bits)(bytes[0 .. bytes.len - 1])[0];
+    const ptr = &@bytesToSlice(FooArray24Bits, bytes[0 .. bytes.len - 1])[0];
     assert(ptr.a == 0);
     assert(ptr.b[0].field == 0);
     assert(ptr.b[1].field == 0);
@@ -351,7 +351,7 @@ test "aligned array of packed struct" {
     }
 
     var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
-    const ptr = &([]FooArrayOfAligned)(bytes[0..bytes.len])[0];
+    const ptr = &@bytesToSlice(FooArrayOfAligned, bytes[0..bytes.len])[0];
 
     assert(ptr.a[0].a == 0xbb);
     assert(ptr.a[0].b == 0xbb);
@@ -365,14 +365,14 @@ test "runtime struct initialization of bitfield" {
         .y = x1,
     };
     const s2 = Nibbles{
-        .x = u4(x2),
-        .y = u4(x2),
+        .x = @intCast(u4, x2),
+        .y = @intCast(u4, x2),
     };
 
     assert(s1.x == x1);
     assert(s1.y == x1);
-    assert(s2.x == u4(x2));
-    assert(s2.y == u4(x2));
+    assert(s2.x == @intCast(u4, x2));
+    assert(s2.y == @intCast(u4, x2));
 }
 
 var x1 = u4(1);
@@ -420,4 +420,21 @@ const Expr = union(enum) {
 
 fn alloc(comptime T: type) []T {
     return []T{};
+}
+
+test "call method with mutable reference to struct with no fields" {
+    const S = struct {
+        fn doC(s: *const this) bool {
+            return true;
+        }
+        fn do(s: *this) bool {
+            return true;
+        }
+    };
+
+    var s = S{};
+    assert(S.doC(&s));
+    assert(s.doC());
+    assert(S.do(&s));
+    assert(s.do());
 }

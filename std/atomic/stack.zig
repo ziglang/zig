@@ -28,14 +28,14 @@ pub fn Stack(comptime T: type) type {
             var root = @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst);
             while (true) {
                 node.next = root;
-                root = @cmpxchgWeak(?*Node, &self.root, root, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? break;
+                root = @cmpxchgWeak(?*Node, &self.root, root, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse break;
             }
         }
 
         pub fn pop(self: *Self) ?*Node {
             var root = @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst);
             while (true) {
-                root = @cmpxchgWeak(?*Node, &self.root, root, (root ?? return null).next, AtomicOrder.SeqCst, AtomicOrder.SeqCst) ?? return root;
+                root = @cmpxchgWeak(?*Node, &self.root, root, (root orelse return null).next, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return root;
             }
         }
 
@@ -97,8 +97,18 @@ test "std.atomic.stack" {
     for (getters) |t|
         t.wait();
 
-    std.debug.assert(context.put_sum == context.get_sum);
-    std.debug.assert(context.get_count == puts_per_thread * put_thread_count);
+    if (context.put_sum != context.get_sum) {
+        std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);
+    }
+
+    if (context.get_count != puts_per_thread * put_thread_count) {
+        std.debug.panic(
+            "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
+            context.get_count,
+            u32(puts_per_thread),
+            u32(put_thread_count),
+        );
+    }
 }
 
 fn startPuts(ctx: *Context) u8 {
@@ -107,8 +117,10 @@ fn startPuts(ctx: *Context) u8 {
     while (put_count != 0) : (put_count -= 1) {
         std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Stack(i32).Node) catch unreachable;
-        node.data = x;
+        const node = ctx.allocator.create(Stack(i32).Node{
+            .next = undefined,
+            .data = x,
+        }) catch unreachable;
         ctx.stack.push(node);
         _ = @atomicRmw(isize, &ctx.put_sum, builtin.AtomicRmwOp.Add, x, AtomicOrder.SeqCst);
     }
@@ -117,15 +129,14 @@ fn startPuts(ctx: *Context) u8 {
 
 fn startGets(ctx: *Context) u8 {
     while (true) {
+        const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
+
         while (ctx.stack.pop()) |node| {
             std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
             _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
             _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
         }
 
-        if (@atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1) {
-            break;
-        }
+        if (last) return 0;
     }
-    return 0;
 }

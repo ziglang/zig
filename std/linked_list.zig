@@ -169,7 +169,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Returns:
         ///     A pointer to the last node in the list.
         pub fn pop(list: *Self) ?*Node {
-            const last = list.last ?? return null;
+            const last = list.last orelse return null;
             list.remove(last);
             return last;
         }
@@ -179,7 +179,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Returns:
         ///     A pointer to the first node in the list.
         pub fn popFirst(list: *Self) ?*Node {
-            const first = list.first ?? return null;
+            const first = list.first orelse return null;
             list.remove(first);
             return first;
         }
@@ -193,7 +193,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///     A pointer to the new node.
         pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
             comptime assert(!isIntrusive());
-            return allocator.create(Node);
+            return allocator.create(Node(undefined));
         }
 
         /// Deallocate a node.
@@ -270,8 +270,8 @@ test "basic linked list test" {
     var last = list.pop(); // {2, 3, 4}
     list.remove(three); // {2, 4}
 
-    assert((??list.first).data == 2);
-    assert((??list.last).data == 4);
+    assert(list.first.?.data == 2);
+    assert(list.last.?.data == 4);
     assert(list.len == 2);
 }
 
@@ -336,7 +336,7 @@ test "basic intrusive linked list test" {
     var last = list.pop(); // {2, 3, 4}
     list.remove(&three.link); // {2, 4}
 
-    assert((??list.first).toData().value == 2);
-    assert((??list.last).toData().value == 4);
+    assert(list.first.?.toData().value == 2);
+    assert(list.last.?.toData().value == 4);
     assert(list.len == 2);
 }

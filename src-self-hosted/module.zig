@@ -103,46 +103,29 @@ pub const Module = struct {
         LlvmIr,
     };
 
-    pub const CliPkg = struct {
+    pub fn create(
+        allocator: *mem.Allocator,
         name: []const u8,
-        path: []const u8,
-        children: ArrayList(*CliPkg),
-        parent: ?*CliPkg,
-
-        pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
-            var pkg = try allocator.create(CliPkg);
-            pkg.name = name;
-            pkg.path = path;
-            pkg.children = ArrayList(*CliPkg).init(allocator);
-            pkg.parent = parent;
-            return pkg;
-        }
-
-        pub fn deinit(self: *CliPkg) void {
-            for (self.children.toSliceConst()) |child| {
-                child.deinit();
-            }
-            self.children.deinit();
-        }
-    };
-
-    pub fn create(allocator: *mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: *const Target, kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) !*Module {
+        root_src_path: ?[]const u8,
+        target: *const Target,
+        kind: Kind,
+        build_mode: builtin.Mode,
+        zig_lib_dir: []const u8,
+        cache_dir: []const u8,
+    ) !*Module {
         var name_buffer = try Buffer.init(allocator, name);
         errdefer name_buffer.deinit();
 
-        const context = c.LLVMContextCreate() ?? return error.OutOfMemory;
+        const context = c.LLVMContextCreate() orelse return error.OutOfMemory;
         errdefer c.LLVMContextDispose(context);
 
-        const module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) ?? return error.OutOfMemory;
+        const module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) orelse return error.OutOfMemory;
         errdefer c.LLVMDisposeModule(module);
 
-        const builder = c.LLVMCreateBuilderInContext(context) ?? return error.OutOfMemory;
+        const builder = c.LLVMCreateBuilderInContext(context) orelse return error.OutOfMemory;
         errdefer c.LLVMDisposeBuilder(builder);
 
-        const module_ptr = try allocator.create(Module);
-        errdefer allocator.destroy(module_ptr);
-
-        module_ptr.* = Module{
+        const module_ptr = try allocator.create(Module{
             .allocator = allocator,
             .name = name_buffer,
             .root_src_path = root_src_path,
@@ -196,7 +179,8 @@ pub const Module = struct {
             .test_filters = [][]const u8{},
             .test_name_prefix = null,
             .emit_file_type = Emit.Binary,
-        };
+        });
+        errdefer allocator.destroy(module_ptr);
         return module_ptr;
     }
 
@@ -223,7 +207,7 @@ pub const Module = struct {
             c.ZigLLVMParseCommandLineOptions(self.llvm_argv.len + 1, c_compatible_args.ptr);
         }
 
-        const root_src_path = self.root_src_path ?? @panic("TODO handle null root src path");
+        const root_src_path = self.root_src_path orelse @panic("TODO handle null root src path");
         const root_src_real_path = os.path.real(self.allocator, root_src_path) catch |err| {
             try printError("unable to get real path '{}': {}", root_src_path, err);
             return err;
@@ -279,13 +263,12 @@ pub const Module = struct {
             }
         }
 
-        const link_lib = try self.allocator.create(LinkLib);
-        link_lib.* = LinkLib{
+        const link_lib = try self.allocator.create(LinkLib{
             .name = name,
             .path = null,
             .provided_explicitly = provided_explicitly,
             .symbols = ArrayList([]u8).init(self.allocator),
-        };
+        });
         try self.link_libs_list.append(link_lib);
         if (is_libc) {
             self.libc_link_lib = link_lib;

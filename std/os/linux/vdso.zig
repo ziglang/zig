@@ -28,7 +28,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
             }
         }
     }
-    const dynv = maybe_dynv ?? return 0;
+    const dynv = maybe_dynv orelse return 0;
     if (base == @maxValue(usize)) return 0;
 
     var maybe_strings: ?[*]u8 = null;
@@ -52,9 +52,9 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         }
     }
 
-    const strings = maybe_strings ?? return 0;
-    const syms = maybe_syms ?? return 0;
-    const hashtab = maybe_hashtab ?? return 0;
+    const strings = maybe_strings orelse return 0;
+    const syms = maybe_syms orelse return 0;
+    const hashtab = maybe_hashtab orelse return 0;
     if (maybe_verdef == null) maybe_versym = null;
 
     const OK_TYPES = (1 << elf.STT_NOTYPE | 1 << elf.STT_OBJECT | 1 << elf.STT_FUNC | 1 << elf.STT_COMMON);
@@ -62,12 +62,12 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
 
     var i: usize = 0;
     while (i < hashtab[1]) : (i += 1) {
-        if (0 == (u32(1) << u5(syms[i].st_info & 0xf) & OK_TYPES)) continue;
-        if (0 == (u32(1) << u5(syms[i].st_info >> 4) & OK_BINDS)) continue;
+        if (0 == (u32(1) << @intCast(u5, syms[i].st_info & 0xf) & OK_TYPES)) continue;
+        if (0 == (u32(1) << @intCast(u5, syms[i].st_info >> 4) & OK_BINDS)) continue;
         if (0 == syms[i].st_shndx) continue;
         if (!mem.eql(u8, name, cstr.toSliceConst(strings + syms[i].st_name))) continue;
         if (maybe_versym) |versym| {
-            if (!checkver(??maybe_verdef, versym[i], vername, strings))
+            if (!checkver(maybe_verdef.?, versym[i], vername, strings))
                 continue;
         }
         return base + syms[i].st_value;

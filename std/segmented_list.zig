@@ -104,7 +104,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         }
 
         pub fn deinit(self: *Self) void {
-            self.freeShelves(ShelfIndex(self.dynamic_segments.len), 0);
+            self.freeShelves(@intCast(ShelfIndex, self.dynamic_segments.len), 0);
             self.allocator.free(self.dynamic_segments);
             self.* = undefined;
         }
@@ -158,7 +158,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         /// Only grows capacity, or retains current capacity
         pub fn growCapacity(self: *Self, new_capacity: usize) !void {
             const new_cap_shelf_count = shelfCount(new_capacity);
-            const old_shelf_count = ShelfIndex(self.dynamic_segments.len);
+            const old_shelf_count = @intCast(ShelfIndex, self.dynamic_segments.len);
             if (new_cap_shelf_count > old_shelf_count) {
                 self.dynamic_segments = try self.allocator.realloc([*]T, self.dynamic_segments, new_cap_shelf_count);
                 var i = old_shelf_count;
@@ -175,7 +175,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         /// Only shrinks capacity or retains current capacity
         pub fn shrinkCapacity(self: *Self, new_capacity: usize) void {
             if (new_capacity <= prealloc_item_count) {
-                const len = ShelfIndex(self.dynamic_segments.len);
+                const len = @intCast(ShelfIndex, self.dynamic_segments.len);
                 self.freeShelves(len, 0);
                 self.allocator.free(self.dynamic_segments);
                 self.dynamic_segments = [][*]T{};
@@ -183,7 +183,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
 
             const new_cap_shelf_count = shelfCount(new_capacity);
-            const old_shelf_count = ShelfIndex(self.dynamic_segments.len);
+            const old_shelf_count = @intCast(ShelfIndex, self.dynamic_segments.len);
             assert(new_cap_shelf_count <= old_shelf_count);
             if (new_cap_shelf_count == old_shelf_count) {
                 return;
@@ -338,7 +338,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
-            try list.push(i32(i + 1));
+            try list.push(@intCast(i32, i + 1));
             assert(list.len == i + 1);
         }
     }
@@ -346,7 +346,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
-            assert(list.at(i).* == i32(i + 1));
+            assert(list.at(i).* == @intCast(i32, i + 1));
         }
     }
 
@@ -364,7 +364,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         assert(x == 0);
     }
 
-    assert(??list.pop() == 100);
+    assert(list.pop().? == 100);
     assert(list.len == 99);
 
     try list.pushMany([]i32{
@@ -373,9 +373,9 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         3,
     });
     assert(list.len == 102);
-    assert(??list.pop() == 3);
-    assert(??list.pop() == 2);
-    assert(??list.pop() == 1);
+    assert(list.pop().? == 3);
+    assert(list.pop().? == 2);
+    assert(list.pop().? == 1);
     assert(list.len == 99);
 
     try list.pushMany([]const i32{});

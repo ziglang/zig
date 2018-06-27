@@ -5,6 +5,7 @@ const assert = debug.assert;
 const mem = std.mem;
 const builtin = @import("builtin");
 const errol = @import("errol/index.zig");
+const lossyCast = std.math.lossyCast;
 
 const max_int_digits = 65;
 
@@ -111,7 +112,7 @@ pub fn formatType(
         builtin.TypeId.Bool => {
             return output(context, if (value) "true" else "false");
         },
-        builtin.TypeId.Nullable => {
+        builtin.TypeId.Optional => {
             if (value) |payload| {
                 return formatType(payload, fmt, context, Errors, output);
             } else {
@@ -161,12 +162,24 @@ pub fn formatType(
                 else => return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value)),
             },
             builtin.TypeInfo.Pointer.Size.Many => {
+                if (ptr_info.child == u8) {
+                    if (fmt[0] == 's') {
+                        const len = std.cstr.len(value);
+                        return formatText(value[0..len], fmt, context, Errors, output);
+                    }
+                }
                 return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
             },
             builtin.TypeInfo.Pointer.Size.Slice => {
                 const casted_value = ([]const u8)(value);
                 return output(context, casted_value);
             },
+        },
+        builtin.TypeId.Array => |info| {
+            if (info.child == u8) {
+                return formatText(value, fmt, context, Errors, output);
+            }
+            return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(&value));
         },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
@@ -300,7 +313,7 @@ pub fn formatBuf(
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
     const pad_byte: u8 = ' ';
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        try output(context, (&pad_byte)[0..1]);
+        try output(context, (*[1]u8)(&pad_byte)[0..1]);
     }
 }
 
@@ -451,7 +464,7 @@ pub fn formatFloatDecimal(
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
 
         // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) usize(float_decimal.exp) else 0;
+        var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
         var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
@@ -480,7 +493,7 @@ pub fn formatFloatDecimal(
 
         // Zero-fill until we reach significant digits or run out of precision.
         if (float_decimal.exp <= 0) {
-            const zero_digit_count = usize(-float_decimal.exp);
+            const zero_digit_count = @intCast(usize, -float_decimal.exp);
             const zeros_to_print = math.min(zero_digit_count, precision);
 
             var i: usize = 0;
@@ -509,7 +522,7 @@ pub fn formatFloatDecimal(
         }
     } else {
         // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) usize(float_decimal.exp) else 0;
+        var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
         var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
@@ -535,7 +548,7 @@ pub fn formatFloatDecimal(
 
         // Zero-fill until we reach significant digits or run out of precision.
         if (float_decimal.exp < 0) {
-            const zero_digit_count = usize(-float_decimal.exp);
+            const zero_digit_count = @intCast(usize, -float_decimal.exp);
 
             var i: usize = 0;
             while (i < zero_digit_count) : (i += 1) {
@@ -566,7 +579,7 @@ pub fn formatBytes(
         1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
         else => unreachable,
     };
-    const new_value = f64(value) / math.pow(f64, f64(radix), f64(magnitude));
+    const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
     const suffix = switch (radix) {
         1000 => mags_si[magnitude],
         1024 => mags_iec[magnitude],
@@ -616,15 +629,15 @@ fn formatIntSigned(
     if (value < 0) {
         const minus_sign: u8 = '-';
         try output(context, (*[1]u8)(&minus_sign)[0..]);
-        const new_value = uint(-(value + 1)) + 1;
+        const new_value = @intCast(uint, -(value + 1)) + 1;
         const new_width = if (width == 0) 0 else (width - 1);
         return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
     } else if (width == 0) {
-        return formatIntUnsigned(uint(value), base, uppercase, width, context, Errors, output);
+        return formatIntUnsigned(@intCast(uint, value), base, uppercase, width, context, Errors, output);
     } else {
         const plus_sign: u8 = '+';
         try output(context, (*[1]u8)(&plus_sign)[0..]);
-        const new_value = uint(value);
+        const new_value = @intCast(uint, value);
         const new_width = if (width == 0) 0 else (width - 1);
         return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
     }
@@ -648,7 +661,7 @@ fn formatIntUnsigned(
     while (true) {
         const digit = a % base;
         index -= 1;
-        buf[index] = digitToChar(u8(digit), uppercase);
+        buf[index] = digitToChar(@intCast(u8, digit), uppercase);
         a /= base;
         if (a == 0) break;
     }
@@ -819,11 +832,11 @@ test "parse unsigned comptime" {
 test "fmt.format" {
     {
         const value: ?i32 = 1234;
-        try testFmt("nullable: 1234\n", "nullable: {}\n", value);
+        try testFmt("optional: 1234\n", "optional: {}\n", value);
     }
     {
         const value: ?i32 = null;
-        try testFmt("nullable: null\n", "nullable: {}\n", value);
+        try testFmt("optional: null\n", "optional: {}\n", value);
     }
     {
         const value: error!i32 = 1234;
@@ -841,6 +854,10 @@ test "fmt.format" {
         const value: u8 = 'a';
         try testFmt("u8: a\n", "u8: {c}\n", value);
     }
+    try testFmt("buf: Test \n", "buf: {s5}\n", "Test");
+    try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", "Test");
+    try testFmt("cstr: Test C\n", "cstr: {s}\n", c"Test C");
+    try testFmt("cstr: Test C    \n", "cstr: {s10}\n", c"Test C");
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
     try testFmt("file size: 66.06MB\n", "file size: {B2}\n", usize(63 * 1024 * 1024));
     {

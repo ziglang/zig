@@ -10,11 +10,6 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
-    if (builtin.os == builtin.Os.windows) {
-        // TODO implement os.Dir for windows
-        // https://github.com/ziglang/zig/issues/709
-        return;
-    }
     try os.makePath(a, "os_test_tmp/b/c");
     try io.writeFile(a, "os_test_tmp/b/c/file.txt", "nonsense");
     try io.writeFile(a, "os_test_tmp/b/file2.txt", "blah");
@@ -27,10 +22,6 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "access file" {
-    if (builtin.os == builtin.Os.windows) {
-        return;
-    }
-
     try os.makePath(a, "os_test_tmp");
     if (os.File.access(a, "os_test_tmp/file.txt", os.default_file_mode)) |ok| {
         unreachable;

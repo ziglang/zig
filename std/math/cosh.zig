@@ -49,7 +49,7 @@ fn cosh32(x: f32) f32 {
 
 fn cosh64(x: f64) f64 {
     const u = @bitCast(u64, x);
-    const w = u32(u >> 32);
+    const w = @intCast(u32, u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
 
     // TODO: Shouldn't need this explicit check.

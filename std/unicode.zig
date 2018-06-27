@@ -35,22 +35,22 @@ pub fn utf8Encode(c: u32, out: []u8) !u3 {
         // - Increasing the initial shift by 6 each time
         // - Each time after the first shorten the shifted
         //   value to a max of 0b111111 (63)
-        1 => out[0] = u8(c), // Can just do 0 + codepoint for initial range
+        1 => out[0] = @intCast(u8, c), // Can just do 0 + codepoint for initial range
         2 => {
-            out[0] = u8(0b11000000 | (c >> 6));
-            out[1] = u8(0b10000000 | (c & 0b111111));
+            out[0] = @intCast(u8, 0b11000000 | (c >> 6));
+            out[1] = @intCast(u8, 0b10000000 | (c & 0b111111));
         },
         3 => {
             if (0xd800 <= c and c <= 0xdfff) return error.Utf8CannotEncodeSurrogateHalf;
-            out[0] = u8(0b11100000 | (c >> 12));
-            out[1] = u8(0b10000000 | ((c >> 6) & 0b111111));
-            out[2] = u8(0b10000000 | (c & 0b111111));
+            out[0] = @intCast(u8, 0b11100000 | (c >> 12));
+            out[1] = @intCast(u8, 0b10000000 | ((c >> 6) & 0b111111));
+            out[2] = @intCast(u8, 0b10000000 | (c & 0b111111));
         },
         4 => {
-            out[0] = u8(0b11110000 | (c >> 18));
-            out[1] = u8(0b10000000 | ((c >> 12) & 0b111111));
-            out[2] = u8(0b10000000 | ((c >> 6) & 0b111111));
-            out[3] = u8(0b10000000 | (c & 0b111111));
+            out[0] = @intCast(u8, 0b11110000 | (c >> 18));
+            out[1] = @intCast(u8, 0b10000000 | ((c >> 12) & 0b111111));
+            out[2] = @intCast(u8, 0b10000000 | ((c >> 6) & 0b111111));
+            out[3] = @intCast(u8, 0b10000000 | (c & 0b111111));
         },
         else => unreachable,
     }
@@ -220,7 +220,7 @@ const Utf8Iterator = struct {
     }
 
     pub fn nextCodepoint(it: *Utf8Iterator) ?u32 {
-        const slice = it.nextCodepointSlice() ?? return null;
+        const slice = it.nextCodepointSlice() orelse return null;
 
         switch (slice.len) {
             1 => return u32(slice[0]),
@@ -286,15 +286,15 @@ fn testUtf8IteratorOnAscii() void {
     const s = Utf8View.initComptime("abc");
 
     var it1 = s.iterator();
-    debug.assert(std.mem.eql(u8, "a", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "b", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "c", ??it1.nextCodepointSlice()));
+    debug.assert(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
+    debug.assert(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
+    debug.assert(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
     debug.assert(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
-    debug.assert(??it2.nextCodepoint() == 'a');
-    debug.assert(??it2.nextCodepoint() == 'b');
-    debug.assert(??it2.nextCodepoint() == 'c');
+    debug.assert(it2.nextCodepoint().? == 'a');
+    debug.assert(it2.nextCodepoint().? == 'b');
+    debug.assert(it2.nextCodepoint().? == 'c');
     debug.assert(it2.nextCodepoint() == null);
 }
 
@@ -321,15 +321,15 @@ fn testUtf8ViewOk() void {
     const s = Utf8View.initComptime("東京市");
 
     var it1 = s.iterator();
-    debug.assert(std.mem.eql(u8, "東", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "京", ??it1.nextCodepointSlice()));
-    debug.assert(std.mem.eql(u8, "市", ??it1.nextCodepointSlice()));
+    debug.assert(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
+    debug.assert(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
+    debug.assert(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
     debug.assert(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
-    debug.assert(??it2.nextCodepoint() == 0x6771);
-    debug.assert(??it2.nextCodepoint() == 0x4eac);
-    debug.assert(??it2.nextCodepoint() == 0x5e02);
+    debug.assert(it2.nextCodepoint().? == 0x6771);
+    debug.assert(it2.nextCodepoint().? == 0x4eac);
+    debug.assert(it2.nextCodepoint().? == 0x5e02);
     debug.assert(it2.nextCodepoint() == null);
 }
 

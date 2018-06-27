@@ -37,28 +37,28 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        pub fn add(self: *const Self, other: *const Self) Self {
+        pub fn add(self: Self, other: Self) Self {
             return Self{
                 .re = self.re + other.re,
                 .im = self.im + other.im,
             };
         }
 
-        pub fn sub(self: *const Self, other: *const Self) Self {
+        pub fn sub(self: Self, other: Self) Self {
             return Self{
                 .re = self.re - other.re,
                 .im = self.im - other.im,
             };
         }
 
-        pub fn mul(self: *const Self, other: *const Self) Self {
+        pub fn mul(self: Self, other: Self) Self {
             return Self{
                 .re = self.re * other.re - self.im * other.im,
                 .im = self.im * other.re + self.re * other.im,
             };
         }
 
-        pub fn div(self: *const Self, other: *const Self) Self {
+        pub fn div(self: Self, other: Self) Self {
             const re_num = self.re * other.re + self.im * other.im;
             const im_num = self.im * other.re - self.re * other.im;
             const den = other.re * other.re + other.im * other.im;
@@ -69,14 +69,14 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        pub fn conjugate(self: *const Self) Self {
+        pub fn conjugate(self: Self) Self {
             return Self{
                 .re = self.re,
                 .im = -self.im,
             };
         }
 
-        pub fn reciprocal(self: *const Self) Self {
+        pub fn reciprocal(self: Self) Self {
             const m = self.re * self.re + self.im * self.im;
             return Self{
                 .re = self.re / m,
@@ -84,7 +84,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        pub fn magnitude(self: *const Self) T {
+        pub fn magnitude(self: Self) T {
             return math.sqrt(self.re * self.re + self.im * self.im);
         }
     };

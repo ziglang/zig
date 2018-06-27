@@ -19,6 +19,10 @@ comptime {
 
     @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
 
+    @export("__floatuntidf", @import("floatuntidf.zig").__floatuntidf, linkage);
+    @export("__extenddftf2", @import("extendXfYf2.zig").__extenddftf2, linkage);
+    @export("__extendsftf2", @import("extendXfYf2.zig").__extendsftf2, linkage);
+
     @export("__fixunssfsi", @import("fixunssfsi.zig").__fixunssfsi, linkage);
     @export("__fixunssfdi", @import("fixunssfdi.zig").__fixunssfdi, linkage);
     @export("__fixunssfti", @import("fixunssfti.zig").__fixunssfti, linkage);
@@ -58,6 +62,8 @@ comptime {
                     @export("__chkstk", __chkstk, strong_linkage);
                     @export("___chkstk_ms", ___chkstk_ms, linkage);
                 }
+                @export("__divti3", @import("divti3.zig").__divti3_windows_x86_64, linkage);
+                @export("__muloti4", @import("muloti4.zig").__muloti4_windows_x86_64, linkage);
                 @export("__udivti3", @import("udivti3.zig").__udivti3_windows_x86_64, linkage);
                 @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4_windows_x86_64, linkage);
                 @export("__umodti3", @import("umodti3.zig").__umodti3_windows_x86_64, linkage);
@@ -65,6 +71,8 @@ comptime {
             else => {},
         }
     } else {
+        @export("__divti3", @import("divti3.zig").__divti3, linkage);
+        @export("__muloti4", @import("muloti4.zig").__muloti4, linkage);
         @export("__udivti3", @import("udivti3.zig").__udivti3, linkage);
         @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4, linkage);
         @export("__umodti3", @import("umodti3.zig").__umodti3, linkage);
@@ -288,7 +296,7 @@ extern fn __udivmodsi4(a: u32, b: u32, rem: *u32) u32 {
     @setRuntimeSafety(is_test);
 
     const d = __udivsi3(a, b);
-    rem.* = u32(i32(a) -% (i32(d) * i32(b)));
+    rem.* = @bitCast(u32, @bitCast(i32, a) -% (@bitCast(i32, d) * @bitCast(i32, b)));
     return d;
 }
 
@@ -312,12 +320,12 @@ extern fn __udivsi3(n: u32, d: u32) u32 {
     sr += 1;
     // 1 <= sr <= n_uword_bits - 1
     // Not a special case
-    var q: u32 = n << u5(n_uword_bits - sr);
-    var r: u32 = n >> u5(sr);
+    var q: u32 = n << @intCast(u5, n_uword_bits - sr);
+    var r: u32 = n >> @intCast(u5, sr);
     var carry: u32 = 0;
     while (sr > 0) : (sr -= 1) {
         // r:q = ((r:q)  << 1) | carry
-        r = (r << 1) | (q >> u5(n_uword_bits - 1));
+        r = (r << 1) | (q >> @intCast(u5, n_uword_bits - 1));
         q = (q << 1) | carry;
         // carry = 0;
         // if (r.all >= d.all)
@@ -325,8 +333,8 @@ extern fn __udivsi3(n: u32, d: u32) u32 {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s = i32(d -% r -% 1) >> u5(n_uword_bits - 1);
-        carry = u32(s & 1);
+        const s = @intCast(i32, d -% r -% 1) >> @intCast(u5, n_uword_bits - 1);
+        carry = @intCast(u32, s & 1);
         r -= d & @bitCast(u32, s);
     }
     q = (q << 1) | carry;

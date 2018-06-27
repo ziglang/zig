@@ -75,18 +75,6 @@ test "array of var args functions" {
     assert(!foos[1]());
 }
 
-test "pass array and slice of same array to var args should have same pointers" {
-    const array = "hi";
-    const slice: []const u8 = array;
-    return assertSlicePtrsEql(array, slice);
-}
-
-fn assertSlicePtrsEql(args: ...) void {
-    const s1 = ([]const u8)(args[0]);
-    const s2 = args[1];
-    assert(s1.ptr == s2.ptr);
-}
-
 test "pass zero length array to var args param" {
     doNothingWithFirstArg("");
 }

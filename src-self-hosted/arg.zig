@@ -99,7 +99,7 @@ pub const Args = struct {
                                 error.ArgumentNotInAllowedSet => {
                                     std.debug.warn("argument '{}' is invalid for flag '{}'\n", args[i], arg);
                                     std.debug.warn("allowed options are ");
-                                    for (??flag.allowed_set) |possible| {
+                                    for (flag.allowed_set.?) |possible| {
                                         std.debug.warn("'{}' ", possible);
                                     }
                                     std.debug.warn("\n");
@@ -168,7 +168,7 @@ pub const Args = struct {
     }
 
     // e.g. --names value1 value2 value3
-    pub fn many(self: *Args, name: []const u8) ?[]const []const u8 {
+    pub fn many(self: *Args, name: []const u8) []const []const u8 {
         if (self.flags.get(name)) |entry| {
             switch (entry.value) {
                 FlagArg.Many => |inner| {
@@ -177,7 +177,7 @@ pub const Args = struct {
                 else => @panic("attempted to retrieve flag with wrong type"),
             }
         } else {
-            return null;
+            return []const []const u8{};
         }
     }
 };
@@ -276,14 +276,14 @@ test "parse arguments" {
     debug.assert(!args.present("help2"));
     debug.assert(!args.present("init"));
 
-    debug.assert(mem.eql(u8, ??args.single("build-file"), "build.zig"));
-    debug.assert(mem.eql(u8, ??args.single("color"), "on"));
+    debug.assert(mem.eql(u8, args.single("build-file").?, "build.zig"));
+    debug.assert(mem.eql(u8, args.single("color").?, "on"));
 
-    const objects = ??args.many("object");
+    const objects = args.many("object").?;
     debug.assert(mem.eql(u8, objects[0], "obj1"));
     debug.assert(mem.eql(u8, objects[1], "obj2"));
 
-    debug.assert(mem.eql(u8, ??args.single("library"), "lib2"));
+    debug.assert(mem.eql(u8, args.single("library").?, "lib2"));
 
     const pos = args.positionals.toSliceConst();
     debug.assert(mem.eql(u8, pos[0], "build"));

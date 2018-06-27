@@ -25,13 +25,13 @@ pub fn main() !void {
 
     if (!args_it.skip()) @panic("expected self arg");
 
-    const zig_exe = try (args_it.next(allocator) ?? @panic("expected zig exe arg"));
+    const zig_exe = try (args_it.next(allocator) orelse @panic("expected zig exe arg"));
     defer allocator.free(zig_exe);
 
-    const in_file_name = try (args_it.next(allocator) ?? @panic("expected input arg"));
+    const in_file_name = try (args_it.next(allocator) orelse @panic("expected input arg"));
     defer allocator.free(in_file_name);
 
-    const out_file_name = try (args_it.next(allocator) ?? @panic("expected output arg"));
+    const out_file_name = try (args_it.next(allocator) orelse @panic("expected output arg"));
     defer allocator.free(out_file_name);
 
     var in_file = try os.File.openRead(allocator, in_file_name);
@@ -51,14 +51,8 @@ pub fn main() !void {
     var toc = try genToc(allocator, &tokenizer);
 
     try os.makePath(allocator, tmp_dir_name);
-    defer {
-        // TODO issue #709
-        // disabled to pass CI tests, but obviously we want to implement this
-        // and then remove this workaround
-        if (builtin.os != builtin.Os.windows) {
-            os.deleteTree(allocator, tmp_dir_name) catch {};
-        }
-    }
+    defer os.deleteTree(allocator, tmp_dir_name) catch {};
+
     try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
     try buffered_out_stream.flush();
 }
@@ -964,6 +958,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
 
+                        const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{}.h", code.name);
+                        const output_h_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_h_ext);
+
                         try build_args.appendSlice([][]const u8{
                             zig_exe,
                             "build-obj",
@@ -972,6 +969,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "on",
                             "--output",
                             tmp_obj_file_name,
+                            "--output-h",
+                            output_h_file_name,
                         });
 
                         if (!code.is_inline) {

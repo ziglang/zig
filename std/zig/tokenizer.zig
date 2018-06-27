@@ -39,6 +39,7 @@ pub const Token = struct {
         Keyword{ .bytes = "noalias", .id = Id.Keyword_noalias },
         Keyword{ .bytes = "null", .id = Id.Keyword_null },
         Keyword{ .bytes = "or", .id = Id.Keyword_or },
+        Keyword{ .bytes = "orelse", .id = Id.Keyword_orelse },
         Keyword{ .bytes = "packed", .id = Id.Keyword_packed },
         Keyword{ .bytes = "promise", .id = Id.Keyword_promise },
         Keyword{ .bytes = "pub", .id = Id.Keyword_pub },
@@ -129,7 +130,6 @@ pub const Token = struct {
         Ampersand,
         AmpersandEqual,
         QuestionMark,
-        QuestionMarkQuestionMark,
         AngleBracketLeft,
         AngleBracketLeftEqual,
         AngleBracketAngleBracketLeft,
@@ -171,6 +171,7 @@ pub const Token = struct {
         Keyword_noalias,
         Keyword_null,
         Keyword_or,
+        Keyword_orelse,
         Keyword_packed,
         Keyword_promise,
         Keyword_pub,
@@ -254,7 +255,6 @@ pub const Tokenizer = struct {
         Ampersand,
         Caret,
         Percent,
-        QuestionMark,
         Plus,
         PlusPercent,
         AngleBracketLeft,
@@ -345,6 +345,11 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+                    '?' => {
+                        result.id = Token.Id.QuestionMark;
+                        self.index += 1;
+                        break;
+                    },
                     ':' => {
                         result.id = Token.Id.Colon;
                         self.index += 1;
@@ -358,9 +363,6 @@ pub const Tokenizer = struct {
                     },
                     '+' => {
                         state = State.Plus;
-                    },
-                    '?' => {
-                        state = State.QuestionMark;
                     },
                     '<' => {
                         state = State.AngleBracketLeft;
@@ -492,18 +494,6 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.AsteriskPercent;
-                        break;
-                    },
-                },
-
-                State.QuestionMark => switch (c) {
-                    '?' => {
-                        result.id = Token.Id.QuestionMarkQuestionMark;
-                        self.index += 1;
-                        break;
-                    },
-                    else => {
-                        result.id = Token.Id.QuestionMark;
                         break;
                     },
                 },
@@ -1084,9 +1074,6 @@ pub const Tokenizer = struct {
                 State.Plus => {
                     result.id = Token.Id.Plus;
                 },
-                State.QuestionMark => {
-                    result.id = Token.Id.QuestionMark;
-                },
                 State.Percent => {
                     result.id = Token.Id.Percent;
                 },
@@ -1141,7 +1128,7 @@ pub const Tokenizer = struct {
             // check utf8-encoded character.
             const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
             if (self.index + length > self.buffer.len) {
-                return u3(self.buffer.len - self.index);
+                return @intCast(u3, self.buffer.len - self.index);
             }
             const bytes = self.buffer[self.index .. self.index + length];
             switch (length) {

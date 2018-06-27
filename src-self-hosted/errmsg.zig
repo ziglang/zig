@@ -35,7 +35,7 @@ pub fn createFromParseError(
     var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
     try parse_error.render(&tree.tokens, out_stream);
 
-    const msg = try allocator.construct(Msg{
+    const msg = try allocator.create(Msg{
         .tree = tree,
         .path = path,
         .text = text_buf.toOwnedSlice(),

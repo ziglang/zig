@@ -30,7 +30,7 @@ fn frexp32(x: f32) frexp32_result {
     var result: frexp32_result = undefined;
 
     var y = @bitCast(u32, x);
-    const e = i32(y >> 23) & 0xFF;
+    const e = @intCast(i32, y >> 23) & 0xFF;
 
     if (e == 0) {
         if (x != 0) {
@@ -67,7 +67,7 @@ fn frexp64(x: f64) frexp64_result {
     var result: frexp64_result = undefined;
 
     var y = @bitCast(u64, x);
-    const e = i32(y >> 52) & 0x7FF;
+    const e = @intCast(i32, y >> 52) & 0x7FF;
 
     if (e == 0) {
         if (x != 0) {

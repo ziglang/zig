@@ -92,14 +92,14 @@ test "enum to int" {
 }
 
 fn shouldEqual(n: Number, expected: u3) void {
-    assert(u3(n) == expected);
+    assert(@enumToInt(n) == expected);
 }
 
 test "int to enum" {
     testIntToEnumEval(3);
 }
 fn testIntToEnumEval(x: i32) void {
-    assert(IntToEnumNumber(u3(x)) == IntToEnumNumber.Three);
+    assert(@intToEnum(IntToEnumNumber, @intCast(u3, x)) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum {
     Zero,
@@ -768,7 +768,7 @@ test "casting enum to its tag type" {
 }
 
 fn testCastEnumToTagType(value: Small2) void {
-    assert(u2(value) == 1);
+    assert(@enumToInt(value) == 1);
 }
 
 const MultipleChoice = enum(u32) {
@@ -784,7 +784,7 @@ test "enum with specified tag values" {
 }
 
 fn testEnumWithSpecifiedTagValues(x: MultipleChoice) void {
-    assert(u32(x) == 60);
+    assert(@enumToInt(x) == 60);
     assert(1234 == switch (x) {
         MultipleChoice.A => 1,
         MultipleChoice.B => 2,
@@ -811,7 +811,7 @@ test "enum with specified and unspecified tag values" {
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    assert(u32(x) == 1000);
+    assert(@enumToInt(x) == 1000);
     assert(1234 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
@@ -826,8 +826,8 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
 }
 
 test "cast integer literal to enum" {
-    assert(MultipleChoice2(0) == MultipleChoice2.Unspecified1);
-    assert(MultipleChoice2(40) == MultipleChoice2.B);
+    assert(@intToEnum(MultipleChoice2, 0) == MultipleChoice2.Unspecified1);
+    assert(@intToEnum(MultipleChoice2, 40) == MultipleChoice2.B);
 }
 
 const EnumWithOneMember = enum {
@@ -865,7 +865,7 @@ const EnumWithTagValues = enum(u4) {
     D = 1 << 3,
 };
 test "enum with tag values don't require parens" {
-    assert(u4(EnumWithTagValues.C) == 0b0100);
+    assert(@enumToInt(EnumWithTagValues.C) == 0b0100);
 }
 
 test "enum with 1 field but explicit tag type should still have the tag type" {
@@ -882,4 +882,13 @@ test "empty extern enum with members" {
         C,
     };
     assert(@sizeOf(E) == @sizeOf(c_int));
+}
+
+test "aoeu" {
+    const LocalFoo = enum {
+        A = 1,
+        B = 0,
+    };
+    var b = LocalFoo.B;
+    assert(mem.eql(u8, @tagName(b), "B"));
 }

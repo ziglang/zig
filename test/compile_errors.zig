@@ -2,6 +2,67 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "enum field value references enum",
+        \\pub const Foo = extern enum {
+        \\    A = Foo.B,
+        \\    C = D,
+        \\};
+        \\export fn entry() void {
+        \\    var s: Foo = Foo.E;
+        \\}
+    ,
+        ".tmp_source.zig:1:17: error: 'Foo' depends on itself",
+    );
+
+    cases.add(
+        "@floatToInt comptime safety",
+        \\comptime {
+        \\    _ = @floatToInt(i8, f32(-129.1));
+        \\}
+        \\comptime {
+        \\    _ = @floatToInt(u8, f32(-1.1));
+        \\}
+        \\comptime {
+        \\    _ = @floatToInt(u8, f32(256.1));
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: integer value '-129' cannot be stored in type 'i8'",
+        ".tmp_source.zig:5:9: error: integer value '-1' cannot be stored in type 'u8'",
+        ".tmp_source.zig:8:9: error: integer value '256' cannot be stored in type 'u8'",
+    );
+
+    cases.add(
+        "use c_void as return type of fn ptr",
+        \\export fn entry() void {
+        \\    const a: fn () c_void = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:20: error: return type cannot be opaque",
+    );
+
+    cases.add(
+        "non int passed to @intToFloat",
+        \\export fn entry() void {
+        \\    const x = @intToFloat(f32, 1.1);
+        \\}
+    ,
+        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
+    );
+
+    cases.add(
+        "use implicit casts to assign null to non-nullable pointer",
+        \\export fn entry() void {
+        \\    var x: i32 = 1234;
+        \\    var p: *i32 = &x;
+        \\    var pp: *?*i32 = &p;
+        \\    pp.* = null;
+        \\    var y = p.*;
+        \\}
+    ,
+        ".tmp_source.zig:4:23: error: expected type '*?*i32', found '**i32'",
+    );
+
+    cases.add(
         "attempted implicit cast from T to [*]const T",
         \\export fn entry() void {
         \\    const x: [*]const bool = true;
@@ -52,7 +113,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var rule_set = try Foo.init();
         \\}
     ,
-        ".tmp_source.zig:2:13: error: invalid cast from type 'type' to 'i32'",
+        ".tmp_source.zig:2:13: error: expected type 'i32', found 'type'",
     );
 
     cases.add(
@@ -74,7 +135,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "invalid deref on switch target",
+        "nested error set mismatch",
         \\const NextError = error{NextError};
         \\const OtherError = error{OutOfMemory};
         \\
@@ -86,7 +147,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return null;
         \\}
     ,
-        ".tmp_source.zig:5:34: error: expected 'NextError!i32', found 'OtherError!i32'",
+        ".tmp_source.zig:5:34: error: expected type '?NextError!i32', found '?OtherError!i32'",
+        ".tmp_source.zig:5:34: note: optional type child 'OtherError!i32' cannot cast into optional type child 'NextError!i32'",
+        ".tmp_source.zig:5:34: note: error set 'OtherError' cannot cast into error set 'NextError'",
         ".tmp_source.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
     );
 
@@ -373,10 +436,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Set2 = error {A, C};
         \\comptime {
         \\    var x = Set1.B;
-        \\    var y = Set2(x);
+        \\    var y = @errSetCast(Set2, x);
         \\}
     ,
-        ".tmp_source.zig:5:17: error: error.B not a member of error set 'Set2'",
+        ".tmp_source.zig:5:13: error: error.B not a member of error set 'Set2'",
     );
 
     cases.add(
@@ -389,8 +452,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:35: error: expected 'SmallErrorSet!i32', found 'error!i32'",
-        ".tmp_source.zig:3:35: note: unable to cast global error set into smaller set",
+        ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'error!i32'",
+        ".tmp_source.zig:3:35: note: error set 'error' cannot cast into error set 'SmallErrorSet'",
+        ".tmp_source.zig:3:35: note: cannot cast global error set into smaller set",
     );
 
     cases.add(
@@ -403,8 +467,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:31: error: expected 'SmallErrorSet', found 'error'",
-        ".tmp_source.zig:3:31: note: unable to cast global error set into smaller set",
+        ".tmp_source.zig:3:31: error: expected type 'SmallErrorSet', found 'error'",
+        ".tmp_source.zig:3:31: note: cannot cast global error set into smaller set",
     );
 
     cases.add(
@@ -430,31 +494,40 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: Set2 = set1;
         \\}
     ,
-        ".tmp_source.zig:7:19: error: expected 'Set2', found 'Set1'",
+        ".tmp_source.zig:7:19: error: expected type 'Set2', found 'Set1'",
         ".tmp_source.zig:1:23: note: 'error.B' not a member of destination error set",
     );
 
     cases.add(
         "int to err global invalid number",
-        \\const Set1 = error{A, B};
+        \\const Set1 = error{
+        \\    A,
+        \\    B,
+        \\};
         \\comptime {
-        \\    var x: usize = 3;
-        \\    var y = error(x);
+        \\    var x: u16 = 3;
+        \\    var y = @intToError(x);
         \\}
     ,
-        ".tmp_source.zig:4:18: error: integer value 3 represents no error",
+        ".tmp_source.zig:7:13: error: integer value 3 represents no error",
     );
 
     cases.add(
         "int to err non global invalid number",
-        \\const Set1 = error{A, B};
-        \\const Set2 = error{A, C};
+        \\const Set1 = error{
+        \\    A,
+        \\    B,
+        \\};
+        \\const Set2 = error{
+        \\    A,
+        \\    C,
+        \\};
         \\comptime {
-        \\    var x = usize(Set1.B);
-        \\    var y = Set2(x);
+        \\    var x = @errorToInt(Set1.B);
+        \\    var y = @errSetCast(Set2, @intToError(x));
         \\}
     ,
-        ".tmp_source.zig:5:17: error: integer value 2 represents no error in 'Set2'",
+        ".tmp_source.zig:11:13: error: error.B not a member of error set 'Set2'",
     );
 
     cases.add(
@@ -1341,7 +1414,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (true) |x| { }
         \\}
     ,
-        ".tmp_source.zig:2:9: error: expected nullable type, found 'bool'",
+        ".tmp_source.zig:2:9: error: expected optional type, found 'bool'",
     );
 
     cases.add(
@@ -1780,7 +1853,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "assign null to non-nullable pointer",
+        "assign null to non-optional pointer",
         \\const a: *u8 = null;
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
@@ -2055,10 +2128,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "convert fixed size array to slice with invalid size",
         \\export fn f() void {
         \\    var array: [5]u8 = undefined;
-        \\    var foo = ([]const u32)(array)[0];
+        \\    var foo = @bytesToSlice(u32, array)[0];
         \\}
     ,
-        ".tmp_source.zig:3:28: error: unable to convert [5]u8 to []const u32: size mismatch",
+        ".tmp_source.zig:3:15: error: unable to convert [5]u8 to []align(1) const u32: size mismatch",
+        ".tmp_source.zig:3:29: note: u32 has size 4; remaining bytes: 1",
     );
 
     cases.add(
@@ -2202,7 +2276,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    derp.init();
         \\}
     ,
-        ".tmp_source.zig:14:5: error: expected type 'i32', found '*const Foo'",
+        ".tmp_source.zig:14:5: error: expected type 'i32', found 'Foo'",
     );
 
     cases.add(
@@ -2296,7 +2370,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\    defer try canFail();
         \\
-        \\    const a = maybeInt() ?? return;
+        \\    const a = maybeInt() orelse return;
         \\}
         \\
         \\fn canFail() error!void { }
@@ -2561,15 +2635,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add(
-        "pass non-copyable type by value to function",
-        \\const Point = struct { x: i32, y: i32, };
-        \\fn foo(p: Point) void { }
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    ,
-        ".tmp_source.zig:2:11: error: type 'Point' is not copyable; cannot pass by value",
-    );
-
-    cases.add(
         "implicit cast from array to mutable slice",
         \\var global_array: [10]i32 = undefined;
         \\fn foo(param: []i32) void {}
@@ -2587,17 +2652,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:2:21: error: expected pointer, found 'usize'",
-    );
-
-    cases.add(
-        "too many error values to cast to small integer",
-        \\const Error = error { A, B, C, D, E, F, G, H };
-        \\fn foo(e: Error) u2 {
-        \\    return u2(e);
-        \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    ,
-        ".tmp_source.zig:3:14: error: too many error values to fit in 'u2'",
     );
 
     cases.add(
@@ -2817,7 +2871,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected bool, got nullable",
+        "while expected bool, got optional",
         \\export fn foo() void {
         \\    while (bar()) {}
         \\}
@@ -2837,23 +2891,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected nullable, got bool",
+        "while expected optional, got bool",
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
         \\fn bar() bool { return true; }
     ,
-        ".tmp_source.zig:2:15: error: expected nullable type, found 'bool'",
+        ".tmp_source.zig:2:15: error: expected optional type, found 'bool'",
     );
 
     cases.add(
-        "while expected nullable, got error union",
+        "while expected optional, got error union",
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
         \\fn bar() error!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected nullable type, found 'error!i32'",
+        ".tmp_source.zig:2:15: error: expected optional type, found 'error!i32'",
     );
 
     cases.add(
@@ -2867,7 +2921,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "while expected error union, got nullable",
+        "while expected error union, got optional",
         \\export fn foo() void {
         \\    while (bar()) |x| {} else |err| {}
         \\}
@@ -2927,10 +2981,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "cast negative value to unsigned integer",
         \\comptime {
         \\    const value: i32 = -1;
-        \\    const unsigned = u32(value);
+        \\    const unsigned = @intCast(u32, value);
         \\}
     ,
-        ".tmp_source.zig:3:25: error: attempt to cast negative value to unsigned integer",
+        ".tmp_source.zig:3:22: error: attempt to cast negative value to unsigned integer",
     );
 
     cases.add(
@@ -2959,10 +3013,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "compile-time integer cast truncates bits",
         \\comptime {
         \\    const spartan_count: u16 = 300;
-        \\    const byte = u8(spartan_count);
+        \\    const byte = @intCast(u8, spartan_count);
         \\}
     ,
-        ".tmp_source.zig:3:20: error: cast from 'u16' to 'u8' truncates bits",
+        ".tmp_source.zig:3:18: error: cast from 'u16' to 'u8' truncates bits",
     );
 
     cases.add(
@@ -3215,18 +3269,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:3:17: error: cast increases pointer alignment",
         ".tmp_source.zig:3:38: note: '*u8' has alignment 1",
         ".tmp_source.zig:3:26: note: '*u32' has alignment 4",
-    );
-
-    cases.add(
-        "increase pointer alignment in slice resize",
-        \\export fn entry() u32 {
-        \\    var bytes = []u8{0x01, 0x02, 0x03, 0x04};
-        \\    return ([]u32)(bytes[0..])[0];
-        \\}
-    ,
-        ".tmp_source.zig:3:19: error: cast increases pointer alignment",
-        ".tmp_source.zig:3:19: note: '[]u8' has alignment 1",
-        ".tmp_source.zig:3:19: note: '[]u32' has alignment 4",
     );
 
     cases.add(
@@ -3701,22 +3743,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "explicitly casting enum to non tag type",
-        \\const Small = enum(u2) {
-        \\    One,
-        \\    Two,
-        \\    Three,
-        \\    Four,
-        \\};
-        \\
-        \\export fn entry() void {
-        \\    var x = u3(Small.Two);
-        \\}
-    ,
-        ".tmp_source.zig:9:15: error: enum to integer cast to 'u3' instead of its tag type, 'u2'",
-    );
-
-    cases.add(
         "explicitly casting non tag type to enum",
         \\const Small = enum(u2) {
         \\    One,
@@ -3727,10 +3753,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    var y = u3(3);
-        \\    var x = Small(y);
+        \\    var x = @intToEnum(Small, y);
         \\}
     ,
-        ".tmp_source.zig:10:18: error: integer to enum cast from 'u3' instead of its tag type, 'u2'",
+        ".tmp_source.zig:10:31: error: expected type 'u2', found 'u3'",
     );
 
     cases.add(
@@ -4011,10 +4037,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    B = 11,
         \\};
         \\export fn entry() void {
-        \\    var x = Foo(0);
+        \\    var x = @intToEnum(Foo, 0);
         \\}
     ,
-        ".tmp_source.zig:6:16: error: enum 'Foo' has no tag matching integer value 0",
+        ".tmp_source.zig:6:13: error: enum 'Foo' has no tag matching integer value 0",
         ".tmp_source.zig:1:13: note: 'Foo' declared here",
     );
 
@@ -4051,20 +4077,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:11:20: error: runtime cast to union 'Value' which has non-void fields",
         ".tmp_source.zig:3:5: note: field 'A' has type 'i32'",
-    );
-
-    cases.add(
-        "self-referencing function pointer field",
-        \\const S = struct {
-        \\    f: fn(_: S) void,
-        \\};
-        \\fn f(_: S) void {
-        \\}
-        \\export fn entry() void {
-        \\    var _ = S { .f = f };
-        \\}
-    ,
-        ".tmp_source.zig:4:9: error: type 'S' is not copyable; cannot pass by value",
     );
 
     cases.add(

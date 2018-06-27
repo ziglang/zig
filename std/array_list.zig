@@ -29,36 +29,36 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             };
         }
 
-        pub fn deinit(self: *const Self) void {
+        pub fn deinit(self: Self) void {
             self.allocator.free(self.items);
         }
 
-        pub fn toSlice(self: *const Self) []align(A) T {
+        pub fn toSlice(self: Self) []align(A) T {
             return self.items[0..self.len];
         }
 
-        pub fn toSliceConst(self: *const Self) []align(A) const T {
+        pub fn toSliceConst(self: Self) []align(A) const T {
             return self.items[0..self.len];
         }
 
-        pub fn at(self: *const Self, n: usize) T {
+        pub fn at(self: Self, n: usize) T {
             return self.toSliceConst()[n];
         }
 
         /// Sets the value at index `i`, or returns `error.OutOfBounds` if
         /// the index is not in range.
-        pub fn setOrError(self: *const Self, i: usize, item: *const T) !void {
+        pub fn setOrError(self: Self, i: usize, item: T) !void {
             if (i >= self.len) return error.OutOfBounds;
-            self.items[i] = item.*;
+            self.items[i] = item;
         }
 
         /// Sets the value at index `i`, asserting that the value is in range.
-        pub fn set(self: *const Self, i: usize, item: *const T) void {
+        pub fn set(self: *Self, i: usize, item: T) void {
             assert(i < self.len);
-            self.items[i] = item.*;
+            self.items[i] = item;
         }
 
-        pub fn count(self: *const Self) usize {
+        pub fn count(self: Self) usize {
             return self.len;
         }
 
@@ -81,12 +81,12 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return result;
         }
 
-        pub fn insert(self: *Self, n: usize, item: *const T) !void {
+        pub fn insert(self: *Self, n: usize, item: T) !void {
             try self.ensureCapacity(self.len + 1);
             self.len += 1;
 
             mem.copy(T, self.items[n + 1 .. self.len], self.items[n .. self.len - 1]);
-            self.items[n] = item.*;
+            self.items[n] = item;
         }
 
         pub fn insertSlice(self: *Self, n: usize, items: []align(A) const T) !void {
@@ -97,9 +97,9 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             mem.copy(T, self.items[n .. n + items.len], items);
         }
 
-        pub fn append(self: *Self, item: *const T) !void {
+        pub fn append(self: *Self, item: T) !void {
             const new_item_ptr = try self.addOne();
-            new_item_ptr.* = item.*;
+            new_item_ptr.* = item;
         }
 
         pub fn appendSlice(self: *Self, items: []align(A) const T) !void {
@@ -185,23 +185,23 @@ test "basic ArrayList test" {
     {
         var i: usize = 0;
         while (i < 10) : (i += 1) {
-            list.append(i32(i + 1)) catch unreachable;
+            list.append(@intCast(i32, i + 1)) catch unreachable;
         }
     }
 
     {
         var i: usize = 0;
         while (i < 10) : (i += 1) {
-            assert(list.items[i] == i32(i + 1));
+            assert(list.items[i] == @intCast(i32, i + 1));
         }
     }
 
     for (list.toSlice()) |v, i| {
-        assert(v == i32(i + 1));
+        assert(v == @intCast(i32, i + 1));
     }
 
     for (list.toSliceConst()) |v, i| {
-        assert(v == i32(i + 1));
+        assert(v == @intCast(i32, i + 1));
     }
 
     assert(list.pop() == 10);
@@ -258,7 +258,7 @@ test "iterator ArrayList test" {
     }
 
     it.reset();
-    assert(??it.next() == 1);
+    assert(it.next().? == 1);
 }
 
 test "insert ArrayList test" {

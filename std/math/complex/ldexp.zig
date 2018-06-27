@@ -4,7 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
-pub fn ldexp_cexp(z: var, expt: i32) Complex(@typeOf(z.re)) {
+pub fn ldexp_cexp(z: var, expt: i32) @typeOf(z) {
     const T = @typeOf(z.re);
 
     return switch (T) {
@@ -20,11 +20,12 @@ fn frexp_exp32(x: f32, expt: *i32) f32 {
 
     const exp_x = math.exp(x - kln2);
     const hx = @bitCast(u32, exp_x);
-    expt.* = i32(hx >> 23) - (0x7f + 127) + k;
+    // TODO zig should allow this cast implicitly because it should know the value is in range
+    expt.* = @intCast(i32, hx >> 23) - (0x7f + 127) + k;
     return @bitCast(f32, (hx & 0x7fffff) | ((0x7f + 127) << 23));
 }
 
-fn ldexp_cexp32(z: *const Complex(f32), expt: i32) Complex(f32) {
+fn ldexp_cexp32(z: Complex(f32), expt: i32) Complex(f32) {
     var ex_expt: i32 = undefined;
     const exp_x = frexp_exp32(z.re, &ex_expt);
     const exptf = expt + ex_expt;
@@ -45,16 +46,16 @@ fn frexp_exp64(x: f64, expt: *i32) f64 {
     const exp_x = math.exp(x - kln2);
 
     const fx = @bitCast(u64, x);
-    const hx = u32(fx >> 32);
+    const hx = @intCast(u32, fx >> 32);
     const lx = @truncate(u32, fx);
 
-    expt.* = i32(hx >> 20) - (0x3ff + 1023) + k;
+    expt.* = @intCast(i32, hx >> 20) - (0x3ff + 1023) + k;
 
     const high_word = (hx & 0xfffff) | ((0x3ff + 1023) << 20);
     return @bitCast(f64, (u64(high_word) << 32) | lx);
 }
 
-fn ldexp_cexp64(z: *const Complex(f64), expt: i32) Complex(f64) {
+fn ldexp_cexp64(z: Complex(f64), expt: i32) Complex(f64) {
     var ex_expt: i32 = undefined;
     const exp_x = frexp_exp64(z.re, &ex_expt);
     const exptf = i64(expt + ex_expt);

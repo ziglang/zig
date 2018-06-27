@@ -30,7 +30,7 @@ if(GIT_EXE)
             message("WARNING: Tag does not match configured Zig version")
         endif()
     else()
-        set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}.${ZIG_GIT_REV}")
+        set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
     endif()
 endif()
 message("Configuring zig version ${ZIG_VERSION}")
@@ -438,6 +438,7 @@ set(ZIG_STD_FILES
     "debug/failing_allocator.zig"
     "debug/index.zig"
     "dwarf.zig"
+    "dynamic_library.zig"
     "elf.zig"
     "empty.zig"
     "event.zig"
@@ -464,6 +465,7 @@ set(ZIG_STD_FILES
     "math/atan.zig"
     "math/atan2.zig"
     "math/atanh.zig"
+    "math/big/int.zig"
     "math/cbrt.zig"
     "math/ceil.zig"
     "math/complex/abs.zig"
@@ -555,6 +557,8 @@ set(ZIG_STD_FILES
     "special/compiler_rt/aulldiv.zig"
     "special/compiler_rt/aullrem.zig"
     "special/compiler_rt/comparetf2.zig"
+    "special/compiler_rt/divti3.zig"
+    "special/compiler_rt/extendXfYf2.zig"
     "special/compiler_rt/fixuint.zig"
     "special/compiler_rt/fixunsdfdi.zig"
     "special/compiler_rt/fixunsdfsi.zig"
@@ -565,6 +569,8 @@ set(ZIG_STD_FILES
     "special/compiler_rt/fixunstfdi.zig"
     "special/compiler_rt/fixunstfsi.zig"
     "special/compiler_rt/fixunstfti.zig"
+    "special/compiler_rt/floatuntidf.zig"
+    "special/compiler_rt/muloti4.zig"
     "special/compiler_rt/index.zig"
     "special/compiler_rt/udivmod.zig"
     "special/compiler_rt/udivmoddi4.zig"
