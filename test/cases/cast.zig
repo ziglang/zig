@@ -350,13 +350,16 @@ fn testFloatToInts() void {
     assert(x == 10000);
     const y = @floatToInt(i32, f32(1e4));
     assert(y == 10000);
-    expectFloatToInt(u8, 255.1, 255);
-    expectFloatToInt(i8, 127.2, 127);
-    expectFloatToInt(i8, -128.2, -128);
+    expectFloatToInt(f16, 255.1, u8, 255);
+    expectFloatToInt(f16, 127.2, i8, 127);
+    expectFloatToInt(f16, -128.2, i8, -128);
+    expectFloatToInt(f32, 255.1, u8, 255);
+    expectFloatToInt(f32, 127.2, i8, 127);
+    expectFloatToInt(f32, -128.2, i8, -128);
 }
 
-fn expectFloatToInt(comptime T: type, f: f32, i: T) void {
-    assert(@floatToInt(T, f) == i);
+fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) void {
+    assert(@floatToInt(I, f) == i);
 }
 
 test "cast u128 to f128 and back" {
@@ -419,6 +422,16 @@ test "@intCast comptime_int" {
 
 test "@floatCast comptime_int and comptime_float" {
     {
+        const result = @floatCast(f16, 1234);
+        assert(@typeOf(result) == f16);
+        assert(result == 1234.0);
+    }
+    {
+        const result = @floatCast(f16, 1234.0);
+        assert(@typeOf(result) == f16);
+        assert(result == 1234.0);
+    }
+    {
         const result = @floatCast(f32, 1234);
         assert(@typeOf(result) == f32);
         assert(result == 1234.0);
@@ -431,6 +444,11 @@ test "@floatCast comptime_int and comptime_float" {
 }
 
 test "comptime_int @intToFloat" {
+    {
+        const result = @intToFloat(f16, 1234);
+        assert(@typeOf(result) == f16);
+        assert(result == 1234.0);
+    }
     {
         const result = @intToFloat(f32, 1234);
         assert(@typeOf(result) == f32);

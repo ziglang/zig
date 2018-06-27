@@ -11,9 +11,10 @@
 #include "ir.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
-#include "translate_c.hpp"
 #include "range_set.hpp"
 #include "softfloat.hpp"
+#include "translate_c.hpp"
+#include "util.hpp"
 
 struct IrExecContext {
     ConstExprValue *mem_slot_list;
@@ -7238,6 +7239,11 @@ static bool float_has_fraction(ConstExprValue *const_val) {
         return bigfloat_has_fraction(&const_val->data.x_bigfloat);
     } else if (const_val->type->id == TypeTableEntryIdFloat) {
         switch (const_val->type->data.floating.bit_count) {
+            case 16:
+                {
+                    float16_t floored = f16_roundToInt(const_val->data.x_f16, softfloat_round_minMag, false);
+                    return !f16_eq(floored, const_val->data.x_f16);
+                }
             case 32:
                 return floorf(const_val->data.x_f32) != const_val->data.x_f32;
             case 64:
@@ -7261,6 +7267,9 @@ static void float_append_buf(Buf *buf, ConstExprValue *const_val) {
         bigfloat_append_buf(buf, &const_val->data.x_bigfloat);
     } else if (const_val->type->id == TypeTableEntryIdFloat) {
         switch (const_val->type->data.floating.bit_count) {
+            case 16:
+                buf_appendf(buf, "%f", zig_f16_to_double(const_val->data.x_f16));
+                break;
             case 32:
                 buf_appendf(buf, "%f", const_val->data.x_f32);
                 break;
@@ -7296,6 +7305,17 @@ static void float_init_bigint(BigInt *bigint, ConstExprValue *const_val) {
         bigint_init_bigfloat(bigint, &const_val->data.x_bigfloat);
     } else if (const_val->type->id == TypeTableEntryIdFloat) {
         switch (const_val->type->data.floating.bit_count) {
+            case 16:
+                {
+                    double x = zig_f16_to_double(const_val->data.x_f16);
+                    if (x >= 0) {
+                        bigint_init_unsigned(bigint, (uint64_t)x);
+                    } else {
+                        bigint_init_unsigned(bigint, (uint64_t)-x);
+                        bigint->is_negative = true;
+                    }
+                    break;
+                }
             case 32:
                 if (const_val->data.x_f32 >= 0) {
                     bigint_init_unsigned(bigint, (uint64_t)(const_val->data.x_f32));
@@ -7332,6 +7352,9 @@ static void float_init_bigfloat(ConstExprValue *dest_val, BigFloat *bigfloat) {
         bigfloat_init_bigfloat(&dest_val->data.x_bigfloat, bigfloat);
     } else if (dest_val->type->id == TypeTableEntryIdFloat) {
         switch (dest_val->type->data.floating.bit_count) {
+            case 16:
+                dest_val->data.x_f16 = bigfloat_to_f16(bigfloat);
+                break;
             case 32:
                 dest_val->data.x_f32 = bigfloat_to_f32(bigfloat);
                 break;
@@ -7349,11 +7372,39 @@ static void float_init_bigfloat(ConstExprValue *dest_val, BigFloat *bigfloat) {
     }
 }
 
+static void float_init_f16(ConstExprValue *dest_val, float16_t x) {
+    if (dest_val->type->id == TypeTableEntryIdComptimeFloat) {
+        bigfloat_init_16(&dest_val->data.x_bigfloat, x);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 16:
+                dest_val->data.x_f16 = x;
+                break;
+            case 32:
+                dest_val->data.x_f32 = zig_f16_to_double(x);
+                break;
+            case 64:
+                dest_val->data.x_f64 = zig_f16_to_double(x);
+                break;
+            case 128:
+                f16_to_f128M(x, &dest_val->data.x_f128);
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
 static void float_init_f32(ConstExprValue *dest_val, float x) {
     if (dest_val->type->id == TypeTableEntryIdComptimeFloat) {
         bigfloat_init_32(&dest_val->data.x_bigfloat, x);
     } else if (dest_val->type->id == TypeTableEntryIdFloat) {
         switch (dest_val->type->data.floating.bit_count) {
+            case 16:
+                dest_val->data.x_f16 = zig_double_to_f16(x);
+                break;
             case 32:
                 dest_val->data.x_f32 = x;
                 break;
@@ -7380,6 +7431,9 @@ static void float_init_f64(ConstExprValue *dest_val, double x) {
         bigfloat_init_64(&dest_val->data.x_bigfloat, x);
     } else if (dest_val->type->id == TypeTableEntryIdFloat) {
         switch (dest_val->type->data.floating.bit_count) {
+            case 16:
+                dest_val->data.x_f16 = zig_double_to_f16(x);
+                break;
             case 32:
                 dest_val->data.x_f32 = x;
                 break;
@@ -7406,6 +7460,9 @@ static void float_init_f128(ConstExprValue *dest_val, float128_t x) {
         bigfloat_init_128(&dest_val->data.x_bigfloat, x);
     } else if (dest_val->type->id == TypeTableEntryIdFloat) {
         switch (dest_val->type->data.floating.bit_count) {
+            case 16:
+                dest_val->data.x_f16 = f128M_to_f16(&x);
+                break;
             case 32:
                 {
                     float32_t f32_val = f128M_to_f32(&x);
@@ -7436,6 +7493,9 @@ static void float_init_float(ConstExprValue *dest_val, ConstExprValue *src_val) 
         float_init_bigfloat(dest_val, &src_val->data.x_bigfloat);
     } else if (src_val->type->id == TypeTableEntryIdFloat) {
         switch (src_val->type->data.floating.bit_count) {
+            case 16:
+                float_init_f16(dest_val, src_val->data.x_f16);
+                break;
             case 32:
                 float_init_f32(dest_val, src_val->data.x_f32);
                 break;
@@ -7459,6 +7519,14 @@ static Cmp float_cmp(ConstExprValue *op1, ConstExprValue *op2) {
         return bigfloat_cmp(&op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                if (f16_lt(op1->data.x_f16, op2->data.x_f16)) {
+                    return CmpLT;
+                } else if (f16_lt(op2->data.x_f16, op1->data.x_f16)) {
+                    return CmpGT;
+                } else {
+                    return CmpEQ;
+                }
             case 32:
                 if (op1->data.x_f32 > op2->data.x_f32) {
                     return CmpGT;
@@ -7496,6 +7564,17 @@ static Cmp float_cmp_zero(ConstExprValue *op) {
         return bigfloat_cmp_zero(&op->data.x_bigfloat);
     } else if (op->type->id == TypeTableEntryIdFloat) {
         switch (op->type->data.floating.bit_count) {
+            case 16:
+                {
+                    const float16_t zero = zig_double_to_f16(0);
+                    if (f16_lt(op->data.x_f16, zero)) {
+                        return CmpLT;
+                    } else if (f16_lt(zero, op->data.x_f16)) {
+                        return CmpGT;
+                    } else {
+                        return CmpEQ;
+                    }
+                }
             case 32:
                 if (op->data.x_f32 < 0.0) {
                     return CmpLT;
@@ -7537,6 +7616,9 @@ static void float_add(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
         bigfloat_add(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                out_val->data.x_f16 = f16_add(op1->data.x_f16, op2->data.x_f16);
+                return;
             case 32:
                 out_val->data.x_f32 =  op1->data.x_f32 + op2->data.x_f32;
                 return;
@@ -7561,6 +7643,9 @@ static void float_sub(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
         bigfloat_sub(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                out_val->data.x_f16 = f16_sub(op1->data.x_f16, op2->data.x_f16);
+                return;
             case 32:
                 out_val->data.x_f32 = op1->data.x_f32 - op2->data.x_f32;
                 return;
@@ -7585,6 +7670,9 @@ static void float_mul(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
         bigfloat_mul(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                out_val->data.x_f16 = f16_mul(op1->data.x_f16, op2->data.x_f16);
+                return;
             case 32:
                 out_val->data.x_f32 = op1->data.x_f32 * op2->data.x_f32;
                 return;
@@ -7609,6 +7697,9 @@ static void float_div(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
         bigfloat_div(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                out_val->data.x_f16 = f16_div(op1->data.x_f16, op2->data.x_f16);
+                return;
             case 32:
                 out_val->data.x_f32 = op1->data.x_f32 / op2->data.x_f32;
                 return;
@@ -7633,6 +7724,19 @@ static void float_div_trunc(ConstExprValue *out_val, ConstExprValue *op1, ConstE
         bigfloat_div_trunc(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                {
+                    double a = zig_f16_to_double(op1->data.x_f16);
+                    double b = zig_f16_to_double(op2->data.x_f16);
+                    double c = a / b;
+                    if (c >= 0.0) {
+                        c = floor(c);
+                    } else {
+                        c = ceil(c);
+                    }
+                    out_val->data.x_f16 = zig_double_to_f16(c);
+                    return;
+                }
             case 32:
                 out_val->data.x_f32 = op1->data.x_f32 / op2->data.x_f32;
                 if (out_val->data.x_f32 >= 0.0) {
@@ -7668,6 +7772,10 @@ static void float_div_floor(ConstExprValue *out_val, ConstExprValue *op1, ConstE
         bigfloat_div_floor(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                out_val->data.x_f16 = f16_div(op1->data.x_f16, op2->data.x_f16);
+                out_val->data.x_f16 = f16_roundToInt(out_val->data.x_f16, softfloat_round_min, false);
+                return;
             case 32:
                 out_val->data.x_f32 = floorf(op1->data.x_f32 / op2->data.x_f32);
                 return;
@@ -7693,6 +7801,9 @@ static void float_rem(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
         bigfloat_rem(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                out_val->data.x_f16 = f16_rem(op1->data.x_f16, op2->data.x_f16);
+                return;
             case 32:
                 out_val->data.x_f32 = fmodf(op1->data.x_f32, op2->data.x_f32);
                 return;
@@ -7711,6 +7822,16 @@ static void float_rem(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
 }
 
 // c = a - b * trunc(a / b)
+static float16_t zig_f16_mod(float16_t a, float16_t b) {
+    float16_t c;
+    c = f16_div(a, b);
+    c = f16_roundToInt(c, softfloat_round_min, true);
+    c = f16_mul(b, c);
+    c = f16_sub(a, c);
+    return c;
+}
+
+// c = a - b * trunc(a / b)
 static void zig_f128M_mod(const float128_t* a, const float128_t* b, float128_t* c) {
     f128M_div(a, b, c);
     f128M_roundToInt(c, softfloat_round_min, true, c);
@@ -7725,6 +7846,9 @@ static void float_mod(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
         bigfloat_mod(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
+            case 16:
+                out_val->data.x_f16 = zig_f16_mod(op1->data.x_f16, op2->data.x_f16);
+                return;
             case 32:
                 out_val->data.x_f32 = fmodf(fmodf(op1->data.x_f32, op2->data.x_f32) + op2->data.x_f32, op2->data.x_f32);
                 return;
@@ -7748,6 +7872,12 @@ static void float_negate(ConstExprValue *out_val, ConstExprValue *op) {
         bigfloat_negate(&out_val->data.x_bigfloat, &op->data.x_bigfloat);
     } else if (op->type->id == TypeTableEntryIdFloat) {
         switch (op->type->data.floating.bit_count) {
+            case 16:
+                {
+                    const float16_t zero = zig_double_to_f16(0);
+                    out_val->data.x_f16 = f16_sub(zero, op->data.x_f16);
+                    return;
+                }
             case 32:
                 out_val->data.x_f32 = -op->data.x_f32;
                 return;
@@ -7770,6 +7900,9 @@ static void float_negate(ConstExprValue *out_val, ConstExprValue *op) {
 void float_write_ieee597(ConstExprValue *op, uint8_t *buf, bool is_big_endian) {
     if (op->type->id == TypeTableEntryIdFloat) {
         switch (op->type->data.floating.bit_count) {
+            case 16:
+                memcpy(buf, &op->data.x_f16, 2); // TODO wrong when compiler is big endian
+                return;
             case 32:
                 memcpy(buf, &op->data.x_f32, 4); // TODO wrong when compiler is big endian
                 return;
@@ -7790,6 +7923,9 @@ void float_write_ieee597(ConstExprValue *op, uint8_t *buf, bool is_big_endian) {
 void float_read_ieee597(ConstExprValue *val, uint8_t *buf, bool is_big_endian) {
     if (val->type->id == TypeTableEntryIdFloat) {
         switch (val->type->data.floating.bit_count) {
+            case 16:
+                memcpy(&val->data.x_f16, buf, 2); // TODO wrong when compiler is big endian
+                return;
             case 32:
                 memcpy(&val->data.x_f32, buf, 4); // TODO wrong when compiler is big endian
                 return;
@@ -8817,6 +8953,9 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
             if (other_val->type->id == TypeTableEntryIdComptimeFloat) {
                 assert(new_type->id == TypeTableEntryIdFloat);
                 switch (new_type->data.floating.bit_count) {
+                    case 16:
+                        const_val->data.x_f16 = bigfloat_to_f16(&other_val->data.x_bigfloat);
+                        break;
                     case 32:
                         const_val->data.x_f32 = bigfloat_to_f32(&other_val->data.x_bigfloat);
                         break;
@@ -8847,6 +8986,9 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
                 BigFloat bigfloat;
                 bigfloat_init_bigint(&bigfloat, &other_val->data.x_bigint);
                 switch (new_type->data.floating.bit_count) {
+                    case 16:
+                        const_val->data.x_f16 = bigfloat_to_f16(&bigfloat);
+                        break;
                     case 32:
                         const_val->data.x_f32 = bigfloat_to_f32(&bigfloat);
                         break;
@@ -20104,6 +20246,9 @@ static TypeTableEntry *ir_analyze_instruction_sqrt(IrAnalyze *ira, IrInstruction
             bigfloat_sqrt(&out_val->data.x_bigfloat, &val->data.x_bigfloat);
         } else if (float_type->id == TypeTableEntryIdFloat) {
             switch (float_type->data.floating.bit_count) {
+                case 16:
+                    out_val->data.x_f16 = f16_sqrt(val->data.x_f16);
+                    break;
                 case 32:
                     out_val->data.x_f32 = sqrtf(val->data.x_f32);
                     break;
@@ -20124,7 +20269,9 @@ static TypeTableEntry *ir_analyze_instruction_sqrt(IrAnalyze *ira, IrInstruction
     }
 
     assert(float_type->id == TypeTableEntryIdFloat);
-    if (float_type->data.floating.bit_count != 32 && float_type->data.floating.bit_count != 64) {
+    if (float_type->data.floating.bit_count != 16 &&
+        float_type->data.floating.bit_count != 32 &&
+        float_type->data.floating.bit_count != 64) {
         ir_add_error(ira, instruction->type, buf_sprintf("compiler TODO: add implementation of sqrt for '%s'", buf_ptr(&float_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }

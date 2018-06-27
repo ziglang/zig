@@ -17,6 +17,7 @@
 #include "os.hpp"
 #include "translate_c.hpp"
 #include "target.hpp"
+#include "util.hpp"
 #include "zig_llvm.h"
 
 #include <stdio.h>
@@ -5211,6 +5212,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     const_val->data.x_err_set->value, false);
         case TypeTableEntryIdFloat:
             switch (type_entry->data.floating.bit_count) {
+                case 16:
+                    return LLVMConstReal(type_entry->type_ref, zig_f16_to_double(const_val->data.x_f16));
                 case 32:
                     return LLVMConstReal(type_entry->type_ref, const_val->data.x_f32);
                 case 64:
@@ -6195,6 +6198,7 @@ static void define_builtin_types(CodeGen *g) {
         *field = entry;
         g->primitive_type_table.put(&entry->name, entry);
     };
+    add_fp_entry(g, "f16", 16, LLVMHalfType(), &g->builtin_types.entry_f16);
     add_fp_entry(g, "f32", 32, LLVMFloatType(), &g->builtin_types.entry_f32);
     add_fp_entry(g, "f64", 64, LLVMDoubleType(), &g->builtin_types.entry_f64);
     add_fp_entry(g, "f128", 128, LLVMFP128Type(), &g->builtin_types.entry_f128);

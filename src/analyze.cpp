@@ -4668,6 +4668,13 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             }
         case TypeTableEntryIdFloat:
             switch (const_val->type->data.floating.bit_count) {
+                case 16:
+                    {
+                        uint16_t result;
+                        static_assert(sizeof(result) == sizeof(const_val->data.x_f16), "");
+                        memcpy(&result, &const_val->data.x_f16, sizeof(result));
+                        return result * 65537u;
+                    }
                 case 32:
                     {
                         uint32_t result;
@@ -5128,6 +5135,9 @@ void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double va
         bigfloat_init_64(&const_val->data.x_bigfloat, value);
     } else if (type->id == TypeTableEntryIdFloat) {
         switch (type->data.floating.bit_count) {
+            case 16:
+                const_val->data.x_f16 = zig_double_to_f16(value);
+                break;
             case 32:
                 const_val->data.x_f32 = value;
                 break;
@@ -5441,6 +5451,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdFloat:
             assert(a->type->data.floating.bit_count == b->type->data.floating.bit_count);
             switch (a->type->data.floating.bit_count) {
+                case 16:
+                    return f16_eq(a->data.x_f16, b->data.x_f16);
                 case 32:
                     return a->data.x_f32 == b->data.x_f32;
                 case 64:
@@ -5614,6 +5626,9 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             return;
         case TypeTableEntryIdFloat:
             switch (type_entry->data.floating.bit_count) {
+                case 16:
+                    buf_appendf(buf, "%f", zig_f16_to_double(const_val->data.x_f16));
+                    return;
                 case 32:
                     buf_appendf(buf, "%f", const_val->data.x_f32);
                     return;
