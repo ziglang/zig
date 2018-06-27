@@ -18,6 +18,10 @@ void bigfloat_init_128(BigFloat *dest, float128_t x) {
     dest->value = x;
 }
 
+void bigfloat_init_16(BigFloat *dest, float16_t x) {
+    f16_to_f128M(x, &dest->value);
+}
+
 void bigfloat_init_32(BigFloat *dest, float x) {
     float32_t f32_val;
     memcpy(&f32_val, &x, sizeof(float));
@@ -144,6 +148,10 @@ Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2) {
     } else {
         return CmpGT;
     }
+}
+
+float16_t bigfloat_to_f16(const BigFloat *bigfloat) {
+    return f128M_to_f16(&bigfloat->value);
 }
 
 float bigfloat_to_f32(const BigFloat *bigfloat) {

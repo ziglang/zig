@@ -258,6 +258,7 @@ struct ConstExprValue {
         // populated if special == ConstValSpecialStatic
         BigInt x_bigint;
         BigFloat x_bigfloat;
+        float16_t x_f16;
         float x_f32;
         double x_f64;
         float128_t x_f128;
@@ -1598,6 +1599,7 @@ struct CodeGen {
         TypeTableEntry *entry_i128;
         TypeTableEntry *entry_isize;
         TypeTableEntry *entry_usize;
+        TypeTableEntry *entry_f16;
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_f64;
         TypeTableEntry *entry_f128;

@@ -6,15 +6,20 @@ test "division" {
 }
 fn testDivision() void {
     assert(div(u32, 13, 3) == 4);
+    assert(div(f16, 1.0, 2.0) == 0.5);
     assert(div(f32, 1.0, 2.0) == 0.5);
 
     assert(divExact(u32, 55, 11) == 5);
     assert(divExact(i32, -55, 11) == -5);
+    assert(divExact(f16, 55.0, 11.0) == 5.0);
+    assert(divExact(f16, -55.0, 11.0) == -5.0);
     assert(divExact(f32, 55.0, 11.0) == 5.0);
     assert(divExact(f32, -55.0, 11.0) == -5.0);
 
     assert(divFloor(i32, 5, 3) == 1);
     assert(divFloor(i32, -5, 3) == -2);
+    assert(divFloor(f16, 5.0, 3.0) == 1.0);
+    assert(divFloor(f16, -5.0, 3.0) == -2.0);
     assert(divFloor(f32, 5.0, 3.0) == 1.0);
     assert(divFloor(f32, -5.0, 3.0) == -2.0);
     assert(divFloor(i32, -0x80000000, -2) == 0x40000000);
@@ -24,8 +29,12 @@ fn testDivision() void {
 
     assert(divTrunc(i32, 5, 3) == 1);
     assert(divTrunc(i32, -5, 3) == -1);
+    assert(divTrunc(f16, 5.0, 3.0) == 1.0);
+    assert(divTrunc(f16, -5.0, 3.0) == -1.0);
     assert(divTrunc(f32, 5.0, 3.0) == 1.0);
     assert(divTrunc(f32, -5.0, 3.0) == -1.0);
+    assert(divTrunc(f64, 5.0, 3.0) == 1.0);
+    assert(divTrunc(f64, -5.0, 3.0) == -1.0);
 
     comptime {
         assert(
@@ -435,10 +444,11 @@ test "comptime float rem int" {
 }
 
 test "remainder division" {
+    comptime remdiv(f16);
     comptime remdiv(f32);
     comptime remdiv(f64);
     comptime remdiv(f128);
-    remdiv(f32);
+    remdiv(f16);
     remdiv(f64);
     remdiv(f128);
 }
@@ -453,6 +463,8 @@ test "@sqrt" {
     comptime testSqrt(f64, 12.0);
     testSqrt(f32, 13.0);
     comptime testSqrt(f32, 13.0);
+    testSqrt(f16, 13.0);
+    comptime testSqrt(f16, 13.0);
 
     const x = 14.0;
     const y = x * x;
