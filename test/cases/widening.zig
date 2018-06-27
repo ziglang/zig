@@ -19,8 +19,9 @@ test "implicit unsigned integer to signed integer" {
 }
 
 test "float widening" {
-    var a: f32 = 12.34;
-    var b: f64 = a;
-    var c: f128 = b;
-    assert(c == a);
+    var a: f16 = 12.34;
+    var b: f32 = a;
+    var c: f64 = b;
+    var d: f128 = c;
+    assert(d == a);
 }

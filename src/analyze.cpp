@@ -3728,6 +3728,7 @@ TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt
 }
 
 TypeEnumField *find_enum_field_by_tag(TypeTableEntry *enum_type, const BigInt *tag) {
+    assert(enum_type->data.enumeration.zero_bits_known);
     for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
         TypeEnumField *field = &enum_type->data.enumeration.fields[i];
         if (bigint_cmp(&field->value, tag) == CmpEQ) {
