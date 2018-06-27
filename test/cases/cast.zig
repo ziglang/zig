@@ -418,19 +418,24 @@ test "@intCast comptime_int" {
 }
 
 test "@floatCast comptime_int and comptime_float" {
-    const result = @floatCast(f32, 1234);
-    assert(@typeOf(result) == f32);
-    assert(result == 1234.0);
-
-    const result2 = @floatCast(f32, 1234.0);
-    assert(@typeOf(result) == f32);
-    assert(result == 1234.0);
+    {
+        const result = @floatCast(f32, 1234);
+        assert(@typeOf(result) == f32);
+        assert(result == 1234.0);
+    }
+    {
+        const result = @floatCast(f32, 1234.0);
+        assert(@typeOf(result) == f32);
+        assert(result == 1234.0);
+    }
 }
 
 test "comptime_int @intToFloat" {
-    const result = @intToFloat(f32, 1234);
-    assert(@typeOf(result) == f32);
-    assert(result == 1234.0);
+    {
+        const result = @intToFloat(f32, 1234);
+        assert(@typeOf(result) == f32);
+        assert(result == 1234.0);
+    }
 }
 
 test "@bytesToSlice keeps pointer alignment" {
