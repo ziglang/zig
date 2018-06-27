@@ -7725,33 +7725,14 @@ static void float_div_trunc(ConstExprValue *out_val, ConstExprValue *op1, ConstE
     } else if (op1->type->id == TypeTableEntryIdFloat) {
         switch (op1->type->data.floating.bit_count) {
             case 16:
-                {
-                    double a = zig_f16_to_double(op1->data.x_f16);
-                    double b = zig_f16_to_double(op2->data.x_f16);
-                    double c = a / b;
-                    if (c >= 0.0) {
-                        c = floor(c);
-                    } else {
-                        c = ceil(c);
-                    }
-                    out_val->data.x_f16 = zig_double_to_f16(c);
-                    return;
-                }
+                out_val->data.x_f16 = f16_div(op1->data.x_f16, op2->data.x_f16);
+                out_val->data.x_f16 = f16_roundToInt(out_val->data.x_f16, softfloat_round_minMag, false);
+                return;
             case 32:
-                out_val->data.x_f32 = op1->data.x_f32 / op2->data.x_f32;
-                if (out_val->data.x_f32 >= 0.0) {
-                    out_val->data.x_f32 = floorf(out_val->data.x_f32);
-                } else {
-                    out_val->data.x_f32 = ceilf(out_val->data.x_f32);
-                }
+                out_val->data.x_f32 = truncf(op1->data.x_f32 / op2->data.x_f32);
                 return;
             case 64:
-                out_val->data.x_f64 = op1->data.x_f64 / op2->data.x_f64;
-                if (out_val->data.x_f64 >= 0.0) {
-                    out_val->data.x_f64 = floor(out_val->data.x_f64);
-                } else {
-                    out_val->data.x_f64 = ceil(out_val->data.x_f64);
-                }
+                out_val->data.x_f64 = trunc(op1->data.x_f64 / op2->data.x_f64);
                 return;
             case 128:
                 f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);

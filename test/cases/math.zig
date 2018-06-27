@@ -33,6 +33,8 @@ fn testDivision() void {
     assert(divTrunc(f16, -5.0, 3.0) == -1.0);
     assert(divTrunc(f32, 5.0, 3.0) == 1.0);
     assert(divTrunc(f32, -5.0, 3.0) == -1.0);
+    assert(divTrunc(f64, 5.0, 3.0) == 1.0);
+    assert(divTrunc(f64, -5.0, 3.0) == -1.0);
 
     comptime {
         assert(
