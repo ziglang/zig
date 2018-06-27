@@ -6177,58 +6177,29 @@ static void define_builtin_types(CodeGen *g) {
             g->builtin_types.entry_usize = entry;
         }
     }
-    {
+
+    auto add_fp_entry = [] (CodeGen *g,
+                            const char *name,
+                            uint32_t bit_count,
+                            LLVMTypeRef type_ref,
+                            TypeTableEntry **field) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMFloatType();
-        buf_init_from_str(&entry->name, "f32");
-        entry->data.floating.bit_count = 32;
+        entry->type_ref = type_ref;
+        buf_init_from_str(&entry->name, name);
+        entry->data.floating.bit_count = bit_count;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
                 ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_f32 = entry;
+        *field = entry;
         g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMDoubleType();
-        buf_init_from_str(&entry->name, "f64");
-        entry->data.floating.bit_count = 64;
+    };
+    add_fp_entry(g, "f32", 32, LLVMFloatType(), &g->builtin_types.entry_f32);
+    add_fp_entry(g, "f64", 64, LLVMDoubleType(), &g->builtin_types.entry_f64);
+    add_fp_entry(g, "f128", 128, LLVMFP128Type(), &g->builtin_types.entry_f128);
+    add_fp_entry(g, "c_longdouble", 80, LLVMX86FP80Type(), &g->builtin_types.entry_c_longdouble);
 
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                debug_size_in_bits,
-                ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_f64 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMFP128Type();
-        buf_init_from_str(&entry->name, "f128");
-        entry->data.floating.bit_count = 128;
-
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                debug_size_in_bits,
-                ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_f128 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMX86FP80Type();
-        buf_init_from_str(&entry->name, "c_longdouble");
-        entry->data.floating.bit_count = 80;
-
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                debug_size_in_bits,
-                ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_c_longdouble = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
         entry->type_ref = LLVMVoidType();
