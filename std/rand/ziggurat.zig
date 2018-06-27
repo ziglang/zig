@@ -84,12 +84,12 @@ fn ZigTableGen(
 
     for (tables.x[2..256]) |*entry, i| {
         const last = tables.x[2 + i - 1];
-        *entry = f_inv(v / last + f(last));
+        entry.* = f_inv(v / last + f(last));
     }
     tables.x[256] = 0;
 
     for (tables.f[0..]) |*entry, i| {
-        *entry = f(tables.x[i]);
+        entry.* = f(tables.x[i]);
     }
 
     return tables;
@@ -159,4 +159,8 @@ test "ziggurant exp dist sanity" {
     while (i < 1000) : (i += 1) {
         _ = prng.random.floatExp(f64);
     }
+}
+
+test "ziggurat table gen" {
+    const table = NormDist;
 }
