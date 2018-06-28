@@ -296,6 +296,14 @@ test "quad hex float literal parsing in range" {
     const d = 0x1.edcbff8ad76ab5bf46463233214fp-435;
 }
 
+test "quad hex float literal parsing accurate" {
+    const a: f128 = 0x1.1111222233334444555566667777p+0;
+
+    // implied 1 is dropped, with an exponent of 0 (0x3fff) after biasing.
+    const expected: u128 = 0x3fff1111222233334444555566667777;
+    assert(@bitCast(u128, a) == expected);
+}
+
 test "hex float literal within range" {
     const a = 0x1.0p16383;
     const b = 0x0.1p16387;

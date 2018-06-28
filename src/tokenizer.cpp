@@ -357,12 +357,19 @@ static void end_float_token(Tokenize *t) {
             // Mask the sign bit to 0 since always non-negative lex
             const uint64_t exp_mask = 0xffffull << exp_shift;
 
-            if (shift >= 64) {
+            // must be special-cased to avoid undefined behavior on shift == 64
+            if (shift == 128) {
+                f_bits.repr[0] = 0;
+                f_bits.repr[1] = sig_bits[0];
+            } else if (shift == 0) {
+                f_bits.repr[0] = sig_bits[0];
+                f_bits.repr[1] = sig_bits[1];
+            } else if (shift >= 64) {
                 f_bits.repr[0] = 0;
                 f_bits.repr[1] = sig_bits[0] << (shift - 64);
             } else {
                 f_bits.repr[0] = sig_bits[0] << shift;
-                f_bits.repr[1] = ((sig_bits[1] << shift) | (sig_bits[0] >> (64 - shift)));
+                f_bits.repr[1] = (sig_bits[1] << shift) | (sig_bits[0] >> (64 - shift));
             }
 
             f_bits.repr[1] &= ~exp_mask;
