@@ -4,7 +4,13 @@ pub extern fn __truncsfhf2(a: f32) u16 {
     return @bitCast(u16, truncXfYf2(f16, f32, a));
 }
 
-const CHAR_BIT = 8;
+pub extern fn __trunctfsf2(a: f128) f32 {
+    return truncXfYf2(f32, f128, a);
+}
+
+pub extern fn __trunctfdf2(a: f128) f64 {
+    return truncXfYf2(f64, f128, a);
+}
 
 inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     const src_rep_t = @IntType(false, @typeInfo(src_t).Float.bits);
@@ -16,7 +22,7 @@ inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
-    const srcBits = @sizeOf(src_t) * CHAR_BIT;
+    const srcBits = src_t.bit_count;
     const srcExpBits = srcBits - srcSigBits - 1;
     const srcInfExp = (1 << srcExpBits) - 1;
     const srcExpBias = srcInfExp >> 1;
@@ -31,7 +37,7 @@ inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
     const srcQNaN = 1 << (srcSigBits - 1);
     const srcNaNCode = srcQNaN - 1;
 
-    const dstBits = @sizeOf(dst_t) * CHAR_BIT;
+    const dstBits = dst_t.bit_count;
     const dstExpBits = dstBits - dstSigBits - 1;
     const dstInfExp = (1 << dstExpBits) - 1;
     const dstExpBias = dstInfExp >> 1;
@@ -79,8 +85,8 @@ inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
         // a underflows on conversion to the destination type or is an exact
         // zero.  The result may be a denormal or zero.  Extract the exponent
         // to get the shift amount for the denormalization.
-        const aExp: u32 = aAbs >> srcSigBits;
-        const shift: u32 = srcExpBias - dstExpBias - aExp + 1;
+        const aExp = aAbs >> srcSigBits;
+        const shift = srcExpBias - dstExpBias - aExp + 1;
 
         const significand: src_rep_t = (aRep & srcSignificandMask) | srcMinNormal;
 
