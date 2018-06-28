@@ -85,8 +85,8 @@ inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
         // a underflows on conversion to the destination type or is an exact
         // zero.  The result may be a denormal or zero.  Extract the exponent
         // to get the shift amount for the denormalization.
-        const aExp = aAbs >> srcSigBits;
-        const shift = srcExpBias - dstExpBias - aExp + 1;
+        const aExp = @intCast(u32, aAbs >> srcSigBits);
+        const shift = @intCast(u32, srcExpBias - dstExpBias - aExp + 1);
 
         const significand: src_rep_t = (aRep & srcSignificandMask) | srcMinNormal;
 
