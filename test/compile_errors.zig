@@ -1685,7 +1685,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() u16 { return f(); }
     ,
-        ".tmp_source.zig:3:17: error: integer value 8 cannot be implicitly casted to type 'u3'",
         ".tmp_source.zig:3:14: error: RHS of shift is too large for LHS type",
     );
 

@@ -11432,12 +11432,21 @@ static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *
     } else {
         TypeTableEntry *shift_amt_type = get_smallest_unsigned_int_type(ira->codegen,
                 op1->value.type->data.integral.bit_count - 1);
+        if (bin_op_instruction->op_id == IrBinOpBitShiftLeftLossy &&
+            op2->value.type->id == TypeTableEntryIdComptimeInt) {
+            if (!bigint_fits_in_bits(&op2->value.data.x_bigint,
+                                     shift_amt_type->data.integral.bit_count,
+                                     op2->value.data.x_bigint.is_negative)) {
+                ir_add_error(ira,
+                             &bin_op_instruction->base,
+                             buf_sprintf("RHS of shift is too large for LHS type"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        }
 
         casted_op2 = ir_implicit_cast(ira, op2, shift_amt_type);
-        if (casted_op2 == ira->codegen->invalid_instruction) {
-            ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("RHS of shift is too large for LHS type"));
+        if (casted_op2 == ira->codegen->invalid_instruction)
             return ira->codegen->builtin_types.entry_invalid;
-        }
     }
 
     if (instr_is_comptime(op1) && instr_is_comptime(casted_op2)) {
