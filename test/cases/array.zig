@@ -152,3 +152,11 @@ fn testImplicitCastSingleItemPtr() void {
     slice[0] += 1;
     assert(byte == 101);
 }
+
+fn testArrayByValAtComptime(b: [2]u8) u8 { return b[0]; }
+
+test "comptime evalutating function that takes array by value" {
+    const arr = []u8{0,1};
+    _ = comptime testArrayByValAtComptime(arr);
+    _ = comptime testArrayByValAtComptime(arr);
+}

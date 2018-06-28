@@ -5458,8 +5458,19 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdFn:
             return const_values_equal_ptr(a, b);
-        case TypeTableEntryIdArray:
-            zig_panic("TODO");
+        case TypeTableEntryIdArray: {
+            assert(a->type->data.array.len == b->type->data.array.len);
+            size_t len = a->type->data.array.len;
+            ConstExprValue *a_elems = a->data.x_array.s_none.elements;
+            ConstExprValue *b_elems = b->data.x_array.s_none.elements;
+
+            for (size_t i = 0; i < len; ++i) {
+                if (!const_values_equal(&a_elems[i], &b_elems[i]))
+                    return false;
+            }
+
+            return true;
+        }
         case TypeTableEntryIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
                 ConstExprValue *field_a = &a->data.x_struct.fields[i];
