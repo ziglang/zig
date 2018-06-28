@@ -11434,8 +11434,10 @@ static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *
                 op1->value.type->data.integral.bit_count - 1);
 
         casted_op2 = ir_implicit_cast(ira, op2, shift_amt_type);
-        if (casted_op2 == ira->codegen->invalid_instruction)
+        if (casted_op2 == ira->codegen->invalid_instruction) {
+            ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("RHS of shift is too large for LHS type"));
             return ira->codegen->builtin_types.entry_invalid;
+        }
     }
 
     if (instr_is_comptime(op1) && instr_is_comptime(casted_op2)) {
