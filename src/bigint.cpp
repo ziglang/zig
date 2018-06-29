@@ -515,6 +515,8 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
             smaller_op = &op_neg_abs;
             dest->is_negative = false;
             break;
+        default:
+            zig_unreachable();
     }
     const uint64_t *bigger_op_digits = bigint_ptr(bigger_op);
     const uint64_t *smaller_op_digits = bigint_ptr(smaller_op);
