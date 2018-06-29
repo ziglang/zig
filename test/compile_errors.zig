@@ -1678,6 +1678,18 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "invalid shift amount error",
+        \\const x : u8 = 2;
+        \\fn f() u16 {
+        \\    return x << 8;
+        \\}
+        \\export fn entry() u16 { return f(); }
+    ,
+        ".tmp_source.zig:3:14: error: RHS of shift is too large for LHS type",
+        ".tmp_source.zig:3:17: note: value 8 cannot fit into type u3",
+    );
+
+    cases.add(
         "incompatible number literals",
         \\const x = 2 == 2.0;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
