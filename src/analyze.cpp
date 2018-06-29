@@ -5288,6 +5288,141 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
     return const_val;
 }
 
+bool contains_comptime_undefined_value(ConstExprValue *value) {
+    assert(value->special != ConstValSpecialRuntime);
+    if (value->special == ConstValSpecialUndef)
+        return true;
+
+    switch (value->type->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+
+        case TypeTableEntryIdPointer: {
+            ConstPtrValue *ptr = &value->data.x_ptr;
+            if (ptr->mut == ConstPtrMutRuntimeVar)
+                return false;
+
+            switch (ptr->special) {
+                case ConstPtrSpecialInvalid:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    return contains_comptime_undefined_value(ptr->data.ref.pointee);
+                case ConstPtrSpecialBaseArray: {
+                    size_t index = ptr->data.base_array.elem_index;
+                    ConstExprValue *arr = ptr->data.base_array.array_val;
+                    if (arr->special == ConstValSpecialUndef)
+                        return true;
+                    if (arr->data.x_array.special == ConstArraySpecialUndef)
+                        return true;
+
+                    return contains_comptime_undefined_value(&arr->data.x_array.s_none.elements[index]);
+                }
+                case ConstPtrSpecialBaseStruct: {
+                    size_t index = ptr->data.base_struct.field_index;
+                    ConstExprValue *str = ptr->data.base_struct.struct_val;
+                    if (str->special == ConstValSpecialUndef)
+                        return true;
+
+                    return contains_comptime_undefined_value(&str->data.x_struct.fields[index]);
+                }
+                case ConstPtrSpecialFunction: // TODO: Can a fn ptr have an undefined value?
+                case ConstPtrSpecialDiscard:
+                case ConstPtrSpecialHardCodedAddr:
+                    return false;
+            }
+        }
+        case TypeTableEntryIdArray: {
+            ConstArrayValue *arr = &value->data.x_array;
+            if (arr->special == ConstArraySpecialUndef)
+                return true;
+
+            for (size_t i = 0; i < value->type->data.array.len; ++i) {
+                if (contains_comptime_undefined_value(&arr->s_none.elements[i]))
+                    return true;
+            }
+            return false;
+        }
+        case TypeTableEntryIdStruct: {
+            ConstStructValue *str = &value->data.x_struct;
+            if (value->type->data.structure.is_slice) {
+                ConstExprValue *len = &str->fields[slice_len_index];
+                ConstExprValue *ptr = &str->fields[slice_ptr_index];
+                if (len->special == ConstValSpecialUndef)
+                    return true;
+                if (ptr->special == ConstValSpecialUndef)
+                    return true;
+
+                switch (ptr->data.x_ptr.special) {
+                    case ConstPtrSpecialRef:
+                        return contains_comptime_undefined_value(ptr->data.x_ptr.data.ref.pointee);
+                    case ConstPtrSpecialBaseArray: {
+                        size_t offset = ptr->data.x_ptr.data.base_array.elem_index;
+                        ConstExprValue *arr = ptr->data.x_ptr.data.base_array.array_val;
+                        if (arr->special == ConstValSpecialUndef)
+                            return true;
+                        if (arr->data.x_array.special == ConstArraySpecialUndef)
+                            return true;
+
+                        uint64_t slice_len = bigint_as_unsigned(&len->data.x_bigint);
+                        for (size_t i = 0; i < slice_len; ++i) {
+                            if (contains_comptime_undefined_value(&arr->data.x_array.s_none.elements[i + offset]))
+                                return true;
+                        }
+
+                        return false;
+                    }
+                    case ConstPtrSpecialBaseStruct:
+                    case ConstPtrSpecialInvalid:
+                    case ConstPtrSpecialFunction:
+                    case ConstPtrSpecialDiscard:
+                    case ConstPtrSpecialHardCodedAddr:
+                        zig_unreachable();
+                }
+            }
+
+            for (size_t i = 0; i < value->type->data.structure.src_field_count; ++i) {
+                if (contains_comptime_undefined_value(&str->fields[i]))
+                    return true;
+            }
+            return false;
+        }
+        case TypeTableEntryIdOptional:
+            if (value->data.x_optional == nullptr)
+                return false;
+
+            return contains_comptime_undefined_value(value->data.x_optional);
+        case TypeTableEntryIdErrorUnion:
+            // TODO: Can error union error be undefined?
+            if (value->data.x_err_union.err != nullptr)
+                return false;
+
+            return contains_comptime_undefined_value(value->data.x_err_union.payload);
+        case TypeTableEntryIdUnion:
+            return contains_comptime_undefined_value(value->data.x_union.payload);
+
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdComptimeFloat:
+        case TypeTableEntryIdComptimeInt:
+        case TypeTableEntryIdUndefined:
+        case TypeTableEntryIdNull:
+        case TypeTableEntryIdErrorSet:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
+            return false;
+    }
+    zig_unreachable();
+}
 
 void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
     TypeTableEntry *wanted_type = const_val->type;

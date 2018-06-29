@@ -93,6 +93,7 @@ void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry);
 void type_ensure_zero_bits_known(CodeGen *g, TypeTableEntry *type_entry);
 void complete_enum(CodeGen *g, TypeTableEntry *enum_type);
 bool ir_get_var_is_comptime(VariableTableEntry *var);
+bool contains_comptime_undefined_value(ConstExprValue *value);
 bool const_values_equal(ConstExprValue *a, ConstExprValue *b);
 void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max);
 void eval_min_max_value_int(CodeGen *g, TypeTableEntry *int_type, BigInt *bigint, bool is_max);

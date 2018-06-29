@@ -4124,4 +4124,19 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
     );
+
+    cases.add(
+        "Trying to pass undefined array to function taking comptime array by value",
+        \\fn a(comptime b: [2]u8) u8 { return b[0]; }
+        \\
+        \\test "" {
+        \\    const arr: [2]u8 = undefined;
+        \\    _ = a(arr);
+        \\}
+    ,
+        ".tmp_source.zig:5:11: error: use of undefined value",
+    );
+
+
+
 }
