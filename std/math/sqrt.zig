@@ -31,8 +31,23 @@ pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typ
 }
 
 test "math.sqrt" {
+    assert(sqrt(f16(0.0)) == @sqrt(f16, 0.0));
     assert(sqrt(f32(0.0)) == @sqrt(f32, 0.0));
     assert(sqrt(f64(0.0)) == @sqrt(f64, 0.0));
+}
+
+test "math.sqrt16" {
+    const epsilon = 0.000001;
+
+    assert(@sqrt(f16, 0.0) == 0.0);
+    assert(math.approxEq(f16, @sqrt(f16, 2.0), 1.414214, epsilon));
+    assert(math.approxEq(f16, @sqrt(f16, 3.6), 1.897367, epsilon));
+    assert(@sqrt(f16, 4.0) == 2.0);
+    assert(math.approxEq(f16, @sqrt(f16, 7.539840), 2.745877, epsilon));
+    assert(math.approxEq(f16, @sqrt(f16, 19.230934), 4.385309, epsilon));
+    assert(@sqrt(f16, 64.0) == 8.0);
+    assert(math.approxEq(f16, @sqrt(f16, 64.1), 8.006248, epsilon));
+    assert(math.approxEq(f16, @sqrt(f16, 8942.230469), 94.563370, epsilon));
 }
 
 test "math.sqrt32" {
@@ -61,6 +76,14 @@ test "math.sqrt64" {
     assert(@sqrt(f64, 64.0) == 8.0);
     assert(math.approxEq(f64, @sqrt(f64, 64.1), 8.006248, epsilon));
     assert(math.approxEq(f64, @sqrt(f64, 8942.230469), 94.563367, epsilon));
+}
+
+test "math.sqrt16.special" {
+    assert(math.isPositiveInf(@sqrt(f16, math.inf(f16))));
+    assert(@sqrt(f16, 0.0) == 0.0);
+    assert(@sqrt(f16, -0.0) == -0.0);
+    assert(math.isNan(@sqrt(f16, -1.0)));
+    assert(math.isNan(@sqrt(f16, math.nan(f16))));
 }
 
 test "math.sqrt32.special" {
