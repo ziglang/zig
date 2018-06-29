@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../index.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;

@@ -130,6 +130,9 @@ pub fn formatType(
             try output(context, "error.");
             return output(context, @errorName(value));
         },
+        builtin.TypeId.Promise => {
+            return format(context, Errors, output, "promise@{x}", @ptrToInt(value));
+        },
         builtin.TypeId.Pointer => |ptr_info| switch (ptr_info.size) {
             builtin.TypeInfo.Pointer.Size.One => switch (@typeInfo(ptr_info.child)) {
                 builtin.TypeId.Array => |info| {
