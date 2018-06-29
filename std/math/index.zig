@@ -19,6 +19,12 @@ pub const f32_max = 3.40282346638528859812e+38;
 pub const f32_epsilon = 1.1920928955078125e-07;
 pub const f32_toint = 1.0 / f32_epsilon;
 
+pub const f16_true_min = 0.000000059604644775390625; // 2**-24
+pub const f16_min = 0.00006103515625; // 2**-14
+pub const f16_max = 65504;
+pub const f16_epsilon = 0.0009765625; // 2**-10
+pub const f16_toint = 1.0 / f16_epsilon;
+
 pub const nan_u32 = u32(0x7F800001);
 pub const nan_f32 = @bitCast(f32, nan_u32);
 
