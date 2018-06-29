@@ -2640,8 +2640,8 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     bool want_safety = (field_count >= 2) && (auto_layout || enum_type_node != nullptr);
     TypeTableEntry *tag_type;
     bool create_enum_type = decl_node->data.container_decl.auto_enum || (enum_type_node == nullptr && want_safety);
-    bool *covered_enum_fields;
-    ZigLLVMDIEnumerator **di_enumerators;
+    bool *covered_enum_fields = nullptr;
+    ZigLLVMDIEnumerator **di_enumerators = nullptr;
     uint32_t abi_alignment_so_far;
     if (create_enum_type) {
         occupied_tag_values.init(field_count);
@@ -2841,6 +2841,8 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
             case ContainerLayoutExtern:
                 qual_str = "extern";
                 break;
+            default:
+                zig_unreachable();
         }
         AstNode *source_node = (decl_node->data.container_decl.init_arg_expr != nullptr) ?
             decl_node->data.container_decl.init_arg_expr : decl_node;

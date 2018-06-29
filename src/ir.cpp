@@ -6964,14 +6964,14 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
     FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
-    IrInstruction *coro_id;
+    IrInstruction *coro_id = nullptr;
     IrInstruction *u8_ptr_type;
-    IrInstruction *const_bool_false;
-    IrInstruction *coro_promise_ptr;
-    IrInstruction *err_ret_trace_ptr;
-    TypeTableEntry *return_type;
+    IrInstruction *const_bool_false = nullptr;
+    IrInstruction *coro_promise_ptr = nullptr;
+    IrInstruction *err_ret_trace_ptr = nullptr;
+    TypeTableEntry *return_type = nullptr;
     Buf *result_ptr_field_name;
-    VariableTableEntry *coro_size_var;
+    VariableTableEntry *coro_size_var = nullptr;
     if (is_async) {
         // create the coro promise
         Scope *coro_scope = create_coro_prelude_scope(node, scope);
@@ -13781,6 +13781,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                         zig_unreachable();
                     case ConstPtrSpecialFunction:
                         zig_panic("TODO element ptr of a function casted to a ptr");
+                    default:
+                        zig_unreachable();
                 }
                 if (new_index >= mem_size) {
                     ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
@@ -17988,6 +17990,8 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
                 zig_unreachable();
             case ConstPtrSpecialFunction:
                 zig_panic("TODO memset on ptr cast from function");
+            default:
+                zig_unreachable();
         }
 
         size_t count = bigint_as_unsigned(&casted_count->value.data.x_bigint);
@@ -18088,6 +18092,8 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
                 zig_unreachable();
             case ConstPtrSpecialFunction:
                 zig_panic("TODO memcpy on ptr cast from function");
+            default:
+                zig_unreachable();
         }
 
         if (dest_start + count > dest_end) {
@@ -18124,6 +18130,8 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
                 zig_unreachable();
             case ConstPtrSpecialFunction:
                 zig_panic("TODO memcpy on ptr cast from function");
+            default:
+                zig_unreachable();
         }
 
         if (src_start + count > src_end) {
@@ -18280,6 +18288,8 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                     break;
                 case ConstPtrSpecialFunction:
                     zig_panic("TODO slice of ptr cast from function");
+                default:
+                    zig_unreachable();
             }
         } else if (is_slice(array_type)) {
             ConstExprValue *slice_ptr = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
@@ -18309,6 +18319,8 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                     break;
                 case ConstPtrSpecialFunction:
                     zig_panic("TODO slice of slice cast from function");
+                default:
+                    zig_unreachable();
             }
         } else {
             zig_unreachable();

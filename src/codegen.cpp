@@ -704,6 +704,8 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
         case AddSubMulMul:
             fn_val = get_arithmetic_overflow_fn(g, type_entry, "smul", "umul");
             break;
+        default:
+            zig_unreachable();
     }
 
     g->llvm_fn_table.put(key, fn_val);
@@ -3110,6 +3112,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         case FnInlineNever:
             fn_inline = ZigLLVM_FnInlineNever;
             break;
+        default:
+            zig_unreachable();
     }
 
     LLVMCallConv llvm_cc = get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc);
@@ -4107,6 +4111,8 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
             break;
         case IrOverflowOpShl:
             return render_shl_with_overflow(g, instruction);
+        default:
+            zig_unreachable();
     }
 
     TypeTableEntry *int_type = instruction->result_ptr_type;
@@ -4541,7 +4547,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef alloc_fn_val = LLVMGetParam(fn_val, next_arg);
     next_arg += 1;
 
-    LLVMValueRef stack_trace_val;
+    LLVMValueRef stack_trace_val = nullptr;
     if (g->have_err_ret_tracing) {
         stack_trace_val = LLVMGetParam(fn_val, next_arg);
         next_arg += 1;
