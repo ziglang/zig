@@ -11437,9 +11437,18 @@ static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *
             if (!bigint_fits_in_bits(&op2->value.data.x_bigint,
                                      shift_amt_type->data.integral.bit_count,
                                      op2->value.data.x_bigint.is_negative)) {
-                ir_add_error(ira,
-                             &bin_op_instruction->base,
-                             buf_sprintf("RHS of shift is too large for LHS type"));
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &op2->value.data.x_bigint, 10);
+                ErrorMsg* msg = ir_add_error(ira,
+                    &bin_op_instruction->base,
+                    buf_sprintf("RHS of shift is too large for LHS type"));
+                add_error_note(
+                    ira->codegen,
+                    msg,
+                    op2->source_node,
+                    buf_sprintf("value %s cannot fit into type %s",
+                        buf_ptr(val_buf),
+                        buf_ptr(&shift_amt_type->name)));
                 return ira->codegen->builtin_types.entry_invalid;
             }
         }
