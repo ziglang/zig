@@ -1,49 +1,54 @@
+const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 
-/// Many reader, many writer, non-allocating, thread-safe, lock-free
-pub fn Queue(comptime T: type) type {
+/// Many producer, single consumer, non-allocating, thread-safe, lock-free
+pub fn QueueMpsc(comptime T: type) type {
     return struct {
-        head: *Node,
-        tail: *Node,
-        root: Node,
+        inboxes: [2]std.atomic.Stack(T),
+        outbox: std.atomic.Stack(T),
+        inbox_index: usize,
 
         pub const Self = this;
 
-        pub const Node = struct {
-            next: ?*Node,
-            data: T,
-        };
+        pub const Node = std.atomic.Stack(T).Node;
 
-        // TODO: well defined copy elision: https://github.com/ziglang/zig/issues/287
-        pub fn init(self: *Self) void {
-            self.root.next = null;
-            self.head = &self.root;
-            self.tail = &self.root;
+        pub fn init() Self {
+            return Self{
+                .inboxes = []std.atomic.Stack(T){
+                    std.atomic.Stack(T).init(),
+                    std.atomic.Stack(T).init(),
+                },
+                .outbox = std.atomic.Stack(T).init(),
+                .inbox_index = 0,
+            };
         }
 
         pub fn put(self: *Self, node: *Node) void {
-            node.next = null;
-
-            const tail = @atomicRmw(*Node, &self.tail, AtomicRmwOp.Xchg, node, AtomicOrder.SeqCst);
-            _ = @atomicRmw(?*Node, &tail.next, AtomicRmwOp.Xchg, node, AtomicOrder.SeqCst);
+            const inbox_index = @atomicLoad(usize, &self.inbox_index, AtomicOrder.SeqCst);
+            const inbox = &self.inboxes[inbox_index];
+            inbox.push(node);
         }
 
         pub fn get(self: *Self) ?*Node {
-            var head = @atomicLoad(*Node, &self.head, AtomicOrder.SeqCst);
-            while (true) {
-                const node = head.next orelse return null;
-                head = @cmpxchgWeak(*Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return node;
+            if (self.outbox.pop()) |node| {
+                return node;
             }
+            const prev_inbox_index = @atomicRmw(usize, &self.inbox_index, AtomicRmwOp.Xor, 0x1, AtomicOrder.SeqCst);
+            const prev_inbox = &self.inboxes[prev_inbox_index];
+            while (prev_inbox.pop()) |node| {
+                self.outbox.push(node);
+            }
+            return self.outbox.pop();
         }
     };
 }
 
-const std = @import("std");
 const Context = struct {
     allocator: *std.mem.Allocator,
-    queue: *Queue(i32),
+    queue: *QueueMpsc(i32),
     put_sum: isize,
     get_sum: isize,
     get_count: usize,
@@ -58,7 +63,7 @@ const Context = struct {
 const puts_per_thread = 500;
 const put_thread_count = 3;
 
-test "std.atomic.queue" {
+test "std.atomic.queue_mpsc" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
@@ -68,8 +73,7 @@ test "std.atomic.queue" {
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
     var a = &fixed_buffer_allocator.allocator;
 
-    var queue: Queue(i32) = undefined;
-    queue.init();
+    var queue = QueueMpsc(i32).init();
     var context = Context{
         .allocator = a,
         .queue = &queue,
@@ -83,7 +87,7 @@ test "std.atomic.queue" {
     for (putters) |*t| {
         t.* = try std.os.spawnThread(&context, startPuts);
     }
-    var getters: [put_thread_count]*std.os.Thread = undefined;
+    var getters: [1]*std.os.Thread = undefined;
     for (getters) |*t| {
         t.* = try std.os.spawnThread(&context, startGets);
     }
@@ -114,7 +118,7 @@ fn startPuts(ctx: *Context) u8 {
     while (put_count != 0) : (put_count -= 1) {
         std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Queue(i32).Node{
+        const node = ctx.allocator.create(QueueMpsc(i32).Node{
             .next = undefined,
             .data = x,
         }) catch unreachable;
