@@ -56,6 +56,11 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
 pub fn forceEval(value: var) void {
     const T = @typeOf(value);
     switch (T) {
+        f16 => {
+            var x: f16 = undefined;
+            const p = @ptrCast(*volatile f16, &x);
+            p.* = x;
+        },
         f32 => {
             var x: f32 = undefined;
             const p = @ptrCast(*volatile f32, &x);
