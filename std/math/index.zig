@@ -28,6 +28,9 @@ pub const f16_toint = 1.0 / f16_epsilon;
 pub const nan_u16 = u16(0x7C01);
 pub const nan_f16 = @bitCast(f16, nan_u16);
 
+pub const inf_u16 = u16(0x7C00);
+pub const inf_f16 = @bitCast(f16, inf_u16);
+
 pub const nan_u32 = u32(0x7F800001);
 pub const nan_f32 = @bitCast(f32, nan_u32);
 
