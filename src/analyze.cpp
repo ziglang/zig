@@ -5460,6 +5460,9 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             return const_values_equal_ptr(a, b);
         case TypeTableEntryIdArray: {
             assert(a->type->data.array.len == b->type->data.array.len);
+            assert(a->data.x_array.special != ConstArraySpecialUndef);
+            assert(b->data.x_array.special != ConstArraySpecialUndef);
+
             size_t len = a->type->data.array.len;
             ConstExprValue *a_elems = a->data.x_array.s_none.elements;
             ConstExprValue *b_elems = b->data.x_array.s_none.elements;
