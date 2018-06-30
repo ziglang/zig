@@ -9148,15 +9148,8 @@ enum UndefAllowed {
 
 static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed) {
     switch (value->value.special) {
-        case ConstValSpecialStatic: {
-            ConstExprValue *res = &value->value;
-            if (undef_allowed == UndefBad && contains_comptime_undefined_value(res)) {
-                ir_add_error(ira, value, buf_sprintf("use of undefined value"));
-                return nullptr;
-            }
-
-            return res;
-        }
+        case ConstValSpecialStatic:
+            return &value->value;
         case ConstValSpecialRuntime:
             ir_add_error(ira, value, buf_sprintf("unable to evaluate constant expression"));
             return nullptr;
