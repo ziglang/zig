@@ -42,12 +42,12 @@ pub extern fn __floattitf(arg: i128) f128 {
         }
         // finish
         a |= @boolToInt((a & 4) != 0); // Or P into R
-        a +%= 1; // round - this step may add a significant bit
+        a += 1; // round - this step may add a significant bit
         a >>= 2; // dump Q and R
         // a is now rounded to LDBL_MANT_DIG or LDBL_MANT_DIG+1 bits
         if ((a & (u128(1) << LDBL_MANT_DIG)) != 0) {
             a >>= 1;
-            e +%= 1;
+            e += 1;
         }
         // a is now rounded to LDBL_MANT_DIG bits
     } else {
