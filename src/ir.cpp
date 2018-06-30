@@ -11029,10 +11029,10 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
 
     bool one_possible_value = !type_requires_comptime(resolved_type) && !type_has_bits(resolved_type);
     if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
-        ConstExprValue *op1_val = ir_resolve_const(ira, casted_op1, UndefBad);
+        ConstExprValue *op1_val = one_possible_value ? &casted_op1->value : ir_resolve_const(ira, casted_op1, UndefBad);
         if (op1_val == nullptr)
             return ira->codegen->builtin_types.entry_invalid;
-        ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
+        ConstExprValue *op2_val = one_possible_value ? &casted_op2->value : ir_resolve_const(ira, casted_op2, UndefBad);
         if (op2_val == nullptr)
             return ira->codegen->builtin_types.entry_invalid;
 
