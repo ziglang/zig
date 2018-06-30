@@ -327,7 +327,7 @@ pub fn formatFloatScientific(
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    var x = f64(value);
+    var x = @floatCast(f64, value);
 
     // Errol doesn't handle these special cases.
     if (math.signbit(x)) {
