@@ -22,7 +22,7 @@ set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}"
 find_program(GIT_EXE NAMES git)
 if(GIT_EXE)
     execute_process(
-        COMMAND ${GIT_EXE} name-rev HEAD --tags --name-only --no-undefined --always
+        COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} name-rev HEAD --tags --name-only --no-undefined --always
         OUTPUT_VARIABLE ZIG_GIT_REV
         OUTPUT_STRIP_TRAILING_WHITESPACE)
     if(ZIG_GIT_REV MATCHES "\\^0$")
