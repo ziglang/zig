@@ -2300,17 +2300,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a.*;
         \\}
     ,
-        ".tmp_source.zig:3:11: error: use of undefined value",
-    );
-
-    cases.add(
-        "unwrap on undefined value",
-        \\comptime {
-        \\    var a: ?u8 = undefined;
-        \\    _ = a.?;
-        \\}
-    ,
-        ".tmp_source.zig:3:11: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value",
     );
 
     cases.add(
