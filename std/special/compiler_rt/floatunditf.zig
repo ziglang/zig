@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
-const std = @import("../../index.zig");
+const std = @import("std");
 
 pub extern fn __floatunditf(a: u128) f128 {
     @setRuntimeSafety(is_test);
