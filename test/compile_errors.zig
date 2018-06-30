@@ -1894,6 +1894,426 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "div on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a / a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "div assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a /= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "mod on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a % a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "mod assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a %= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "add on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a + a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "add assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a += a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "add wrap on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a +% a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "add wrap assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a +%= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "sub on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a - a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "sub assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a -= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "sub wrap on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a -% a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "sub wrap assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a -%= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "mult on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a * a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "mult assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a *= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "mult wrap on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a *% a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "mult wrap assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a *%= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "shift left on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a << 2;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "shift left assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a <<= 2;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "shift right on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a >> 2;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "shift left assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a >>= 2;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "bin and on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a & a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "bin and assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a &= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "bin or on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a | a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "bin or assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a |= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "bin xor on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a ^ a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "bin xor assign on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    a ^= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "equal on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a == a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "not equal on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a != a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "greater than on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a > a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "greater than equal on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a >= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "less than on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a < a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "less than equal on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = a <= a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "and on undefined value",
+        \\comptime {
+        \\    var a: bool = undefined;
+        \\    _ = a and a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "or on undefined value",
+        \\comptime {
+        \\    var a: bool = undefined;
+        \\    _ = a or a;
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: use of undefined value",
+    );
+
+    cases.add(
+        "negate on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = -a;
+        \\}
+    ,
+        ".tmp_source.zig:3:10: error: use of undefined value",
+    );
+
+    cases.add(
+        "negate wrap on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = -%a;
+        \\}
+    ,
+        ".tmp_source.zig:3:11: error: use of undefined value",
+    );
+
+    cases.add(
+        "bin not on undefined value",
+        \\comptime {
+        \\    var a: i64 = undefined;
+        \\    _ = ~a;
+        \\}
+    ,
+        ".tmp_source.zig:3:10: error: use of undefined value",
+    );
+
+    cases.add(
+        "bool not on undefined value",
+        \\comptime {
+        \\    var a: bool = undefined;
+        \\    _ = !a;
+        \\}
+    ,
+        ".tmp_source.zig:3:10: error: use of undefined value",
+    );
+
+    cases.add(
+        "orelse on undefined value",
+        \\comptime {
+        \\    var a: ?bool = undefined;
+        \\    _ = a orelse false;
+        \\}
+    ,
+        ".tmp_source.zig:3:11: error: use of undefined value",
+    );
+
+    cases.add(
+        "catch on undefined value",
+        \\comptime {
+        \\    var a: error!bool = undefined;
+        \\    _ = a catch |err| false;
+        \\}
+    ,
+        ".tmp_source.zig:3:11: error: use of undefined value",
+    );
+
+    cases.add(
+        "deref on undefined value",
+        \\comptime {
+        \\    var a: *u8 = undefined;
+        \\    _ = a.*;
+        \\}
+    ,
+        ".tmp_source.zig:3:11: error: use of undefined value",
+    );
+
+    cases.add(
+        "unwrap on undefined value",
+        \\comptime {
+        \\    var a: ?u8 = undefined;
+        \\    _ = a.?;
+        \\}
+    ,
+        ".tmp_source.zig:3:11: error: use of undefined value",
+    );
+
+    cases.add(
         "endless loop in function evaluation",
         \\const seventh_fib_number = fibbonaci(7);
         \\fn fibbonaci(x: i32) i32 {

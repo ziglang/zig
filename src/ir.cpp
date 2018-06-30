@@ -10773,10 +10773,15 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    ConstExprValue *op1_val = &casted_op1->value;
-    ConstExprValue *op2_val = &casted_op2->value;
-    if (op1_val->special != ConstValSpecialRuntime && op2_val->special != ConstValSpecialRuntime) {
+    if (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2)) {
         ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base);
+        ConstExprValue *op1_val = ir_resolve_const(ira, casted_op1, UndefBad);
+        if (op1_val == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
 
         assert(casted_op1->value.type->id == TypeTableEntryIdBool);
         assert(casted_op2->value.type->id == TypeTableEntryIdBool);
@@ -10926,9 +10931,14 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             }
         }
 
-        ConstExprValue *op1_val = &op1->value;
-        ConstExprValue *op2_val = &op2->value;
-        if (value_is_comptime(op1_val) && value_is_comptime(op2_val)) {
+        if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
+            ConstExprValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
+            if (op1_val == nullptr)
+                return ira->codegen->builtin_types.entry_invalid;
+            ConstExprValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
+            if (op2_val == nullptr)
+                return ira->codegen->builtin_types.entry_invalid;
+
             bool answer;
             bool are_equal = op1_val->data.x_err_set->value == op2_val->data.x_err_set->value;
             if (op_id == IrBinOpCmpEq) {
@@ -11017,10 +11027,15 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    ConstExprValue *op1_val = &casted_op1->value;
-    ConstExprValue *op2_val = &casted_op2->value;
     bool one_possible_value = !type_requires_comptime(resolved_type) && !type_has_bits(resolved_type);
-    if (one_possible_value || (value_is_comptime(op1_val) && value_is_comptime(op2_val))) {
+    if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
+        ConstExprValue *op1_val = ir_resolve_const(ira, casted_op1, UndefBad);
+        if (op1_val == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+        ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+
         bool answer;
         if (resolved_type->id == TypeTableEntryIdComptimeFloat || resolved_type->id == TypeTableEntryIdFloat) {
             Cmp cmp_result = float_cmp(op1_val, op2_val);
@@ -11048,11 +11063,17 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     if (resolved_type->id == TypeTableEntryIdInt && !resolved_type->data.integral.is_signed) {
         ConstExprValue *known_left_val;
         IrBinOp flipped_op_id;
-        if (value_is_comptime(op1_val)) {
-            known_left_val = op1_val;
+        if (instr_is_comptime(casted_op1)) {
+            known_left_val = ir_resolve_const(ira, casted_op1, UndefBad);
+            if (known_left_val == nullptr)
+                return ira->codegen->builtin_types.entry_invalid;
+
             flipped_op_id = op_id;
-        } else if (value_is_comptime(op2_val)) {
-            known_left_val = op2_val;
+        } else if (instr_is_comptime(casted_op2)) {
+            known_left_val = ir_resolve_const(ira, casted_op2, UndefBad);
+            if (known_left_val == nullptr)
+                return ira->codegen->builtin_types.entry_invalid;
+
             if (op_id == IrBinOpCmpLessThan) {
                 flipped_op_id = IrBinOpCmpGreaterThan;
             } else if (op_id == IrBinOpCmpGreaterThan) {
@@ -11304,8 +11325,14 @@ static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *
     }
 
     if (instr_is_comptime(op1) && instr_is_comptime(casted_op2)) {
-        ConstExprValue *op1_val = &op1->value;
-        ConstExprValue *op2_val = &casted_op2->value;
+        ConstExprValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
+        if (op1_val == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+
         IrInstruction *result_instruction = ir_get_const(ira, &bin_op_instruction->base);
         ir_link_new_instruction(result_instruction, &bin_op_instruction->base);
         ConstExprValue *out_val = &result_instruction->value;
@@ -11384,7 +11411,15 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         if (is_signed_div) {
             bool ok = false;
             if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
-                if (bigint_cmp_zero(&op2->value.data.x_bigint) == CmpEQ) {
+                ConstExprValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
+                if (op1_val == nullptr)
+                    return ira->codegen->builtin_types.entry_invalid;
+
+                ConstExprValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
+                if (op2_val == nullptr)
+                    return ira->codegen->builtin_types.entry_invalid;
+
+                if (bigint_cmp_zero(&op2_val->data.x_bigint) == CmpEQ) {
                     // the division by zero error will be caught later, but we don't have a
                     // division function ambiguity problem.
                     op_id = IrBinOpDivTrunc;
@@ -11392,8 +11427,8 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                 } else {
                     BigInt trunc_result;
                     BigInt floor_result;
-                    bigint_div_trunc(&trunc_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
-                    bigint_div_floor(&floor_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
+                    bigint_div_trunc(&trunc_result, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+                    bigint_div_floor(&floor_result, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
                     if (bigint_cmp(&trunc_result, &floor_result) == CmpEQ) {
                         ok = true;
                         op_id = IrBinOpDivTrunc;
@@ -11414,7 +11449,15 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         if (is_signed_div && (is_int || is_float)) {
             bool ok = false;
             if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
+                ConstExprValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
+                if (op1_val == nullptr)
+                    return ira->codegen->builtin_types.entry_invalid;
+
                 if (is_int) {
+                    ConstExprValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
+                    if (op2_val == nullptr)
+                        return ira->codegen->builtin_types.entry_invalid;
+
                     if (bigint_cmp_zero(&op2->value.data.x_bigint) == CmpEQ) {
                         // the division by zero error will be caught later, but we don't
                         // have a remainder function ambiguity problem
@@ -11422,14 +11465,19 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                     } else {
                         BigInt rem_result;
                         BigInt mod_result;
-                        bigint_rem(&rem_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
-                        bigint_mod(&mod_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
+                        bigint_rem(&rem_result, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+                        bigint_mod(&mod_result, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
                         ok = bigint_cmp(&rem_result, &mod_result) == CmpEQ;
                     }
                 } else {
                     IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, resolved_type);
                     if (casted_op2 == ira->codegen->invalid_instruction)
                         return ira->codegen->builtin_types.entry_invalid;
+
+                    ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
+                    if (op2_val == nullptr)
+                        return ira->codegen->builtin_types.entry_invalid;
+
                     if (float_cmp_zero(&casted_op2->value) == CmpEQ) {
                         // the division by zero error will be caught later, but we don't
                         // have a remainder function ambiguity problem
@@ -11437,8 +11485,8 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                     } else {
                         ConstExprValue rem_result;
                         ConstExprValue mod_result;
-                        float_rem(&rem_result, &op1->value, &casted_op2->value);
-                        float_mod(&mod_result, &op1->value, &casted_op2->value);
+                        float_rem(&rem_result, op1_val, op2_val);
+                        float_mod(&mod_result, op1_val, op2_val);
                         ok = float_cmp(&rem_result, &mod_result) == CmpEQ;
                     }
                 }
@@ -11496,8 +11544,13 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         return ira->codegen->builtin_types.entry_invalid;
 
     if (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2)) {
-        ConstExprValue *op1_val = &casted_op1->value;
-        ConstExprValue *op2_val = &casted_op2->value;
+        ConstExprValue *op1_val = ir_resolve_const(ira, casted_op1, UndefBad);
+        if (op1_val == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+        ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+
         IrInstruction *result_instruction = ir_get_const(ira, &bin_op_instruction->base);
         ir_link_new_instruction(result_instruction, &bin_op_instruction->base);
         ConstExprValue *out_val = &result_instruction->value;
@@ -11672,9 +11725,16 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         out_val->data.x_ptr.data.base_array.array_val = out_array_val;
         out_val->data.x_ptr.data.base_array.elem_index = 0;
     }
-    out_array_val->data.x_array.s_none.elements = create_const_vals(new_len);
 
+    if (op1_array_val->data.x_array.special == ConstArraySpecialUndef &&
+        op2_array_val->data.x_array.special == ConstArraySpecialUndef) {
+        out_array_val->data.x_array.special = ConstArraySpecialUndef;
+        return result_type;
+    }
+
+    out_array_val->data.x_array.s_none.elements = create_const_vals(new_len);
     expand_undef_array(ira->codegen, op1_array_val);
+    expand_undef_array(ira->codegen, op2_array_val);
 
     size_t next_index = 0;
     for (size_t i = op1_array_index; i < op1_array_end; i += 1, next_index += 1) {
@@ -11726,10 +11786,14 @@ static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp 
     }
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    if (array_val->data.x_array.special == ConstArraySpecialUndef) {
+        out_val->data.x_array.special = ConstArraySpecialUndef;
+
+        TypeTableEntry *child_type = array_type->data.array.child_type;
+        return get_array_type(ira->codegen, child_type, new_array_len);
+    }
 
     out_val->data.x_array.s_none.elements = create_const_vals(new_array_len);
-
-    expand_undef_array(ira->codegen, array_val);
 
     uint64_t i = 0;
     for (uint64_t x = 0; x < mult_amt; x += 1) {
@@ -13056,7 +13120,11 @@ static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp 
     // one of the ptr instructions
 
     if (instr_is_comptime(value)) {
-        ConstExprValue *pointee = const_ptr_pointee(ira->codegen, &value->value);
+        ConstExprValue *comptime_value = ir_resolve_const(ira, value, UndefBad);
+        if (comptime_value == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *pointee = const_ptr_pointee(ira->codegen, comptime_value);
         if (pointee->type == child_type) {
             ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
             copy_const_val(out_val, pointee, value->value.data.x_ptr.mut == ConstPtrMutComptimeConst);
@@ -13173,7 +13241,7 @@ static TypeTableEntry *ir_analyze_bin_not(IrAnalyze *ira, IrInstructionUnOp *ins
     if (expr_type->id == TypeTableEntryIdInt) {
         if (instr_is_comptime(value)) {
             ConstExprValue *target_const_val = ir_resolve_const(ira, value, UndefBad);
-            if (!target_const_val)
+            if (target_const_val == nullptr)
                 return ira->codegen->builtin_types.entry_invalid;
 
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
@@ -17750,9 +17818,13 @@ static TypeTableEntry *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(casted_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (casted_value->value.special != ConstValSpecialRuntime) {
+    if (instr_is_comptime(casted_value)) {
+        ConstExprValue *value = ir_resolve_const(ira, casted_value, UndefBad);
+        if (value == nullptr)
+            return ira->codegen->builtin_types.entry_invalid;
+
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        out_val->data.x_bool = !casted_value->value.data.x_bool;
+        out_val->data.x_bool = !value->data.x_bool;
         return bool_type;
     }
 
