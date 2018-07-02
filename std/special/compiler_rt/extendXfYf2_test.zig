@@ -88,6 +88,7 @@ test "extenddftf2" {
 test "extendhfsf2" {
     test__extendhfsf2(0x7e00, 0x7fc00000);  // qNaN
     test__extendhfsf2(0x7f00, 0x7fe00000);  // sNaN
+    test__extendhfsf2(0x7c01, 0x7f802000);  // sNaN
 
     test__extendhfsf2(0, 0);  // 0
     test__extendhfsf2(0x8000, 0x80000000);  // -0
