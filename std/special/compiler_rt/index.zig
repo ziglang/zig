@@ -15,8 +15,6 @@ comptime {
         @export("__lttf2", @import("comparetf2.zig").__letf2, linkage);
         @export("__netf2", @import("comparetf2.zig").__letf2, linkage);
         @export("__gttf2", @import("comparetf2.zig").__getf2, linkage);
-        @export("__gnu_h2f_ieee", @import("extendXfYf2.zig").__extendhfsf2, linkage);
-        @export("__gnu_f2h_ieee", @import("truncXfYf2.zig").__truncsfhf2, linkage);
     }
 
     @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
@@ -34,9 +32,7 @@ comptime {
 
     @export("__extenddftf2", @import("extendXfYf2.zig").__extenddftf2, linkage);
     @export("__extendsftf2", @import("extendXfYf2.zig").__extendsftf2, linkage);
-    @export("__extendhfsf2", @import("extendXfYf2.zig").__extendhfsf2, linkage);
 
-    @export("__truncsfhf2", @import("truncXfYf2.zig").__truncsfhf2, linkage);
     @export("__trunctfdf2", @import("truncXfYf2.zig").__trunctfdf2, linkage);
     @export("__trunctfsf2", @import("truncXfYf2.zig").__trunctfsf2, linkage);
 
@@ -64,6 +60,22 @@ comptime {
         @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
         @export("__aeabi_uidiv", __udivsi3, linkage);
     }
+
+    if (is_test and builtin.os == builtin.Os.windows) {
+        // Don't export anything.  Avoids "duplicate symbol: __gnu_h2f_ieee in
+        // ./zig-cache/test.obj and in ./zig-cache/compiler_rt.obj" link errors.
+    } else if (builtin.os == builtin.Os.macosx) {
+        // Should always be exported with weak linkage regardless of the value
+        // of |is_test| because the behavior tests implicitly depend on them.
+        @export("__extendhfsf2", @import("extendXfYf2.zig").__extendhfsf2, builtin.GlobalLinkage.Weak);
+        @export("__truncsfhf2", @import("truncXfYf2.zig").__truncsfhf2, builtin.GlobalLinkage.Weak);
+    } else {
+        // Should always be exported with weak linkage regardless of the value
+        // of |is_test| because the behavior tests implicitly depend on them.
+        @export("__gnu_h2f_ieee", @import("extendXfYf2.zig").__extendhfsf2, builtin.GlobalLinkage.Weak);
+        @export("__gnu_f2h_ieee", @import("truncXfYf2.zig").__truncsfhf2, builtin.GlobalLinkage.Weak);
+    }
+
     if (builtin.os == builtin.Os.windows) {
         switch (builtin.arch) {
             builtin.Arch.i386 => {
