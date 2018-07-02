@@ -52,6 +52,7 @@ comptime {
     _ = @import("cases/switch.zig");
     _ = @import("cases/switch_prong_err_enum.zig");
     _ = @import("cases/switch_prong_implicit_cast.zig");
+    _ = @import("cases/switch_usize_enum_prongs.zig");
     _ = @import("cases/syntax.zig");
     _ = @import("cases/this.zig");
     _ = @import("cases/try.zig");
