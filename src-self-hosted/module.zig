@@ -114,6 +114,7 @@ pub const Module = struct {
         DiskQuota,
         InputOutput,
         NoStdHandles,
+        Overflow,
     };
 
     pub const Event = union(enum) {
