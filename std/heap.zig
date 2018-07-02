@@ -38,6 +38,7 @@ fn cFree(self: *Allocator, old_mem: []u8) void {
 }
 
 /// This allocator makes a syscall directly for every allocation and free.
+/// TODO make this thread-safe. The windows implementation will need some atomics.
 pub const DirectAllocator = struct {
     allocator: Allocator,
     heap_handle: ?HeapHandle,

@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const event = std.event;
 const os = std.os;
 const io = std.io;
 const mem = std.mem;
@@ -43,6 +44,9 @@ const Command = struct {
 };
 
 pub fn main() !void {
+    // This allocator needs to be thread-safe because we use it for the event.Loop
+    // which multiplexes coroutines onto kernel threads.
+    // libc allocator is guaranteed to have this property.
     const allocator = std.heap.c_allocator;
 
     var stdout_file = try std.io.getStdOut();
@@ -380,8 +384,10 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
     defer allocator.free(zig_lib_dir);
 
+    var loop = try event.Loop.init(allocator);
+
     var module = try Module.create(
-        allocator,
+        &loop,
         root_name,
         root_source_file,
         Target.Native,
@@ -471,9 +477,35 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
     module.emit_file_type = emit_type;
     module.link_objects = link_objects;
     module.assembly_files = assembly_files;
+    module.link_out_file = flags.single("out-file");
 
     try module.build();
-    try module.link(flags.single("out-file"));
+    const process_build_events_handle = try async<loop.allocator> processBuildEvents(module, true);
+    defer cancel process_build_events_handle;
+    loop.run();
+}
+
+async fn processBuildEvents(module: *Module, watch: bool) void {
+    while (watch) {
+        // TODO directly awaiting async should guarantee memory allocation elision
+        const build_event = await (async module.events.get() catch unreachable);
+
+        switch (build_event) {
+            Module.Event.Ok => {
+                std.debug.warn("Build succeeded\n");
+                // for now we stop after 1
+                module.loop.stop();
+                return;
+            },
+            Module.Event.Error => |err| {
+                std.debug.warn("build failed: {}\n", @errorName(err));
+                @panic("TODO error return trace");
+            },
+            Module.Event.Fail => |errs| {
+                @panic("TODO print compile error messages");
+            },
+        }
+    }
 }
 
 fn cmdBuildExe(allocator: *Allocator, args: []const []const u8) !void {
@@ -780,4 +812,3 @@ const CliPkg = struct {
         self.children.deinit();
     }
 };
-
