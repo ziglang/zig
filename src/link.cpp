@@ -325,10 +325,13 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (g->libc_link_lib == nullptr && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
-        Buf *builtin_o_path = build_o(g, "builtin");
-        lj->args.append(buf_ptr(builtin_o_path));
+    if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
+        if (g->libc_link_lib == nullptr) {
+            Buf *builtin_o_path = build_o(g, "builtin");
+            lj->args.append(buf_ptr(builtin_o_path));
+        }
 
+        // sometimes libgcc is missing stuff, so we still build compiler_rt and rely on weak linkage
         Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
@@ -554,7 +557,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
             lj->args.append(buf_ptr(builtin_o_path));
         }
 
-        // msvc compiler_rt is missing some stuff, so we still build it and rely on LinkOnce
+        // msvc compiler_rt is missing some stuff, so we still build it and rely on weak linkage
         Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
