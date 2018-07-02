@@ -115,6 +115,7 @@ pub const Module = struct {
         InputOutput,
         NoStdHandles,
         Overflow,
+        NotSupported,
     };
 
     pub const Event = union(enum) {
