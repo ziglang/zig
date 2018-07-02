@@ -6144,7 +6144,14 @@ fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>reached unreachable code</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    std.debug.assert(false);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Index out of Bounds#}
       <p>At compile-time:</p>
@@ -6154,7 +6161,16 @@ comptime {
     const garbage = array[5];
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>index out of bounds</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+pub fn main() void {
+    var x = foo("hello");
+}
+
+fn foo(x: []const u8) u8 {
+    return x[5];
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Cast Negative Number to Unsigned Integer#}
       <p>At compile-time:</p>
@@ -6164,10 +6180,18 @@ comptime {
     const unsigned = @intCast(u32, value);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>attempt to cast negative value to unsigned integer</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var value: i32 = -1;
+    var unsigned = @intCast(u32, value);
+    std.debug.warn("value: {}\n", unsigned);
+}
+      {#code_end#}
       <p>
-      If you are trying to obtain the maximum value of an unsigned integer, use <code>@maxValue(T)</code>,
-      where <code>T</code> is the integer type, such as <code>u32</code>.
+      To obtain the maximum value of an unsigned integer, use {#link|@maxValue#}.
       </p>
       {#header_close#}
       {#header_open|Cast Truncates Data#}
@@ -6178,11 +6202,18 @@ comptime {
     const byte = @intCast(u8, spartan_count);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>integer cast truncated bits</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var spartan_count: u16 = 300;
+    const byte = @intCast(u8, spartan_count);
+    std.debug.warn("value: {}\n", byte);
+}
+      {#code_end#}
       <p>
-      If you are trying to truncate bits, use <code>@truncate(T, value)</code>,
-      where <code>T</code> is the integer type, such as <code>u32</code>, and <code>value</code>
-      is the value you want to truncate.
+      To truncate bits, use {#link|@truncate#}.
       </p>
       {#header_close#}
       {#header_open|Integer Overflow#}
@@ -6194,9 +6225,9 @@ comptime {
         <li><code>-</code> (negation)</li>
         <li><code>*</code> (multiplication)</li>
         <li><code>/</code> (division)</li>
-        <li><code>@divTrunc</code> (division)</li>
-        <li><code>@divFloor</code> (division)</li>
-        <li><code>@divExact</code> (division)</li>
+        <li>{#link|@divTrunc#} (division)</li>
+        <li>{#link|@divFloor#} (division)</li>
+        <li>{#link|@divExact#} (division)</li>
       </ul>
       <p>Example with addition at compile-time:</p>
       {#code_begin|test_err|operation caused overflow#}
@@ -6205,7 +6236,16 @@ comptime {
     byte += 1;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>integer overflow</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var byte: u8 = 255;
+    byte += 1;
+    std.debug.warn("value: {}\n", byte);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Standard Library Math Functions#}
       <p>These functions provided by the standard library return possible errors.</p>
@@ -6240,13 +6280,13 @@ pub fn main() !void {
       occurred, as well as returning the overflowed bits:
       </p>
       <ul>
-        <li><code>@addWithOverflow</code></li>
-        <li><code>@subWithOverflow</code></li>
-        <li><code>@mulWithOverflow</code></li>
-        <li><code>@shlWithOverflow</code></li>
+          <li>{#link|@addWithOverflow#}</li>
+          <li>{#link|@subWithOverflow#}</li>
+          <li>{#link|@mulWithOverflow#}</li>
+          <li>{#link|@shlWithOverflow#}</li>
       </ul>
       <p>
-      Example of <code>@addWithOverflow</code>:
+      Example of {#link|@addWithOverflow#}:
       </p>
       {#code_begin|exe#}
 const warn = @import("std").debug.warn;
@@ -6292,7 +6332,16 @@ comptime {
     const x = @shlExact(u8(0b01010101), 2);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>left shift overflowed bits</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var x: u8 = 0b01010101;
+    var y = @shlExact(x, 2);
+    std.debug.warn("value: {}\n", y);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Exact Right Shift Overflow#}
       <p>At compile-time:</p>
@@ -6301,7 +6350,16 @@ comptime {
     const x = @shrExact(u8(0b10101010), 2);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>right shift overflowed bits</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var x: u8 = 0b10101010;
+    var y = @shrExact(x, 2);
+    std.debug.warn("value: {}\n", y);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Division by Zero#}
       <p>At compile-time:</p>
@@ -6312,8 +6370,17 @@ comptime {
     const c = a / b;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>division by zero</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
 
+pub fn main() void {
+    var a: u32 = 1;
+    var b: u32 = 0;
+    var c = a / b;
+    std.debug.warn("value: {}\n", c);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Remainder Division by Zero#}
       <p>At compile-time:</p>
@@ -6324,14 +6391,57 @@ comptime {
     const c = a % b;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>remainder division by zero</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
 
+pub fn main() void {
+    var a: u32 = 10;
+    var b: u32 = 0;
+    var c = a % b;
+    std.debug.warn("value: {}\n", c);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Exact Division Remainder#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|exact division had a remainder#}
+comptime {
+    const a: u32 = 10;
+    const b: u32 = 3;
+    const c = @divExact(a, b);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var a: u32 = 10;
+    var b: u32 = 3;
+    var c = @divExact(a, b);
+    std.debug.warn("value: {}\n", c);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Slice Widen Remainder#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|unable to convert#}
+comptime {
+    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
+    var slice = @bytesToSlice(u32, bytes);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
+    var slice = @bytesToSlice(u32, bytes[0..]);
+    std.debug.warn("value: {}\n", slice[0]);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Attempt to Unwrap Null#}
       <p>At compile-time:</p>
@@ -6341,7 +6451,16 @@ comptime {
     const number = optional_number.?;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>attempt to unwrap null</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var optional_number: ?i32 = null;
+    var number = optional_number.?;
+    std.debug.warn("value: {}\n", number);
+}
+      {#code_end#}
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
       the <code>if</code> expression:</p>
       {#code_begin|exe|test#}
@@ -6356,6 +6475,7 @@ pub fn main() void {
     }
 }
       {#code_end#}
+      {#see_also|Optionals#}
       {#header_close#}
       {#header_open|Attempt to Unwrap Error#}
       <p>At compile-time:</p>
@@ -6368,7 +6488,19 @@ fn getNumberOrFail() !i32 {
     return error.UnableToReturnNumber;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>attempt to unwrap error: ErrorCode</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    const number = getNumberOrFail() catch unreachable;
+    std.debug.warn("value: {}\n", number);
+}
+
+fn getNumberOrFail() !i32 {
+    return error.UnableToReturnNumber;
+}
+      {#code_end#}
       <p>One way to avoid this crash is to test for an error instead of assuming a successful result, with
       the <code>if</code> expression:</p>
       {#code_begin|exe#}
@@ -6388,6 +6520,7 @@ fn getNumberOrFail() !i32 {
     return error.UnableToReturnNumber;
 }
       {#code_end#}
+      {#see_also|Errors#}
       {#header_close#}
       {#header_open|Invalid Error Code#}
       <p>At compile-time:</p>
@@ -6398,11 +6531,47 @@ comptime {
     const invalid_err = @intToError(number);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>invalid error code</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var err = error.AnError;
+    var number = @errorToInt(err) + 500;
+    var invalid_err = @intToError(number);
+    std.debug.warn("value: {}\n", number);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Invalid Enum Cast#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|has no tag matching integer value 3#}
+const Foo = enum {
+    A,
+    B,
+    C,
+};
+comptime {
+    const a: u2 = 3;
+    const b = @intToEnum(Foo, a);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
 
+const Foo = enum {
+    A,
+    B,
+    C,
+};
+
+pub fn main() void {
+    var a: u2 = 3;
+    var b = @intToEnum(Foo, a);
+    std.debug.warn("value: {}\n", @tagName(b));
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Invalid Error Set Cast#}

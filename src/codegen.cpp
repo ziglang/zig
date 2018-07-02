@@ -2673,8 +2673,25 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, 
     TypeTableEntry *tag_int_type = wanted_type->data.enumeration.tag_int_type;
 
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
-    return gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
+    LLVMValueRef tag_int_value = gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
             instruction->target->value.type, tag_int_type, target_val);
+
+    if (ir_want_runtime_safety(g, &instruction->base)) {
+        LLVMBasicBlockRef bad_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadValue");
+        LLVMBasicBlockRef ok_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "OkValue");
+        size_t field_count = wanted_type->data.enumeration.src_field_count;
+        LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, tag_int_value, bad_value_block, field_count);
+        for (size_t field_i = 0; field_i < field_count; field_i += 1) {
+            LLVMValueRef this_tag_int_value = bigint_to_llvm_const(tag_int_type->type_ref,
+                    &wanted_type->data.enumeration.fields[field_i].value);
+            LLVMAddCase(switch_instr, this_tag_int_value, ok_value_block);
+        }
+        LLVMPositionBuilderAtEnd(g->builder, bad_value_block);
+        gen_safety_crash(g, PanicMsgIdBadEnumValue);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_value_block);
+    }
+    return tag_int_value;
 }
 
 static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, IrInstructionIntToErr *instruction) {
