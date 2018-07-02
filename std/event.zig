@@ -95,29 +95,56 @@ pub const TcpServer = struct {
 
 pub const Loop = struct {
     allocator: *mem.Allocator,
-    epollfd: i32,
     keep_running: bool,
     next_tick_queue: std.atomic.QueueMpsc(promise),
+    os_data: OsData,
+
+    const OsData = switch (builtin.os) {
+        builtin.Os.linux => struct {
+            epollfd: i32,
+        },
+        else => struct {},
+    };
 
     pub const NextTickNode = std.atomic.QueueMpsc(promise).Node;
 
     /// The allocator must be thread-safe because we use it for multiplexing
     /// coroutines onto kernel threads.
     pub fn init(allocator: *mem.Allocator) !Loop {
-        const epollfd = try std.os.linuxEpollCreate(std.os.linux.EPOLL_CLOEXEC);
-        errdefer std.os.close(epollfd);
-
-        return Loop{
+        var self = Loop{
             .keep_running = true,
             .allocator = allocator,
-            .epollfd = epollfd,
+            .os_data = undefined,
             .next_tick_queue = std.atomic.QueueMpsc(promise).init(),
         };
+        try self.initOsData();
+        errdefer self.deinitOsData();
+
+        return self;
     }
 
     /// must call stop before deinit
     pub fn deinit(self: *Loop) void {
-        std.os.close(self.epollfd);
+        self.deinitOsData();
+    }
+
+    const InitOsDataError = std.os.LinuxEpollCreateError;
+
+    fn initOsData(self: *Loop) InitOsDataError!void {
+        switch (builtin.os) {
+            builtin.Os.linux => {
+                self.os_data.epollfd = try std.os.linuxEpollCreate(std.os.linux.EPOLL_CLOEXEC);
+                errdefer std.os.close(self.os_data.epollfd);
+            },
+            else => {},
+        }
+    }
+
+    fn deinitOsData(self: *Loop) void {
+        switch (builtin.os) {
+            builtin.Os.linux => std.os.close(self.os_data.epollfd),
+            else => {},
+        }
     }
 
     pub fn addFd(self: *Loop, fd: i32, prom: promise) !void {
@@ -125,11 +152,11 @@ pub const Loop = struct {
             .events = std.os.linux.EPOLLIN | std.os.linux.EPOLLOUT | std.os.linux.EPOLLET,
             .data = std.os.linux.epoll_data{ .ptr = @ptrToInt(prom) },
         };
-        try std.os.linuxEpollCtl(self.epollfd, std.os.linux.EPOLL_CTL_ADD, fd, &ev);
+        try std.os.linuxEpollCtl(self.os_data.epollfd, std.os.linux.EPOLL_CTL_ADD, fd, &ev);
     }
 
     pub fn removeFd(self: *Loop, fd: i32) void {
-        std.os.linuxEpollCtl(self.epollfd, std.os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
+        std.os.linuxEpollCtl(self.os_data.epollfd, std.os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
     }
     async fn waitFd(self: *Loop, fd: i32) !void {
         defer self.removeFd(fd);
@@ -156,12 +183,22 @@ pub const Loop = struct {
                 resume node.data;
             }
             if (!self.keep_running) break;
-            var events: [16]std.os.linux.epoll_event = undefined;
-            const count = std.os.linuxEpollWait(self.epollfd, events[0..], -1);
-            for (events[0..count]) |ev| {
-                const p = @intToPtr(promise, ev.data.ptr);
-                resume p;
-            }
+
+            self.dispatchOsEvents();
+        }
+    }
+
+    fn dispatchOsEvents(self: *Loop) void {
+        switch (builtin.os) {
+            builtin.Os.linux => {
+                var events: [16]std.os.linux.epoll_event = undefined;
+                const count = std.os.linuxEpollWait(self.os_data.epollfd, events[0..], -1);
+                for (events[0..count]) |ev| {
+                    const p = @intToPtr(promise, ev.data.ptr);
+                    resume p;
+                }
+            },
+            else => {},
         }
     }
 };
