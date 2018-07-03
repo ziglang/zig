@@ -268,6 +268,7 @@ enum ZigLLVM_ArchType {
 enum ZigLLVM_SubArchType {
     ZigLLVM_NoSubArch,
 
+    ZigLLVM_ARMSubArch_v8_4a,
     ZigLLVM_ARMSubArch_v8_3a,
     ZigLLVM_ARMSubArch_v8_2a,
     ZigLLVM_ARMSubArch_v8_1a,

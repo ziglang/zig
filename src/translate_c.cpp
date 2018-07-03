@@ -3619,6 +3619,9 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
         case Stmt::SEHTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHTryStmtClass");
             return ErrorUnexpected;
+        case Stmt::FixedPointLiteralClass:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C FixedPointLiteralClass");
+            return ErrorUnexpected;
     }
     zig_unreachable();
 }
