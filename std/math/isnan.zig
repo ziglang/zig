@@ -5,6 +5,10 @@ const assert = std.debug.assert;
 pub fn isNan(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
+        f16 => {
+            const bits = @bitCast(u16, x);
+            return (bits & 0x7fff) > 0x7c00;
+        },
         f32 => {
             const bits = @bitCast(u32, x);
             return bits & 0x7FFFFFFF > 0x7F800000;
@@ -26,8 +30,10 @@ pub fn isSignalNan(x: var) bool {
 }
 
 test "math.isNan" {
+    assert(isNan(math.nan(f16)));
     assert(isNan(math.nan(f32)));
     assert(isNan(math.nan(f64)));
+    assert(!isNan(f16(1.0)));
     assert(!isNan(f32(1.0)));
     assert(!isNan(f64(1.0)));
 }

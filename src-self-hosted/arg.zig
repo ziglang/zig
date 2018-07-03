@@ -168,7 +168,7 @@ pub const Args = struct {
     }
 
     // e.g. --names value1 value2 value3
-    pub fn many(self: *Args, name: []const u8) ?[]const []const u8 {
+    pub fn many(self: *Args, name: []const u8) []const []const u8 {
         if (self.flags.get(name)) |entry| {
             switch (entry.value) {
                 FlagArg.Many => |inner| {
@@ -177,7 +177,7 @@ pub const Args = struct {
                 else => @panic("attempted to retrieve flag with wrong type"),
             }
         } else {
-            return null;
+            return []const []const u8{};
         }
     }
 };

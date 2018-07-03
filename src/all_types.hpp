@@ -234,6 +234,16 @@ enum RuntimeHintPtr {
     RuntimeHintPtrNonStack,
 };
 
+enum RuntimeHintSliceId {
+    RuntimeHintSliceIdUnknown,
+    RuntimeHintSliceIdLen,
+};
+
+struct RuntimeHintSlice {
+    enum RuntimeHintSliceId id;
+    uint64_t len;
+};
+
 struct ConstGlobalRefs {
     LLVMValueRef llvm_value;
     LLVMValueRef llvm_global;
@@ -248,6 +258,7 @@ struct ConstExprValue {
         // populated if special == ConstValSpecialStatic
         BigInt x_bigint;
         BigFloat x_bigfloat;
+        float16_t x_f16;
         float x_f32;
         double x_f64;
         float128_t x_f128;
@@ -270,6 +281,7 @@ struct ConstExprValue {
         RuntimeHintErrorUnion rh_error_union;
         RuntimeHintOptional rh_maybe;
         RuntimeHintPtr rh_ptr;
+        RuntimeHintSlice rh_slice;
     } data;
 };
 
@@ -1222,7 +1234,7 @@ struct TypeTableEntry {
 
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
-    TypeTableEntry *maybe_parent;
+    TypeTableEntry *optional_parent;
     TypeTableEntry *promise_parent;
     TypeTableEntry *promise_frame_parent;
     // If we generate a constant name value for this type, we memoize it here.
@@ -1359,9 +1371,16 @@ enum BuiltinFnId {
     BuiltinFnIdTruncate,
     BuiltinFnIdIntCast,
     BuiltinFnIdFloatCast,
+    BuiltinFnIdErrSetCast,
+    BuiltinFnIdToBytes,
+    BuiltinFnIdFromBytes,
     BuiltinFnIdIntToFloat,
     BuiltinFnIdFloatToInt,
     BuiltinFnIdBoolToInt,
+    BuiltinFnIdErrToInt,
+    BuiltinFnIdIntToErr,
+    BuiltinFnIdEnumToInt,
+    BuiltinFnIdIntToEnum,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
@@ -1416,6 +1435,7 @@ enum PanicMsgId {
     PanicMsgIdIncorrectAlignment,
     PanicMsgIdBadUnionField,
     PanicMsgIdBadEnumValue,
+    PanicMsgIdFloatToInt,
 
     PanicMsgIdCount,
 };
@@ -1579,6 +1599,7 @@ struct CodeGen {
         TypeTableEntry *entry_i128;
         TypeTableEntry *entry_isize;
         TypeTableEntry *entry_usize;
+        TypeTableEntry *entry_f16;
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_f64;
         TypeTableEntry *entry_f128;
@@ -2074,6 +2095,7 @@ enum IrInstructionId {
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
     IrInstructionIdIntToEnum,
+    IrInstructionIdEnumToInt,
     IrInstructionIdIntToErr,
     IrInstructionIdErrToInt,
     IrInstructionIdCheckSwitchProngs,
@@ -2119,6 +2141,9 @@ enum IrInstructionId {
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdSqrt,
+    IrInstructionIdErrSetCast,
+    IrInstructionIdToBytes,
+    IrInstructionIdFromBytes,
 };
 
 struct IrInstruction {
@@ -2654,6 +2679,26 @@ struct IrInstructionFloatCast {
     IrInstruction *target;
 };
 
+struct IrInstructionErrSetCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionToBytes {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionFromBytes {
+    IrInstruction base;
+
+    IrInstruction *dest_child_type;
+    IrInstruction *target;
+};
+
 struct IrInstructionIntToFloat {
     IrInstruction base;
 
@@ -2862,6 +2907,13 @@ struct IrInstructionIntToPtr {
 };
 
 struct IrInstructionIntToEnum {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionEnumToInt {
     IrInstruction base;
 
     IrInstruction *target;

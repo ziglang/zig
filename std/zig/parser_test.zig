@@ -1,3 +1,12 @@
+test "zig fmt: preserve space between async fn definitions" {
+    try testCanonical(
+        \\async fn a() void {}
+        \\
+        \\async fn b() void {}
+        \\
+    );
+}
+
 test "zig fmt: comment to disable/enable zig fmt first" {
     try testCanonical(
         \\// Test trailing comma syntax

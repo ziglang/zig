@@ -38,6 +38,7 @@ fn cFree(self: *Allocator, old_mem: []u8) void {
 }
 
 /// This allocator makes a syscall directly for every allocation and free.
+/// TODO make this thread-safe. The windows implementation will need some atomics.
 pub const DirectAllocator = struct {
     allocator: Allocator,
     heap_handle: ?HeapHandle,
@@ -221,7 +222,7 @@ pub const ArenaAllocator = struct {
             if (len >= actual_min_size) break;
         }
         const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
-        const buf_node_slice = ([]BufNode)(buf[0..@sizeOf(BufNode)]);
+        const buf_node_slice = @bytesToSlice(BufNode, buf[0..@sizeOf(BufNode)]);
         const buf_node = &buf_node_slice[0];
         buf_node.* = BufNode{
             .data = buf,
@@ -407,8 +408,7 @@ fn testAllocator(allocator: *mem.Allocator) !void {
     var slice = try allocator.alloc(*i32, 100);
 
     for (slice) |*item, i| {
-        item.* = try allocator.create(i32);
-        item.*.* = @intCast(i32, i);
+        item.* = try allocator.create(@intCast(i32, i));
     }
 
     for (slice) |item, i| {

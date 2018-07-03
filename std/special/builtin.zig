@@ -210,7 +210,9 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
 }
 
 fn isNan(comptime T: type, bits: T) bool {
-    if (T == u32) {
+    if (T == u16) {
+        return (bits & 0x7fff) > 0x7c00;
+    } else if (T == u32) {
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == u64) {
         return (bits & (@maxValue(u64) >> 1)) > (u64(0x7ff) << 52);

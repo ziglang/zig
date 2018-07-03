@@ -924,6 +924,8 @@ int main(int argc, char **argv) {
                     codegen_print_timing_report(g, stdout);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
+                codegen_set_emit_file_type(g, emit_file_type);
+
                 ZigTarget native;
                 get_native_target(&native);
 

@@ -13,6 +13,7 @@ comptime {
     _ = @import("cases/bugs/656.zig");
     _ = @import("cases/bugs/828.zig");
     _ = @import("cases/bugs/920.zig");
+    _ = @import("cases/bugs/1111.zig");
     _ = @import("cases/byval_arg_var.zig");
     _ = @import("cases/cast.zig");
     _ = @import("cases/const_slice_child.zig");
@@ -34,6 +35,7 @@ comptime {
     _ = @import("cases/math.zig");
     _ = @import("cases/merge_error_sets.zig");
     _ = @import("cases/misc.zig");
+    _ = @import("cases/optional.zig");
     _ = @import("cases/namespace_depends_on_compile_var/index.zig");
     _ = @import("cases/new_stack_call.zig");
     _ = @import("cases/null.zig");
@@ -58,4 +60,5 @@ comptime {
     _ = @import("cases/var_args.zig");
     _ = @import("cases/void.zig");
     _ = @import("cases/while.zig");
+    _ = @import("cases/widening.zig");
 }

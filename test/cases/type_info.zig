@@ -107,11 +107,11 @@ test "type info: promise info" {
 fn testPromise() void {
     const null_promise_info = @typeInfo(promise);
     assert(TypeId(null_promise_info) == TypeId.Promise);
-    assert(null_promise_info.Promise.child == @typeOf(undefined));
+    assert(null_promise_info.Promise.child == null);
 
     const promise_info = @typeInfo(promise->usize);
     assert(TypeId(promise_info) == TypeId.Promise);
-    assert(promise_info.Promise.child == usize);
+    assert(promise_info.Promise.child.? == usize);
 }
 
 test "type info: error set, error union info" {
@@ -130,7 +130,7 @@ fn testErrorSet() void {
     assert(TypeId(error_set_info) == TypeId.ErrorSet);
     assert(error_set_info.ErrorSet.errors.len == 3);
     assert(mem.eql(u8, error_set_info.ErrorSet.errors[0].name, "First"));
-    assert(error_set_info.ErrorSet.errors[2].value == usize(TestErrorSet.Third));
+    assert(error_set_info.ErrorSet.errors[2].value == @errorToInt(TestErrorSet.Third));
 
     const error_union_info = @typeInfo(TestErrorSet!usize);
     assert(TypeId(error_union_info) == TypeId.ErrorUnion);
@@ -165,7 +165,7 @@ fn testUnion() void {
     const typeinfo_info = @typeInfo(TypeInfo);
     assert(TypeId(typeinfo_info) == TypeId.Union);
     assert(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
-    assert(typeinfo_info.Union.tag_type == TypeId);
+    assert(typeinfo_info.Union.tag_type.? == TypeId);
     assert(typeinfo_info.Union.fields.len == 25);
     assert(typeinfo_info.Union.fields[4].enum_field != null);
     assert(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
@@ -179,7 +179,7 @@ fn testUnion() void {
 
     const notag_union_info = @typeInfo(TestNoTagUnion);
     assert(TypeId(notag_union_info) == TypeId.Union);
-    assert(notag_union_info.Union.tag_type == @typeOf(undefined));
+    assert(notag_union_info.Union.tag_type == null);
     assert(notag_union_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     assert(notag_union_info.Union.fields.len == 2);
     assert(notag_union_info.Union.fields[0].enum_field == null);
@@ -191,7 +191,7 @@ fn testUnion() void {
 
     const extern_union_info = @typeInfo(TestExternUnion);
     assert(extern_union_info.Union.layout == TypeInfo.ContainerLayout.Extern);
-    assert(extern_union_info.Union.tag_type == @typeOf(undefined));
+    assert(extern_union_info.Union.tag_type == null);
     assert(extern_union_info.Union.fields[0].enum_field == null);
     assert(extern_union_info.Union.fields[0].field_type == *c_void);
 }
@@ -238,13 +238,13 @@ fn testFunction() void {
     assert(fn_info.Fn.is_generic);
     assert(fn_info.Fn.args.len == 2);
     assert(fn_info.Fn.is_var_args);
-    assert(fn_info.Fn.return_type == @typeOf(undefined));
-    assert(fn_info.Fn.async_allocator_type == @typeOf(undefined));
+    assert(fn_info.Fn.return_type == null);
+    assert(fn_info.Fn.async_allocator_type == null);
 
     const test_instance: TestStruct = undefined;
     const bound_fn_info = @typeInfo(@typeOf(test_instance.foo));
     assert(TypeId(bound_fn_info) == TypeId.BoundFn);
-    assert(bound_fn_info.BoundFn.args[0].arg_type == *const TestStruct);
+    assert(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
 }
 
 fn foo(comptime a: usize, b: bool, args: ...) usize {

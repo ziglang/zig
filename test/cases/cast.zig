@@ -140,8 +140,8 @@ test "explicit cast from integer to error type" {
     comptime testCastIntToErr(error.ItBroke);
 }
 fn testCastIntToErr(err: error) void {
-    const x = usize(err);
-    const y = error(x);
+    const x = @errorToInt(err);
+    const y = @intToError(x);
     assert(error.ItBroke == y);
 }
 
@@ -340,11 +340,26 @@ fn testPeerErrorAndArray2(x: u8) error![]const u8 {
     };
 }
 
-test "explicit cast float number literal to integer if no fraction component" {
+test "@floatToInt" {
+    testFloatToInts();
+    comptime testFloatToInts();
+}
+
+fn testFloatToInts() void {
     const x = i32(1e4);
     assert(x == 10000);
     const y = @floatToInt(i32, f32(1e4));
     assert(y == 10000);
+    expectFloatToInt(f16, 255.1, u8, 255);
+    expectFloatToInt(f16, 127.2, i8, 127);
+    expectFloatToInt(f16, -128.2, i8, -128);
+    expectFloatToInt(f32, 255.1, u8, 255);
+    expectFloatToInt(f32, 127.2, i8, 127);
+    expectFloatToInt(f32, -128.2, i8, -128);
+}
+
+fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) void {
+    assert(@floatToInt(I, f) == i);
 }
 
 test "cast u128 to f128 and back" {
@@ -372,7 +387,7 @@ test "const slice widen cast" {
         0x12,
     };
 
-    const u32_value = ([]const u32)(bytes[0..])[0];
+    const u32_value = @bytesToSlice(u32, bytes[0..])[0];
     assert(u32_value == 0x12121212);
 
     assert(@bitCast(u32, bytes) == 0x12121212);
@@ -406,17 +421,50 @@ test "@intCast comptime_int" {
 }
 
 test "@floatCast comptime_int and comptime_float" {
-    const result = @floatCast(f32, 1234);
-    assert(@typeOf(result) == f32);
-    assert(result == 1234.0);
-
-    const result2 = @floatCast(f32, 1234.0);
-    assert(@typeOf(result) == f32);
-    assert(result == 1234.0);
+    {
+        const result = @floatCast(f16, 1234);
+        assert(@typeOf(result) == f16);
+        assert(result == 1234.0);
+    }
+    {
+        const result = @floatCast(f16, 1234.0);
+        assert(@typeOf(result) == f16);
+        assert(result == 1234.0);
+    }
+    {
+        const result = @floatCast(f32, 1234);
+        assert(@typeOf(result) == f32);
+        assert(result == 1234.0);
+    }
+    {
+        const result = @floatCast(f32, 1234.0);
+        assert(@typeOf(result) == f32);
+        assert(result == 1234.0);
+    }
 }
 
 test "comptime_int @intToFloat" {
-    const result = @intToFloat(f32, 1234);
-    assert(@typeOf(result) == f32);
-    assert(result == 1234.0);
+    {
+        const result = @intToFloat(f16, 1234);
+        assert(@typeOf(result) == f16);
+        assert(result == 1234.0);
+    }
+    {
+        const result = @intToFloat(f32, 1234);
+        assert(@typeOf(result) == f32);
+        assert(result == 1234.0);
+    }
+}
+
+test "@bytesToSlice keeps pointer alignment" {
+    var bytes = []u8{ 0x01, 0x02, 0x03, 0x04 };
+    const numbers = @bytesToSlice(u32, bytes[0..]);
+    comptime assert(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
+}
+
+test "@intCast i32 to u7" {
+    var x: u128 = @maxValue(u128);
+    var y: i32 = 120;
+    var z = x >> @intCast(u7, y);
+    assert(z == 0xff);
 }

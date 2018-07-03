@@ -482,7 +482,7 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
         return return_type->promise_frame_parent;
     }
 
-    TypeTableEntry *awaiter_handle_type = get_maybe_type(g, g->builtin_types.entry_promise);
+    TypeTableEntry *awaiter_handle_type = get_optional_type(g, g->builtin_types.entry_promise);
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
 
     ZigList<const char *> field_names = {};
@@ -513,9 +513,9 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     return entry;
 }
 
-TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
-    if (child_type->maybe_parent) {
-        TypeTableEntry *entry = child_type->maybe_parent;
+TypeTableEntry *get_optional_type(CodeGen *g, TypeTableEntry *child_type) {
+    if (child_type->optional_parent) {
+        TypeTableEntry *entry = child_type->optional_parent;
         return entry;
     } else {
         ensure_complete_type(g, child_type);
@@ -592,7 +592,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
 
         entry->data.maybe.child_type = child_type;
 
-        child_type->maybe_parent = entry;
+        child_type->optional_parent = entry;
         return entry;
     }
 }
@@ -1470,6 +1470,17 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                             calling_convention_name(fn_type_id.cc)));
                 return g->builtin_types.entry_invalid;
             }
+            if (param_node->data.param_decl.type != nullptr) {
+                TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
+                if (type_is_invalid(type_entry)) {
+                    return g->builtin_types.entry_invalid;
+                }
+                FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
+                param_info->type = type_entry;
+                param_info->is_noalias = param_node->data.param_decl.is_noalias;
+                fn_type_id.next_param_index += 1;
+            }
+
             return get_generic_fn_type(g, &fn_type_id);
         } else if (param_is_var_args) {
             if (fn_type_id.cc == CallingConventionC) {
@@ -2307,8 +2318,9 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
         return;
 
     if (enum_type->data.enumeration.zero_bits_loop_flag) {
-        enum_type->data.enumeration.zero_bits_known = true;
-        enum_type->data.enumeration.zero_bits_loop_flag = false;
+        add_node_error(g, enum_type->data.enumeration.decl_node,
+            buf_sprintf("'%s' depends on itself", buf_ptr(&enum_type->name)));
+        enum_type->data.enumeration.is_invalid = true;
         return;
     }
 
@@ -2984,7 +2996,7 @@ static void typecheck_panic_fn(CodeGen *g, FnTableEntry *panic_fn) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
 
-    TypeTableEntry *optional_ptr_to_stack_trace_type = get_maybe_type(g, get_ptr_to_stack_trace_type(g));
+    TypeTableEntry *optional_ptr_to_stack_trace_type = get_optional_type(g, get_ptr_to_stack_trace_type(g));
     if (fn_type_id->param_info[1].type != optional_ptr_to_stack_trace_type) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
@@ -3716,6 +3728,7 @@ TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt
 }
 
 TypeEnumField *find_enum_field_by_tag(TypeTableEntry *enum_type, const BigInt *tag) {
+    assert(enum_type->data.enumeration.zero_bits_known);
     for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
         TypeEnumField *field = &enum_type->data.enumeration.fields[i];
         if (bigint_cmp(&field->value, tag) == CmpEQ) {
@@ -4656,6 +4669,13 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             }
         case TypeTableEntryIdFloat:
             switch (const_val->type->data.floating.bit_count) {
+                case 16:
+                    {
+                        uint16_t result;
+                        static_assert(sizeof(result) == sizeof(const_val->data.x_f16), "");
+                        memcpy(&result, &const_val->data.x_f16, sizeof(result));
+                        return result * 65537u;
+                    }
                 case 32:
                     {
                         uint32_t result;
@@ -5116,6 +5136,9 @@ void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double va
         bigfloat_init_64(&const_val->data.x_bigfloat, value);
     } else if (type->id == TypeTableEntryIdFloat) {
         switch (type->data.floating.bit_count) {
+            case 16:
+                const_val->data.x_f16 = zig_double_to_f16(value);
+                break;
             case 32:
                 const_val->data.x_f32 = value;
                 break;
@@ -5429,6 +5452,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdFloat:
             assert(a->type->data.floating.bit_count == b->type->data.floating.bit_count);
             switch (a->type->data.floating.bit_count) {
+                case 16:
+                    return f16_eq(a->data.x_f16, b->data.x_f16);
                 case 32:
                     return a->data.x_f32 == b->data.x_f32;
                 case 64:
@@ -5446,8 +5471,22 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdFn:
             return const_values_equal_ptr(a, b);
-        case TypeTableEntryIdArray:
-            zig_panic("TODO");
+        case TypeTableEntryIdArray: {
+            assert(a->type->data.array.len == b->type->data.array.len);
+            assert(a->data.x_array.special != ConstArraySpecialUndef);
+            assert(b->data.x_array.special != ConstArraySpecialUndef);
+
+            size_t len = a->type->data.array.len;
+            ConstExprValue *a_elems = a->data.x_array.s_none.elements;
+            ConstExprValue *b_elems = b->data.x_array.s_none.elements;
+
+            for (size_t i = 0; i < len; ++i) {
+                if (!const_values_equal(&a_elems[i], &b_elems[i]))
+                    return false;
+            }
+
+            return true;
+        }
         case TypeTableEntryIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
                 ConstExprValue *field_a = &a->data.x_struct.fields[i];
@@ -5558,7 +5597,7 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, TypeT
                 return;
             }
         case ConstPtrSpecialHardCodedAddr:
-            buf_appendf(buf, "(*%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->data.pointer.child_type->name),
+            buf_appendf(buf, "(%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->name),
                     const_val->data.x_ptr.data.hard_coded_addr.addr);
             return;
         case ConstPtrSpecialDiscard:
@@ -5602,6 +5641,9 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             return;
         case TypeTableEntryIdFloat:
             switch (type_entry->data.floating.bit_count) {
+                case 16:
+                    buf_appendf(buf, "%f", zig_f16_to_double(const_val->data.x_f16));
+                    return;
                 case 32:
                     buf_appendf(buf, "%f", const_val->data.x_f32);
                     return;

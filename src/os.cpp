@@ -225,6 +225,11 @@ void os_path_extname(Buf *full_path, Buf *out_basename, Buf *out_extname) {
 }
 
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
+    if (buf_len(dirname) == 0) {
+        buf_init_from_buf(out_full_path, basename);
+        return;
+    }
+
     buf_init_from_buf(out_full_path, dirname);
     uint8_t c = *(buf_ptr(out_full_path) + buf_len(out_full_path) - 1);
     if (!os_is_sep(c))

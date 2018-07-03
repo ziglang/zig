@@ -116,7 +116,7 @@ pub const Random = struct {
     pub fn floatNorm(r: *Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.NormDist);
         switch (T) {
-            f32 => return f32(value),
+            f32 => return @floatCast(f32, value),
             f64 => return value,
             else => @compileError("unknown floating point type"),
         }
@@ -128,7 +128,7 @@ pub const Random = struct {
     pub fn floatExp(r: *Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.ExpDist);
         switch (T) {
-            f32 => return f32(value),
+            f32 => return @floatCast(f32, value),
             f64 => return value,
             else => @compileError("unknown floating point type"),
         }

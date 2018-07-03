@@ -90,7 +90,7 @@ fn testBytesAlignSlice(b: u8) void {
         b,
         b,
     };
-    const slice = ([]u32)(bytes[0..]);
+    const slice: []u32 = @bytesToSlice(u32, bytes[0..]);
     assert(slice[0] == 0x33333333);
 }
 

@@ -5,6 +5,10 @@ const assert = std.debug.assert;
 pub fn isFinite(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
+        f16 => {
+            const bits = @bitCast(u16, x);
+            return bits & 0x7FFF < 0x7C00;
+        },
         f32 => {
             const bits = @bitCast(u32, x);
             return bits & 0x7FFFFFFF < 0x7F800000;
@@ -20,10 +24,14 @@ pub fn isFinite(x: var) bool {
 }
 
 test "math.isFinite" {
+    assert(isFinite(f16(0.0)));
+    assert(isFinite(f16(-0.0)));
     assert(isFinite(f32(0.0)));
     assert(isFinite(f32(-0.0)));
     assert(isFinite(f64(0.0)));
     assert(isFinite(f64(-0.0)));
+    assert(!isFinite(math.inf(f16)));
+    assert(!isFinite(-math.inf(f16)));
     assert(!isFinite(math.inf(f32)));
     assert(!isFinite(-math.inf(f32)));
     assert(!isFinite(math.inf(f64)));

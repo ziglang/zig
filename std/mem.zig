@@ -31,16 +31,8 @@ pub const Allocator = struct {
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
-    /// Call destroy with the result
-    pub fn create(self: *Allocator, comptime T: type) !*T {
-        if (@sizeOf(T) == 0) return *{};
-        const slice = try self.alloc(T, 1);
-        return &slice[0];
-    }
-
-    /// Call destroy with the result
-    /// TODO once #733 is solved, this will replace create
-    pub fn construct(self: *Allocator, init: var) Error!*@typeOf(init) {
+    /// Call `destroy` with the result
+    pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
         if (@sizeOf(T) == 0) return &{};
         const slice = try self.alloc(T, 1);
@@ -49,7 +41,7 @@ pub const Allocator = struct {
         return ptr;
     }
 
-    /// `ptr` should be the return value of `construct` or `create`
+    /// `ptr` should be the return value of `create`
     pub fn destroy(self: *Allocator, ptr: var) void {
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
         self.freeFn(self, non_const_ptr[0..@sizeOf(@typeOf(ptr).Child)]);
@@ -70,7 +62,7 @@ pub const Allocator = struct {
         for (byte_slice) |*byte| {
             byte.* = undefined;
         }
-        return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
+        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }
 
     pub fn realloc(self: *Allocator, comptime T: type, old_mem: []T, n: usize) ![]T {
@@ -86,7 +78,7 @@ pub const Allocator = struct {
             return ([*]align(alignment) T)(undefined)[0..0];
         }
 
-        const old_byte_slice = ([]u8)(old_mem);
+        const old_byte_slice = @sliceToBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
         assert(byte_slice.len == byte_count);
@@ -96,7 +88,7 @@ pub const Allocator = struct {
                 byte.* = undefined;
             }
         }
-        return ([]T)(@alignCast(alignment, byte_slice));
+        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }
 
     /// Reallocate, but `n` must be less than or equal to `old_mem.len`.
@@ -118,13 +110,13 @@ pub const Allocator = struct {
         // n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * n;
 
-        const byte_slice = self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment) catch unreachable;
+        const byte_slice = self.reallocFn(self, @sliceToBytes(old_mem), byte_count, alignment) catch unreachable;
         assert(byte_slice.len == byte_count);
-        return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
+        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }
 
     pub fn free(self: *Allocator, memory: var) void {
-        const bytes = ([]const u8)(memory);
+        const bytes = @sliceToBytes(memory);
         if (bytes.len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         self.freeFn(self, non_const_ptr[0..bytes.len]);

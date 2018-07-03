@@ -68,7 +68,7 @@ pub const Address = struct {
 
 pub fn parseIp4(buf: []const u8) !u32 {
     var result: u32 = undefined;
-    const out_ptr = ([]u8)((*[1]u32)(&result)[0..]);
+    const out_ptr = @sliceToBytes((*[1]u32)(&result)[0..]);
 
     var x: u8 = 0;
     var index: u8 = 0;

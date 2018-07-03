@@ -24,7 +24,7 @@ TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_c_int_type(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
-TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type);
+TypeTableEntry *get_optional_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size);
 TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *ptr_type);
 TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,

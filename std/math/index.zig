@@ -19,6 +19,18 @@ pub const f32_max = 3.40282346638528859812e+38;
 pub const f32_epsilon = 1.1920928955078125e-07;
 pub const f32_toint = 1.0 / f32_epsilon;
 
+pub const f16_true_min = 0.000000059604644775390625; // 2**-24
+pub const f16_min = 0.00006103515625; // 2**-14
+pub const f16_max = 65504;
+pub const f16_epsilon = 0.0009765625; // 2**-10
+pub const f16_toint = 1.0 / f16_epsilon;
+
+pub const nan_u16 = u16(0x7C01);
+pub const nan_f16 = @bitCast(f16, nan_u16);
+
+pub const inf_u16 = u16(0x7C00);
+pub const inf_f16 = @bitCast(f16, inf_u16);
+
 pub const nan_u32 = u32(0x7F800001);
 pub const nan_f32 = @bitCast(f32, nan_u32);
 
@@ -44,6 +56,11 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
 pub fn forceEval(value: var) void {
     const T = @typeOf(value);
     switch (T) {
+        f16 => {
+            var x: f16 = undefined;
+            const p = @ptrCast(*volatile f16, &x);
+            p.* = x;
+        },
         f32 => {
             var x: f32 = undefined;
             const p = @ptrCast(*volatile f32, &x);
@@ -181,6 +198,32 @@ test "math" {
     _ = @import("complex/index.zig");
 
     _ = @import("big/index.zig");
+}
+
+pub fn floatMantissaBits(comptime T: type) comptime_int {
+    assert(@typeId(T) == builtin.TypeId.Float);
+
+    return switch (T.bit_count) {
+        16 => 10,
+        32 => 23,
+        64 => 52,
+        80 => 64,
+        128 => 112,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
+}
+
+pub fn floatExponentBits(comptime T: type) comptime_int {
+    assert(@typeId(T) == builtin.TypeId.Float);
+
+    return switch (T.bit_count) {
+        16 => 5,
+        32 => 8,
+        64 => 11,
+        80 => 15,
+        128 => 15,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
 }
 
 pub fn min(x: var, y: var) @typeOf(x + y) {
@@ -607,4 +650,3 @@ pub fn lossyCast(comptime T: type, value: var) T {
         else => @compileError("bad type"),
     }
 }
-

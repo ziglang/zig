@@ -17,6 +17,7 @@
 #include "os.hpp"
 #include "translate_c.hpp"
 #include "target.hpp"
+#include "util.hpp"
 #include "zig_llvm.h"
 
 #include <stdio.h>
@@ -865,6 +866,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("access of inactive union field");
         case PanicMsgIdBadEnumValue:
             return buf_create_from_str("invalid enum value");
+        case PanicMsgIdFloatToInt:
+            return buf_create_from_str("integer part of floating point value out of bounds");
     }
     zig_unreachable();
 }
@@ -1644,7 +1647,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, T
                 return trunc_val;
             }
             LLVMValueRef orig_val;
-            if (actual_type->data.integral.is_signed) {
+            if (wanted_type->data.integral.is_signed) {
                 orig_val = LLVMBuildSExt(g->builder, trunc_val, actual_type->type_ref, "");
             } else {
                 orig_val = LLVMBuildZExt(g->builder, trunc_val, actual_type->type_ref, "");
@@ -2207,12 +2210,12 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             } else if (type_entry->id == TypeTableEntryIdInt) {
                 LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, type_entry->data.integral.is_signed);
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
-            } else if (type_entry->id == TypeTableEntryIdEnum) {
-                LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
-                return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
-            } else if (type_entry->id == TypeTableEntryIdErrorSet ||
+            } else if (type_entry->id == TypeTableEntryIdEnum ||
+                    type_entry->id == TypeTableEntryIdErrorSet ||
                     type_entry->id == TypeTableEntryIdPointer ||
-                    type_entry->id == TypeTableEntryIdBool)
+                    type_entry->id == TypeTableEntryIdBool ||
+                    type_entry->id == TypeTableEntryIdPromise ||
+                    type_entry->id == TypeTableEntryIdFn)
             {
                 LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
@@ -2509,15 +2512,41 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             } else {
                 return LLVMBuildUIToFP(g->builder, expr_val, wanted_type->type_ref, "");
             }
-        case CastOpFloatToInt:
+        case CastOpFloatToInt: {
             assert(wanted_type->id == TypeTableEntryIdInt);
             ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &cast_instruction->base));
+
+            bool want_safety = ir_want_runtime_safety(g, &cast_instruction->base);
+
+            LLVMValueRef result;
             if (wanted_type->data.integral.is_signed) {
-                return LLVMBuildFPToSI(g->builder, expr_val, wanted_type->type_ref, "");
+                result = LLVMBuildFPToSI(g->builder, expr_val, wanted_type->type_ref, "");
             } else {
-                return LLVMBuildFPToUI(g->builder, expr_val, wanted_type->type_ref, "");
+                result = LLVMBuildFPToUI(g->builder, expr_val, wanted_type->type_ref, "");
             }
 
+            if (want_safety) {
+                LLVMValueRef back_to_float;
+                if (wanted_type->data.integral.is_signed) {
+                    back_to_float = LLVMBuildSIToFP(g->builder, result, LLVMTypeOf(expr_val), "");
+                } else {
+                    back_to_float = LLVMBuildUIToFP(g->builder, result, LLVMTypeOf(expr_val), "");
+                }
+                LLVMValueRef difference = LLVMBuildFSub(g->builder, expr_val, back_to_float, "");
+                LLVMValueRef one_pos = LLVMConstReal(LLVMTypeOf(expr_val), 1.0f);
+                LLVMValueRef one_neg = LLVMConstReal(LLVMTypeOf(expr_val), -1.0f);
+                LLVMValueRef ok_bit_pos = LLVMBuildFCmp(g->builder, LLVMRealOLT, difference, one_pos, "");
+                LLVMValueRef ok_bit_neg = LLVMBuildFCmp(g->builder, LLVMRealOGT, difference, one_neg, "");
+                LLVMValueRef ok_bit = LLVMBuildAnd(g->builder, ok_bit_pos, ok_bit_neg, "");
+                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "FloatCheckOk");
+                LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "FloatCheckFail");
+                LLVMBuildCondBr(g->builder, ok_bit, ok_block, bad_block);
+                LLVMPositionBuilderAtEnd(g->builder, bad_block);
+                gen_safety_crash(g, PanicMsgIdFloatToInt);
+                LLVMPositionBuilderAtEnd(g->builder, ok_block);
+            }
+            return result;
+        }
         case CastOpBoolToInt:
             assert(wanted_type->id == TypeTableEntryIdInt);
             assert(actual_type->id == TypeTableEntryIdBool);
@@ -2607,8 +2636,25 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, 
     TypeTableEntry *tag_int_type = wanted_type->data.enumeration.tag_int_type;
 
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
-    return gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
+    LLVMValueRef tag_int_value = gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
             instruction->target->value.type, tag_int_type, target_val);
+
+    if (ir_want_runtime_safety(g, &instruction->base)) {
+        LLVMBasicBlockRef bad_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadValue");
+        LLVMBasicBlockRef ok_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "OkValue");
+        size_t field_count = wanted_type->data.enumeration.src_field_count;
+        LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, tag_int_value, bad_value_block, field_count);
+        for (size_t field_i = 0; field_i < field_count; field_i += 1) {
+            LLVMValueRef this_tag_int_value = bigint_to_llvm_const(tag_int_type->type_ref,
+                    &wanted_type->data.enumeration.fields[field_i].value);
+            LLVMAddCase(switch_instr, this_tag_int_value, ok_value_block);
+        }
+        LLVMPositionBuilderAtEnd(g->builder, bad_value_block);
+        gen_safety_crash(g, PanicMsgIdBadEnumValue);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_value_block);
+    }
+    return tag_int_value;
 }
 
 static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, IrInstructionIntToErr *instruction) {
@@ -4638,6 +4684,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdIntToFloat:
         case IrInstructionIdFloatToInt:
         case IrInstructionIdBoolToInt:
+        case IrInstructionIdErrSetCast:
+        case IrInstructionIdFromBytes:
+        case IrInstructionIdToBytes:
+        case IrInstructionIdEnumToInt:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -5090,6 +5140,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     const_val->data.x_err_set->value, false);
         case TypeTableEntryIdFloat:
             switch (type_entry->data.floating.bit_count) {
+                case 16:
+                    return LLVMConstReal(type_entry->type_ref, zig_f16_to_double(const_val->data.x_f16));
                 case 32:
                     return LLVMConstReal(type_entry->type_ref, const_val->data.x_f32);
                 case 64:
@@ -6056,58 +6108,30 @@ static void define_builtin_types(CodeGen *g) {
             g->builtin_types.entry_usize = entry;
         }
     }
-    {
+
+    auto add_fp_entry = [] (CodeGen *g,
+                            const char *name,
+                            uint32_t bit_count,
+                            LLVMTypeRef type_ref,
+                            TypeTableEntry **field) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMFloatType();
-        buf_init_from_str(&entry->name, "f32");
-        entry->data.floating.bit_count = 32;
+        entry->type_ref = type_ref;
+        buf_init_from_str(&entry->name, name);
+        entry->data.floating.bit_count = bit_count;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
                 ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_f32 = entry;
+        *field = entry;
         g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMDoubleType();
-        buf_init_from_str(&entry->name, "f64");
-        entry->data.floating.bit_count = 64;
+    };
+    add_fp_entry(g, "f16", 16, LLVMHalfType(), &g->builtin_types.entry_f16);
+    add_fp_entry(g, "f32", 32, LLVMFloatType(), &g->builtin_types.entry_f32);
+    add_fp_entry(g, "f64", 64, LLVMDoubleType(), &g->builtin_types.entry_f64);
+    add_fp_entry(g, "f128", 128, LLVMFP128Type(), &g->builtin_types.entry_f128);
+    add_fp_entry(g, "c_longdouble", 80, LLVMX86FP80Type(), &g->builtin_types.entry_c_longdouble);
 
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                debug_size_in_bits,
-                ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_f64 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMFP128Type();
-        buf_init_from_str(&entry->name, "f128");
-        entry->data.floating.bit_count = 128;
-
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                debug_size_in_bits,
-                ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_f128 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMX86FP80Type();
-        buf_init_from_str(&entry->name, "c_longdouble");
-        entry->data.floating.bit_count = 80;
-
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                debug_size_in_bits,
-                ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_c_longdouble = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
         entry->type_ref = LLVMVoidType();
@@ -6231,6 +6255,10 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdIntToFloat, "intToFloat", 2);
     create_builtin_fn(g, BuiltinFnIdFloatToInt, "floatToInt", 2);
     create_builtin_fn(g, BuiltinFnIdBoolToInt, "boolToInt", 1);
+    create_builtin_fn(g, BuiltinFnIdErrToInt, "errorToInt", 1);
+    create_builtin_fn(g, BuiltinFnIdIntToErr, "intToError", 1);
+    create_builtin_fn(g, BuiltinFnIdEnumToInt, "enumToInt", 1);
+    create_builtin_fn(g, BuiltinFnIdIntToEnum, "intToEnum", 2);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
@@ -6267,6 +6295,9 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdErrorReturnTrace, "errorReturnTrace", 0);
     create_builtin_fn(g, BuiltinFnIdAtomicRmw, "atomicRmw", 5);
     create_builtin_fn(g, BuiltinFnIdAtomicLoad, "atomicLoad", 3);
+    create_builtin_fn(g, BuiltinFnIdErrSetCast, "errSetCast", 2);
+    create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
+    create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
 }
 
 static const char *bool_to_str(bool b) {
@@ -6538,7 +6569,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "\n"
             "    pub const Union = struct {\n"
             "        layout: ContainerLayout,\n"
-            "        tag_type: type,\n"
+            "        tag_type: ?type,\n"
             "        fields: []UnionField,\n"
             "        defs: []Definition,\n"
             "    };\n"
@@ -6555,20 +6586,20 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    pub const FnArg = struct {\n"
             "        is_generic: bool,\n"
             "        is_noalias: bool,\n"
-            "        arg_type: type,\n"
+            "        arg_type: ?type,\n"
             "    };\n"
             "\n"
             "    pub const Fn = struct {\n"
             "        calling_convention: CallingConvention,\n"
             "        is_generic: bool,\n"
             "        is_var_args: bool,\n"
-            "        return_type: type,\n"
-            "        async_allocator_type: type,\n"
+            "        return_type: ?type,\n"
+            "        async_allocator_type: ?type,\n"
             "        args: []FnArg,\n"
             "    };\n"
             "\n"
             "    pub const Promise = struct {\n"
-            "        child: type,\n"
+            "        child: ?type,\n"
             "    };\n"
             "\n"
             "    pub const Definition = struct {\n"
