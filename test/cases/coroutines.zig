@@ -116,14 +116,14 @@ test "coroutine await early return" {
     defer da.deinit();
 
     early_seq('a');
-    const p = async<&da.allocator> early_amain() catch unreachable;
+    const p = async<&da.allocator> early_amain() catch @panic("out of memory");
     early_seq('f');
     assert(early_final_result == 1234);
     assert(std.mem.eql(u8, early_points, "abcdef"));
 }
 async fn early_amain() void {
     early_seq('b');
-    const p = async early_another() catch unreachable;
+    const p = async early_another() catch @panic("out of memory");
     early_seq('d');
     early_final_result = await p;
     early_seq('e');
