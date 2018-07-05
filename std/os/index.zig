@@ -2309,6 +2309,30 @@ pub fn linuxEpollWait(epfd: i32, events: []linux.epoll_event, timeout: i32) usiz
     }
 }
 
+pub const LinuxEventFdError = error{
+    InvalidFlagValue,
+    SystemResources,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+
+    Unexpected,
+};
+
+pub fn linuxEventFd(initval: u32, flags: u32) LinuxEventFdError!i32 {
+    const rc = posix.eventfd(initval, flags);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        else => return unexpectedErrorPosix(err),
+
+        posix.EINVAL => return LinuxEventFdError.InvalidFlagValue,
+        posix.EMFILE => return LinuxEventFdError.ProcessFdQuotaExceeded,
+        posix.ENFILE => return LinuxEventFdError.SystemFdQuotaExceeded,
+        posix.ENODEV => return LinuxEventFdError.SystemResources,
+        posix.ENOMEM => return LinuxEventFdError.SystemResources,
+    }
+}
+
 pub const PosixGetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
@@ -2605,10 +2629,17 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
 
     const MainFuncs = struct {
         extern fn linuxThreadMain(ctx_addr: usize) u8 {
-            if (@sizeOf(Context) == 0) {
-                return startFn({});
-            } else {
-                return startFn(@intToPtr(*const Context, ctx_addr).*);
+            const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
+
+            switch (@typeId(@typeOf(startFn).ReturnType)) {
+                builtin.TypeId.Int => {
+                    return startFn(arg);
+                },
+                builtin.TypeId.Void => {
+                    startFn(arg);
+                    return 0;
+                },
+                else => @compileError("expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'"),
             }
         }
         extern fn posixThreadMain(ctx: ?*c_void) ?*c_void {

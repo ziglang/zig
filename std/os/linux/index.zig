@@ -523,6 +523,10 @@ pub const CLONE_NEWPID = 0x20000000;
 pub const CLONE_NEWNET = 0x40000000;
 pub const CLONE_IO = 0x80000000;
 
+pub const EFD_SEMAPHORE = 1;
+pub const EFD_CLOEXEC = O_CLOEXEC;
+pub const EFD_NONBLOCK = O_NONBLOCK;
+
 pub const MS_RDONLY = 1;
 pub const MS_NOSUID = 2;
 pub const MS_NODEV = 4;
@@ -1219,6 +1223,10 @@ pub fn epoll_ctl(epoll_fd: i32, op: u32, fd: i32, ev: *epoll_event) usize {
 
 pub fn epoll_wait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32) usize {
     return syscall4(SYS_epoll_wait, @intCast(usize, epoll_fd), @ptrToInt(events), @intCast(usize, maxevents), @intCast(usize, timeout));
+}
+
+pub fn eventfd(count: u32, flags: u32) usize {
+    return syscall2(SYS_eventfd2, count, flags);
 }
 
 pub fn timerfd_create(clockid: i32, flags: u32) usize {

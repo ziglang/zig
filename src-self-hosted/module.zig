@@ -2,6 +2,7 @@ const std = @import("std");
 const os = std.os;
 const io = std.io;
 const mem = std.mem;
+const Allocator = mem.Allocator;
 const Buffer = std.Buffer;
 const llvm = @import("llvm.zig");
 const c = @import("c.zig");
@@ -13,6 +14,7 @@ const ArrayList = std.ArrayList;
 const errmsg = @import("errmsg.zig");
 const ast = std.zig.ast;
 const event = std.event;
+const assert = std.debug.assert;
 
 pub const Module = struct {
     loop: *event.Loop,
@@ -80,6 +82,8 @@ pub const Module = struct {
 
     link_out_file: ?[]const u8,
     events: *event.Channel(Event),
+
+    exported_symbol_names: event.Locked(Decl.Table),
 
     // TODO handle some of these earlier and report them in a way other than error codes
     pub const BuildError = error{
@@ -232,6 +236,7 @@ pub const Module = struct {
             .test_name_prefix = null,
             .emit_file_type = Emit.Binary,
             .link_out_file = null,
+            .exported_symbol_names = event.Locked(Decl.Table).init(loop, Decl.Table.init(loop.allocator)),
         });
     }
 
@@ -272,38 +277,91 @@ pub const Module = struct {
                 return;
             };
             await (async self.events.put(Event.Ok) catch unreachable);
+            // for now we stop after 1
+            return;
         }
     }
 
     async fn addRootSrc(self: *Module) !void {
         const root_src_path = self.root_src_path orelse @panic("TODO handle null root src path");
+        // TODO async/await os.path.real
         const root_src_real_path = os.path.real(self.a(), root_src_path) catch |err| {
             try printError("unable to get real path '{}': {}", root_src_path, err);
             return err;
         };
         errdefer self.a().free(root_src_real_path);
 
+        // TODO async/await readFileAlloc()
         const source_code = io.readFileAlloc(self.a(), root_src_real_path) catch |err| {
             try printError("unable to open '{}': {}", root_src_real_path, err);
             return err;
         };
         errdefer self.a().free(source_code);
 
-        var tree = try std.zig.parse(self.a(), source_code);
-        defer tree.deinit();
+        var parsed_file = ParsedFile{
+            .tree = try std.zig.parse(self.a(), source_code),
+            .realpath = root_src_real_path,
+        };
+        errdefer parsed_file.tree.deinit();
 
-        //var it = tree.root_node.decls.iterator();
-        //while (it.next()) |decl_ptr| {
-        //    const decl = decl_ptr.*;
-        //    switch (decl.id) {
-        //        ast.Node.Comptime => @panic("TODO"),
-        //        ast.Node.VarDecl => @panic("TODO"),
-        //        ast.Node.UseDecl => @panic("TODO"),
-        //        ast.Node.FnDef => @panic("TODO"),
-        //        ast.Node.TestDecl => @panic("TODO"),
-        //        else => unreachable,
-        //    }
-        //}
+        const tree = &parsed_file.tree;
+
+        // create empty struct for it
+        const decls = try Scope.Decls.create(self.a(), null);
+        errdefer decls.destroy();
+
+        var it = tree.root_node.decls.iterator(0);
+        while (it.next()) |decl_ptr| {
+            const decl = decl_ptr.*;
+            switch (decl.id) {
+                ast.Node.Id.Comptime => @panic("TODO"),
+                ast.Node.Id.VarDecl => @panic("TODO"),
+                ast.Node.Id.FnProto => {
+                    const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
+
+                    const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
+                        @panic("TODO add compile error");
+                        //try self.addCompileError(
+                        //    &parsed_file,
+                        //    fn_proto.fn_token,
+                        //    fn_proto.fn_token + 1,
+                        //    "missing function name",
+                        //);
+                        continue;
+                    };
+
+                    const fn_decl = try self.a().create(Decl.Fn{
+                        .base = Decl{
+                            .id = Decl.Id.Fn,
+                            .name = name,
+                            .visib = parseVisibToken(tree, fn_proto.visib_token),
+                            .resolution = Decl.Resolution.Unresolved,
+                        },
+                        .value = Decl.Fn.Val{ .Unresolved = {} },
+                        .fn_proto = fn_proto,
+                    });
+                    errdefer self.a().destroy(fn_decl);
+
+                    // TODO make this parallel
+                    try await try async self.addTopLevelDecl(tree, &fn_decl.base);
+                },
+                ast.Node.Id.TestDecl => @panic("TODO"),
+                else => unreachable,
+            }
+        }
+    }
+
+    async fn addTopLevelDecl(self: *Module, tree: *ast.Tree, decl: *Decl) !void {
+        const is_export = decl.isExported(tree);
+
+        {
+            const exported_symbol_names = await try async self.exported_symbol_names.acquire();
+            defer exported_symbol_names.release();
+
+            if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
+                @panic("TODO report compile error");
+            }
+        }
     }
 
     pub fn link(self: *Module, out_file: ?[]const u8) !void {
@@ -350,3 +408,172 @@ fn printError(comptime format: []const u8, args: ...) !void {
     const out_stream = &stderr_file_out_stream.stream;
     try out_stream.print(format, args);
 }
+
+fn parseVisibToken(tree: *ast.Tree, optional_token_index: ?ast.TokenIndex) Visib {
+    if (optional_token_index) |token_index| {
+        const token = tree.tokens.at(token_index);
+        assert(token.id == Token.Id.Keyword_pub);
+        return Visib.Pub;
+    } else {
+        return Visib.Private;
+    }
+}
+
+pub const Scope = struct {
+    id: Id,
+    parent: ?*Scope,
+
+    pub const Id = enum {
+        Decls,
+        Block,
+    };
+
+    pub const Decls = struct {
+        base: Scope,
+        table: Decl.Table,
+
+        pub fn create(a: *Allocator, parent: ?*Scope) !*Decls {
+            const self = try a.create(Decls{
+                .base = Scope{
+                    .id = Id.Decls,
+                    .parent = parent,
+                },
+                .table = undefined,
+            });
+            errdefer a.destroy(self);
+
+            self.table = Decl.Table.init(a);
+            errdefer self.table.deinit();
+
+            return self;
+        }
+
+        pub fn destroy(self: *Decls) void {
+            self.table.deinit();
+            self.table.allocator.destroy(self);
+            self.* = undefined;
+        }
+    };
+
+    pub const Block = struct {
+        base: Scope,
+    };
+};
+
+pub const Visib = enum {
+    Private,
+    Pub,
+};
+
+pub const Decl = struct {
+    id: Id,
+    name: []const u8,
+    visib: Visib,
+    resolution: Resolution,
+
+    pub const Table = std.HashMap([]const u8, *Decl, mem.hash_slice_u8, mem.eql_slice_u8);
+
+    pub fn isExported(base: *const Decl, tree: *ast.Tree) bool {
+        switch (base.id) {
+            Id.Fn => {
+                const fn_decl = @fieldParentPtr(Fn, "base", base);
+                return fn_decl.isExported(tree);
+            },
+            else => return false,
+        }
+    }
+
+    pub const Resolution = enum {
+        Unresolved,
+        InProgress,
+        Invalid,
+        Ok,
+    };
+
+    pub const Id = enum {
+        Var,
+        Fn,
+        CompTime,
+    };
+
+    pub const Var = struct {
+        base: Decl,
+    };
+
+    pub const Fn = struct {
+        base: Decl,
+        value: Val,
+        fn_proto: *const ast.Node.FnProto,
+
+        // TODO https://github.com/ziglang/zig/issues/683 and then make this anonymous
+        pub const Val = union {
+            Unresolved: void,
+            Ok: *Value.Fn,
+        };
+
+        pub fn externLibName(self: Fn, tree: *ast.Tree) ?[]const u8 {
+            return if (self.fn_proto.extern_export_inline_token) |tok_index| x: {
+                const token = tree.tokens.at(tok_index);
+                break :x switch (token.id) {
+                    Token.Id.Extern => tree.tokenSlicePtr(token),
+                    else => null,
+                };
+            } else null;
+        }
+
+        pub fn isExported(self: Fn, tree: *ast.Tree) bool {
+            if (self.fn_proto.extern_export_inline_token) |tok_index| {
+                const token = tree.tokens.at(tok_index);
+                return token.id == Token.Id.Keyword_export;
+            } else {
+                return false;
+            }
+        }
+    };
+
+    pub const CompTime = struct {
+        base: Decl,
+    };
+};
+
+pub const Value = struct {
+    pub const Fn = struct {};
+};
+
+pub const Type = struct {
+    id: Id,
+
+    pub const Id = enum {
+        Type,
+        Void,
+        Bool,
+        NoReturn,
+        Int,
+        Float,
+        Pointer,
+        Array,
+        Struct,
+        ComptimeFloat,
+        ComptimeInt,
+        Undefined,
+        Null,
+        Optional,
+        ErrorUnion,
+        ErrorSet,
+        Enum,
+        Union,
+        Fn,
+        Opaque,
+        Promise,
+    };
+
+    pub const Struct = struct {
+        base: Type,
+        decls: *Scope.Decls,
+    };
+};
+
+pub const ParsedFile = struct {
+    tree: ast.Tree,
+    realpath: []const u8,
+};

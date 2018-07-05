@@ -15,6 +15,8 @@ pub fn QueueMpsc(comptime T: type) type {
 
         pub const Node = std.atomic.Stack(T).Node;
 
+        /// Not thread-safe. The call to init() must complete before any other functions are called.
+        /// No deinitialization required.
         pub fn init() Self {
             return Self{
                 .inboxes = []std.atomic.Stack(T){
@@ -26,12 +28,15 @@ pub fn QueueMpsc(comptime T: type) type {
             };
         }
 
+        /// Fully thread-safe. put() may be called from any thread at any time.
         pub fn put(self: *Self, node: *Node) void {
             const inbox_index = @atomicLoad(usize, &self.inbox_index, AtomicOrder.SeqCst);
             const inbox = &self.inboxes[inbox_index];
             inbox.push(node);
         }
 
+        /// Must be called by only 1 consumer at a time. Every call to get() and isEmpty() must complete before
+        /// the next call to get().
         pub fn get(self: *Self) ?*Node {
             if (self.outbox.pop()) |node| {
                 return node;
@@ -42,6 +47,18 @@ pub fn QueueMpsc(comptime T: type) type {
                 self.outbox.push(node);
             }
             return self.outbox.pop();
+        }
+
+        /// Must be called by only 1 consumer at a time. Every call to get() and isEmpty() must complete before
+        /// the next call to isEmpty().
+        pub fn isEmpty(self: *Self) bool {
+            if (!self.outbox.isEmpty()) return false;
+            const prev_inbox_index = @atomicRmw(usize, &self.inbox_index, AtomicRmwOp.Xor, 0x1, AtomicOrder.SeqCst);
+            const prev_inbox = &self.inboxes[prev_inbox_index];
+            while (prev_inbox.pop()) |node| {
+                self.outbox.push(node);
+            }
+            return self.outbox.isEmpty();
         }
     };
 }
