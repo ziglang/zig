@@ -616,6 +616,17 @@ test "init with undefined" {
     assert(x == 1);
 }
       {#code_end#}
+      <p>
+      <code>undefined</code> can be {#link|implicitly cast|Implicit Casts#} to any type.
+      Once this happens, it is no longer possible to detect that the value is <code>undefined</code>.
+      <code>undefined</code> means the value could be anything, even something that is nonsense
+      according to the type. Translated into English, <code>undefined</code> means "Not a meaningful
+      value. Using this value would be a bug. The value will be unused, or overwritten before being used."
+      </p>
+      <p>
+      In {#link|Debug#} mode, Zig writes <code>0xaa</code> bytes to undefined memory. This is to catch
+      bugs early, and to help detect use of undefined memory in a debugger.
+      </p>
       {#header_close#}
       {#header_close#}
       {#header_close#}
@@ -2237,21 +2248,28 @@ test "switch inside function" {
       {#see_also|comptime|enum|@compileError|Compile Variables#}
       {#header_close#}
       {#header_open|while#}
+      <p>
+      A while loop is used to repeatedly execute an expression until
+      some condition is no longer true.
+      </p>
       {#code_begin|test|while#}
 const assert = @import("std").debug.assert;
 
 test "while basic" {
-    // A while loop is used to repeatedly execute an expression until
-    // some condition is no longer true.
     var i: usize = 0;
     while (i < 10) {
         i += 1;
     }
     assert(i == 10);
 }
+      {#code_end#}
+      <p>
+      Use <code>break</code> to exit a while loop early.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while break" {
-    // You can use break to exit a while loop early.
     var i: usize = 0;
     while (true) {
         if (i == 10)
@@ -2260,9 +2278,14 @@ test "while break" {
     }
     assert(i == 10);
 }
+      {#code_end#}
+      <p>
+      Use <code>continue</code> to jump back to the beginning of the loop.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while continue" {
-    // You can use continue to jump back to the beginning of the loop.
     var i: usize = 0;
     while (true) {
         i += 1;
@@ -2272,18 +2295,21 @@ test "while continue" {
     }
     assert(i == 10);
 }
+      {#code_end#}
+      <p>
+      While loops support a continue expression which is executed when the loop
+      is continued. The <code>continue</code> keyword respects this expression.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while loop continuation expression" {
-    // You can give an expression to the while loop to execute when
-    // the loop is continued. This is respected by the continue control flow.
     var i: usize = 0;
     while (i < 10) : (i += 1) {}
     assert(i == 10);
 }
 
 test "while loop continuation expression, more complicated" {
-    // More complex blocks can be used as an expression in the loop continue
-    // expression.
     var i1: usize = 1;
     var j1: usize = 1;
     while (i1 * j1 < 2000) : ({ i1 *= 2; j1 *= 3; }) {
@@ -2291,6 +2317,20 @@ test "while loop continuation expression, more complicated" {
         assert(my_ij1 < 2000);
     }
 }
+      {#code_end#}
+      <p>
+      While loops are expressions. The result of the expression is the
+      result of the <code>else</code> clause of a while loop, which is executed when
+      the condition of the while loop is tested as false.
+      </p>
+      <p>
+      <code>break</code>, like <code>return</code>, accepts a value
+      parameter. This is the result of the <code>while</code> expression.
+      When you <code>break</code> from a while loop, the <code>else</code> branch is not
+      evaluated.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while else" {
     assert(rangeHasNumber(0, 10, 5));
@@ -2299,24 +2339,31 @@ test "while else" {
 
 fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
     var i = begin;
-    // While loops are expressions. The result of the expression is the
-    // result of the else clause of a while loop, which is executed when
-    // the condition of the while loop is tested as false.
     return while (i < end) : (i += 1) {
         if (i == number) {
-            // break expressions, like return expressions, accept a value
-            // parameter. This is the result of the while expression.
-            // When you break from a while loop, the else branch is not
-            // evaluated.
             break true;
         }
     } else false;
 }
+      {#code_end#}
+      {#header_open|while with Optionals#}
+      <p>
+      Just like {#link|if#} expressions, while loops can take an optional as the
+      condition and capture the payload. When {#link|null#} is encountered the loop
+      exits.
+      </p>
+      <p>
+      When the <code>|x|</code> syntax is present on a <code>while</code> expression,
+      the while condition must have an {#link|Optional Type#}.
+      </p>
+      <p>
+      The <code>else</code> branch is allowed on optional iteration. In this case, it will
+      be executed on the first null value encountered.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while null capture" {
-    // Just like if expressions, while loops can take an optional as the
-    // condition and capture the payload. When null is encountered the loop
-    // exits.
     var sum1: u32 = 0;
     numbers_left = 3;
     while (eventuallyNullSequence()) |value| {
@@ -2324,26 +2371,12 @@ test "while null capture" {
     }
     assert(sum1 == 3);
 
-    // The else branch is allowed on optional iteration. In this case, it will
-    // be executed on the first null value encountered.
     var sum2: u32 = 0;
     numbers_left = 3;
     while (eventuallyNullSequence()) |value| {
         sum2 += value;
     } else {
         assert(sum1 == 3);
-    }
-
-    // Just like if expressions, while loops can also take an error union as
-    // the condition and capture the payload or the error code. When the
-    // condition results in an error code the else branch is evaluated and
-    // the loop is finished.
-    var sum3: u32 = 0;
-    numbers_left = 3;
-    while (eventuallyErrorSequence()) |value| {
-        sum3 += value;
-    } else |err| {
-        assert(err == error.ReachedZero);
     }
 }
 
@@ -2355,6 +2388,35 @@ fn eventuallyNullSequence() ?u32 {
     };
 }
 
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|while with Error Unions#}
+      <p>
+      Just like {#link|if#} expressions, while loops can take an error union as
+      the condition and capture the payload or the error code. When the
+      condition results in an error code the else branch is evaluated and
+      the loop is finished.
+      </p>
+      <p>
+      When the <code>else |x|</code> syntax is present on a <code>while</code> expression,
+      the while condition must have an {#link|Error Union Type#}.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
+
+test "while error union capture" {
+    var sum1: u32 = 0;
+    numbers_left = 3;
+    while (eventuallyErrorSequence()) |value| {
+        sum1 += value;
+    } else |err| {
+        assert(err == error.ReachedZero);
+    }
+}
+
+var numbers_left: u32 = undefined;
+
 fn eventuallyErrorSequence() error!u32 {
     return if (numbers_left == 0) error.ReachedZero else blk: {
         numbers_left -= 1;
@@ -2362,6 +2424,7 @@ fn eventuallyErrorSequence() error!u32 {
     };
 }
       {#code_end#}
+      {#header_close#}
 
       {#header_open|inline while#}
       <p>

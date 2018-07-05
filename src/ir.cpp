@@ -6674,7 +6674,10 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
     }
     Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
     IrInstruction *promise_result_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, result_field_name);
+    // If the type of the result handle_is_ptr then this does not actually perform a load. But we need it to,
+    // because we're about to destroy the memory. So we store it into our result variable.
     IrInstruction *no_suspend_result = ir_build_load_ptr(irb, parent_scope, node, promise_result_ptr);
+    ir_build_store_ptr(irb, parent_scope, node, my_result_var_ptr, no_suspend_result);
     ir_build_cancel(irb, parent_scope, node, target_inst);
     ir_build_br(irb, parent_scope, node, merge_block, const_bool_false);
 
@@ -6696,17 +6699,10 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
     ir_mark_gen(ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false));
 
     ir_set_cursor_at_end_and_append_block(irb, resume_block);
-    IrInstruction *yes_suspend_result = ir_build_load_ptr(irb, parent_scope, node, my_result_var_ptr);
     ir_build_br(irb, parent_scope, node, merge_block, const_bool_false);
 
     ir_set_cursor_at_end_and_append_block(irb, merge_block);
-    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
-    IrInstruction **incoming_values = allocate<IrInstruction *>(2);
-    incoming_blocks[0] = resume_block;
-    incoming_values[0] = yes_suspend_result;
-    incoming_blocks[1] = no_suspend_block;
-    incoming_values[1] = no_suspend_result;
-    return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+    return ir_build_load_ptr(irb, parent_scope, node, my_result_var_ptr);
 }
 
 static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNode *node) {

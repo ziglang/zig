@@ -4417,22 +4417,14 @@ Buf *get_linux_libc_include_path(void) {
     }
     char *prev_newline = buf_ptr(out_stderr);
     ZigList<const char *> search_paths = {};
-    bool found_search_paths = false;
     for (;;) {
         char *newline = strchr(prev_newline, '\n');
         if (newline == nullptr) {
-            zig_panic("unable to determine libc include path: bad output from C compiler command");
+            break;
         }
         *newline = 0;
-        if (found_search_paths) {
-            if (strcmp(prev_newline, "End of search list.") == 0) {
-                break;
-            }
+        if (prev_newline[0] == ' ') {
             search_paths.append(prev_newline);
-        } else {
-            if (strcmp(prev_newline, "#include <...> search starts here:") == 0) {
-                found_search_paths = true;
-            }
         }
         prev_newline = newline + 1;
     }
