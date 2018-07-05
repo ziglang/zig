@@ -150,11 +150,11 @@ bin/zig build --build-file ../build.zig test
 ##### MacOS
 
 ```
-brew install cmake llvm@6
-brew outdated llvm@6 || brew upgrade llvm@6
+brew install cmake llvm
+brew outdated llvm || brew upgrade llvm
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@6/
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm/
 make install
 bin/zig build --build-file ../build.zig test
 ```
