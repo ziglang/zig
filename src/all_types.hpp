@@ -2193,6 +2193,7 @@ struct IrInstructionSwitchBr {
     size_t case_count;
     IrInstructionSwitchBrCase *cases;
     IrInstruction *is_comptime;
+    IrInstruction *switch_prongs_void;
 };
 
 struct IrInstructionSwitchVar {

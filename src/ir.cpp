@@ -1719,7 +1719,8 @@ static IrInstruction *ir_build_ctz_from(IrBuilder *irb, IrInstruction *old_instr
 }
 
 static IrInstruction *ir_build_switch_br(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *target_value,
-        IrBasicBlock *else_block, size_t case_count, IrInstructionSwitchBrCase *cases, IrInstruction *is_comptime)
+        IrBasicBlock *else_block, size_t case_count, IrInstructionSwitchBrCase *cases, IrInstruction *is_comptime,
+        IrInstruction *switch_prongs_void)
 {
     IrInstructionSwitchBr *instruction = ir_build_instruction<IrInstructionSwitchBr>(irb, scope, source_node);
     instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
@@ -1729,10 +1730,12 @@ static IrInstruction *ir_build_switch_br(IrBuilder *irb, Scope *scope, AstNode *
     instruction->case_count = case_count;
     instruction->cases = cases;
     instruction->is_comptime = is_comptime;
+    instruction->switch_prongs_void = switch_prongs_void;
 
     ir_ref_instruction(target_value, irb->current_basic_block);
     if (is_comptime) ir_ref_instruction(is_comptime, irb->current_basic_block);
     ir_ref_bb(else_block);
+    if (switch_prongs_void) ir_ref_instruction(switch_prongs_void, irb->current_basic_block);
 
     for (size_t i = 0; i < case_count; i += 1) {
         ir_ref_instruction(cases[i].value, irb->current_basic_block);
@@ -1744,10 +1747,10 @@ static IrInstruction *ir_build_switch_br(IrBuilder *irb, Scope *scope, AstNode *
 
 static IrInstruction *ir_build_switch_br_from(IrBuilder *irb, IrInstruction *old_instruction,
         IrInstruction *target_value, IrBasicBlock *else_block, size_t case_count,
-        IrInstructionSwitchBrCase *cases, IrInstruction *is_comptime)
+        IrInstructionSwitchBrCase *cases, IrInstruction *is_comptime, IrInstruction *switch_prongs_void)
 {
     IrInstruction *new_instruction = ir_build_switch_br(irb, old_instruction->scope, old_instruction->source_node,
-            target_value, else_block, case_count, cases, is_comptime);
+            target_value, else_block, case_count, cases, is_comptime, switch_prongs_void);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -6035,13 +6038,13 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     }
 
-    ir_build_check_switch_prongs(irb, scope, node, target_value, check_ranges.items, check_ranges.length,
+    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value, check_ranges.items, check_ranges.length,
             else_prong != nullptr);
 
     if (cases.length == 0) {
         ir_build_br(irb, scope, node, else_block, is_comptime);
     } else {
-        ir_build_switch_br(irb, scope, node, target_value, else_block, cases.length, cases.items, is_comptime);
+        ir_build_switch_br(irb, scope, node, target_value, else_block, cases.length, cases.items, is_comptime, switch_prongs_void);
     }
 
     if (!else_prong) {
@@ -6692,7 +6695,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
     cases[1].value = ir_build_const_u8(irb, parent_scope, node, 1);
     cases[1].block = cleanup_block;
     ir_build_switch_br(irb, parent_scope, node, suspend_code, irb->exec->coro_suspend_block,
-            2, cases, const_bool_false);
+            2, cases, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
     ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
@@ -6773,7 +6776,7 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     cases[1].value = ir_mark_gen(ir_build_const_u8(irb, parent_scope, node, 1));
     cases[1].block = cleanup_block;
     ir_mark_gen(ir_build_switch_br(irb, parent_scope, node, suspend_code, irb->exec->coro_suspend_block,
-            2, cases, const_bool_false));
+            2, cases, const_bool_false, nullptr));
 
     ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
     ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
@@ -7078,7 +7081,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         cases[0].block = invalid_resume_block;
         cases[1].value = ir_build_const_u8(irb, scope, node, 1);
         cases[1].block = irb->exec->coro_final_cleanup_block;
-        ir_build_switch_br(irb, scope, node, suspend_code, irb->exec->coro_suspend_block, 2, cases, const_bool_false);
+        ir_build_switch_br(irb, scope, node, suspend_code, irb->exec->coro_suspend_block, 2, cases, const_bool_false, nullptr);
 
         ir_set_cursor_at_end_and_append_block(irb, irb->exec->coro_suspend_block);
         ir_build_coro_end(irb, scope, node);
@@ -15297,6 +15300,13 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
     if (type_is_invalid(target_value->value.type))
         return ir_unreach_error(ira);
 
+    if (switch_br_instruction->switch_prongs_void != nullptr) {
+        if (type_is_invalid(switch_br_instruction->switch_prongs_void->other->value.type)) {
+            return ir_unreach_error(ira);
+        }
+    }
+
+
     size_t case_count = switch_br_instruction->case_count;
 
     bool is_comptime;
@@ -15387,7 +15397,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
 
     IrBasicBlock *new_else_block = ir_get_new_bb(ira, switch_br_instruction->else_block, &switch_br_instruction->base);
     ir_build_switch_br_from(&ira->new_irb, &switch_br_instruction->base,
-            target_value, new_else_block, case_count, cases, nullptr);
+            target_value, new_else_block, case_count, cases, nullptr, nullptr);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
@@ -19136,27 +19146,27 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             IrInstruction *start_value = range->start->other;
             if (type_is_invalid(start_value->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
+            IrInstruction *casted_start_value = ir_implicit_cast(ira, start_value, switch_type);
+            if (type_is_invalid(casted_start_value->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
 
             IrInstruction *end_value = range->end->other;
             if (type_is_invalid(end_value->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
+            IrInstruction *casted_end_value = ir_implicit_cast(ira, end_value, switch_type);
+            if (type_is_invalid(casted_end_value->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
 
-            ConstExprValue *start_val = ir_resolve_const(ira, start_value, UndefBad);
+            ConstExprValue *start_val = ir_resolve_const(ira, casted_start_value, UndefBad);
             if (!start_val)
                 return ira->codegen->builtin_types.entry_invalid;
 
-            ConstExprValue *end_val = ir_resolve_const(ira, end_value, UndefBad);
+            ConstExprValue *end_val = ir_resolve_const(ira, casted_end_value, UndefBad);
             if (!end_val)
                 return ira->codegen->builtin_types.entry_invalid;
 
-            if (start_val->type->id == TypeTableEntryIdEnum)
-                return ira->codegen->builtin_types.entry_invalid;
             assert(start_val->type->id == TypeTableEntryIdInt || start_val->type->id == TypeTableEntryIdComptimeInt);
-
-            if (end_val->type->id == TypeTableEntryIdEnum)
-                return ira->codegen->builtin_types.entry_invalid;
             assert(end_val->type->id == TypeTableEntryIdInt || end_val->type->id == TypeTableEntryIdComptimeInt);
-
             AstNode *prev_node = rangeset_add_range(&rs, &start_val->data.x_bigint, &end_val->data.x_bigint,
                     start_value->source_node);
             if (prev_node != nullptr) {
