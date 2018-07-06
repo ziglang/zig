@@ -679,7 +679,7 @@ fn divide(a: i32, b: i32) i32 {
       {#header_open|Float Literals#}
       <p>
       Float literals have type <code>comptime_float</code> which is guaranteed to hold at least all possible values
-      that the largest other floating point type can hold. Float literals implicitly cast to any other type.
+      that the largest other floating point type can hold. Float literals {#link|implicitly cast|Implicit Casts#} to any other type.
       </p>
       {#code_begin|syntax#}
 const floating_point = 123.0E+77;
@@ -1604,7 +1604,7 @@ test "variable alignment" {
     }
 }
       {#code_end#}
-      <p>In the same way that a <code>*i32</code> can be implicitly cast to a
+      <p>In the same way that a <code>*i32</code> can be {#link|implicitly cast|Implicit Casts#} to a
       <code>*const i32</code>, a pointer with a larger alignment can be implicitly
       cast to a pointer with a smaller alignment, but not vice versa.
       </p>
@@ -2968,7 +2968,7 @@ test "fn reflection" {
       However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
-      You can implicitly cast an error from a subset to its superset:
+      You can {#link|implicitly cast|Implicit Casts#} an error from a subset to its superset:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -3101,7 +3101,7 @@ test "parse u64" {
       <p>
       Within the function definition, you can see some return statements that return
       an error, and at the bottom a return statement that returns a <code>u64</code>.
-      Both types implicitly cast to <code>error!u64</code>.
+      Both types {#link|implicitly cast|Implicit Casts#} to <code>error!u64</code>.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
