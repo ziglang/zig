@@ -212,6 +212,43 @@ static uint8_t bits_needed_for_unsigned(uint64_t x) {
     return (upper >= x) ? base : (base + 1);
 }
 
+AstNode *type_decl_node(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+        case TypeTableEntryIdStruct:
+            return type_entry->data.structure.decl_node;
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.decl_node;
+        case TypeTableEntryIdUnion:
+            return type_entry->data.unionation.decl_node;
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdComptimeFloat:
+        case TypeTableEntryIdComptimeInt:
+        case TypeTableEntryIdUndefined:
+        case TypeTableEntryIdNull:
+        case TypeTableEntryIdOptional:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdErrorSet:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 bool type_is_complete(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:

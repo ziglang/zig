@@ -1,6 +1,40 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addCase(x: {
+        const tc = cases.create(
+            "wrong same named struct",
+            \\const a = @import("a.zig");
+            \\const b = @import("b.zig");
+            \\
+            \\export fn entry() void {
+            \\    var a1: a.Foo = undefined;
+            \\    bar(&a1);
+            \\}
+            \\
+            \\fn bar(x: *b.Foo) void {}
+        ,
+            ".tmp_source.zig:6:10: error: expected type '*Foo', found '*Foo'",
+            ".tmp_source.zig:6:10: note: pointer type child 'Foo' cannot cast into pointer type child 'Foo'",
+            "a.zig:1:17: note: Foo declared here",
+            "b.zig:1:17: note: Foo declared here",
+        );
+
+        tc.addSourceFile("a.zig",
+            \\pub const Foo = struct {
+            \\    x: i32,
+            \\};
+        );
+
+        tc.addSourceFile("b.zig",
+            \\pub const Foo = struct {
+            \\    z: f64,
+            \\};
+        );
+
+        break :x tc;
+    });
+
     cases.add(
         "enum field value references enum",
         \\pub const Foo = extern enum {
@@ -358,9 +392,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:3:14: note: other value is here",
     );
 
-
-    cases.add(
-        "invalid cast from integral type to enum",
+    cases.add("invalid cast from integral type to enum",
         \\const E = enum(usize) { One, Two };
         \\
         \\export fn entry() void {
@@ -372,9 +404,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        E.One => {},
         \\    }
         \\}
-    ,
-        ".tmp_source.zig:9:10: error: expected type 'usize', found 'E'"
-    );
+    , ".tmp_source.zig:9:10: error: expected type 'usize', found 'E'");
 
     cases.add(
         "range operator in switch used on error set",

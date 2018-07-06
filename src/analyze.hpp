@@ -202,5 +202,6 @@ uint32_t get_coro_frame_align_bytes(CodeGen *g);
 bool fn_type_can_fail(FnTypeId *fn_type_id);
 bool type_can_fail(TypeTableEntry *type_entry);
 bool fn_eval_cacheable(Scope *scope, TypeTableEntry *return_type);
+AstNode *type_decl_node(TypeTableEntry *type_entry);
 
 #endif

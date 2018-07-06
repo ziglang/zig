@@ -82,6 +82,7 @@ struct ConstCastSliceMismatch;
 struct ConstCastErrUnionErrSetMismatch;
 struct ConstCastErrUnionPayloadMismatch;
 struct ConstCastErrSetMismatch;
+struct ConstCastTypeMismatch;
 
 struct ConstCastOnly {
     ConstCastResultId id;
@@ -92,12 +93,18 @@ struct ConstCastOnly {
         ConstCastOptionalMismatch *optional;
         ConstCastErrUnionPayloadMismatch *error_union_payload;
         ConstCastErrUnionErrSetMismatch *error_union_error_set;
+        ConstCastTypeMismatch *type_mismatch;
         ConstCastOnly *return_type;
         ConstCastOnly *async_allocator_type;
         ConstCastOnly *null_wrap_ptr_child;
         ConstCastArg fn_arg;
         ConstCastArgNoAlias arg_no_alias;
     } data;
+};
+
+struct ConstCastTypeMismatch {
+    TypeTableEntry *wanted_type;
+    TypeTableEntry *actual_type;
 };
 
 struct ConstCastOptionalMismatch {
@@ -8128,15 +8135,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     }
 
     // pointer const
-    if (wanted_type->id == TypeTableEntryIdPointer &&
-        actual_type->id == TypeTableEntryIdPointer &&
-        (actual_type->data.pointer.ptr_len == wanted_type->data.pointer.ptr_len) &&
-        (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
-        (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile) &&
-        actual_type->data.pointer.bit_offset == wanted_type->data.pointer.bit_offset &&
-        actual_type->data.pointer.unaligned_bit_count == wanted_type->data.pointer.unaligned_bit_count &&
-        actual_type->data.pointer.alignment >= wanted_type->data.pointer.alignment)
-    {
+    if (wanted_type->id == TypeTableEntryIdPointer && actual_type->id == TypeTableEntryIdPointer) {
         ConstCastOnly child = types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
                 actual_type->data.pointer.child_type, source_node, !wanted_type->data.pointer.is_const);
         if (child.id != ConstCastResultIdOk) {
@@ -8145,8 +8144,17 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
             result.data.pointer_mismatch->child = child;
             result.data.pointer_mismatch->wanted_child = wanted_type->data.pointer.child_type;
             result.data.pointer_mismatch->actual_child = actual_type->data.pointer.child_type;
+            return result;
         }
-        return result;
+        if ((actual_type->data.pointer.ptr_len == wanted_type->data.pointer.ptr_len) &&
+            (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
+            (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile) &&
+            actual_type->data.pointer.bit_offset == wanted_type->data.pointer.bit_offset &&
+            actual_type->data.pointer.unaligned_bit_count == wanted_type->data.pointer.unaligned_bit_count &&
+            actual_type->data.pointer.alignment >= wanted_type->data.pointer.alignment)
+        {
+            return result;
+        }
     }
 
     // slice const
@@ -8341,6 +8349,9 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     }
 
     result.id = ConstCastResultIdType;
+    result.data.type_mismatch = allocate_nonzero<ConstCastTypeMismatch>(1);
+    result.data.type_mismatch->wanted_type = wanted_type;
+    result.data.type_mismatch->actual_type = actual_type;
     return result;
 }
 
@@ -10154,6 +10165,21 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             report_recursive_error(ira, source_node, &cast_result->data.error_union_payload->child, msg);
             break;
         }
+        case ConstCastResultIdType: {
+            AstNode *wanted_decl_node = type_decl_node(cast_result->data.type_mismatch->wanted_type);
+            AstNode *actual_decl_node = type_decl_node(cast_result->data.type_mismatch->actual_type);
+            if (wanted_decl_node != nullptr) {
+                add_error_note(ira->codegen, parent_msg, wanted_decl_node,
+                    buf_sprintf("%s declared here",
+                        buf_ptr(&cast_result->data.type_mismatch->wanted_type->name)));
+            }
+            if (actual_decl_node != nullptr) {
+                add_error_note(ira->codegen, parent_msg, actual_decl_node,
+                    buf_sprintf("%s declared here",
+                        buf_ptr(&cast_result->data.type_mismatch->actual_type->name)));
+            }
+            break;
+        }
         case ConstCastResultIdFnAlign: // TODO
         case ConstCastResultIdFnCC: // TODO
         case ConstCastResultIdFnVarArgs: // TODO
@@ -10163,7 +10189,6 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
         case ConstCastResultIdFnGenericArgCount: // TODO
         case ConstCastResultIdFnArg: // TODO
         case ConstCastResultIdFnArgNoAlias: // TODO
-        case ConstCastResultIdType: // TODO
         case ConstCastResultIdUnresolvedInferredErrSet: // TODO
         case ConstCastResultIdAsyncAllocatorType: // TODO
         case ConstCastResultIdNullWrapPtr: // TODO
