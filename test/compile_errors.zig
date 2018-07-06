@@ -358,6 +358,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:3:14: note: other value is here",
     );
 
+
+    cases.add(
+        "invalid cast from integral type to enum",
+        \\const E = enum(usize) { One, Two };
+        \\
+        \\export fn entry() void {
+        \\    foo(1);
+        \\}
+        \\
+        \\fn foo(x: usize) void {
+        \\    switch (x) {
+        \\        E.One => {},
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:9:10: error: expected type 'usize', found 'E'"
+    );
+
     cases.add(
         "range operator in switch used on error set",
         \\export fn entry() void {
