@@ -501,6 +501,12 @@ static void ir_print_ctz(IrPrint *irp, IrInstructionCtz *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_pop_count(IrPrint *irp, IrInstructionPopCount *instruction) {
+    fprintf(irp->f, "@popCount(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_switch_br(IrPrint *irp, IrInstructionSwitchBr *instruction) {
     fprintf(irp->f, "switch (");
     ir_print_other_instruction(irp, instruction->target_value);
@@ -1424,6 +1430,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCtz:
             ir_print_ctz(irp, (IrInstructionCtz *)instruction);
+            break;
+        case IrInstructionIdPopCount:
+            ir_print_pop_count(irp, (IrInstructionPopCount *)instruction);
             break;
         case IrInstructionIdClz:
             ir_print_clz(irp, (IrInstructionClz *)instruction);

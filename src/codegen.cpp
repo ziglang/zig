@@ -3426,14 +3426,22 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
 static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, BuiltinFnId fn_id) {
     ZigLLVMFnKey key = {};
     const char *fn_name;
+    uint32_t n_args;
     if (fn_id == BuiltinFnIdCtz) {
         fn_name = "cttz";
+        n_args = 2;
         key.id = ZigLLVMFnIdCtz;
         key.data.ctz.bit_count = (uint32_t)int_type->data.integral.bit_count;
     } else if (fn_id == BuiltinFnIdClz) {
         fn_name = "ctlz";
+        n_args = 2;
         key.id = ZigLLVMFnIdClz;
         key.data.clz.bit_count = (uint32_t)int_type->data.integral.bit_count;
+    } else if (fn_id == BuiltinFnIdPopCount) {
+        fn_name = "ctpop";
+        n_args = 1;
+        key.id = ZigLLVMFnIdPopCount;
+        key.data.pop_count.bit_count = (uint32_t)int_type->data.integral.bit_count;
     } else {
         zig_unreachable();
     }
@@ -3448,7 +3456,7 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, Bui
         int_type->type_ref,
         LLVMInt1Type(),
     };
-    LLVMTypeRef fn_type = LLVMFunctionType(int_type->type_ref, param_types, 2, false);
+    LLVMTypeRef fn_type = LLVMFunctionType(int_type->type_ref, param_types, n_args, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, llvm_name, fn_type);
     assert(LLVMGetIntrinsicID(fn_val));
 
@@ -3478,6 +3486,14 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
         LLVMConstNull(LLVMInt1Type()),
     };
     LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
+}
+
+static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
+    TypeTableEntry *int_type = instruction->value->value.type;
+    LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
 }
 
@@ -4831,6 +4847,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_clz(g, executable, (IrInstructionClz *)instruction);
         case IrInstructionIdCtz:
             return ir_render_ctz(g, executable, (IrInstructionCtz *)instruction);
+        case IrInstructionIdPopCount:
+            return ir_render_pop_count(g, executable, (IrInstructionPopCount *)instruction);
         case IrInstructionIdSwitchBr:
             return ir_render_switch_br(g, executable, (IrInstructionSwitchBr *)instruction);
         case IrInstructionIdPhi:
@@ -6342,6 +6360,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);
     create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 1);
     create_builtin_fn(g, BuiltinFnIdClz, "clz", 1);
+    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 1);
     create_builtin_fn(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);

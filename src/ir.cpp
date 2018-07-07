@@ -427,6 +427,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCtz *) {
     return IrInstructionIdCtz;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPopCount *) {
+    return IrInstructionIdPopCount;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionTag *) {
     return IrInstructionIdUnionTag;
 }
@@ -1723,6 +1727,15 @@ static IrInstruction *ir_build_ctz_from(IrBuilder *irb, IrInstruction *old_instr
     IrInstruction *new_instruction = ir_build_ctz(irb, old_instruction->scope, old_instruction->source_node, value);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
+}
+
+static IrInstruction *ir_build_pop_count(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+    IrInstructionPopCount *instruction = ir_build_instruction<IrInstructionPopCount>(irb, scope, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
 }
 
 static IrInstruction *ir_build_switch_br(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *target_value,
@@ -3840,6 +3853,16 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *ctz = ir_build_ctz(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, ctz, lval);
+            }
+        case BuiltinFnIdPopCount:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                IrInstruction *instr = ir_build_pop_count(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, instr, lval);
             }
         case BuiltinFnIdClz:
             {
@@ -15275,6 +15298,48 @@ static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionC
     }
 }
 
+static TypeTableEntry *ir_analyze_instruction_pop_count(IrAnalyze *ira, IrInstructionPopCount *instruction) {
+    IrInstruction *value = instruction->value->other;
+    if (type_is_invalid(value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (value->value.type->id != TypeTableEntryIdInt && value->value.type->id != TypeTableEntryIdComptimeInt) {
+        ir_add_error(ira, value,
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(value)) {
+        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+        if (bigint_cmp_zero(&val->data.x_bigint) != CmpLT) {
+            size_t result = bigint_popcount_unsigned(&val->data.x_bigint);
+            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+            bigint_init_unsigned(&out_val->data.x_bigint, result);
+            return ira->codegen->builtin_types.entry_num_lit_int;
+        }
+        if (value->value.type->id == TypeTableEntryIdComptimeInt) {
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &val->data.x_bigint, 10);
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("@popCount on negative %s value %s",
+                    buf_ptr(&value->value.type->name), buf_ptr(val_buf)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        size_t result = bigint_popcount_signed(&val->data.x_bigint, value->value.type->data.integral.bit_count);
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        bigint_init_unsigned(&out_val->data.x_bigint, result);
+        return ira->codegen->builtin_types.entry_num_lit_int;
+    }
+
+    IrInstruction *result = ir_build_pop_count(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, value);
+    result->value.type = get_smallest_unsigned_int_type(ira->codegen, value->value.type->data.integral.bit_count);
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
 static IrInstruction *ir_analyze_union_tag(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value) {
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
@@ -20534,6 +20599,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_clz(ira, (IrInstructionClz *)instruction);
         case IrInstructionIdCtz:
             return ir_analyze_instruction_ctz(ira, (IrInstructionCtz *)instruction);
+        case IrInstructionIdPopCount:
+            return ir_analyze_instruction_pop_count(ira, (IrInstructionPopCount *)instruction);
         case IrInstructionIdSwitchBr:
             return ir_analyze_instruction_switch_br(ira, (IrInstructionSwitchBr *)instruction);
         case IrInstructionIdSwitchTarget:
@@ -20892,6 +20959,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdUnwrapOptional:
         case IrInstructionIdClz:
         case IrInstructionIdCtz:
+        case IrInstructionIdPopCount:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdUnionTag:

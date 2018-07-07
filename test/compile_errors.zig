@@ -1,6 +1,24 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add(
+        "@popCount - non-integer",
+        \\export fn entry(x: f32) u32 {
+        \\    return @popCount(x);
+        \\}
+    ,
+        ".tmp_source.zig:2:22: error: expected integer type, found 'f32'",
+    );
+
+    cases.add(
+        "@popCount - negative comptime_int",
+        \\comptime {
+        \\    _ = @popCount(-1);
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: @popCount on negative comptime_int value -1",
+    );
+
     cases.addCase(x: {
         const tc = cases.create(
             "wrong same named struct",

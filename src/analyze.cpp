@@ -5976,6 +5976,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.ctz.bit_count) * (uint32_t)810453934;
         case ZigLLVMFnIdClz:
             return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
+        case ZigLLVMFnIdPopCount:
+            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)101195049;
         case ZigLLVMFnIdFloor:
             return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1899859168;
         case ZigLLVMFnIdCeil:
@@ -5998,6 +6000,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.ctz.bit_count == b.data.ctz.bit_count;
         case ZigLLVMFnIdClz:
             return a.data.clz.bit_count == b.data.clz.bit_count;
+        case ZigLLVMFnIdPopCount:
+            return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
         case ZigLLVMFnIdSqrt:

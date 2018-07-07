@@ -1593,6 +1593,37 @@ void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base) {
     }
 }
 
+size_t bigint_popcount_unsigned(const BigInt *bi) {
+    assert(!bi->is_negative);
+    if (bi->digit_count == 0)
+        return 0;
+
+    size_t count = 0;
+    size_t bit_count = bi->digit_count * 64;
+    for (size_t i = 0; i < bit_count; i += 1) {
+        if (bit_at_index(bi, i))
+            count += 1;
+    }
+    return count;
+}
+
+size_t bigint_popcount_signed(const BigInt *bi, size_t bit_count) {
+    if (bit_count == 0)
+        return 0;
+    if (bi->digit_count == 0)
+        return 0;
+
+    BigInt twos_comp = {0};
+    to_twos_complement(&twos_comp, bi, bit_count);
+
+    size_t count = 0;
+    for (size_t i = 0; i < bit_count; i += 1) {
+        if (bit_at_index(&twos_comp, i))
+            count += 1;
+    }
+    return count;
+}
+
 size_t bigint_ctz(const BigInt *bi, size_t bit_count) {
     if (bit_count == 0)
         return 0;
