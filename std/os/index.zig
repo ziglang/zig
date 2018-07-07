@@ -2748,3 +2748,42 @@ pub fn posixFStat(fd: i32) !posix.Stat {
 
     return stat;
 }
+
+pub const CpuCountError = error{
+    OutOfMemory,
+    PermissionDenied,
+    Unexpected,
+};
+
+pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
+    const usize_count = 16;
+    const allocator = std.heap.stackFallback(usize_count * @sizeOf(usize), fallback_allocator).get();
+
+    var set = try allocator.alloc(usize, usize_count);
+    defer allocator.free(set);
+
+    while (true) {
+        const rc = posix.sched_getaffinity(0, set);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => {
+                if (rc < set.len * @sizeOf(usize)) {
+                    const result = set[0 .. rc / @sizeOf(usize)];
+                    var sum: usize = 0;
+                    for (result) |x| {
+                        sum += @popCount(x);
+                    }
+                    return sum;
+                } else {
+                    set = try allocator.realloc(usize, set, set.len * 2);
+                    continue;
+                }
+            },
+            posix.EFAULT => unreachable,
+            posix.EINVAL => unreachable,
+            posix.EPERM => return CpuCountError.PermissionDenied,
+            posix.ESRCH => unreachable,
+            else => return os.unexpectedErrorPosix(err),
+        }
+    }
+}

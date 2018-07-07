@@ -1197,6 +1197,10 @@ pub fn fremovexattr(fd: usize, name: [*]const u8) usize {
     return syscall2(SYS_fremovexattr, fd, @ptrToInt(name));
 }
 
+pub fn sched_getaffinity(pid: i32, set: []usize) usize {
+    return syscall3(SYS_sched_getaffinity, @bitCast(usize, isize(pid)), set.len * @sizeOf(usize), @ptrToInt(set.ptr));
+}
+
 pub const epoll_data = packed union {
     ptr: usize,
     fd: i32,

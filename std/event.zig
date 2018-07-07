@@ -150,8 +150,8 @@ pub const Loop = struct {
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
-        // TODO check the actual cpu core count
-        return self.initInternal(allocator, 4);
+        const core_count = try std.os.cpuCount(allocator);
+        return self.initInternal(allocator, core_count);
     }
 
     /// Thread count is the total thread count. The thread pool size will be
