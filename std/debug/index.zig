@@ -156,7 +156,7 @@ pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, 
         frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
     }) {
         const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, out_stream, return_address);
+        try printSourceAtAddress(debug_info, out_stream, return_address, tty_color);
     }
 }
 
@@ -189,13 +189,11 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_
                 }
             },
         }
-        try printSourceAtAddress(debug_info, out_stream, return_address);
+        try printSourceAtAddress(debug_info, out_stream, return_address, tty_color);
     }
 }
 
-fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: usize) !void {
-    const ptr_hex = "0x{x}";
-
+fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: usize, tty_color: bool) !void {
     switch (builtin.os) {
         builtin.Os.windows => return error.UnsupportedDebugInfo,
         builtin.Os.macosx => {
@@ -209,36 +207,58 @@ fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: us
                 .address = address,
             };
             const symbol = debug_info.symbol_table.search(address) orelse &unknown;
-            try out_stream.print(WHITE ++ "{}" ++ RESET ++ ": " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n", symbol.name, address);
+            try out_stream.print(WHITE ++ "{}" ++ RESET ++ ": " ++ DIM ++ "0x{x}" ++ " in ??? (???)" ++ RESET ++ "\n", symbol.name, address);
         },
         else => {
             const compile_unit = findCompileUnit(debug_info, address) catch {
-                try out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n", address);
+                if (tty_color) {
+                    try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n    ???\n\n", address);
+                } else {
+                    try out_stream.print("???:?:?: 0x{x} in ??? (???)\n    ???\n\n", address);
+                }
                 return;
             };
             const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
             if (getLineNumberInfo(debug_info, compile_unit, address - 1)) |line_info| {
                 defer line_info.deinit();
-                try out_stream.print(WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++ DIM ++ ptr_hex ++ " in ??? ({})" ++ RESET ++ "\n", line_info.file_name, line_info.line, line_info.column, address, compile_unit_name);
-                if (printLineFromFile(debug_info.allocator(), out_stream, line_info)) {
-                    if (line_info.column == 0) {
-                        try out_stream.write("\n");
-                    } else {
-                        {
-                            var col_i: usize = 1;
-                            while (col_i < line_info.column) : (col_i += 1) {
-                                try out_stream.writeByte(' ');
+                if (tty_color) {
+                    try out_stream.print(
+                        WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++ DIM ++ "0x{x} in ??? ({})" ++ RESET ++ "\n",
+                        line_info.file_name,
+                        line_info.line,
+                        line_info.column,
+                        address,
+                        compile_unit_name,
+                    );
+                    if (printLineFromFile(debug_info.allocator(), out_stream, line_info)) {
+                        if (line_info.column == 0) {
+                            try out_stream.write("\n");
+                        } else {
+                            {
+                                var col_i: usize = 1;
+                                while (col_i < line_info.column) : (col_i += 1) {
+                                    try out_stream.writeByte(' ');
+                                }
                             }
+                            try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
                         }
-                        try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
+                    } else |err| switch (err) {
+                        error.EndOfFile => {},
+                        else => return err,
                     }
-                } else |err| switch (err) {
-                    error.EndOfFile => {},
-                    else => return err,
+                } else {
+                    try out_stream.print(
+                        "{}:{}:{}: 0x{x} in ??? ({})\n",
+                        line_info.file_name,
+                        line_info.line,
+                        line_info.column,
+                        address,
+                        compile_unit_name,
+                    );
                 }
             } else |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => {
-                    try out_stream.print(ptr_hex ++ " in ??? ({})\n", address, compile_unit_name);
+                    try out_stream.print("0x{x} in ??? ({})\n", address, compile_unit_name);
                 },
                 else => return err,
             }

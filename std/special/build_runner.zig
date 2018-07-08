@@ -122,10 +122,13 @@ pub fn main() !void {
         return usageAndErr(&builder, true, try stderr_stream);
 
     builder.make(targets.toSliceConst()) catch |err| {
-        if (err == error.InvalidStepName) {
-            return usageAndErr(&builder, true, try stderr_stream);
+        switch (err) {
+            error.InvalidStepName => {
+                return usageAndErr(&builder, true, try stderr_stream);
+            },
+            error.UncleanExit => os.exit(1),
+            else => return err,
         }
-        return err;
     };
 }
 
