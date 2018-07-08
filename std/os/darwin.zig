@@ -264,6 +264,119 @@ pub const SIGUSR1 = 30;
 /// user defined signal 2
 pub const SIGUSR2 = 31;
 
+pub const KEVENT_FLAG_NONE = 0x000; /// no flag value
+pub const KEVENT_FLAG_IMMEDIATE = 0x001; /// immediate timeout
+pub const KEVENT_FLAG_ERROR_EVENTS = 0x002; /// output events only include change
+
+pub const EV_ADD = 0x0001; /// add event to kq (implies enable)
+pub const EV_DELETE = 0x0002; /// delete event from kq
+pub const EV_ENABLE = 0x0004; /// enable event
+pub const EV_DISABLE = 0x0008; /// disable event (not reported)
+
+pub const EV_ONESHOT = 0x0010; /// only report one occurrence
+pub const EV_CLEAR = 0x0020; /// clear event state after reporting
+
+/// force immediate event output
+/// ... with or without EV_ERROR
+/// ... use KEVENT_FLAG_ERROR_EVENTS
+///     on syscalls supporting flags
+pub const EV_RECEIPT = 0x0040;
+
+pub const EV_DISPATCH = 0x0080; /// disable event after reporting
+pub const EV_UDATA_SPECIFIC = 0x0100; /// unique kevent per udata value
+
+/// ... in combination with EV_DELETE
+/// will defer delete until udata-specific
+/// event enabled. EINPROGRESS will be
+/// returned to indicate the deferral
+pub const EV_DISPATCH2 = EV_DISPATCH | EV_UDATA_SPECIFIC;
+
+/// report that source has vanished 
+/// ... only valid with EV_DISPATCH2
+pub const EV_VANISHED = 0x0200;
+
+pub const EV_SYSFLAGS = 0xF000; /// reserved by system
+pub const EV_FLAG0 = 0x1000; /// filter-specific flag
+pub const EV_FLAG1 = 0x2000; /// filter-specific flag
+pub const EV_EOF = 0x8000; /// EOF detected
+pub const EV_ERROR = 0x4000; /// error, data contains errno
+
+pub const EV_POLL = EV_FLAG0;
+pub const EV_OOBAND = EV_FLAG1;
+
+pub const EVFILT_READ = -1;
+pub const EVFILT_WRITE = -2;
+pub const EVFILT_AIO = -3; /// attached to aio requests
+pub const EVFILT_VNODE = -4; /// attached to vnodes
+pub const EVFILT_PROC = -5; /// attached to struct proc
+pub const EVFILT_SIGNAL = -6; /// attached to struct proc
+pub const EVFILT_TIMER = -7; /// timers
+pub const EVFILT_MACHPORT = -8; /// Mach portsets
+pub const EVFILT_FS = -9; /// Filesystem events
+pub const EVFILT_USER = -10; /// User events
+pub const EVFILT_VM = -12; /// Virtual memory events
+
+pub const EVFILT_EXCEPT = -15; /// Exception events
+
+pub const EVFILT_SYSCOUNT = 17;
+
+/// On input, NOTE_TRIGGER causes the event to be triggered for output.
+pub const NOTE_TRIGGER = 0x01000000;
+
+pub const NOTE_FFNOP      = 0x00000000; /// ignore input fflags
+pub const NOTE_FFAND      = 0x40000000; /// and fflags
+pub const NOTE_FFOR       = 0x80000000; /// or fflags
+pub const NOTE_FFCOPY     = 0xc0000000; /// copy fflags
+pub const NOTE_FFCTRLMASK = 0xc0000000; /// mask for operations
+pub const NOTE_FFLAGSMASK = 0x00ffffff;
+
+pub const NOTE_LOWAT = 0x00000001; /// low water mark
+
+pub const NOTE_OOB = 0x00000002; /// OOB data
+
+pub const NOTE_DELETE = 0x00000001;      /// vnode was removed
+pub const NOTE_WRITE  = 0x00000002;      /// data contents changed
+pub const NOTE_EXTEND = 0x00000004;      /// size increased
+pub const NOTE_ATTRIB = 0x00000008;      /// attributes changed
+pub const NOTE_LINK   = 0x00000010;      /// link count changed
+pub const NOTE_RENAME = 0x00000020;      /// vnode was renamed
+pub const NOTE_REVOKE = 0x00000040;      /// vnode access was revoked
+pub const NOTE_NONE   = 0x00000080;      /// No specific vnode event: to test for EVFILT_READ      activation
+pub const NOTE_FUNLOCK    = 0x00000100;      /// vnode was unlocked by flock(2)
+
+pub const NOTE_EXIT       = 0x80000000; /// process exited
+pub const NOTE_FORK       = 0x40000000; /// process forked
+pub const NOTE_EXEC       = 0x20000000; /// process exec'd
+pub const NOTE_SIGNAL     = 0x08000000; /// shared with EVFILT_SIGNAL
+pub const NOTE_EXITSTATUS     = 0x04000000; /// exit status to be returned, valid for child       process only
+pub const NOTE_EXIT_DETAIL    = 0x02000000; /// provide details on reasons for exit
+
+pub const NOTE_PDATAMASK  = 0x000fffff; /// mask for signal & exit status
+pub const NOTE_PCTRLMASK  = (~NOTE_PDATAMASK);
+
+pub const NOTE_EXIT_DETAIL_MASK       = 0x00070000;
+pub const NOTE_EXIT_DECRYPTFAIL       = 0x00010000;
+pub const NOTE_EXIT_MEMORY        = 0x00020000;
+pub const NOTE_EXIT_CSERROR       = 0x00040000;
+
+
+pub const NOTE_VM_PRESSURE            = 0x80000000;              /// will react on memory          pressure
+pub const NOTE_VM_PRESSURE_TERMINATE      = 0x40000000;             /// will quit on memory       pressure, possibly after cleaning up dirty state
+pub const NOTE_VM_PRESSURE_SUDDEN_TERMINATE   = 0x20000000;     /// will quit immediately on      memory pressure
+pub const NOTE_VM_ERROR               = 0x10000000;              /// there was an error
+
+pub const NOTE_SECONDS    = 0x00000001; /// data is seconds        
+pub const NOTE_USECONDS   = 0x00000002; /// data is microseconds  
+pub const NOTE_NSECONDS   = 0x00000004; /// data is nanoseconds  
+pub const NOTE_ABSOLUTE   = 0x00000008; /// absolute timeout    
+
+pub const NOTE_LEEWAY = 0x00000010; /// ext[1] holds leeway for power aware timers
+pub const NOTE_CRITICAL   = 0x00000020; /// system does minimal timer coalescing
+pub const NOTE_BACKGROUND = 0x00000040; /// system does maximum timer coalescing
+pub const NOTE_MACH_CONTINUOUS_TIME   = 0x00000080;
+pub const NOTE_MACHTIME =   0x00000100;             /// data is mach absolute time units
+
+
 fn wstatus(x: i32) i32 {
     return x & 0o177;
 }
@@ -385,6 +498,20 @@ pub fn getdirentries64(fd: i32, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usi
     return errnoWrap(@bitCast(isize, c.__getdirentries64(fd, buf_ptr, buf_len, basep)));
 }
 
+pub fn kqueue() usize {
+    return errnoWrap(c.kqueue());
+}
+
+pub fn kevent(kq: i32, changelist: []const Kevent, eventlist: []Kevent, timeout: ?*const timespec) usize {
+    return errnoWrap(c.kevent(kq, changelist.ptr, @intCast(c_int, changelist.len), eventlist.ptr, @intCast(c_int, eventlist.len), timeout,));
+}
+
+pub fn kevent64(kq: i32, changelist: []const kevent64_s, eventlist: []kevent64_s, flags: u32,
+    timeout: ?*const timespec) usize
+{
+    return errnoWrap(c.kevent64(kq, changelist.ptr, changelist.len, eventlist.ptr, eventlist.len, flags, timeout));
+}
+
 pub fn mkdir(path: [*]const u8, mode: u32) usize {
     return errnoWrap(c.mkdir(path, mode));
 }
@@ -473,6 +600,10 @@ pub const dirent = c.dirent;
 
 pub const sa_family_t = c.sa_family_t;
 pub const sockaddr = c.sockaddr;
+
+/// Renamed from `kevent` to `Kevent` to avoid conflict with the syscall.
+pub const Kevent = c.Kevent;
+pub const kevent64_s = c.kevent64_s;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {

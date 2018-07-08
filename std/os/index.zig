@@ -2787,3 +2787,59 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
         }
     }
 }
+
+pub const BsdKQueueError = error {
+    /// The per-process limit on the number of open file descriptors has been reached.
+    ProcessFdQuotaExceeded,
+
+    /// The system-wide limit on the total number of open files has been reached.
+    SystemFdQuotaExceeded,
+
+    Unexpected,
+};
+
+pub fn bsdKQueue() BsdKQueueError!i32 {
+    const rc = posix.kqueue();
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        posix.EMFILE => return BsdKQueueError.ProcessFdQuotaExceeded,
+        posix.ENFILE => return BsdKQueueError.SystemFdQuotaExceeded,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub const BsdKEventError = error {
+    /// The process does not have permission to register a filter.
+    AccessDenied,
+
+    /// The event could not be found to be modified or deleted.
+    EventNotFound,
+
+    /// No memory was available to register the event.
+    SystemResources,
+
+    /// The specified process to attach to does not exist.
+    ProcessNotFound,
+};
+
+pub fn bsdKEvent(kq: i32, changelist: []const posix.Kevent, eventlist: []posix.Kevent,
+    timeout: ?*const posix.timespec) BsdKEventError!usize
+{
+    while (true) {
+        const rc = posix.kevent(kq, changelist, eventlist, timeout);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return rc,
+            posix.EACCES => return BsdKEventError.AccessDenied,
+            posix.EFAULT => unreachable,
+            posix.EBADF => unreachable,
+            posix.EINTR => continue,
+            posix.EINVAL => unreachable,
+            posix.ENOENT => return BsdKEventError.EventNotFound,
+            posix.ENOMEM => return BsdKEventError.SystemResources,
+            posix.ESRCH => return BsdKEventError.ProcessNotFound,
+            else => unreachable,
+        }
+    }
+}

@@ -118,6 +118,11 @@ pub const Loop = struct {
     extra_threads: []*std.os.Thread,
     final_resume_node: ResumeNode,
 
+    // pre-allocated eventfds. all permanently active.
+    // this is how we send promises to be resumed on other threads.
+    available_eventfd_resume_nodes: std.atomic.Stack(ResumeNode.EventFd),
+    eventfd_resume_nodes: []std.atomic.Stack(ResumeNode.EventFd).Node,
+
     pub const NextTickNode = std.atomic.QueueMpsc(promise).Node;
 
     pub const ResumeNode = struct {
@@ -130,10 +135,17 @@ pub const Loop = struct {
             EventFd,
         };
 
-        pub const EventFd = struct {
-            base: ResumeNode,
-            epoll_op: u32,
-            eventfd: i32,
+        pub const EventFd = switch (builtin.os) {
+            builtin.Os.macosx => struct {
+                base: ResumeNode,
+                kevent: posix.Kevent,
+            },
+            builtin.Os.linux => struct {
+                base: ResumeNode,
+                epoll_op: u32,
+                eventfd: i32,
+            },
+            else => @compileError("unsupported OS"),
         };
     };
 
@@ -168,36 +180,41 @@ pub const Loop = struct {
                 .id = ResumeNode.Id.Stop,
                 .handle = undefined,
             },
+            .available_eventfd_resume_nodes = std.atomic.Stack(ResumeNode.EventFd).init(),
+            .eventfd_resume_nodes = undefined,
         };
-        try self.initOsData(thread_count);
+        const extra_thread_count = thread_count - 1;
+        self.eventfd_resume_nodes = try self.allocator.alloc(
+            std.atomic.Stack(ResumeNode.EventFd).Node,
+            extra_thread_count,
+        );
+        errdefer self.allocator.free(self.eventfd_resume_nodes);
+
+        self.extra_threads = try self.allocator.alloc(*std.os.Thread, extra_thread_count);
+        errdefer self.allocator.free(self.extra_threads);
+
+        try self.initOsData(extra_thread_count);
         errdefer self.deinitOsData();
     }
 
     /// must call stop before deinit
     pub fn deinit(self: *Loop) void {
         self.deinitOsData();
+        self.allocator.free(self.extra_threads);
     }
 
     const InitOsDataError = std.os.LinuxEpollCreateError || mem.Allocator.Error || std.os.LinuxEventFdError ||
-        std.os.SpawnThreadError || std.os.LinuxEpollCtlError;
+        std.os.SpawnThreadError || std.os.LinuxEpollCtlError || std.os.BsdKEventError;
 
     const wakeup_bytes = []u8{0x1} ** 8;
 
-    fn initOsData(self: *Loop, thread_count: usize) InitOsDataError!void {
+    fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
         switch (builtin.os) {
             builtin.Os.linux => {
-                const extra_thread_count = thread_count - 1;
-                self.os_data.available_eventfd_resume_nodes = std.atomic.Stack(ResumeNode.EventFd).init();
-                self.os_data.eventfd_resume_nodes = try self.allocator.alloc(
-                    std.atomic.Stack(ResumeNode.EventFd).Node,
-                    extra_thread_count,
-                );
-                errdefer self.allocator.free(self.os_data.eventfd_resume_nodes);
-
                 errdefer {
-                    while (self.os_data.available_eventfd_resume_nodes.pop()) |node| std.os.close(node.data.eventfd);
+                    while (self.available_eventfd_resume_nodes.pop()) |node| std.os.close(node.data.eventfd);
                 }
-                for (self.os_data.eventfd_resume_nodes) |*eventfd_node| {
+                for (self.eventfd_resume_nodes) |*eventfd_node| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
@@ -209,7 +226,7 @@ pub const Loop = struct {
                         },
                         .next = undefined,
                     };
-                    self.os_data.available_eventfd_resume_nodes.push(eventfd_node);
+                    self.available_eventfd_resume_nodes.push(eventfd_node);
                 }
 
                 self.os_data.epollfd = try std.os.linuxEpollCreate(posix.EPOLL_CLOEXEC);
@@ -228,15 +245,84 @@ pub const Loop = struct {
                     self.os_data.final_eventfd,
                     &self.os_data.final_eventfd_event,
                 );
-                self.extra_threads = try self.allocator.alloc(*std.os.Thread, extra_thread_count);
-                errdefer self.allocator.free(self.extra_threads);
 
                 var extra_thread_index: usize = 0;
                 errdefer {
+                    // writing 8 bytes to an eventfd cannot fail
+                    std.os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
-                        // writing 8 bytes to an eventfd cannot fail
-                        std.os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                        self.extra_threads[extra_thread_index].wait();
+                    }
+                }
+                while (extra_thread_index < extra_thread_count) : (extra_thread_index += 1) {
+                    self.extra_threads[extra_thread_index] = try std.os.spawnThread(self, workerRun);
+                }
+            },
+            builtin.Os.macosx => {
+                self.os_data.kqfd = try std.os.bsdKQueue();
+                errdefer std.os.close(self.os_data.kqfd);
+
+                self.os_data.kevents = try self.allocator.alloc(posix.Kevent, extra_thread_count);
+                errdefer self.allocator.free(self.os_data.kevents);
+
+                const eventlist = ([*]posix.Kevent)(undefined)[0..0];
+
+                for (self.eventfd_resume_nodes) |*eventfd_node, i| {
+                    eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
+                        .data = ResumeNode.EventFd{
+                            .base = ResumeNode{
+                                .id = ResumeNode.Id.EventFd,
+                                .handle = undefined,
+                            },
+                            // this one is for sending events
+                            .kevent = posix.Kevent {
+                                .ident = i,
+                                .filter = posix.EVFILT_USER,
+                                .flags = posix.EV_CLEAR|posix.EV_ADD|posix.EV_DISABLE,
+                                .fflags = 0,
+                                .data = 0,
+                                .udata = @ptrToInt(&eventfd_node.data.base),
+                            },
+                        },
+                        .next = undefined,
+                    };
+                    self.available_eventfd_resume_nodes.push(eventfd_node);
+                    const kevent_array = (*[1]posix.Kevent)(&eventfd_node.data.kevent);
+                    _ = try std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
+                    eventfd_node.data.kevent.flags = posix.EV_CLEAR|posix.EV_ENABLE;
+                    eventfd_node.data.kevent.fflags = posix.NOTE_TRIGGER;
+                    // this one is for waiting for events
+                    self.os_data.kevents[i] = posix.Kevent {
+                        .ident = i,
+                        .filter = posix.EVFILT_USER,
+                        .flags = 0,
+                        .fflags = 0,
+                        .data = 0,
+                        .udata = @ptrToInt(&eventfd_node.data.base),
+                    };
+                }
+
+                // Pre-add so that we cannot get error.SystemResources
+                // later when we try to activate it.
+                self.os_data.final_kevent = posix.Kevent{
+                    .ident = extra_thread_count,
+                    .filter = posix.EVFILT_USER,
+                    .flags = posix.EV_ADD | posix.EV_DISABLE,
+                    .fflags = 0,
+                    .data = 0,
+                    .udata = @ptrToInt(&self.final_resume_node),
+                };
+                const kevent_array = (*[1]posix.Kevent)(&self.os_data.final_kevent);
+                _ = try std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
+                self.os_data.final_kevent.flags = posix.EV_ENABLE;
+                self.os_data.final_kevent.fflags = posix.NOTE_TRIGGER;
+
+                var extra_thread_index: usize = 0;
+                errdefer {
+                    _ = std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null) catch unreachable;
+                    while (extra_thread_index != 0) {
+                        extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
                     }
                 }
@@ -252,10 +338,12 @@ pub const Loop = struct {
         switch (builtin.os) {
             builtin.Os.linux => {
                 std.os.close(self.os_data.final_eventfd);
-                while (self.os_data.available_eventfd_resume_nodes.pop()) |node| std.os.close(node.data.eventfd);
+                while (self.available_eventfd_resume_nodes.pop()) |node| std.os.close(node.data.eventfd);
                 std.os.close(self.os_data.epollfd);
-                self.allocator.free(self.os_data.eventfd_resume_nodes);
-                self.allocator.free(self.extra_threads);
+                self.allocator.free(self.eventfd_resume_nodes);
+            },
+            builtin.Os.macosx => {
+                self.allocator.free(self.os_data.kevents);
             },
             else => {},
         }
@@ -332,21 +420,38 @@ pub const Loop = struct {
                         continue :start_over;
                     }
 
-                    // non-last node, stick it in the epoll set so that
+                    // non-last node, stick it in the epoll/kqueue set so that
                     // other threads can get to it
-                    if (self.os_data.available_eventfd_resume_nodes.pop()) |resume_stack_node| {
+                    if (self.available_eventfd_resume_nodes.pop()) |resume_stack_node| {
                         const eventfd_node = &resume_stack_node.data;
                         eventfd_node.base.handle = handle;
-                        // the pending count is already accounted for
-                        const epoll_events = posix.EPOLLONESHOT | std.os.linux.EPOLLIN | std.os.linux.EPOLLOUT | std.os.linux.EPOLLET;
-                        self.modFd(eventfd_node.eventfd, eventfd_node.epoll_op, epoll_events, &eventfd_node.base) catch |_| {
-                            // fine, we didn't need it anyway
-                            _ = @atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
-                            self.os_data.available_eventfd_resume_nodes.push(resume_stack_node);
-                            resume handle;
-                            _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
-                            continue :start_over;
-                        };
+                        switch (builtin.os) {
+                            builtin.Os.macosx => {
+                                const kevent_array = (*[1]posix.Kevent)(&eventfd_node.kevent);
+                                const eventlist = ([*]posix.Kevent)(undefined)[0..0];
+                                _ = std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null) catch |_| {
+                                    // fine, we didn't need it anyway
+                                    _ = @atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+                                    self.available_eventfd_resume_nodes.push(resume_stack_node);
+                                    resume handle;
+                                    _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                                    continue :start_over;
+                                };
+                            },
+                            builtin.Os.linux => {
+                                // the pending count is already accounted for
+                                const epoll_events = posix.EPOLLONESHOT | std.os.linux.EPOLLIN | std.os.linux.EPOLLOUT | std.os.linux.EPOLLET;
+                                self.modFd(eventfd_node.eventfd, eventfd_node.epoll_op, epoll_events, &eventfd_node.base) catch |_| {
+                                    // fine, we didn't need it anyway
+                                    _ = @atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+                                    self.available_eventfd_resume_nodes.push(resume_stack_node);
+                                    resume handle;
+                                    _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                                    continue :start_over;
+                                };
+                            },
+                            else => @compileError("unsupported OS"),
+                        }
                     } else {
                         // threads are too busy, can't add another eventfd to wake one up
                         _ = @atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
@@ -359,35 +464,74 @@ pub const Loop = struct {
                 const pending_event_count = @atomicLoad(usize, &self.pending_event_count, AtomicOrder.SeqCst);
                 if (pending_event_count == 0) {
                     // cause all the threads to stop
-                    // writing 8 bytes to an eventfd cannot fail
-                    std.os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
-                    return;
+                    switch (builtin.os) {
+                        builtin.Os.linux => {
+                            // writing 8 bytes to an eventfd cannot fail
+                            std.os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                            return;
+                        },
+                        builtin.Os.macosx => {
+                            const final_kevent = (*[1]posix.Kevent)(&self.os_data.final_kevent);
+                            const eventlist = ([*]posix.Kevent)(undefined)[0..0];
+                            // cannot fail because we already added it and this just enables it
+                            _ = std.os.bsdKEvent(self.os_data.kqfd, final_kevent, eventlist, null) catch unreachable;
+                            return;
+                        },
+                        else => @compileError("unsupported OS"),
+                    }
                 }
 
                 _ = @atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
             }
 
-            // only process 1 event so we don't steal from other threads
-            var events: [1]std.os.linux.epoll_event = undefined;
-            const count = std.os.linuxEpollWait(self.os_data.epollfd, events[0..], -1);
-            for (events[0..count]) |ev| {
-                const resume_node = @intToPtr(*ResumeNode, ev.data.ptr);
-                const handle = resume_node.handle;
-                const resume_node_id = resume_node.id;
-                switch (resume_node_id) {
-                    ResumeNode.Id.Basic => {},
-                    ResumeNode.Id.Stop => return,
-                    ResumeNode.Id.EventFd => {
-                        const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
-                        event_fd_node.epoll_op = posix.EPOLL_CTL_MOD;
-                        const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
-                        self.os_data.available_eventfd_resume_nodes.push(stack_node);
-                    },
-                }
-                resume handle;
-                if (resume_node_id == ResumeNode.Id.EventFd) {
-                    _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
-                }
+            switch (builtin.os) {
+                builtin.Os.linux => {
+                    // only process 1 event so we don't steal from other threads
+                    var events: [1]std.os.linux.epoll_event = undefined;
+                    const count = std.os.linuxEpollWait(self.os_data.epollfd, events[0..], -1);
+                    for (events[0..count]) |ev| {
+                        const resume_node = @intToPtr(*ResumeNode, ev.data.ptr);
+                        const handle = resume_node.handle;
+                        const resume_node_id = resume_node.id;
+                        switch (resume_node_id) {
+                            ResumeNode.Id.Basic => {},
+                            ResumeNode.Id.Stop => return,
+                            ResumeNode.Id.EventFd => {
+                                const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
+                                event_fd_node.epoll_op = posix.EPOLL_CTL_MOD;
+                                const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
+                                self.available_eventfd_resume_nodes.push(stack_node);
+                            },
+                        }
+                        resume handle;
+                        if (resume_node_id == ResumeNode.Id.EventFd) {
+                            _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                        }
+                    }
+                },
+                builtin.Os.macosx => {
+                    var eventlist: [1]posix.Kevent = undefined;
+                    const count = std.os.bsdKEvent(self.os_data.kqfd, self.os_data.kevents, eventlist[0..], null) catch unreachable;
+                    for (eventlist[0..count]) |ev| {
+                        const resume_node = @intToPtr(*ResumeNode, ev.udata);
+                        const handle = resume_node.handle;
+                        const resume_node_id = resume_node.id;
+                        switch (resume_node_id) {
+                            ResumeNode.Id.Basic => {},
+                            ResumeNode.Id.Stop => return,
+                            ResumeNode.Id.EventFd => {
+                                const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
+                                const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
+                                self.available_eventfd_resume_nodes.push(stack_node);
+                            },
+                        }
+                        resume handle;
+                        if (resume_node_id == ResumeNode.Id.EventFd) {
+                            _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                        }
+                    }
+                },
+                else => @compileError("unsupported OS"),
             }
         }
     }
@@ -395,12 +539,13 @@ pub const Loop = struct {
     const OsData = switch (builtin.os) {
         builtin.Os.linux => struct {
             epollfd: i32,
-            // pre-allocated eventfds. all permanently active.
-            // this is how we send promises to be resumed on other threads.
-            available_eventfd_resume_nodes: std.atomic.Stack(ResumeNode.EventFd),
-            eventfd_resume_nodes: []std.atomic.Stack(ResumeNode.EventFd).Node,
             final_eventfd: i32,
-            final_eventfd_event: posix.epoll_event,
+            final_eventfd_event: std.os.linux.epoll_event,
+        },
+        builtin.Os.macosx => struct {
+            kqfd: i32,
+            final_kevent: posix.Kevent,
+            kevents: []posix.Kevent,
         },
         else => struct {},
     };
