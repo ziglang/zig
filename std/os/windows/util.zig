@@ -214,3 +214,50 @@ pub fn windowsFindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN3
     }
     return true;
 }
+
+
+pub const WindowsCreateIoCompletionPortError = error {
+    Unexpected,
+};
+
+pub fn windowsCreateIoCompletionPort(file_handle: windows.HANDLE, existing_completion_port: ?windows.HANDLE, completion_key: usize, concurrent_thread_count: windows.DWORD) !windows.HANDLE {
+    const handle = windows.CreateIoCompletionPort(file_handle, existing_completion_port, completion_key, concurrent_thread_count) orelse {
+        const err = windows.GetLastError();
+        switch (err) {
+            else => return os.unexpectedErrorWindows(err),
+        }
+    };
+    return handle;
+}
+
+pub const WindowsPostQueuedCompletionStatusError = error {
+    Unexpected,
+};
+
+pub fn windowsPostQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_transferred_count: windows.DWORD, completion_key: usize, lpOverlapped: ?*windows.OVERLAPPED) WindowsPostQueuedCompletionStatusError!void {
+    if (windows.PostQueuedCompletionStatus(completion_port, bytes_transferred_count, completion_key, lpOverlapped) == 0) {
+        const err = windows.GetLastError();
+        switch (err) {
+            else => return os.unexpectedErrorWindows(err),
+        }
+    }
+}
+
+pub const WindowsWaitResult = error {
+    Normal,
+    Aborted,
+};
+
+pub fn windowsGetQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_transferred_count: *windows.DWORD, lpCompletionKey: *usize, lpOverlapped: *?*windows.OVERLAPPED, dwMilliseconds: windows.DWORD) WindowsWaitResult {
+    if (windows.GetQueuedCompletionStatus(completion_port, bytes_transferred_count, lpCompletionKey, lpOverlapped, dwMilliseconds) == windows.FALSE) {
+        if (std.debug.runtime_safety) {
+            const err = windows.GetLastError();
+            if (err != windows.ERROR.ABANDONED_WAIT_0) {
+                std.debug.warn("err: {}\n", err);
+            }
+            assert(err == windows.ERROR.ABANDONED_WAIT_0);
+        }
+        return WindowsWaitResult.Aborted;
+    }
+    return WindowsWaitResult.Normal;
+}

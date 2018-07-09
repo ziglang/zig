@@ -61,6 +61,15 @@ pub const windowsLoadDll = windows_util.windowsLoadDll;
 pub const windowsUnloadDll = windows_util.windowsUnloadDll;
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
+pub const WindowsCreateIoCompletionPortError = windows_util.WindowsCreateIoCompletionPortError;
+pub const windowsCreateIoCompletionPort = windows_util.windowsCreateIoCompletionPort;
+
+pub const WindowsPostQueuedCompletionStatusError = windows_util.WindowsPostQueuedCompletionStatusError;
+pub const windowsPostQueuedCompletionStatus = windows_util.windowsPostQueuedCompletionStatus;
+
+pub const WindowsWaitResult = windows_util.WindowsWaitResult;
+pub const windowsGetQueuedCompletionStatus = windows_util.windowsGetQueuedCompletionStatus;
+
 pub const WindowsWaitError = windows_util.WaitError;
 pub const WindowsOpenError = windows_util.OpenError;
 pub const WindowsWriteError = windows_util.WriteError;
@@ -2592,11 +2601,17 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
                 thread: Thread,
                 inner: Context,
             };
-            extern fn threadMain(arg: windows.LPVOID) windows.DWORD {
-                if (@sizeOf(Context) == 0) {
-                    return startFn({});
-                } else {
-                    return startFn(@ptrCast(*Context, @alignCast(@alignOf(Context), arg)).*);
+            extern fn threadMain(raw_arg: windows.LPVOID) windows.DWORD {
+                const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
+                switch (@typeId(@typeOf(startFn).ReturnType)) {
+                    builtin.TypeId.Int => {
+                        return startFn(arg);
+                    },
+                    builtin.TypeId.Void => {
+                        startFn(arg);
+                        return 0;
+                    },
+                    else => @compileError("expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'"),
                 }
             }
         };

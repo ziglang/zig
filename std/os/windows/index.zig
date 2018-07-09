@@ -59,6 +59,9 @@ pub extern "kernel32" stdcallcc fn CreateSymbolicLinkA(
     dwFlags: DWORD,
 ) BOOLEAN;
 
+
+pub extern "kernel32" stdcallcc fn CreateIoCompletionPort(FileHandle: HANDLE, ExistingCompletionPort: ?HANDLE, CompletionKey: ULONG_PTR, NumberOfConcurrentThreads: DWORD) ?HANDLE;
+
 pub extern "kernel32" stdcallcc fn CreateThread(lpThreadAttributes: ?LPSECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?LPDWORD) ?HANDLE;
 
 pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) BOOL;
@@ -106,6 +109,7 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
 ) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
+pub extern "kernel32" stdcallcc fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: LPDWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) void;
 pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(*FILETIME) void;
@@ -129,6 +133,9 @@ pub extern "kernel32" stdcallcc fn MoveFileExA(
     lpNewFileName: LPCSTR,
     dwFlags: DWORD,
 ) BOOL;
+
+
+pub extern "kernel32" stdcallcc fn PostQueuedCompletionStatus(CompletionPort: HANDLE, dwNumberOfBytesTransferred: DWORD, dwCompletionKey: ULONG_PTR, lpOverlapped: ?*OVERLAPPED) BOOL;
 
 pub extern "kernel32" stdcallcc fn QueryPerformanceCounter(lpPerformanceCount: *LARGE_INTEGER) BOOL;
 
