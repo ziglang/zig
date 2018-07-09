@@ -10,6 +10,7 @@ const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
 pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
+pub const failing_allocator = FailingAllocator.init(global_allocator, 0);
 
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
@@ -44,6 +45,12 @@ pub fn getSelfDebugInfo() !*ElfStackTrace {
     }
 }
 
+fn wantTtyColor() bool {
+    var bytes: [128]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    return if (std.os.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| true else |_| stderr_file.isTty();
+}
+
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream() catch return;
@@ -51,7 +58,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
-    writeCurrentStackTrace(stderr, getDebugInfoAllocator(), debug_info, stderr_file.isTty(), start_addr) catch |err| {
+    writeCurrentStackTrace(stderr, getDebugInfoAllocator(), debug_info, wantTtyColor(), start_addr) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
         return;
     };
@@ -64,7 +71,7 @@ pub fn dumpStackTrace(stack_trace: *const builtin.StackTrace) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
-    writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, stderr_file.isTty()) catch |err| {
+    writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, wantTtyColor()) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
         return;
     };
