@@ -136,16 +136,18 @@ pub const Loop = struct {
         };
 
         pub const EventFd = switch (builtin.os) {
-            builtin.Os.macosx => struct {
-                base: ResumeNode,
-                kevent: posix.Kevent,
-            },
+            builtin.Os.macosx => MacOsEventFd,
             builtin.Os.linux => struct {
                 base: ResumeNode,
                 epoll_op: u32,
                 eventfd: i32,
             },
             else => @compileError("unsupported OS"),
+        };
+
+        const MacOsEventFd = struct {
+            base: ResumeNode,
+            kevent: posix.Kevent,
         };
     };
 
@@ -276,10 +278,10 @@ pub const Loop = struct {
                                 .handle = undefined,
                             },
                             // this one is for sending events
-                            .kevent = posix.Kevent {
+                            .kevent = posix.Kevent{
                                 .ident = i,
                                 .filter = posix.EVFILT_USER,
-                                .flags = posix.EV_CLEAR|posix.EV_ADD|posix.EV_DISABLE,
+                                .flags = posix.EV_CLEAR | posix.EV_ADD | posix.EV_DISABLE,
                                 .fflags = 0,
                                 .data = 0,
                                 .udata = @ptrToInt(&eventfd_node.data.base),
@@ -290,10 +292,10 @@ pub const Loop = struct {
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                     const kevent_array = (*[1]posix.Kevent)(&eventfd_node.data.kevent);
                     _ = try std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
-                    eventfd_node.data.kevent.flags = posix.EV_CLEAR|posix.EV_ENABLE;
+                    eventfd_node.data.kevent.flags = posix.EV_CLEAR | posix.EV_ENABLE;
                     eventfd_node.data.kevent.fflags = posix.NOTE_TRIGGER;
                     // this one is for waiting for events
-                    self.os_data.kevents[i] = posix.Kevent {
+                    self.os_data.kevents[i] = posix.Kevent{
                         .ident = i,
                         .filter = posix.EVFILT_USER,
                         .flags = 0,
@@ -542,12 +544,14 @@ pub const Loop = struct {
             final_eventfd: i32,
             final_eventfd_event: std.os.linux.epoll_event,
         },
-        builtin.Os.macosx => struct {
-            kqfd: i32,
-            final_kevent: posix.Kevent,
-            kevents: []posix.Kevent,
-        },
+        builtin.Os.macosx => MacOsData,
         else => struct {},
+    };
+
+    const MacOsData = struct {
+        kqfd: i32,
+        final_kevent: posix.Kevent,
+        kevents: posix.Kevent,
     };
 };
 
