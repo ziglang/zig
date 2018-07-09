@@ -15,8 +15,8 @@ const BytesToHash = 1024 * MiB;
 
 pub fn main() !void {
     var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = std.io.FileOutStream.init(*stdout_file);
-    const stdout = *stdout_out_stream.stream;
+    var stdout_out_stream = std.io.FileOutStream.init(&stdout_file);
+    const stdout = &stdout_out_stream.stream;
 
     var block: [HashFunction.block_size]u8 = undefined;
     std.mem.set(u8, block[0..], 0);
@@ -31,8 +31,8 @@ pub fn main() !void {
     }
     const end = timer.read();
 
-    const elapsed_s = f64(end - start) / time.ns_per_s;
-    const throughput = u64(BytesToHash / elapsed_s);
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, BytesToHash / elapsed_s);
 
     try stdout.print("{}: {} MiB/s\n", @typeName(HashFunction), throughput / (1 * MiB));
 }
