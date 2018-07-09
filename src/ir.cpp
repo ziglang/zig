@@ -19374,7 +19374,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
             val->data.x_ptr.data.hard_coded_addr.addr % align_bytes != 0)
         {
             ir_add_error(ira, target,
-                    buf_sprintf("pointer address 0x%lx is not aligned to %" PRIu32 " bytes",
+                    buf_sprintf("pointer address 0x%" ZIG_PRI_x64 " is not aligned to %" PRIu32 " bytes",
                         val->data.x_ptr.data.hard_coded_addr.addr, align_bytes));
             return ira->codegen->invalid_instruction;
         }
