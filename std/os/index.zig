@@ -24,7 +24,7 @@ test "std.os" {
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
-pub const freebsd = @import("freebsd.zig");
+pub const freebsd = @import("freebsd/index.zig");
 pub const zen = @import("zen.zig");
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
