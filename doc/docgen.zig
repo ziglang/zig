@@ -689,7 +689,10 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
 
-    const builtin_code = try escapeHtml(allocator, try getBuiltinCode(allocator, zig_exe));
+    var env_map = try os.getEnvMap(allocator);
+    try env_map.set("ZIG_DEBUG_COLOR", "1");
+
+    const builtin_code = try escapeHtml(allocator, try getBuiltinCode(allocator, &env_map, zig_exe));
 
     for (toc.nodes) |node| {
         switch (node) {
@@ -778,12 +781,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try build_args.append("c");
                             try out.print(" --library c");
                         }
-                        _ = exec(allocator, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
+                        _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
 
                         const run_args = [][]const u8{tmp_bin_file_name};
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
-                            const result = try os.ChildProcess.exec(allocator, run_args, null, null, max_doc_file_size);
+                            const result = try os.ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
                             switch (result.term) {
                                 os.ChildProcess.Term.Exited => |exit_code| {
                                     if (exit_code == 0) {
@@ -799,7 +802,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                             break :blk result;
                         } else blk: {
-                            break :blk exec(allocator, run_args) catch return parseError(tokenizer, code.source_token, "example crashed");
+                            break :blk exec(allocator, &env_map, run_args) catch return parseError(tokenizer, code.source_token, "example crashed");
                         };
 
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -845,7 +848,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 "msvc",
                             });
                         }
-                        const result = exec(allocator, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
+                        const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try out.print("\n{}{}</code></pre>\n", escaped_stderr, escaped_stdout);
@@ -877,7 +880,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 try out.print(" --release-small");
                             },
                         }
-                        const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, null, max_doc_file_size);
+                        const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
                         switch (result.term) {
                             os.ChildProcess.Term.Exited => |exit_code| {
                                 if (exit_code == 0) {
@@ -923,7 +926,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             builtin.Mode.ReleaseSmall => try test_args.append("--release-small"),
                         }
 
-                        const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, null, max_doc_file_size);
+                        const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
                         switch (result.term) {
                             os.ChildProcess.Term.Exited => |exit_code| {
                                 if (exit_code == 0) {
@@ -1000,7 +1003,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
 
                         if (maybe_error_match) |error_match| {
-                            const result = try os.ChildProcess.exec(allocator, build_args.toSliceConst(), null, null, max_doc_file_size);
+                            const result = try os.ChildProcess.exec(allocator, build_args.toSliceConst(), null, &env_map, max_doc_file_size);
                             switch (result.term) {
                                 os.ChildProcess.Term.Exited => |exit_code| {
                                     if (exit_code == 0) {
@@ -1032,7 +1035,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 try out.print("</code></pre>\n");
                             }
                         } else {
-                            _ = exec(allocator, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
+                            _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
                         }
                         if (!code.is_inline) {
                             try out.print("</code></pre>\n");
@@ -1045,8 +1048,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
     }
 }
 
-fn exec(allocator: *mem.Allocator, args: []const []const u8) !os.ChildProcess.ExecResult {
-    const result = try os.ChildProcess.exec(allocator, args, null, null, max_doc_file_size);
+fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u8) !os.ChildProcess.ExecResult {
+    const result = try os.ChildProcess.exec(allocator, args, null, env_map, max_doc_file_size);
     switch (result.term) {
         os.ChildProcess.Term.Exited => |exit_code| {
             if (exit_code != 0) {
@@ -1070,8 +1073,8 @@ fn exec(allocator: *mem.Allocator, args: []const []const u8) !os.ChildProcess.Ex
     return result;
 }
 
-fn getBuiltinCode(allocator: *mem.Allocator, zig_exe: []const u8) ![]const u8 {
-    const result = try exec(allocator, []const []const u8{
+fn getBuiltinCode(allocator: *mem.Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
+    const result = try exec(allocator, env_map, []const []const u8{
         zig_exe,
         "builtin",
     });

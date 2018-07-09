@@ -553,8 +553,13 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
     return null;
 }
 
+pub const GetEnvVarOwnedError = error{
+    OutOfMemory,
+    EnvironmentVariableNotFound,
+};
+
 /// Caller must free returned memory.
-pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) ![]u8 {
+pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
         const key_with_null = try cstr.addNullByte(allocator, key);
         defer allocator.free(key_with_null);
@@ -563,14 +568,17 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) ![]u8 {
         errdefer allocator.free(buf);
 
         while (true) {
-            const windows_buf_len = try math.cast(windows.DWORD, buf.len);
+            const windows_buf_len = math.cast(windows.DWORD, buf.len) catch return error.OutOfMemory;
             const result = windows.GetEnvironmentVariableA(key_with_null.ptr, buf.ptr, windows_buf_len);
 
             if (result == 0) {
                 const err = windows.GetLastError();
                 return switch (err) {
                     windows.ERROR.ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
-                    else => unexpectedErrorWindows(err),
+                    else => {
+                        _ = unexpectedErrorWindows(err);
+                        return error.EnvironmentVariableNotFound;
+                    },
                 };
             }
 

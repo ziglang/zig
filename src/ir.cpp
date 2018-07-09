@@ -19370,6 +19370,15 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         if (!val)
             return ira->codegen->invalid_instruction;
 
+        if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
+            val->data.x_ptr.data.hard_coded_addr.addr % align_bytes != 0)
+        {
+            ir_add_error(ira, target,
+                    buf_sprintf("pointer address 0x%" ZIG_PRI_x64 " is not aligned to %" PRIu32 " bytes",
+                        val->data.x_ptr.data.hard_coded_addr.addr, align_bytes));
+            return ira->codegen->invalid_instruction;
+        }
+
         IrInstruction *result = ir_create_const(&ira->new_irb, target->scope, target->source_node, result_type);
         copy_const_val(&result->value, val, false);
         result->value.type = result_type;
@@ -19793,6 +19802,12 @@ static TypeTableEntry *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstr
     if (get_codegen_ptr_type(target->value.type) == nullptr) {
         ir_add_error(ira, target,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (!type_has_bits(target->value.type)) {
+        ir_add_error(ira, target,
+                buf_sprintf("pointer to size 0 type has no address"));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
