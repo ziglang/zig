@@ -664,7 +664,7 @@ pub const Loop = struct {
     const MacOsData = struct {
         kqfd: i32,
         final_kevent: posix.Kevent,
-        kevents: posix.Kevent,
+        kevents: []posix.Kevent,
     };
 };
 
