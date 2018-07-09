@@ -259,14 +259,14 @@ test "basic hash map usage" {
     var map = HashMap(i32, i32, hash_i32, eql_i32).init(&direct_allocator.allocator);
     defer map.deinit();
 
-    assert((map.put(1, 11) catch unreachable) == null);
-    assert((map.put(2, 22) catch unreachable) == null);
-    assert((map.put(3, 33) catch unreachable) == null);
-    assert((map.put(4, 44) catch unreachable) == null);
-    assert((map.put(5, 55) catch unreachable) == null);
+    assert((try map.put(1, 11)) == null);
+    assert((try map.put(2, 22)) == null);
+    assert((try map.put(3, 33)) == null);
+    assert((try map.put(4, 44)) == null);
+    assert((try map.put(5, 55)) == null);
 
-    assert((map.put(5, 66) catch unreachable).? == 55);
-    assert((map.put(5, 55) catch unreachable).? == 66);
+    assert((try map.put(5, 66)).? == 55);
+    assert((try map.put(5, 55)).? == 66);
 
     assert(map.contains(2));
     assert(map.get(2).?.value == 22);
@@ -282,9 +282,9 @@ test "iterator hash map" {
     var reset_map = HashMap(i32, i32, hash_i32, eql_i32).init(&direct_allocator.allocator);
     defer reset_map.deinit();
 
-    assert((reset_map.put(1, 11) catch unreachable) == null);
-    assert((reset_map.put(2, 22) catch unreachable) == null);
-    assert((reset_map.put(3, 33) catch unreachable) == null);
+    assert((try reset_map.put(1, 11)) == null);
+    assert((try reset_map.put(2, 22)) == null);
+    assert((try reset_map.put(3, 33)) == null);
 
     var keys = []i32{
         1,
