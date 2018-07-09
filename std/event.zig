@@ -142,6 +142,9 @@ pub const Loop = struct {
                 epoll_op: u32,
                 eventfd: i32,
             },
+            builtin.Os.windows => struct {
+                base: ResumeNode,
+            },
             else => @compileError("unsupported OS"),
         };
 

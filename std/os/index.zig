@@ -2806,6 +2806,11 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
                 }
             }
         },
+        builtin.Os.windows => {
+            var system_info: windows.SYSTEM_INFO = undefined;
+            windows.GetSystemInfo(&system_info);
+            return @intCast(usize, system_info.dwNumberOfProcessors);
+        },
         else => @compileError("unsupported OS"),
     }
 }

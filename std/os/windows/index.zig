@@ -107,6 +107,7 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
 
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 
+pub extern "kernel32" stdcallcc fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) void;
 pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(*FILETIME) void;
 
 pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
@@ -204,6 +205,7 @@ pub const SIZE_T = usize;
 pub const TCHAR = if (UNICODE) WCHAR else u8;
 pub const UINT = c_uint;
 pub const ULONG_PTR = usize;
+pub const DWORD_PTR = ULONG_PTR;
 pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
@@ -412,4 +414,23 @@ pub const WIN32_FIND_DATAA = extern struct {
 pub const FILETIME = extern struct {
     dwLowDateTime: DWORD,
     dwHighDateTime: DWORD,
+};
+
+pub const SYSTEM_INFO = extern struct {
+    anon1: extern union {
+        dwOemId: DWORD,
+        anon2: extern struct {
+            wProcessorArchitecture: WORD,
+            wReserved: WORD,
+        },
+    },
+    dwPageSize: DWORD,
+    lpMinimumApplicationAddress: LPVOID,
+    lpMaximumApplicationAddress: LPVOID,
+    dwActiveProcessorMask: DWORD_PTR,
+    dwNumberOfProcessors: DWORD,
+    dwProcessorType: DWORD,
+    dwAllocationGranularity: DWORD,
+    wProcessorLevel: WORD,
+    wProcessorRevision: WORD,
 };
