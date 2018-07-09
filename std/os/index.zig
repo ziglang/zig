@@ -2810,7 +2810,7 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
     }
 }
 
-pub const BsdKQueueError = error {
+pub const BsdKQueueError = error{
     /// The per-process limit on the number of open file descriptors has been reached.
     ProcessFdQuotaExceeded,
 
@@ -2831,7 +2831,7 @@ pub fn bsdKQueue() BsdKQueueError!i32 {
     }
 }
 
-pub const BsdKEventError = error {
+pub const BsdKEventError = error{
     /// The process does not have permission to register a filter.
     AccessDenied,
 
@@ -2845,9 +2845,12 @@ pub const BsdKEventError = error {
     ProcessNotFound,
 };
 
-pub fn bsdKEvent(kq: i32, changelist: []const posix.Kevent, eventlist: []posix.Kevent,
-    timeout: ?*const posix.timespec) BsdKEventError!usize
-{
+pub fn bsdKEvent(
+    kq: i32,
+    changelist: []const posix.Kevent,
+    eventlist: []posix.Kevent,
+    timeout: ?*const posix.timespec,
+) BsdKEventError!usize {
     while (true) {
         const rc = posix.kevent(kq, changelist, eventlist, timeout);
         const err = posix.getErrno(rc);

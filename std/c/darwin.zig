@@ -7,11 +7,24 @@ pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;
 
 pub extern "c" fn kqueue() c_int;
-pub extern "c" fn kevent(kq: c_int, changelist: [*]const Kevent, nchanges: c_int,
-    eventlist: [*]Kevent, nevents: c_int, timeout: ?*const timespec) c_int;
+pub extern "c" fn kevent(
+    kq: c_int,
+    changelist: [*]const Kevent,
+    nchanges: c_int,
+    eventlist: [*]Kevent,
+    nevents: c_int,
+    timeout: ?*const timespec,
+) c_int;
 
-pub extern "c" fn kevent64(kq: c_int, changelist: [*]const kevent64_s, nchanges: c_int,
-    eventlist: [*]kevent64_s, nevents: c_int, flags: c_uint, timeout: ?*const timespec) c_int;
+pub extern "c" fn kevent64(
+    kq: c_int,
+    changelist: [*]const kevent64_s,
+    nchanges: c_int,
+    eventlist: [*]kevent64_s,
+    nevents: c_int,
+    flags: c_uint,
+    timeout: ?*const timespec,
+) c_int;
 
 pub extern "c" fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
 pub extern "c" fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
@@ -145,4 +158,3 @@ comptime {
     assert(@offsetOf(kevent64_s, "udata") == 24);
     assert(@offsetOf(kevent64_s, "ext") == 32);
 }
-
