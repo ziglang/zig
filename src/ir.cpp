@@ -19370,6 +19370,15 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         if (!val)
             return ira->codegen->invalid_instruction;
 
+        if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
+            val->data.x_ptr.data.hard_coded_addr.addr % align_bytes != 0)
+        {
+            ir_add_error(ira, target,
+                    buf_sprintf("pointer address 0x%lx is not aligned to %" PRIu32 " bytes",
+                        val->data.x_ptr.data.hard_coded_addr.addr, align_bytes));
+            return ira->codegen->invalid_instruction;
+        }
+
         IrInstruction *result = ir_create_const(&ira->new_irb, target->scope, target->source_node, result_type);
         copy_const_val(&result->value, val, false);
         result->value.type = result_type;

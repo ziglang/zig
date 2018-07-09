@@ -6649,12 +6649,60 @@ pub fn main() void {
       {#header_close#}
 
       {#header_open|Invalid Error Set Cast#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|error.B not a member of error set 'Set2'#}
+const Set1 = error{
+    A,
+    B,
+};
+const Set2 = error{
+    A,
+    C,
+};
+comptime {
+    _ = @errSetCast(Set2, Set1.B);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const Set1 = error{
+    A,
+    B,
+};
+const Set2 = error{
+    A,
+    C,
+};
+pub fn main() void {
+    _ = foo(Set1.B);
+}
+fn foo(set1: Set1) Set2 {
+    return @errSetCast(Set2, set1);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Incorrect Pointer Alignment#}
-      <p>TODO</p>
-
+      <p>At compile-time:</p>
+      {#code_begin|test_err|pointer address 0x1 is not aligned to 4 bytes#}
+comptime {
+    const ptr = @intToPtr(*i32, 0x1);
+    const aligned = @alignCast(4, ptr);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+pub fn main() !void {
+    var array align(4) = []u32{ 0x11111111, 0x11111111 };
+    const bytes = @sliceToBytes(array[0..]);
+    if (foo(bytes) != 0x11111111) return error.Wrong;
+}
+fn foo(bytes: []u8) u32 {
+    const slice4 = bytes[1..5];
+    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
+    return int_slice[0];
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Wrong Union Field Access#}
       <p>TODO</p>
