@@ -19796,6 +19796,12 @@ static TypeTableEntry *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstr
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    if (!type_has_bits(target->value.type)) {
+        ir_add_error(ira, target,
+                buf_sprintf("pointer to size 0 type has no address"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     if (instr_is_comptime(target)) {
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)

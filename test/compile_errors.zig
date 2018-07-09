@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@ptrToInt on *void",
+        \\export fn entry() bool {
+        \\    return @ptrToInt(&{}) == @ptrToInt(&{});
+        \\}
+    ,
+        ".tmp_source.zig:2:23: error: pointer to size 0 type has no address",
+    );
+
+    cases.add(
         "@popCount - non-integer",
         \\export fn entry(x: f32) u32 {
         \\    return @popCount(x);
