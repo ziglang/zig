@@ -13,6 +13,10 @@ pub extern "c" fn kevent(kq: c_int, changelist: [*]const Kevent, nchanges: c_int
 pub extern "c" fn kevent64(kq: c_int, changelist: [*]const kevent64_s, nchanges: c_int,
     eventlist: [*]kevent64_s, nevents: c_int, flags: c_uint, timeout: ?*const timespec) c_int;
 
+pub extern "c" fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
+pub extern "c" fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
+pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;
+
 pub use @import("../os/darwin_errno.zig");
 
 pub const _errno = __error;

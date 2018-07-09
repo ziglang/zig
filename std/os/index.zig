@@ -2756,35 +2756,57 @@ pub const CpuCountError = error{
 };
 
 pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
-    const usize_count = 16;
-    const allocator = std.heap.stackFallback(usize_count * @sizeOf(usize), fallback_allocator).get();
+    switch (builtin.os) {
+        builtin.Os.macosx => {
+            var count: c_int = undefined;
+            var count_len: usize = @sizeOf(c_int);
+            const rc = posix.sysctlbyname(c"hw.ncpu", @ptrCast(*c_void, &count), &count_len, null, 0);
+            const err = posix.getErrno(rc);
+            switch (err) {
+                0 => return @intCast(usize, count),
+                posix.EFAULT => unreachable,
+                posix.EINVAL => unreachable,
+                posix.ENOMEM => return CpuCountError.OutOfMemory,
+                posix.ENOTDIR => unreachable,
+                posix.EISDIR => unreachable,
+                posix.ENOENT => unreachable,
+                posix.EPERM => unreachable,
+                else => return os.unexpectedErrorPosix(err),
+            }
+        },
+        builtin.Os.linux => {
+            const usize_count = 16;
+            const allocator = std.heap.stackFallback(usize_count * @sizeOf(usize), fallback_allocator).get();
 
-    var set = try allocator.alloc(usize, usize_count);
-    defer allocator.free(set);
+            var set = try allocator.alloc(usize, usize_count);
+            defer allocator.free(set);
 
-    while (true) {
-        const rc = posix.sched_getaffinity(0, set);
-        const err = posix.getErrno(rc);
-        switch (err) {
-            0 => {
-                if (rc < set.len * @sizeOf(usize)) {
-                    const result = set[0 .. rc / @sizeOf(usize)];
-                    var sum: usize = 0;
-                    for (result) |x| {
-                        sum += @popCount(x);
-                    }
-                    return sum;
-                } else {
-                    set = try allocator.realloc(usize, set, set.len * 2);
-                    continue;
+            while (true) {
+                const rc = posix.sched_getaffinity(0, set);
+                const err = posix.getErrno(rc);
+                switch (err) {
+                    0 => {
+                        if (rc < set.len * @sizeOf(usize)) {
+                            const result = set[0 .. rc / @sizeOf(usize)];
+                            var sum: usize = 0;
+                            for (result) |x| {
+                                sum += @popCount(x);
+                            }
+                            return sum;
+                        } else {
+                            set = try allocator.realloc(usize, set, set.len * 2);
+                            continue;
+                        }
+                    },
+                    posix.EFAULT => unreachable,
+                    posix.EINVAL => unreachable,
+                    posix.EPERM => return CpuCountError.PermissionDenied,
+                    posix.ESRCH => unreachable,
+                    else => return os.unexpectedErrorPosix(err),
                 }
-            },
-            posix.EFAULT => unreachable,
-            posix.EINVAL => unreachable,
-            posix.EPERM => return CpuCountError.PermissionDenied,
-            posix.ESRCH => unreachable,
-            else => return os.unexpectedErrorPosix(err),
-        }
+            }
+        },
+        else => @compileError("unsupported OS"),
     }
 }
 

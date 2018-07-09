@@ -520,6 +520,18 @@ pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
     return errnoWrap(c.symlink(existing, new));
 }
 
+pub fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) usize {
+    return errnoWrap(c.sysctl(name, namelen, oldp, oldlenp, newp, newlen));
+}
+
+pub fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) usize {
+    return errnoWrap(c.sysctlbyname(name, oldp, oldlenp, newp, newlen));
+}
+
+pub fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) usize {
+    return errnoWrap(c.sysctlnametomib(name, wibp, sizep));
+}
+
 pub fn rename(old: [*]const u8, new: [*]const u8) usize {
     return errnoWrap(c.rename(old, new));
 }
