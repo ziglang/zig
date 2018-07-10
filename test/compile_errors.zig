@@ -2,6 +2,18 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "ICE with generic function as function argument",
+        \\fn f(_: fn (var) void) void {}
+        \\fn g(_: u8) void {}
+        \\fn gg(_: var) void {}
+        \\f(g);
+        \\f(gg);
+    ,
+        ".tmp_source.zig:5:7: error: cannot pass generic function as parameter at runtime",
+        ".tmp_source.zig:6:6: error: cannot pass generic function as parameter at runtime",
+    );
+
+    cases.add(
         "use of comptime-known undefined function value",
         \\const Cmd = struct {
         \\    exec: fn () void,

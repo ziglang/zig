@@ -10638,6 +10638,12 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
+    if (wanted_type->data.fn.is_generic) {
+        ir_add_error_node(ira, source_instr->source_node,
+                          buf_sprintf("cannot pass generic function as parameter at runtime"));
+        return ira->codegen->invalid_instruction;
+    }
+
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_instr->source_node,
         buf_sprintf("expected type '%s', found '%s'",
             buf_ptr(&wanted_type->name),
@@ -13183,6 +13189,13 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     }
     for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
         IrInstruction *old_arg = call_instruction->args[call_i]->other;
+
+        if (old_arg->value.type->data.fn.is_generic) {
+            ir_add_error_node(ira, call_instruction->base.source_node,
+                              buf_sprintf("cannot pass generic function as parameter at runtime"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
         if (type_is_invalid(old_arg->value.type))
             return ira->codegen->builtin_types.entry_invalid;
         IrInstruction *casted_arg;
