@@ -360,6 +360,28 @@ pub const Loop = struct {
         }
     }
 
+    /// This is equivalent to an async call, except instead of beginning execution of the async function,
+    /// it immediately returns to the caller, and the async function is queued in the event loop. It still
+    /// returns a promise to be awaited.
+    pub fn call(self: *Loop, comptime func: var, args: ...) !(promise->@typeOf(func).ReturnType) {
+        const S = struct {
+            async fn asyncFunc(loop: *Loop, handle: *promise->@typeOf(func).ReturnType, args2: ...) @typeOf(func).ReturnType {
+                suspend |p| {
+                    handle.* = p;
+                    var my_tick_node = Loop.NextTickNode{
+                        .next = undefined,
+                        .data = p,
+                    };
+                    loop.onNextTick(&my_tick_node);
+                }
+                // TODO guaranteed allocation elision for await in same func as async
+                return await (async func(args2) catch unreachable);
+            }
+        };
+        var handle: promise->@typeOf(func).ReturnType = undefined;
+        return async<self.allocator> S.asyncFunc(self, &handle, args);
+    }
+
     fn workerRun(self: *Loop) void {
         start_over: while (true) {
             if (@atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) == 0) {
@@ -574,4 +596,34 @@ test "std.event.Loop - basic" {
     defer loop.deinit();
 
     loop.run();
+}
+
+test "std.event.Loop - call" {
+    var da = std.heap.DirectAllocator.init();
+    defer da.deinit();
+
+    const allocator = &da.allocator;
+
+    var loop: Loop = undefined;
+    try loop.initMultiThreaded(allocator);
+    defer loop.deinit();
+
+    var did_it = false;
+    const handle = try loop.call(testEventLoop);
+    const handle2 = try loop.call(testEventLoop2, handle, &did_it);
+    defer cancel handle2;
+
+    loop.run();
+
+    assert(did_it);
+}
+
+async fn testEventLoop() i32 {
+    return 1234;
+}
+
+async fn testEventLoop2(h: promise->i32, did_it: *bool) void {
+    const value = await h;
+    assert(value == 1234);
+    did_it.* = true;
 }

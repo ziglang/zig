@@ -12721,14 +12721,22 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     // for extern functions, the var args argument is not counted.
     // for zig functions, it is.
     size_t var_args_1_or_0;
-    if (fn_type_id->cc == CallingConventionUnspecified) {
-        var_args_1_or_0 = fn_type_id->is_var_args ? 1 : 0;
-    } else {
+    if (fn_type_id->cc == CallingConventionC) {
         var_args_1_or_0 = 0;
+    } else {
+        var_args_1_or_0 = fn_type_id->is_var_args ? 1 : 0;
     }
     size_t src_param_count = fn_type_id->param_count - var_args_1_or_0;
 
     size_t call_param_count = call_instruction->arg_count + first_arg_1_or_0;
+    for (size_t i = 0; i < call_instruction->arg_count; i += 1) {
+        ConstExprValue *arg_tuple_value = &call_instruction->args[i]->other->value;
+        if (arg_tuple_value->type->id == TypeTableEntryIdArgTuple) {
+            call_param_count -= 1;
+            call_param_count += arg_tuple_value->data.x_arg_tuple.end_index -
+                arg_tuple_value->data.x_arg_tuple.start_index;
+        }
+    }
     AstNode *source_node = call_instruction->base.source_node;
 
     AstNode *fn_proto_node = fn_entry ? fn_entry->proto_node : nullptr;;
@@ -12909,11 +12917,6 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 buf_sprintf("calling a generic function requires compile-time known function value"));
             return ira->codegen->builtin_types.entry_invalid;
         }
-        if (call_instruction->is_async && fn_type_id->is_var_args) {
-            ir_add_error(ira, call_instruction->fn_ref,
-                buf_sprintf("compiler bug: TODO: implement var args async functions. https://github.com/ziglang/zig/issues/557"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
 
         // Count the arguments of the function type id we are creating
         size_t new_fn_arg_count = first_arg_1_or_0;
@@ -12988,18 +12991,18 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             if (type_is_invalid(arg->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
-            AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
-            assert(param_decl_node->type == NodeTypeParamDecl);
-            bool is_var_args = param_decl_node->data.param_decl.is_var_args;
-            if (is_var_args && !found_first_var_arg) {
-                first_var_arg = inst_fn_type_id.param_count;
-                found_first_var_arg = true;
-            }
-
             if (arg->value.type->id == TypeTableEntryIdArgTuple) {
                 for (size_t arg_tuple_i = arg->value.data.x_arg_tuple.start_index;
                     arg_tuple_i < arg->value.data.x_arg_tuple.end_index; arg_tuple_i += 1)
                 {
+                    AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
+                    assert(param_decl_node->type == NodeTypeParamDecl);
+                    bool is_var_args = param_decl_node->data.param_decl.is_var_args;
+                    if (is_var_args && !found_first_var_arg) {
+                        first_var_arg = inst_fn_type_id.param_count;
+                        found_first_var_arg = true;
+                    }
+
                     VariableTableEntry *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
                     if (arg_var == nullptr) {
                         ir_add_error(ira, arg,
@@ -13020,10 +13023,20 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                         return ira->codegen->builtin_types.entry_invalid;
                     }
                 }
-            } else if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
-                &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
-            {
-                return ira->codegen->builtin_types.entry_invalid;
+            } else {
+                AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
+                assert(param_decl_node->type == NodeTypeParamDecl);
+                bool is_var_args = param_decl_node->data.param_decl.is_var_args;
+                if (is_var_args && !found_first_var_arg) {
+                    first_var_arg = inst_fn_type_id.param_count;
+                    found_first_var_arg = true;
+                }
+
+                if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
+                    &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
+                {
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
             }
         }
 
