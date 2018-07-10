@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "use of comptime-known undefined function value",
+        \\const Cmd = struct {
+        \\    exec: fn () void,
+        \\};
+        \\export fn entry() void {
+        \\    const command = Cmd{ .exec = undefined };
+        \\    command.exec();
+        \\}
+    ,
+        ".tmp_source.zig:6:12: error: use of undefined value",
+    );
+
+    cases.add(
         "bad @alignCast at comptime",
         \\comptime {
         \\    const ptr = @intToPtr(*i32, 0x1);
