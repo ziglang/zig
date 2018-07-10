@@ -564,14 +564,14 @@ pub const Loop = struct {
 };
 
 test "std.event.Loop - basic" {
-    //var da = std.heap.DirectAllocator.init();
-    //defer da.deinit();
+    var da = std.heap.DirectAllocator.init();
+    defer da.deinit();
 
-    //const allocator = &da.allocator;
+    const allocator = &da.allocator;
 
-    //var loop: Loop = undefined;
-    //try loop.initMultiThreaded(allocator);
-    //defer loop.deinit();
+    var loop: Loop = undefined;
+    try loop.initMultiThreaded(allocator);
+    defer loop.deinit();
 
-    //loop.run();
+    loop.run();
 }
