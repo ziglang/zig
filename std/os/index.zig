@@ -61,6 +61,15 @@ pub const windowsLoadDll = windows_util.windowsLoadDll;
 pub const windowsUnloadDll = windows_util.windowsUnloadDll;
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
+pub const WindowsCreateIoCompletionPortError = windows_util.WindowsCreateIoCompletionPortError;
+pub const windowsCreateIoCompletionPort = windows_util.windowsCreateIoCompletionPort;
+
+pub const WindowsPostQueuedCompletionStatusError = windows_util.WindowsPostQueuedCompletionStatusError;
+pub const windowsPostQueuedCompletionStatus = windows_util.windowsPostQueuedCompletionStatus;
+
+pub const WindowsWaitResult = windows_util.WindowsWaitResult;
+pub const windowsGetQueuedCompletionStatus = windows_util.windowsGetQueuedCompletionStatus;
+
 pub const WindowsWaitError = windows_util.WaitError;
 pub const WindowsOpenError = windows_util.OpenError;
 pub const WindowsWriteError = windows_util.WriteError;
@@ -544,8 +553,13 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
     return null;
 }
 
+pub const GetEnvVarOwnedError = error{
+    OutOfMemory,
+    EnvironmentVariableNotFound,
+};
+
 /// Caller must free returned memory.
-pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) ![]u8 {
+pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
         const key_with_null = try cstr.addNullByte(allocator, key);
         defer allocator.free(key_with_null);
@@ -554,14 +568,17 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) ![]u8 {
         errdefer allocator.free(buf);
 
         while (true) {
-            const windows_buf_len = try math.cast(windows.DWORD, buf.len);
+            const windows_buf_len = math.cast(windows.DWORD, buf.len) catch return error.OutOfMemory;
             const result = windows.GetEnvironmentVariableA(key_with_null.ptr, buf.ptr, windows_buf_len);
 
             if (result == 0) {
                 const err = windows.GetLastError();
                 return switch (err) {
                     windows.ERROR.ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
-                    else => unexpectedErrorWindows(err),
+                    else => {
+                        _ = unexpectedErrorWindows(err);
+                        return error.EnvironmentVariableNotFound;
+                    },
                 };
             }
 
@@ -2309,6 +2326,30 @@ pub fn linuxEpollWait(epfd: i32, events: []linux.epoll_event, timeout: i32) usiz
     }
 }
 
+pub const LinuxEventFdError = error{
+    InvalidFlagValue,
+    SystemResources,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+
+    Unexpected,
+};
+
+pub fn linuxEventFd(initval: u32, flags: u32) LinuxEventFdError!i32 {
+    const rc = posix.eventfd(initval, flags);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        else => return unexpectedErrorPosix(err),
+
+        posix.EINVAL => return LinuxEventFdError.InvalidFlagValue,
+        posix.EMFILE => return LinuxEventFdError.ProcessFdQuotaExceeded,
+        posix.ENFILE => return LinuxEventFdError.SystemFdQuotaExceeded,
+        posix.ENODEV => return LinuxEventFdError.SystemResources,
+        posix.ENOMEM => return LinuxEventFdError.SystemResources,
+    }
+}
+
 pub const PosixGetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
@@ -2568,11 +2609,17 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
                 thread: Thread,
                 inner: Context,
             };
-            extern fn threadMain(arg: windows.LPVOID) windows.DWORD {
-                if (@sizeOf(Context) == 0) {
-                    return startFn({});
-                } else {
-                    return startFn(@ptrCast(*Context, @alignCast(@alignOf(Context), arg)).*);
+            extern fn threadMain(raw_arg: windows.LPVOID) windows.DWORD {
+                const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
+                switch (@typeId(@typeOf(startFn).ReturnType)) {
+                    builtin.TypeId.Int => {
+                        return startFn(arg);
+                    },
+                    builtin.TypeId.Void => {
+                        startFn(arg);
+                        return 0;
+                    },
+                    else => @compileError("expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'"),
                 }
             }
         };
@@ -2605,10 +2652,17 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
 
     const MainFuncs = struct {
         extern fn linuxThreadMain(ctx_addr: usize) u8 {
-            if (@sizeOf(Context) == 0) {
-                return startFn({});
-            } else {
-                return startFn(@intToPtr(*const Context, ctx_addr).*);
+            const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
+
+            switch (@typeId(@typeOf(startFn).ReturnType)) {
+                builtin.TypeId.Int => {
+                    return startFn(arg);
+                },
+                builtin.TypeId.Void => {
+                    startFn(arg);
+                    return 0;
+                },
+                else => @compileError("expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'"),
             }
         }
         extern fn posixThreadMain(ctx: ?*c_void) ?*c_void {
@@ -2716,4 +2770,129 @@ pub fn posixFStat(fd: i32) !posix.Stat {
     }
 
     return stat;
+}
+
+pub const CpuCountError = error{
+    OutOfMemory,
+    PermissionDenied,
+    Unexpected,
+};
+
+pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
+    switch (builtin.os) {
+        builtin.Os.macosx => {
+            var count: c_int = undefined;
+            var count_len: usize = @sizeOf(c_int);
+            const rc = posix.sysctlbyname(c"hw.ncpu", @ptrCast(*c_void, &count), &count_len, null, 0);
+            const err = posix.getErrno(rc);
+            switch (err) {
+                0 => return @intCast(usize, count),
+                posix.EFAULT => unreachable,
+                posix.EINVAL => unreachable,
+                posix.ENOMEM => return CpuCountError.OutOfMemory,
+                posix.ENOTDIR => unreachable,
+                posix.EISDIR => unreachable,
+                posix.ENOENT => unreachable,
+                posix.EPERM => unreachable,
+                else => return os.unexpectedErrorPosix(err),
+            }
+        },
+        builtin.Os.linux => {
+            const usize_count = 16;
+            const allocator = std.heap.stackFallback(usize_count * @sizeOf(usize), fallback_allocator).get();
+
+            var set = try allocator.alloc(usize, usize_count);
+            defer allocator.free(set);
+
+            while (true) {
+                const rc = posix.sched_getaffinity(0, set);
+                const err = posix.getErrno(rc);
+                switch (err) {
+                    0 => {
+                        if (rc < set.len * @sizeOf(usize)) {
+                            const result = set[0 .. rc / @sizeOf(usize)];
+                            var sum: usize = 0;
+                            for (result) |x| {
+                                sum += @popCount(x);
+                            }
+                            return sum;
+                        } else {
+                            set = try allocator.realloc(usize, set, set.len * 2);
+                            continue;
+                        }
+                    },
+                    posix.EFAULT => unreachable,
+                    posix.EINVAL => unreachable,
+                    posix.EPERM => return CpuCountError.PermissionDenied,
+                    posix.ESRCH => unreachable,
+                    else => return os.unexpectedErrorPosix(err),
+                }
+            }
+        },
+        builtin.Os.windows => {
+            var system_info: windows.SYSTEM_INFO = undefined;
+            windows.GetSystemInfo(&system_info);
+            return @intCast(usize, system_info.dwNumberOfProcessors);
+        },
+        else => @compileError("unsupported OS"),
+    }
+}
+
+pub const BsdKQueueError = error{
+    /// The per-process limit on the number of open file descriptors has been reached.
+    ProcessFdQuotaExceeded,
+
+    /// The system-wide limit on the total number of open files has been reached.
+    SystemFdQuotaExceeded,
+
+    Unexpected,
+};
+
+pub fn bsdKQueue() BsdKQueueError!i32 {
+    const rc = posix.kqueue();
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        posix.EMFILE => return BsdKQueueError.ProcessFdQuotaExceeded,
+        posix.ENFILE => return BsdKQueueError.SystemFdQuotaExceeded,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub const BsdKEventError = error{
+    /// The process does not have permission to register a filter.
+    AccessDenied,
+
+    /// The event could not be found to be modified or deleted.
+    EventNotFound,
+
+    /// No memory was available to register the event.
+    SystemResources,
+
+    /// The specified process to attach to does not exist.
+    ProcessNotFound,
+};
+
+pub fn bsdKEvent(
+    kq: i32,
+    changelist: []const posix.Kevent,
+    eventlist: []posix.Kevent,
+    timeout: ?*const posix.timespec,
+) BsdKEventError!usize {
+    while (true) {
+        const rc = posix.kevent(kq, changelist, eventlist, timeout);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return rc,
+            posix.EACCES => return BsdKEventError.AccessDenied,
+            posix.EFAULT => unreachable,
+            posix.EBADF => unreachable,
+            posix.EINTR => continue,
+            posix.EINVAL => unreachable,
+            posix.ENOENT => return BsdKEventError.EventNotFound,
+            posix.ENOMEM => return BsdKEventError.SystemResources,
+            posix.ESRCH => return BsdKEventError.ProcessNotFound,
+            else => unreachable,
+        }
+    }
 }

@@ -814,6 +814,7 @@ pub const LibExeObjStep = struct {
     out_h_filename: []const u8,
     assembly_files: ArrayList([]const u8),
     packages: ArrayList(Pkg),
+    build_options_contents: std.Buffer,
 
     // C only stuff
     source_files: ArrayList([]const u8),
@@ -905,6 +906,7 @@ pub const LibExeObjStep = struct {
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .disable_libc = true,
+            .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
         };
         self.computeOutFileNames();
         return self;
@@ -945,6 +947,7 @@ pub const LibExeObjStep = struct {
             .out_h_filename = undefined,
             .assembly_files = undefined,
             .packages = undefined,
+            .build_options_contents = undefined,
         };
         self.computeOutFileNames();
         return self;
@@ -1096,6 +1099,12 @@ pub const LibExeObjStep = struct {
         self.include_dirs.append(self.builder.cache_root) catch unreachable;
     }
 
+    pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
+        assert(self.is_zig);
+        const out = &std.io.BufferOutStream.init(&self.build_options_contents).stream;
+        out.print("pub const {} = {};\n", name, value) catch unreachable;
+    }
+
     pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(path) catch unreachable;
     }
@@ -1153,6 +1162,15 @@ pub const LibExeObjStep = struct {
 
         if (self.root_src) |root_src| {
             zig_args.append(builder.pathFromRoot(root_src)) catch unreachable;
+        }
+
+        if (self.build_options_contents.len() > 0) {
+            const build_options_file = try os.path.join(builder.allocator, builder.cache_root, builder.fmt("{}_build_options.zig", self.name));
+            try std.io.writeFile(builder.allocator, build_options_file, self.build_options_contents.toSliceConst());
+            try zig_args.append("--pkg-begin");
+            try zig_args.append("build_options");
+            try zig_args.append(builder.pathFromRoot(build_options_file));
+            try zig_args.append("--pkg-end");
         }
 
         for (self.object_files.toSliceConst()) |object_file| {

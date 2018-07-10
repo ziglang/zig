@@ -679,7 +679,7 @@ fn divide(a: i32, b: i32) i32 {
       {#header_open|Float Literals#}
       <p>
       Float literals have type <code>comptime_float</code> which is guaranteed to hold at least all possible values
-      that the largest other floating point type can hold. Float literals implicitly cast to any other type.
+      that the largest other floating point type can hold. Float literals {#link|implicitly cast|Implicit Casts#} to any other type.
       </p>
       {#code_begin|syntax#}
 const floating_point = 123.0E+77;
@@ -1604,7 +1604,7 @@ test "variable alignment" {
     }
 }
       {#code_end#}
-      <p>In the same way that a <code>*i32</code> can be implicitly cast to a
+      <p>In the same way that a <code>*i32</code> can be {#link|implicitly cast|Implicit Casts#} to a
       <code>*const i32</code>, a pointer with a larger alignment can be implicitly
       cast to a pointer with a smaller alignment, but not vice versa.
       </p>
@@ -2968,7 +2968,7 @@ test "fn reflection" {
       However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
-      You can implicitly cast an error from a subset to its superset:
+      You can {#link|implicitly cast|Implicit Casts#} an error from a subset to its superset:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -3101,7 +3101,7 @@ test "parse u64" {
       <p>
       Within the function definition, you can see some return statements that return
       an error, and at the bottom a return statement that returns a <code>u64</code>.
-      Both types implicitly cast to <code>error!u64</code>.
+      Both types {#link|implicitly cast|Implicit Casts#} to <code>error!u64</code>.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
@@ -5013,7 +5013,7 @@ comptime {
       <p>
       If <code>x</code> is zero, <code>@clz</code> returns <code>T.bit_count</code>.
       </p>
-
+      {#see_also|@ctz|@popCount#}
       {#header_close#}
       {#header_open|@cmpxchgStrong#}
       <pre><code class="zig">@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T</code></pre>
@@ -5149,6 +5149,7 @@ test "main" {
       <p>
       If <code>x</code> is zero, <code>@ctz</code> returns <code>T.bit_count</code>.
       </p>
+      {#see_also|@clz|@popCount#}
       {#header_close#}
       {#header_open|@divExact#}
       <pre><code class="zig">@divExact(numerator: T, denominator: T) T</code></pre>
@@ -5630,6 +5631,16 @@ test "call foo" {
         <li>When mixing C and Zig code, calling the canonical panic implementation across multiple .o files.</li>
       </ul>
       {#see_also|Root Source File#}
+      {#header_close#}
+      {#header_open|@popCount#}
+      <pre><code class="zig">@popCount(integer: var) var</code></pre>
+      <p>Counts the number of bits set in an integer.</p>
+      <p>
+      If <code>integer</code> is known at {#link|comptime#}, the return type is <code>comptime_int</code>.
+      Otherwise, the return type is an unsigned integer with the minimum number
+      of bits that can represent the bit count of the integer type.
+      </p>
+      {#see_also|@ctz|@clz#}
       {#header_close#}
       {#header_open|@ptrCast#}
       <pre><code class="zig">@ptrCast(comptime DestType: type, value: var) DestType</code></pre>
@@ -6638,15 +6649,143 @@ pub fn main() void {
       {#header_close#}
 
       {#header_open|Invalid Error Set Cast#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|error.B not a member of error set 'Set2'#}
+const Set1 = error{
+    A,
+    B,
+};
+const Set2 = error{
+    A,
+    C,
+};
+comptime {
+    _ = @errSetCast(Set2, Set1.B);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+const Set1 = error{
+    A,
+    B,
+};
+const Set2 = error{
+    A,
+    C,
+};
+pub fn main() void {
+    foo(Set1.B);
+}
+fn foo(set1: Set1) void {
+    const x = @errSetCast(Set2, set1);
+    std.debug.warn("value: {}\n", x);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Incorrect Pointer Alignment#}
-      <p>TODO</p>
-
+      <p>At compile-time:</p>
+      {#code_begin|test_err|pointer address 0x1 is not aligned to 4 bytes#}
+comptime {
+    const ptr = @intToPtr(*i32, 0x1);
+    const aligned = @alignCast(4, ptr);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+pub fn main() !void {
+    var array align(4) = []u32{ 0x11111111, 0x11111111 };
+    const bytes = @sliceToBytes(array[0..]);
+    if (foo(bytes) != 0x11111111) return error.Wrong;
+}
+fn foo(bytes: []u8) u32 {
+    const slice4 = bytes[1..5];
+    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
+    return int_slice[0];
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Wrong Union Field Access#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|accessing union field 'float' while field 'int' is set#}
+comptime {
+    var f = Foo{ .int = 42 };
+    f.float = 12.34;
+}
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    bar(&f);
+}
+
+fn bar(f: *Foo) void {
+    f.float = 12.34;
+    std.debug.warn("value: {}\n", f.float);
+}
+      {#code_end#}
+      <p>
+      This safety is not available for <code>extern</code> or <code>packed</code> unions.
+      </p>
+      <p>
+      To change the active field of a union, assign the entire union, like this:
+      </p>
+      {#code_begin|exe#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    bar(&f);
+}
+
+fn bar(f: *Foo) void {
+    f.* = Foo{ .float = 12.34 };
+    std.debug.warn("value: {}\n", f.float);
+}
+      {#code_end#}
+      <p>
+      To change the active field of a union when a meaningful value for the field is not known,
+      use {#link|undefined#}, like this:
+      </p>
+      {#code_begin|exe#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    f = Foo{ .float = undefined };
+    bar(&f);
+    std.debug.warn("value: {}\n", f.float);
+}
+
+fn bar(f: *Foo) void {
+    f.float = 12.34;
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Out of Bounds Float To Integer Cast#}
@@ -7337,7 +7476,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong resume cancel await async orelse",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bytesToSlice sliceToBytes errSetCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall errorToInt intToError enumToInt intToEnum",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bytesToSlice sliceToBytes errSetCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz popCount import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall errorToInt intToError enumToInt intToEnum",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

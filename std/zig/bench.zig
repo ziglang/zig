@@ -19,20 +19,18 @@ pub fn main() !void {
     }
     const end = timer.read();
     memory_used /= iterations;
-    const elapsed_s = f64(end - start) / std.os.time.ns_per_s;
-    const bytes_per_sec = f64(source.len * iterations) / elapsed_s;
+    const elapsed_s = @intToFloat(f64, end - start) / std.os.time.ns_per_s;
+    const bytes_per_sec = @intToFloat(f64, source.len * iterations) / elapsed_s;
     const mb_per_sec = bytes_per_sec / (1024 * 1024);
 
     var stdout_file = try std.io.getStdOut();
-    const stdout = *std.io.FileOutStream.init(*stdout_file).stream;
-    try stdout.print("{.3} MB/s, {} KB used \n", mb_per_sec, memory_used / 1024);
+    const stdout = &std.io.FileOutStream.init(&stdout_file).stream;
+    try stdout.print("{.3} MiB/s, {} KiB used \n", mb_per_sec, memory_used / 1024);
 }
 
 fn testOnce() usize {
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    var allocator = *fixed_buf_alloc.allocator;
-    var tokenizer = Tokenizer.init(source);
-    var parser = Parser.init(*tokenizer, allocator, "(memory buffer)");
-    _ = parser.parse() catch @panic("parse failure");
+    var allocator = &fixed_buf_alloc.allocator;
+    _ = std.zig.parse(allocator, source) catch @panic("parse failure");
     return fixed_buf_alloc.end_index;
 }

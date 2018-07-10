@@ -2,6 +2,90 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "use of comptime-known undefined function value",
+        \\const Cmd = struct {
+        \\    exec: fn () void,
+        \\};
+        \\export fn entry() void {
+        \\    const command = Cmd{ .exec = undefined };
+        \\    command.exec();
+        \\}
+    ,
+        ".tmp_source.zig:6:12: error: use of undefined value",
+    );
+
+    cases.add(
+        "bad @alignCast at comptime",
+        \\comptime {
+        \\    const ptr = @intToPtr(*i32, 0x1);
+        \\    const aligned = @alignCast(4, ptr);
+        \\}
+    ,
+        ".tmp_source.zig:3:35: error: pointer address 0x1 is not aligned to 4 bytes",
+    );
+
+    cases.add(
+        "@ptrToInt on *void",
+        \\export fn entry() bool {
+        \\    return @ptrToInt(&{}) == @ptrToInt(&{});
+        \\}
+    ,
+        ".tmp_source.zig:2:23: error: pointer to size 0 type has no address",
+    );
+
+    cases.add(
+        "@popCount - non-integer",
+        \\export fn entry(x: f32) u32 {
+        \\    return @popCount(x);
+        \\}
+    ,
+        ".tmp_source.zig:2:22: error: expected integer type, found 'f32'",
+    );
+
+    cases.add(
+        "@popCount - negative comptime_int",
+        \\comptime {
+        \\    _ = @popCount(-1);
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: @popCount on negative comptime_int value -1",
+    );
+
+    cases.addCase(x: {
+        const tc = cases.create(
+            "wrong same named struct",
+            \\const a = @import("a.zig");
+            \\const b = @import("b.zig");
+            \\
+            \\export fn entry() void {
+            \\    var a1: a.Foo = undefined;
+            \\    bar(&a1);
+            \\}
+            \\
+            \\fn bar(x: *b.Foo) void {}
+        ,
+            ".tmp_source.zig:6:10: error: expected type '*Foo', found '*Foo'",
+            ".tmp_source.zig:6:10: note: pointer type child 'Foo' cannot cast into pointer type child 'Foo'",
+            "a.zig:1:17: note: Foo declared here",
+            "b.zig:1:17: note: Foo declared here",
+        );
+
+        tc.addSourceFile("a.zig",
+            \\pub const Foo = struct {
+            \\    x: i32,
+            \\};
+        );
+
+        tc.addSourceFile("b.zig",
+            \\pub const Foo = struct {
+            \\    z: f64,
+            \\};
+        );
+
+        break :x tc;
+    });
+
+    cases.add(
         "enum field value references enum",
         \\pub const Foo = extern enum {
         \\    A = Foo.B,
@@ -357,6 +441,20 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:5:14: error: duplicate switch value: '@typeOf(foo).ReturnType.ErrorSet.Foo'",
         ".tmp_source.zig:3:14: note: other value is here",
     );
+
+    cases.add("invalid cast from integral type to enum",
+        \\const E = enum(usize) { One, Two };
+        \\
+        \\export fn entry() void {
+        \\    foo(1);
+        \\}
+        \\
+        \\fn foo(x: usize) void {
+        \\    switch (x) {
+        \\        E.One => {},
+        \\    }
+        \\}
+    , ".tmp_source.zig:9:10: error: expected type 'usize', found 'E'");
 
     cases.add(
         "range operator in switch used on error set",

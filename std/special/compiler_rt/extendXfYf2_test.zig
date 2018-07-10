@@ -31,7 +31,7 @@ fn test__extendhfsf2(a: u16, expected: u32) void {
 
     if (rep == expected) {
         if (rep & 0x7fffffff > 0x7f800000) {
-            return;  // NaN is always unequal.
+            return; // NaN is always unequal.
         }
         if (x == @bitCast(f32, expected)) {
             return;
@@ -86,33 +86,33 @@ test "extenddftf2" {
 }
 
 test "extendhfsf2" {
-    test__extendhfsf2(0x7e00, 0x7fc00000);  // qNaN
-    test__extendhfsf2(0x7f00, 0x7fe00000);  // sNaN
-    test__extendhfsf2(0x7c01, 0x7f802000);  // sNaN
+    test__extendhfsf2(0x7e00, 0x7fc00000); // qNaN
+    test__extendhfsf2(0x7f00, 0x7fe00000); // sNaN
+    test__extendhfsf2(0x7c01, 0x7f802000); // sNaN
 
-    test__extendhfsf2(0, 0);  // 0
-    test__extendhfsf2(0x8000, 0x80000000);  // -0
+    test__extendhfsf2(0, 0); // 0
+    test__extendhfsf2(0x8000, 0x80000000); // -0
 
-    test__extendhfsf2(0x7c00, 0x7f800000);  // inf
-    test__extendhfsf2(0xfc00, 0xff800000);  // -inf
+    test__extendhfsf2(0x7c00, 0x7f800000); // inf
+    test__extendhfsf2(0xfc00, 0xff800000); // -inf
 
-    test__extendhfsf2(0x0001, 0x33800000);  // denormal (min), 2**-24
-    test__extendhfsf2(0x8001, 0xb3800000);  // denormal (min), -2**-24
+    test__extendhfsf2(0x0001, 0x33800000); // denormal (min), 2**-24
+    test__extendhfsf2(0x8001, 0xb3800000); // denormal (min), -2**-24
 
-    test__extendhfsf2(0x03ff, 0x387fc000);  // denormal (max), 2**-14 - 2**-24
-    test__extendhfsf2(0x83ff, 0xb87fc000);  // denormal (max), -2**-14 + 2**-24
+    test__extendhfsf2(0x03ff, 0x387fc000); // denormal (max), 2**-14 - 2**-24
+    test__extendhfsf2(0x83ff, 0xb87fc000); // denormal (max), -2**-14 + 2**-24
 
-    test__extendhfsf2(0x0400, 0x38800000);  // normal (min), 2**-14
-    test__extendhfsf2(0x8400, 0xb8800000);  // normal (min), -2**-14
+    test__extendhfsf2(0x0400, 0x38800000); // normal (min), 2**-14
+    test__extendhfsf2(0x8400, 0xb8800000); // normal (min), -2**-14
 
-    test__extendhfsf2(0x7bff, 0x477fe000);  // normal (max), 65504
-    test__extendhfsf2(0xfbff, 0xc77fe000);  // normal (max), -65504
+    test__extendhfsf2(0x7bff, 0x477fe000); // normal (max), 65504
+    test__extendhfsf2(0xfbff, 0xc77fe000); // normal (max), -65504
 
-    test__extendhfsf2(0x3c01, 0x3f802000);  // normal, 1 + 2**-10
-    test__extendhfsf2(0xbc01, 0xbf802000);  // normal, -1 - 2**-10
+    test__extendhfsf2(0x3c01, 0x3f802000); // normal, 1 + 2**-10
+    test__extendhfsf2(0xbc01, 0xbf802000); // normal, -1 - 2**-10
 
-    test__extendhfsf2(0x3555, 0x3eaaa000);  // normal, approx. 1/3
-    test__extendhfsf2(0xb555, 0xbeaaa000);  // normal, approx. -1/3
+    test__extendhfsf2(0x3555, 0x3eaaa000); // normal, approx. 1/3
+    test__extendhfsf2(0xb555, 0xbeaaa000); // normal, approx. -1/3
 }
 
 test "extendsftf2" {

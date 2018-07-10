@@ -212,6 +212,43 @@ static uint8_t bits_needed_for_unsigned(uint64_t x) {
     return (upper >= x) ? base : (base + 1);
 }
 
+AstNode *type_decl_node(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+        case TypeTableEntryIdStruct:
+            return type_entry->data.structure.decl_node;
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.decl_node;
+        case TypeTableEntryIdUnion:
+            return type_entry->data.unionation.decl_node;
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdComptimeFloat:
+        case TypeTableEntryIdComptimeInt:
+        case TypeTableEntryIdUndefined:
+        case TypeTableEntryIdNull:
+        case TypeTableEntryIdOptional:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdErrorSet:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 bool type_is_complete(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
@@ -5939,6 +5976,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.ctz.bit_count) * (uint32_t)810453934;
         case ZigLLVMFnIdClz:
             return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
+        case ZigLLVMFnIdPopCount:
+            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)101195049;
         case ZigLLVMFnIdFloor:
             return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1899859168;
         case ZigLLVMFnIdCeil:
@@ -5961,6 +6000,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.ctz.bit_count == b.data.ctz.bit_count;
         case ZigLLVMFnIdClz:
             return a.data.clz.bit_count == b.data.clz.bit_count;
+        case ZigLLVMFnIdPopCount:
+            return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
         case ZigLLVMFnIdSqrt:

@@ -1352,6 +1352,7 @@ enum BuiltinFnId {
     BuiltinFnIdCompileLog,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
+    BuiltinFnIdPopCount,
     BuiltinFnIdImport,
     BuiltinFnIdCImport,
     BuiltinFnIdErrName,
@@ -1477,6 +1478,7 @@ bool type_id_eql(TypeId a, TypeId b);
 enum ZigLLVMFnId {
     ZigLLVMFnIdCtz,
     ZigLLVMFnIdClz,
+    ZigLLVMFnIdPopCount,
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
@@ -1499,6 +1501,9 @@ struct ZigLLVMFnKey {
         struct {
             uint32_t bit_count;
         } clz;
+        struct {
+            uint32_t bit_count;
+        } pop_count;
         struct {
             uint32_t bit_count;
         } floating;
@@ -2048,6 +2053,7 @@ enum IrInstructionId {
     IrInstructionIdUnionTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
+    IrInstructionIdPopCount,
     IrInstructionIdImport,
     IrInstructionIdCImport,
     IrInstructionIdCInclude,
@@ -2191,6 +2197,7 @@ struct IrInstructionSwitchBr {
     size_t case_count;
     IrInstructionSwitchBrCase *cases;
     IrInstruction *is_comptime;
+    IrInstruction *switch_prongs_void;
 };
 
 struct IrInstructionSwitchVar {
@@ -2537,6 +2544,12 @@ struct IrInstructionCtz {
 };
 
 struct IrInstructionClz {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionPopCount {
     IrInstruction base;
 
     IrInstruction *value;

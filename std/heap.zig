@@ -38,7 +38,7 @@ fn cFree(self: *Allocator, old_mem: []u8) void {
 }
 
 /// This allocator makes a syscall directly for every allocation and free.
-/// TODO make this thread-safe. The windows implementation will need some atomics.
+/// Thread-safe and lock-free.
 pub const DirectAllocator = struct {
     allocator: Allocator,
     heap_handle: ?HeapHandle,
@@ -74,34 +74,34 @@ pub const DirectAllocator = struct {
                 const alloc_size = if (alignment <= os.page_size) n else n + alignment;
                 const addr = p.mmap(null, alloc_size, p.PROT_READ | p.PROT_WRITE, p.MAP_PRIVATE | p.MAP_ANONYMOUS, -1, 0);
                 if (addr == p.MAP_FAILED) return error.OutOfMemory;
-
                 if (alloc_size == n) return @intToPtr([*]u8, addr)[0..n];
 
-                var aligned_addr = addr & ~usize(alignment - 1);
-                aligned_addr += alignment;
+                const aligned_addr = (addr & ~usize(alignment - 1)) + alignment;
 
-                //We can unmap the unused portions of our mmap, but we must only
-                //  pass munmap bytes that exist outside our allocated pages or it
-                //  will happily eat us too
+                // We can unmap the unused portions of our mmap, but we must only
+                // pass munmap bytes that exist outside our allocated pages or it
+                // will happily eat us too.
 
-                //Since alignment > page_size, we are by definition on a page boundry
+                // Since alignment > page_size, we are by definition on a page boundary.
                 const unused_start = addr;
                 const unused_len = aligned_addr - 1 - unused_start;
 
-                var err = p.munmap(unused_start, unused_len);
-                debug.assert(p.getErrno(err) == 0);
+                const err = p.munmap(unused_start, unused_len);
+                assert(p.getErrno(err) == 0);
 
-                //It is impossible that there is an unoccupied page at the top of our
-                //  mmap.
+                // It is impossible that there is an unoccupied page at the top of our
+                // mmap.
 
                 return @intToPtr([*]u8, aligned_addr)[0..n];
             },
             Os.windows => {
                 const amt = n + alignment + @sizeOf(usize);
-                const heap_handle = self.heap_handle orelse blk: {
-                    const hh = os.windows.HeapCreate(os.windows.HEAP_NO_SERIALIZE, amt, 0) orelse return error.OutOfMemory;
-                    self.heap_handle = hh;
-                    break :blk hh;
+                const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, builtin.AtomicOrder.SeqCst);
+                const heap_handle = optional_heap_handle orelse blk: {
+                    const hh = os.windows.HeapCreate(0, amt, 0) orelse return error.OutOfMemory;
+                    const other_hh = @cmpxchgStrong(?HeapHandle, &self.heap_handle, null, hh, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse break :blk hh;
+                    _ = os.windows.HeapDestroy(hh);
+                    break :blk other_hh.?; // can't be null because of the cmpxchg
                 };
                 const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
                 const root_addr = @ptrToInt(ptr);
@@ -360,6 +360,73 @@ pub const ThreadSafeFixedBufferAllocator = struct {
 
     fn free(allocator: *Allocator, bytes: []u8) void {}
 };
+
+pub fn stackFallback(comptime size: usize, fallback_allocator: *Allocator) StackFallbackAllocator(size) {
+    return StackFallbackAllocator(size){
+        .buffer = undefined,
+        .fallback_allocator = fallback_allocator,
+        .fixed_buffer_allocator = undefined,
+        .allocator = Allocator{
+            .allocFn = StackFallbackAllocator(size).alloc,
+            .reallocFn = StackFallbackAllocator(size).realloc,
+            .freeFn = StackFallbackAllocator(size).free,
+        },
+    };
+}
+
+pub fn StackFallbackAllocator(comptime size: usize) type {
+    return struct {
+        const Self = this;
+
+        buffer: [size]u8,
+        allocator: Allocator,
+        fallback_allocator: *Allocator,
+        fixed_buffer_allocator: FixedBufferAllocator,
+
+        pub fn get(self: *Self) *Allocator {
+            self.fixed_buffer_allocator = FixedBufferAllocator.init(self.buffer[0..]);
+            return &self.allocator;
+        }
+
+        fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+            const self = @fieldParentPtr(Self, "allocator", allocator);
+            return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator.allocator, n, alignment) catch
+                self.fallback_allocator.allocFn(self.fallback_allocator, n, alignment);
+        }
+
+        fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+            const self = @fieldParentPtr(Self, "allocator", allocator);
+            const in_buffer = @ptrToInt(old_mem.ptr) >= @ptrToInt(&self.buffer) and
+                @ptrToInt(old_mem.ptr) < @ptrToInt(&self.buffer) + self.buffer.len;
+            if (in_buffer) {
+                return FixedBufferAllocator.realloc(
+                    &self.fixed_buffer_allocator.allocator,
+                    old_mem,
+                    new_size,
+                    alignment,
+                ) catch {
+                    const result = try self.fallback_allocator.allocFn(
+                        self.fallback_allocator,
+                        new_size,
+                        alignment,
+                    );
+                    mem.copy(u8, result, old_mem);
+                    return result;
+                };
+            }
+            return self.fallback_allocator.reallocFn(self.fallback_allocator, old_mem, new_size, alignment);
+        }
+
+        fn free(allocator: *Allocator, bytes: []u8) void {
+            const self = @fieldParentPtr(Self, "allocator", allocator);
+            const in_buffer = @ptrToInt(bytes.ptr) >= @ptrToInt(&self.buffer) and
+                @ptrToInt(bytes.ptr) < @ptrToInt(&self.buffer) + self.buffer.len;
+            if (!in_buffer) {
+                return self.fallback_allocator.freeFn(self.fallback_allocator, bytes);
+            }
+        }
+    };
+}
 
 test "c_allocator" {
     if (builtin.link_libc) {
