@@ -384,7 +384,8 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
     defer allocator.free(zig_lib_dir);
 
-    var loop = try event.Loop.init(allocator);
+    var loop: event.Loop = undefined;
+    try loop.initMultiThreaded(allocator);
 
     var module = try Module.create(
         &loop,
@@ -493,8 +494,6 @@ async fn processBuildEvents(module: *Module, watch: bool) void {
         switch (build_event) {
             Module.Event.Ok => {
                 std.debug.warn("Build succeeded\n");
-                // for now we stop after 1
-                module.loop.stop();
                 return;
             },
             Module.Event.Error => |err| {

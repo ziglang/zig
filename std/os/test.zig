@@ -58,3 +58,8 @@ fn start2(ctx: *i32) u8 {
     _ = @atomicRmw(i32, ctx, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
     return 0;
 }
+
+test "cpu count" {
+    const cpu_count = try std.os.cpuCount(a);
+    assert(cpu_count >= 1);
+}

@@ -12,6 +12,11 @@ const builtin = @import("builtin");
 pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
 pub const failing_allocator = FailingAllocator.init(global_allocator, 0);
 
+pub const runtime_safety = switch (builtin.mode) {
+    builtin.Mode.Debug, builtin.Mode.ReleaseSafe => true,
+    builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => false,
+};
+
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 /// TODO atomic/multithread support
@@ -1125,7 +1130,7 @@ fn readILeb128(in_stream: var) !i64 {
 
 /// This should only be used in temporary test programs.
 pub const global_allocator = &global_fixed_allocator.allocator;
-var global_fixed_allocator = std.heap.FixedBufferAllocator.init(global_allocator_mem[0..]);
+var global_fixed_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(global_allocator_mem[0..]);
 var global_allocator_mem: [100 * 1024]u8 = undefined;
 
 // TODO make thread safe

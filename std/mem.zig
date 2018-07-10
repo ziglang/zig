@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const mem = this;
 
 pub const Allocator = struct {
-    const Error = error{OutOfMemory};
+    pub const Error = error{OutOfMemory};
 
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
