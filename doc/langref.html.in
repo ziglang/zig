@@ -6665,6 +6665,8 @@ comptime {
       {#code_end#}
       <p>At runtime:</p>
       {#code_begin|exe_err#}
+const std = @import("std");
+
 const Set1 = error{
     A,
     B,
@@ -6674,10 +6676,11 @@ const Set2 = error{
     C,
 };
 pub fn main() void {
-    _ = foo(Set1.B);
+    foo(Set1.B);
 }
-fn foo(set1: Set1) Set2 {
-    return @errSetCast(Set2, set1);
+fn foo(set1: Set1) void {
+    const x = @errSetCast(Set2, set1);
+    std.debug.warn("value: {}\n", x);
 }
       {#code_end#}
       {#header_close#}
@@ -6705,7 +6708,84 @@ fn foo(bytes: []u8) u32 {
       {#code_end#}
       {#header_close#}
       {#header_open|Wrong Union Field Access#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|accessing union field 'float' while field 'int' is set#}
+comptime {
+    var f = Foo{ .int = 42 };
+    f.float = 12.34;
+}
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    bar(&f);
+}
+
+fn bar(f: *Foo) void {
+    f.float = 12.34;
+    std.debug.warn("value: {}\n", f.float);
+}
+      {#code_end#}
+      <p>
+      This safety is not available for <code>extern</code> or <code>packed</code> unions.
+      </p>
+      <p>
+      To change the active field of a union, assign the entire union, like this:
+      </p>
+      {#code_begin|exe#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    bar(&f);
+}
+
+fn bar(f: *Foo) void {
+    f.* = Foo{ .float = 12.34 };
+    std.debug.warn("value: {}\n", f.float);
+}
+      {#code_end#}
+      <p>
+      To change the active field of a union when a meaningful value for the field is not known,
+      use {#link|undefined#}, like this:
+      </p>
+      {#code_begin|exe#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    f = Foo{ .float = undefined };
+    bar(&f);
+    std.debug.warn("value: {}\n", f.float);
+}
+
+fn bar(f: *Foo) void {
+    f.float = 12.34;
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Out of Bounds Float To Integer Cast#}
