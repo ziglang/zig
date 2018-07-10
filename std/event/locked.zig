@@ -1,5 +1,6 @@
 const std = @import("../index.zig");
 const Lock = std.event.Lock;
+const Loop = std.event.Loop;
 
 /// Thread-safe async/await lock that protects one piece of data.
 /// Does not make any syscalls - coroutines which are waiting for the lock are suspended, and
