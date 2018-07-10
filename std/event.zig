@@ -439,15 +439,14 @@ pub const Loop = struct {
 
     pub async fn waitFd(self: *Loop, fd: i32) !void {
         defer self.removeFd(fd);
-        var resume_node = ResumeNode{
-            .id = ResumeNode.Id.Basic,
-            .handle = undefined,
-        };
         suspend |p| {
-            resume_node.handle = p;
+            // TODO explicitly put this memory in the coroutine frame #1194
+            var resume_node = ResumeNode{
+                .id = ResumeNode.Id.Basic,
+                .handle = p,
+            };
             try self.addFd(fd, &resume_node);
         }
-        var a = &resume_node; // TODO better way to explicitly put memory in coro frame
     }
 
     /// Bring your own linked list node. This means it can't fail.
@@ -618,8 +617,7 @@ pub const Loop = struct {
                     while (true) {
                         var nbytes: windows.DWORD = undefined;
                         var overlapped: ?*windows.OVERLAPPED = undefined;
-                        switch (std.os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, 
-                            &overlapped, windows.INFINITE)) {
+                        switch (std.os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, &overlapped, windows.INFINITE)) {
                             std.os.WindowsWaitResult.Aborted => return,
                             std.os.WindowsWaitResult.Normal => {},
                         }
@@ -1062,10 +1060,13 @@ pub const Lock = struct {
     }
 
     pub async fn acquire(self: *Lock) Held {
-        var my_tick_node: Loop.NextTickNode = undefined;
-
         s: suspend |handle| {
-            my_tick_node.data = handle;
+            // TODO explicitly put this memory in the coroutine frame #1194
+            var my_tick_node = Loop.NextTickNode{
+                .data = handle,
+                .next = undefined,
+            };
+
             self.queue.put(&my_tick_node);
 
             // At this point, we are in the queue, so we might have already been resumed and this coroutine
@@ -1106,10 +1107,6 @@ pub const Lock = struct {
                 unreachable;
             }
         }
-
-        // TODO this workaround to force my_tick_node to be in the coroutine frame should
-        // not be necessary
-        var trash1 = &my_tick_node;
 
         return Held{ .lock = self };
     }
@@ -1176,6 +1173,10 @@ test "std.event.Lock" {
 }
 
 async fn testLock(loop: *Loop, lock: *Lock) void {
+    // TODO explicitly put next tick node memory in the coroutine frame #1194
+    suspend |p| {
+        resume p;
+    }
     const handle1 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node1 = Loop.NextTickNode{
         .next = undefined,
@@ -1200,12 +1201,6 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
     await handle1;
     await handle2;
     await handle3;
-
-    // TODO this is to force tick node memory to be in the coro frame
-    // there should be a way to make it explicit where the memory is
-    var a = &tick_node1;
-    var b = &tick_node2;
-    var c = &tick_node3;
 }
 
 var shared_test_data = [1]i32{0} ** 10;
@@ -1216,7 +1211,8 @@ async fn lockRunner(lock: *Lock) void {
 
     var i: usize = 0;
     while (i < shared_test_data.len) : (i += 1) {
-        const handle = await (async lock.acquire() catch @panic("out of memory"));
+        const lock_promise = async lock.acquire() catch @panic("out of memory");
+        const handle = await lock_promise;
         defer handle.release();
 
         shared_test_index = 0;

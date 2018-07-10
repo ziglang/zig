@@ -60,6 +60,31 @@ pub fn QueueMpsc(comptime T: type) type {
             }
             return self.outbox.isEmpty();
         }
+
+        /// For debugging only. No API guarantees about what this does.
+        pub fn dump(self: *Self) void {
+            {
+                var it = self.outbox.root;
+                while (it) |node| {
+                    std.debug.warn("0x{x} -> ", @ptrToInt(node));
+                    it = node.next;
+                }
+            }
+            const inbox_index = self.inbox_index;
+            const inboxes = []*std.atomic.Stack(T){
+                &self.inboxes[self.inbox_index],
+                &self.inboxes[1 - self.inbox_index],
+            };
+            for (inboxes) |inbox| {
+                var it = inbox.root;
+                while (it) |node| {
+                    std.debug.warn("0x{x} -> ", @ptrToInt(node));
+                    it = node.next;
+                }
+            }
+
+            std.debug.warn("null\n");
+        }
     };
 }
 
