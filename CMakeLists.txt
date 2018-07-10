@@ -459,6 +459,7 @@ set(ZIG_STD_FILES
     "empty.zig"
     "event.zig"
     "event/channel.zig"
+    "event/group.zig"
     "event/lock.zig"
     "event/locked.zig"
     "event/loop.zig"

@@ -85,6 +85,17 @@ pub const Module = struct {
 
     exported_symbol_names: event.Locked(Decl.Table),
 
+    /// Before code generation starts, must wait on this group to make sure
+    /// the build is complete.
+    build_group: event.Group(BuildError!void),
+
+    const BuildErrorsList = std.SegmentedList(BuildErrorDesc, 1);
+
+    pub const BuildErrorDesc = struct {
+        code: BuildError,
+        text: []const u8,
+    };
+
     // TODO handle some of these earlier and report them in a way other than error codes
     pub const BuildError = error{
         OutOfMemory,
@@ -237,6 +248,7 @@ pub const Module = struct {
             .emit_file_type = Emit.Binary,
             .link_out_file = null,
             .exported_symbol_names = event.Locked(Decl.Table).init(loop, Decl.Table.init(loop.allocator)),
+            .build_group = event.Group(BuildError!void).init(loop),
         });
     }
 
@@ -310,6 +322,9 @@ pub const Module = struct {
         const decls = try Scope.Decls.create(self.a(), null);
         errdefer decls.destroy();
 
+        var decl_group = event.Group(BuildError!void).init(self.loop);
+        errdefer decl_group.cancelAll();
+
         var it = tree.root_node.decls.iterator(0);
         while (it.next()) |decl_ptr| {
             const decl = decl_ptr.*;
@@ -342,25 +357,30 @@ pub const Module = struct {
                     });
                     errdefer self.a().destroy(fn_decl);
 
-                    // TODO make this parallel
-                    try await try async self.addTopLevelDecl(tree, &fn_decl.base);
+                    try decl_group.call(addTopLevelDecl, self, tree, &fn_decl.base);
                 },
                 ast.Node.Id.TestDecl => @panic("TODO"),
                 else => unreachable,
             }
         }
+        try await (async decl_group.wait() catch unreachable);
+        try await (async self.build_group.wait() catch unreachable);
     }
 
     async fn addTopLevelDecl(self: *Module, tree: *ast.Tree, decl: *Decl) !void {
         const is_export = decl.isExported(tree);
 
-        {
-            const exported_symbol_names = await try async self.exported_symbol_names.acquire();
-            defer exported_symbol_names.release();
+        if (is_export) {
+            try self.build_group.call(verifyUniqueSymbol, self, decl);
+        }
+    }
 
-            if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
-                @panic("TODO report compile error");
-            }
+    async fn verifyUniqueSymbol(self: *Module, decl: *Decl) !void {
+        const exported_symbol_names = await (async self.exported_symbol_names.acquire() catch unreachable);
+        defer exported_symbol_names.release();
+
+        if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
+            @panic("TODO report compile error");
         }
     }
 
