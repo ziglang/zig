@@ -13271,6 +13271,14 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
             return ir_finish_anal(ira, cast_instruction->value.type);
         } else if (fn_ref->value.type->id == TypeTableEntryIdFn) {
             FnTableEntry *fn_table_entry = ir_resolve_fn(ira, fn_ref);
+
+            if (fn_table_entry == NULL) {
+                ir_add_error_node(ira, call_instruction->base.source_node,
+                                  buf_sprintf("call made on undefined function pointer '%s'",
+                                              buf_ptr(&fn_ref->value.type->name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
                 fn_ref, nullptr, is_comptime, call_instruction->fn_inline);
         } else if (fn_ref->value.type->id == TypeTableEntryIdBoundFn) {
