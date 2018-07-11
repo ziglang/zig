@@ -12,14 +12,7 @@ test "compile errors" {
     try ctx.init();
     defer ctx.deinit();
 
-    try ctx.testCompileError(
-        \\export fn entry() void {}
-        \\export fn entry() void {}
-    , file1, 2, 8, "exported symbol collision: 'entry'");
-
-    try ctx.testCompileError(
-        \\fn() void {}
-    , file1, 1, 1, "missing function name");
+    try @import("../test/stage2/compile_errors.zig").addCases(&ctx);
 
     try ctx.run();
 }
@@ -27,7 +20,7 @@ test "compile errors" {
 const file1 = "1.zig";
 const allocator = std.heap.c_allocator;
 
-const TestContext = struct {
+pub const TestContext = struct {
     loop: std.event.Loop,
     zig_lib_dir: []u8,
     zig_cache_dir: []u8,

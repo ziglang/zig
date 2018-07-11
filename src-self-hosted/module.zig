@@ -381,6 +381,7 @@ pub const Module = struct {
 
         if (is_export) {
             try self.build_group.call(verifyUniqueSymbol, self, parsed_file, decl);
+            try self.build_group.call(generateDecl, self, parsed_file, decl);
         }
     }
 
@@ -427,6 +428,22 @@ pub const Module = struct {
                 decl.name,
             );
         }
+    }
+
+    /// This declaration has been blessed as going into the final code generation.
+    async fn generateDecl(self: *Module, parsed_file: *ParsedFile, decl: *Decl) void {
+        switch (decl.id) {
+            Decl.Id.Var => @panic("TODO"),
+            Decl.Id.Fn => {
+                const fn_decl = @fieldParentPtr(Decl.Fn, "base", decl);
+                return await (async self.generateDeclFn(parsed_file, fn_decl) catch unreachable);
+            },
+            Decl.Id.CompTime => @panic("TODO"),
+        }
+    }
+
+    async fn generateDeclFn(self: *Module, parsed_file: *ParsedFile, fn_decl: *Decl.Fn) void {
+        fn_decl.value = Decl.Fn.Val{ .Ok = Value.Fn{} };
     }
 
     pub fn link(self: *Module, out_file: ?[]const u8) !void {
@@ -589,7 +606,7 @@ pub const Decl = struct {
         // TODO https://github.com/ziglang/zig/issues/683 and then make this anonymous
         pub const Val = union {
             Unresolved: void,
-            Ok: *Value.Fn,
+            Ok: Value.Fn,
         };
 
         pub fn externLibName(self: Fn, tree: *ast.Tree) ?[]const u8 {

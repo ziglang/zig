@@ -73,6 +73,15 @@ pub const Lock = struct {
         };
     }
 
+    pub fn initLocked(loop: *Loop) Lock {
+        return Lock{
+            .loop = loop,
+            .shared_bit = 1,
+            .queue = Queue.init(),
+            .queue_empty_bit = 1,
+        };
+    }
+
     /// Must be called when not locked. Not thread safe.
     /// All calls to acquire() and release() must complete before calling deinit().
     pub fn deinit(self: *Lock) void {
@@ -81,7 +90,7 @@ pub const Lock = struct {
     }
 
     pub async fn acquire(self: *Lock) Held {
-        s: suspend |handle| {
+        suspend |handle| {
             // TODO explicitly put this memory in the coroutine frame #1194
             var my_tick_node = Loop.NextTickNode{
                 .data = handle,

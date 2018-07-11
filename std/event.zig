@@ -4,6 +4,7 @@ pub const Lock = @import("event/lock.zig").Lock;
 pub const tcp = @import("event/tcp.zig");
 pub const Channel = @import("event/channel.zig").Channel;
 pub const Group = @import("event/group.zig").Group;
+pub const Future = @import("event/future.zig").Group;
 
 test "import event tests" {
     _ = @import("event/locked.zig");
@@ -12,4 +13,5 @@ test "import event tests" {
     _ = @import("event/tcp.zig");
     _ = @import("event/channel.zig");
     _ = @import("event/group.zig");
+    _ = @import("event/future.zig");
 }
