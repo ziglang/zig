@@ -17,7 +17,7 @@ pub fn Future(comptime T: type) type {
         available: u8, // TODO make this a bool
 
         const Self = this;
-        const Queue = std.atomic.QueueMpsc(promise);
+        const Queue = std.atomic.Queue(promise);
 
         pub fn init(loop: *Loop) Self {
             return Self{
@@ -30,19 +30,19 @@ pub fn Future(comptime T: type) type {
         /// Obtain the value. If it's not available, wait until it becomes
         /// available.
         /// Thread-safe.
-        pub async fn get(self: *Self) T {
+        pub async fn get(self: *Self) *T {
             if (@atomicLoad(u8, &self.available, AtomicOrder.SeqCst) == 1) {
-                return self.data;
+                return &self.data;
             }
             const held = await (async self.lock.acquire() catch unreachable);
-            defer held.release();
+            held.release();
 
-            return self.data;
+            return &self.data;
         }
 
         /// Make the data become available. May be called only once.
-        pub fn put(self: *Self, value: T) void {
-            self.data = value;
+        /// Before calling this, modify the `data` property.
+        pub fn resolve(self: *Self) void {
             const prev = @atomicRmw(u8, &self.available, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
             assert(prev == 0); // put() called twice
             Lock.Held.release(Lock.Held{ .lock = &self.lock });
@@ -57,7 +57,7 @@ test "std.event.Future" {
     const allocator = &da.allocator;
 
     var loop: Loop = undefined;
-    try loop.initMultiThreaded(allocator);
+    try loop.initSingleThreaded(allocator);
     defer loop.deinit();
 
     const handle = try async<allocator> testFuture(&loop);
@@ -79,9 +79,10 @@ async fn testFuture(loop: *Loop) void {
 }
 
 async fn waitOnFuture(future: *Future(i32)) i32 {
-    return await (async future.get() catch @panic("memory"));
+    return (await (async future.get() catch @panic("memory"))).*;
 }
 
 async fn resolveFuture(future: *Future(i32)) void {
-    future.put(6);
+    future.data = 6;
+    future.resolve();
 }

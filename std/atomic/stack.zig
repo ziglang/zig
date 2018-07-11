@@ -1,10 +1,13 @@
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
 
-/// Many reader, many writer, non-allocating, thread-safe, lock-free
+/// Many reader, many writer, non-allocating, thread-safe
+/// Uses a spinlock to protect push() and pop()
 pub fn Stack(comptime T: type) type {
     return struct {
         root: ?*Node,
+        lock: u8,
 
         pub const Self = this;
 
@@ -14,7 +17,10 @@ pub fn Stack(comptime T: type) type {
         };
 
         pub fn init() Self {
-            return Self{ .root = null };
+            return Self{
+                .root = null,
+                .lock = 0,
+            };
         }
 
         /// push operation, but only if you are the first item in the stack. if you did not succeed in
@@ -25,18 +31,20 @@ pub fn Stack(comptime T: type) type {
         }
 
         pub fn push(self: *Self, node: *Node) void {
-            var root = @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst);
-            while (true) {
-                node.next = root;
-                root = @cmpxchgWeak(?*Node, &self.root, root, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse break;
-            }
+            while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+            defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+
+            node.next = self.root;
+            self.root = node;
         }
 
         pub fn pop(self: *Self) ?*Node {
-            var root = @atomicLoad(?*Node, &self.root, AtomicOrder.SeqCst);
-            while (true) {
-                root = @cmpxchgWeak(?*Node, &self.root, root, (root orelse return null).next, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return root;
-            }
+            while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+            defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+
+            const root = self.root orelse return null;
+            self.root = root.next;
+            return root;
         }
 
         pub fn isEmpty(self: *Self) bool {
@@ -45,7 +53,7 @@ pub fn Stack(comptime T: type) type {
     };
 }
 
-const std = @import("std");
+const std = @import("../index.zig");
 const Context = struct {
     allocator: *std.mem.Allocator,
     stack: *Stack(i32),

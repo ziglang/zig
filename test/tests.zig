@@ -47,12 +47,13 @@ const test_targets = []TestTarget{
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
-pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext{
         .b = b,
         .step = b.step("test-compare-output", "Run the compare output tests"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     compare_output.addCases(cases);
@@ -60,12 +61,13 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8) *build
     return cases.step;
 }
 
-pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext{
         .b = b,
         .step = b.step("test-runtime-safety", "Run the runtime safety tests"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     runtime_safety.addCases(cases);
@@ -73,12 +75,13 @@ pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8) *build
     return cases.step;
 }
 
-pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompileErrorContext{
         .b = b,
         .step = b.step("test-compile-errors", "Run the compile error tests"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     compile_errors.addCases(cases);
@@ -99,12 +102,13 @@ pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8) *build.
     return cases.step;
 }
 
-pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext{
         .b = b,
         .step = b.step("test-asm-link", "Run the assemble and link tests"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     assemble_and_link.addCases(cases);
@@ -173,6 +177,7 @@ pub const CompareOutputContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
+    modes: []const Mode,
 
     const Special = enum {
         None,
@@ -423,12 +428,7 @@ pub const CompareOutputContext = struct {
                 self.step.dependOn(&run_and_cmp_output.step);
             },
             Special.None => {
-                for ([]Mode{
-                    Mode.Debug,
-                    Mode.ReleaseSafe,
-                    Mode.ReleaseFast,
-                    Mode.ReleaseSmall,
-                }) |mode| {
+                for (self.modes) |mode| {
                     const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", "compare-output", case.name, @tagName(mode)) catch unreachable;
                     if (self.test_filter) |filter| {
                         if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
@@ -483,6 +483,7 @@ pub const CompileErrorContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
+    modes: []const Mode,
 
     const TestCase = struct {
         name: []const u8,
@@ -673,10 +674,7 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: *CompileErrorContext, case: *const TestCase) void {
         const b = self.b;
 
-        for ([]Mode{
-            Mode.Debug,
-            Mode.ReleaseFast,
-        }) |mode| {
+        for (self.modes) |mode| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {} ({})", case.name, @tagName(mode)) catch unreachable;
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;

@@ -12,8 +12,8 @@ pub fn Channel(comptime T: type) type {
     return struct {
         loop: *Loop,
 
-        getters: std.atomic.QueueMpsc(GetNode),
-        putters: std.atomic.QueueMpsc(PutNode),
+        getters: std.atomic.Queue(GetNode),
+        putters: std.atomic.Queue(PutNode),
         get_count: usize,
         put_count: usize,
         dispatch_lock: u8, // TODO make this a bool
@@ -46,8 +46,8 @@ pub fn Channel(comptime T: type) type {
                 .buffer_index = 0,
                 .dispatch_lock = 0,
                 .need_dispatch = 0,
-                .getters = std.atomic.QueueMpsc(GetNode).init(),
-                .putters = std.atomic.QueueMpsc(PutNode).init(),
+                .getters = std.atomic.Queue(GetNode).init(),
+                .putters = std.atomic.Queue(PutNode).init(),
                 .get_count = 0,
                 .put_count = 0,
             });
@@ -81,7 +81,7 @@ pub fn Channel(comptime T: type) type {
                     .next = undefined,
                     .data = handle,
                 };
-                var queue_node = std.atomic.QueueMpsc(PutNode).Node{
+                var queue_node = std.atomic.Queue(PutNode).Node{
                     .data = PutNode{
                         .tick_node = &my_tick_node,
                         .data = data,
@@ -111,7 +111,7 @@ pub fn Channel(comptime T: type) type {
                     .next = undefined,
                     .data = handle,
                 };
-                var queue_node = std.atomic.QueueMpsc(GetNode).Node{
+                var queue_node = std.atomic.Queue(GetNode).Node{
                     .data = GetNode{
                         .ptr = &result,
                         .tick_node = &my_tick_node,

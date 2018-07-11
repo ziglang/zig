@@ -9,7 +9,7 @@ const AtomicOrder = builtin.AtomicOrder;
 
 pub const Loop = struct {
     allocator: *mem.Allocator,
-    next_tick_queue: std.atomic.QueueMpsc(promise),
+    next_tick_queue: std.atomic.Queue(promise),
     os_data: OsData,
     final_resume_node: ResumeNode,
     dispatch_lock: u8, // TODO make this a bool
@@ -21,7 +21,7 @@ pub const Loop = struct {
     available_eventfd_resume_nodes: std.atomic.Stack(ResumeNode.EventFd),
     eventfd_resume_nodes: []std.atomic.Stack(ResumeNode.EventFd).Node,
 
-    pub const NextTickNode = std.atomic.QueueMpsc(promise).Node;
+    pub const NextTickNode = std.atomic.Queue(promise).Node;
 
     pub const ResumeNode = struct {
         id: Id,
@@ -77,7 +77,7 @@ pub const Loop = struct {
             .pending_event_count = 0,
             .allocator = allocator,
             .os_data = undefined,
-            .next_tick_queue = std.atomic.QueueMpsc(promise).init(),
+            .next_tick_queue = std.atomic.Queue(promise).init(),
             .dispatch_lock = 1, // start locked so threads go directly into epoll wait
             .extra_threads = undefined,
             .available_eventfd_resume_nodes = std.atomic.Stack(ResumeNode.EventFd).init(),

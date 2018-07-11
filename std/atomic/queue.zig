@@ -2,15 +2,13 @@ const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 
-/// Many producer, many consumer, non-allocating, thread-safe, lock-free
-/// This implementation has a crippling limitation - it hangs onto node
-/// memory for 1 extra get() and 1 extra put() operation - when get() returns a node, that
-/// node must not be freed until both the next get() and the next put() completes.
-pub fn QueueMpmc(comptime T: type) type {
+/// Many producer, many consumer, non-allocating, thread-safe.
+/// Uses a spinlock to protect get() and put().
+pub fn Queue(comptime T: type) type {
     return struct {
-        head: *Node,
-        tail: *Node,
-        root: Node,
+        head: ?*Node,
+        tail: ?*Node,
+        lock: u8,
 
         pub const Self = this;
 
@@ -19,31 +17,48 @@ pub fn QueueMpmc(comptime T: type) type {
             data: T,
         };
 
-        /// TODO: well defined copy elision: https://github.com/ziglang/zig/issues/287
-        pub fn init(self: *Self) void {
-            self.root.next = null;
-            self.head = &self.root;
-            self.tail = &self.root;
+        pub fn init() Self {
+            return Self{
+                .head = null,
+                .tail = null,
+                .lock = 0,
+            };
         }
 
         pub fn put(self: *Self, node: *Node) void {
             node.next = null;
 
-            const tail = @atomicRmw(*Node, &self.tail, AtomicRmwOp.Xchg, node, AtomicOrder.SeqCst);
-            _ = @atomicRmw(?*Node, &tail.next, AtomicRmwOp.Xchg, node, AtomicOrder.SeqCst);
-        }
+            while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+            defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
 
-        /// node must not be freed until both the next get() and the next put() complete
-        pub fn get(self: *Self) ?*Node {
-            var head = @atomicLoad(*Node, &self.head, AtomicOrder.SeqCst);
-            while (true) {
-                const node = head.next orelse return null;
-                head = @cmpxchgWeak(*Node, &self.head, head, node, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return node;
+            const opt_tail = self.tail;
+            self.tail = node;
+            if (opt_tail) |tail| {
+                tail.next = node;
+            } else {
+                assert(self.head == null);
+                self.head = node;
             }
         }
 
-        ///// This is a debug function that is not thread-safe.
+        pub fn get(self: *Self) ?*Node {
+            while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+            defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+
+            const head = self.head orelse return null;
+            self.head = head.next;
+            if (head.next == null) self.tail = null;
+            return head;
+        }
+
+        pub fn isEmpty(self: *Self) bool {
+            return @atomicLoad(?*Node, &self.head, builtin.AtomicOrder.SeqCst) != null;
+        }
+
         pub fn dump(self: *Self) void {
+            while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+            defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+
             std.debug.warn("head: ");
             dumpRecursive(self.head, 0);
             std.debug.warn("tail: ");
@@ -64,12 +79,12 @@ pub fn QueueMpmc(comptime T: type) type {
     };
 }
 
-const std = @import("std");
+const std = @import("../index.zig");
 const assert = std.debug.assert;
 
 const Context = struct {
     allocator: *std.mem.Allocator,
-    queue: *QueueMpmc(i32),
+    queue: *Queue(i32),
     put_sum: isize,
     get_sum: isize,
     get_count: usize,
@@ -84,7 +99,7 @@ const Context = struct {
 const puts_per_thread = 500;
 const put_thread_count = 3;
 
-test "std.atomic.queue_mpmc" {
+test "std.atomic.Queue" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
@@ -94,8 +109,7 @@ test "std.atomic.queue_mpmc" {
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
     var a = &fixed_buffer_allocator.allocator;
 
-    var queue: QueueMpmc(i32) = undefined;
-    queue.init();
+    var queue = Queue(i32).init();
     var context = Context{
         .allocator = a,
         .queue = &queue,
@@ -140,7 +154,7 @@ fn startPuts(ctx: *Context) u8 {
     while (put_count != 0) : (put_count -= 1) {
         std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(QueueMpmc(i32).Node{
+        const node = ctx.allocator.create(Queue(i32).Node{
             .next = undefined,
             .data = x,
         }) catch unreachable;
@@ -164,17 +178,16 @@ fn startGets(ctx: *Context) u8 {
     }
 }
 
-test "std.atomic.queue_mpmc single-threaded" {
-    var queue: QueueMpmc(i32) = undefined;
-    queue.init();
+test "std.atomic.Queue single-threaded" {
+    var queue = Queue(i32).init();
 
-    var node_0 = QueueMpmc(i32).Node{
+    var node_0 = Queue(i32).Node{
         .data = 0,
         .next = undefined,
     };
     queue.put(&node_0);
 
-    var node_1 = QueueMpmc(i32).Node{
+    var node_1 = Queue(i32).Node{
         .data = 1,
         .next = undefined,
     };
@@ -182,13 +195,13 @@ test "std.atomic.queue_mpmc single-threaded" {
 
     assert(queue.get().?.data == 0);
 
-    var node_2 = QueueMpmc(i32).Node{
+    var node_2 = Queue(i32).Node{
         .data = 2,
         .next = undefined,
     };
     queue.put(&node_2);
 
-    var node_3 = QueueMpmc(i32).Node{
+    var node_3 = Queue(i32).Node{
         .data = 3,
         .next = undefined,
     };
@@ -198,15 +211,14 @@ test "std.atomic.queue_mpmc single-threaded" {
 
     assert(queue.get().?.data == 2);
 
-    var node_4 = QueueMpmc(i32).Node{
+    var node_4 = Queue(i32).Node{
         .data = 4,
         .next = undefined,
     };
     queue.put(&node_4);
 
     assert(queue.get().?.data == 3);
-    // if we were to set node_3.next to null here, it would cause this test
-    // to fail. this demonstrates the limitation of hanging on to extra memory.
+    node_3.next = null;
 
     assert(queue.get().?.data == 4);
 

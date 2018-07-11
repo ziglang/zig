@@ -15,7 +15,7 @@ pub const Lock = struct {
     queue: Queue,
     queue_empty_bit: u8, // TODO make this a bool
 
-    const Queue = std.atomic.QueueMpsc(promise);
+    const Queue = std.atomic.Queue(promise);
 
     pub const Held = struct {
         lock: *Lock,
