@@ -431,6 +431,7 @@ set(ZIG_CPP_SOURCES
 set(ZIG_STD_FILES
     "array_list.zig"
     "atomic/index.zig"
+    "atomic/int.zig"
     "atomic/queue_mpmc.zig"
     "atomic/queue_mpsc.zig"
     "atomic/stack.zig"

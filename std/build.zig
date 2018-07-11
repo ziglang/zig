@@ -1596,6 +1596,8 @@ pub const TestStep = struct {
     target: Target,
     exec_cmd_args: ?[]const ?[]const u8,
     include_dirs: ArrayList([]const u8),
+    lib_paths: ArrayList([]const u8),
+    object_files: ArrayList([]const u8),
 
     pub fn init(builder: *Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1611,7 +1613,13 @@ pub const TestStep = struct {
             .target = Target{ .Native = {} },
             .exec_cmd_args = null,
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
+            .lib_paths = ArrayList([]const u8).init(builder.allocator),
+            .object_files = ArrayList([]const u8).init(builder.allocator),
         };
+    }
+
+    pub fn addLibPath(self: *TestStep, path: []const u8) void {
+        self.lib_paths.append(path) catch unreachable;
     }
 
     pub fn setVerbose(self: *TestStep, value: bool) void {
@@ -1636,6 +1644,10 @@ pub const TestStep = struct {
 
     pub fn setFilter(self: *TestStep, text: ?[]const u8) void {
         self.filter = text;
+    }
+
+    pub fn addObjectFile(self: *TestStep, path: []const u8) void {
+        self.object_files.append(path) catch unreachable;
     }
 
     pub fn setTarget(self: *TestStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
@@ -1699,6 +1711,11 @@ pub const TestStep = struct {
             try zig_args.append(self.name_prefix);
         }
 
+        for (self.object_files.toSliceConst()) |object_file| {
+            try zig_args.append("--object");
+            try zig_args.append(builder.pathFromRoot(object_file));
+        }
+
         {
             var it = self.link_libs.iterator();
             while (true) {
@@ -1732,6 +1749,11 @@ pub const TestStep = struct {
         for (builder.rpaths.toSliceConst()) |rpath| {
             try zig_args.append("-rpath");
             try zig_args.append(rpath);
+        }
+
+        for (self.lib_paths.toSliceConst()) |lib_path| {
+            try zig_args.append("--library-path");
+            try zig_args.append(lib_path);
         }
 
         for (builder.lib_paths.toSliceConst()) |lib_path| {
