@@ -138,16 +138,11 @@ pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
     return cases.step;
 }
 
-pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []const u8, name: []const u8, desc: []const u8, with_lldb: bool) *build.Step {
+pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []const u8, name: []const u8, desc: []const u8, modes: []const Mode) *build.Step {
     const step = b.step(b.fmt("test-{}", name), desc);
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
-        for ([]Mode{
-            Mode.Debug,
-            Mode.ReleaseSafe,
-            Mode.ReleaseFast,
-            Mode.ReleaseSmall,
-        }) |mode| {
+        for (modes) |mode| {
             for ([]bool{
                 false,
                 true,
@@ -165,18 +160,6 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
                 }
                 if (link_libc) {
                     these_tests.linkSystemLibrary("c");
-                }
-                if (with_lldb) {
-                    these_tests.setExecCmd([]?[]const u8{
-                        "lldb",
-                        null,
-                        "-o",
-                        "run",
-                        "-o",
-                        "bt",
-                        "-o",
-                        "exit",
-                    });
                 }
                 step.dependOn(&these_tests.step);
             }

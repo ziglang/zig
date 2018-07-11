@@ -59,6 +59,7 @@ pub fn build(b: *Builder) !void {
 
     b.default_step.dependOn(&exe.step);
 
+    const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
@@ -71,19 +72,24 @@ pub fn build(b: *Builder) !void {
     installCHeaders(b, ctx.c_header_files);
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
-    const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") orelse false;
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
     test_step.dependOn(test_stage2_step);
 
-    test_step.dependOn(docs_step);
+    const all_modes = []builtin.Mode{
+        builtin.Mode.Debug,
+        builtin.Mode.ReleaseSafe,
+        builtin.Mode.ReleaseFast,
+        builtin.Mode.ReleaseSmall,
+    };
+    const modes = if (skip_release) []builtin.Mode{builtin.Mode.Debug} else all_modes;
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", modes));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", modes));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", modes));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
@@ -92,6 +98,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     test_step.dependOn(tests.addGenHTests(b, test_filter));
+    test_step.dependOn(docs_step);
 }
 
 fn dependOnLib(lib_exe_obj: var, dep: *const LibraryDep) void {
