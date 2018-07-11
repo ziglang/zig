@@ -891,15 +891,19 @@ int main(int argc, char **argv) {
 
             add_package(g, cur_pkg, g->root_package);
 
-            if (cmd == CmdBuild || cmd == CmdRun) {
-                codegen_set_emit_file_type(g, emit_file_type);
-
+            if (cmd == CmdBuild || cmd == CmdRun || cmd == CmdTest) {
                 for (size_t i = 0; i < objects.length; i += 1) {
                     codegen_add_object(g, buf_create_from_str(objects.at(i)));
                 }
                 for (size_t i = 0; i < asm_files.length; i += 1) {
                     codegen_add_assembly(g, buf_create_from_str(asm_files.at(i)));
                 }
+            }
+
+
+            if (cmd == CmdBuild || cmd == CmdRun) {
+                codegen_set_emit_file_type(g, emit_file_type);
+
                 codegen_build(g);
                 codegen_link(g, out_file);
                 if (timing_info)

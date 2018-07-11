@@ -89,12 +89,9 @@ pub const Module = struct {
     /// the build is complete.
     build_group: event.Group(BuildError!void),
 
-    const BuildErrorsList = std.SegmentedList(BuildErrorDesc, 1);
+    compile_errors: event.Locked(CompileErrList),
 
-    pub const BuildErrorDesc = struct {
-        code: BuildError,
-        text: []const u8,
-    };
+    const CompileErrList = std.ArrayList(*errmsg.Msg);
 
     // TODO handle some of these earlier and report them in a way other than error codes
     pub const BuildError = error{
@@ -131,11 +128,12 @@ pub const Module = struct {
         NoStdHandles,
         Overflow,
         NotSupported,
+        BufferTooSmall,
     };
 
     pub const Event = union(enum) {
         Ok,
-        Fail: []errmsg.Msg,
+        Fail: []*errmsg.Msg,
         Error: BuildError,
     };
 
@@ -249,6 +247,7 @@ pub const Module = struct {
             .link_out_file = null,
             .exported_symbol_names = event.Locked(Decl.Table).init(loop, Decl.Table.init(loop.allocator)),
             .build_group = event.Group(BuildError!void).init(loop),
+            .compile_errors = event.Locked(CompileErrList).init(loop, CompileErrList.init(loop.allocator)),
         });
     }
 
@@ -288,7 +287,17 @@ pub const Module = struct {
                 await (async self.events.put(Event{ .Error = err }) catch unreachable);
                 return;
             };
-            await (async self.events.put(Event.Ok) catch unreachable);
+            const compile_errors = blk: {
+                const held = await (async self.compile_errors.acquire() catch unreachable);
+                defer held.release();
+                break :blk held.value.toOwnedSlice();
+            };
+
+            if (compile_errors.len == 0) {
+                await (async self.events.put(Event.Ok) catch unreachable);
+            } else {
+                await (async self.events.put(Event{ .Fail = compile_errors }) catch unreachable);
+            }
             // for now we stop after 1
             return;
         }
@@ -310,10 +319,13 @@ pub const Module = struct {
         };
         errdefer self.a().free(source_code);
 
-        var parsed_file = ParsedFile{
-            .tree = try std.zig.parse(self.a(), source_code),
+        const parsed_file = try self.a().create(ParsedFile{
+            .tree = undefined,
             .realpath = root_src_real_path,
-        };
+        });
+        errdefer self.a().destroy(parsed_file);
+
+        parsed_file.tree = try std.zig.parse(self.a(), source_code);
         errdefer parsed_file.tree.deinit();
 
         const tree = &parsed_file.tree;
@@ -337,7 +349,7 @@ pub const Module = struct {
                     const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
                         @panic("TODO add compile error");
                         //try self.addCompileError(
-                        //    &parsed_file,
+                        //    parsed_file,
                         //    fn_proto.fn_token,
                         //    fn_proto.fn_token + 1,
                         //    "missing function name",
@@ -357,7 +369,7 @@ pub const Module = struct {
                     });
                     errdefer self.a().destroy(fn_decl);
 
-                    try decl_group.call(addTopLevelDecl, self, tree, &fn_decl.base);
+                    try decl_group.call(addTopLevelDecl, self, parsed_file, &fn_decl.base);
                 },
                 ast.Node.Id.TestDecl => @panic("TODO"),
                 else => unreachable,
@@ -367,20 +379,56 @@ pub const Module = struct {
         try await (async self.build_group.wait() catch unreachable);
     }
 
-    async fn addTopLevelDecl(self: *Module, tree: *ast.Tree, decl: *Decl) !void {
-        const is_export = decl.isExported(tree);
+    async fn addTopLevelDecl(self: *Module, parsed_file: *ParsedFile, decl: *Decl) !void {
+        const is_export = decl.isExported(&parsed_file.tree);
 
         if (is_export) {
-            try self.build_group.call(verifyUniqueSymbol, self, decl);
+            try self.build_group.call(verifyUniqueSymbol, self, parsed_file, decl);
         }
     }
 
-    async fn verifyUniqueSymbol(self: *Module, decl: *Decl) !void {
+    fn addCompileError(self: *Module, parsed_file: *ParsedFile, span: errmsg.Span, comptime fmt: []const u8, args: ...) !void {
+        const text = try std.fmt.allocPrint(self.loop.allocator, fmt, args);
+        errdefer self.loop.allocator.free(text);
+
+        try self.build_group.call(addCompileErrorAsync, self, parsed_file, span.first, span.last, text);
+    }
+
+    async fn addCompileErrorAsync(
+        self: *Module,
+        parsed_file: *ParsedFile,
+        first_token: ast.TokenIndex,
+        last_token: ast.TokenIndex,
+        text: []u8,
+    ) !void {
+        const msg = try self.loop.allocator.create(errmsg.Msg{
+            .path = parsed_file.realpath,
+            .text = text,
+            .span = errmsg.Span{
+                .first = first_token,
+                .last = last_token,
+            },
+            .tree = &parsed_file.tree,
+        });
+        errdefer self.loop.allocator.destroy(msg);
+
+        const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
+        defer compile_errors.release();
+
+        try compile_errors.value.append(msg);
+    }
+
+    async fn verifyUniqueSymbol(self: *Module, parsed_file: *ParsedFile, decl: *Decl) !void {
         const exported_symbol_names = await (async self.exported_symbol_names.acquire() catch unreachable);
         defer exported_symbol_names.release();
 
         if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
-            @panic("TODO report compile error");
+            try self.addCompileError(
+                parsed_file,
+                decl.getSpan(),
+                "exported symbol collision: '{}'",
+                decl.name,
+            );
         }
     }
 
@@ -500,6 +548,22 @@ pub const Decl = struct {
                 return fn_decl.isExported(tree);
             },
             else => return false,
+        }
+    }
+
+    pub fn getSpan(base: *const Decl) errmsg.Span {
+        switch (base.id) {
+            Id.Fn => {
+                const fn_decl = @fieldParentPtr(Fn, "base", base);
+                const fn_proto = fn_decl.fn_proto;
+                const start = fn_proto.fn_token;
+                const end = fn_proto.name_token orelse start;
+                return errmsg.Span{
+                    .first = start,
+                    .last = end + 1,
+                };
+            },
+            else => @panic("TODO"),
         }
     }
 

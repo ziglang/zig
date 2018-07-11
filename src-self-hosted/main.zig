@@ -481,29 +481,29 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
     module.link_out_file = flags.single("out-file");
 
     try module.build();
-    const process_build_events_handle = try async<loop.allocator> processBuildEvents(module, true);
+    const process_build_events_handle = try async<loop.allocator> processBuildEvents(module, color);
     defer cancel process_build_events_handle;
     loop.run();
 }
 
-async fn processBuildEvents(module: *Module, watch: bool) void {
-    while (watch) {
-        // TODO directly awaiting async should guarantee memory allocation elision
-        const build_event = await (async module.events.get() catch unreachable);
+async fn processBuildEvents(module: *Module, color: errmsg.Color) void {
+    // TODO directly awaiting async should guarantee memory allocation elision
+    const build_event = await (async module.events.get() catch unreachable);
 
-        switch (build_event) {
-            Module.Event.Ok => {
-                std.debug.warn("Build succeeded\n");
-                return;
-            },
-            Module.Event.Error => |err| {
-                std.debug.warn("build failed: {}\n", @errorName(err));
-                @panic("TODO error return trace");
-            },
-            Module.Event.Fail => |errs| {
-                @panic("TODO print compile error messages");
-            },
-        }
+    switch (build_event) {
+        Module.Event.Ok => {
+            std.debug.warn("Build succeeded\n");
+            return;
+        },
+        Module.Event.Error => |err| {
+            std.debug.warn("build failed: {}\n", @errorName(err));
+            @panic("TODO error return trace");
+        },
+        Module.Event.Fail => |msgs| {
+            for (msgs) |msg| {
+                errmsg.printToFile(&stderr_file, msg, color) catch os.exit(1);
+            }
+        },
     }
 }
 
