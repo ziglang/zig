@@ -347,13 +347,10 @@ pub const Module = struct {
                     const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
 
                     const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
-                        @panic("TODO add compile error");
-                        //try self.addCompileError(
-                        //    parsed_file,
-                        //    fn_proto.fn_token,
-                        //    fn_proto.fn_token + 1,
-                        //    "missing function name",
-                        //);
+                        try self.addCompileError(parsed_file, errmsg.Span{
+                            .first = fn_proto.fn_token,
+                            .last = fn_proto.fn_token + 1,
+                        }, "missing function name");
                         continue;
                     };
 

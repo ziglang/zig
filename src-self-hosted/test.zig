@@ -17,6 +17,10 @@ test "compile errors" {
         \\export fn entry() void {}
     , file1, 2, 8, "exported symbol collision: 'entry'");
 
+    try ctx.testCompileError(
+        \\fn() void {}
+    , file1, 1, 1, "missing function name");
+
     try ctx.run();
 }
 
