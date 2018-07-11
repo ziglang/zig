@@ -313,8 +313,9 @@ enum ZigLLVM_VendorType {
     ZigLLVM_AMD,
     ZigLLVM_Mesa,
     ZigLLVM_SUSE,
+    ZigLLVM_OpenEmbedded,
 
-    ZigLLVM_LastVendorType = ZigLLVM_SUSE
+    ZigLLVM_LastVendorType = ZigLLVM_OpenEmbedded
 };
 
 enum ZigLLVM_OSType {
