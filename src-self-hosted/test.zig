@@ -21,12 +21,11 @@ test "compile errors" {
 }
 
 const file1 = "1.zig";
+const allocator = std.heap.c_allocator;
 
 const TestContext = struct {
     loop: std.event.Loop,
     zig_lib_dir: []u8,
-    direct_allocator: std.heap.DirectAllocator,
-    arena: std.heap.ArenaAllocator,
     zig_cache_dir: []u8,
     file_index: std.atomic.Int(usize),
     group: std.event.Group(error!void),
@@ -37,8 +36,6 @@ const TestContext = struct {
     fn init(self: *TestContext) !void {
         self.* = TestContext{
             .any_err = {},
-            .direct_allocator = undefined,
-            .arena = undefined,
             .loop = undefined,
             .zig_lib_dir = undefined,
             .zig_cache_dir = undefined,
@@ -46,36 +43,27 @@ const TestContext = struct {
             .file_index = std.atomic.Int(usize).init(0),
         };
 
-        self.direct_allocator = std.heap.DirectAllocator.init();
-        errdefer self.direct_allocator.deinit();
-
-        self.arena = std.heap.ArenaAllocator.init(&self.direct_allocator.allocator);
-        errdefer self.arena.deinit();
-
-        // TODO faster allocator for coroutines that is thread-safe/lock-free
-        try self.loop.initMultiThreaded(&self.direct_allocator.allocator);
+        try self.loop.initMultiThreaded(allocator);
         errdefer self.loop.deinit();
 
         self.group = std.event.Group(error!void).init(&self.loop);
         errdefer self.group.cancelAll();
 
-        self.zig_lib_dir = try introspect.resolveZigLibDir(&self.arena.allocator);
-        errdefer self.arena.allocator.free(self.zig_lib_dir);
+        self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
+        errdefer allocator.free(self.zig_lib_dir);
 
-        self.zig_cache_dir = try introspect.resolveZigCacheDir(&self.arena.allocator);
-        errdefer self.arena.allocator.free(self.zig_cache_dir);
+        self.zig_cache_dir = try introspect.resolveZigCacheDir(allocator);
+        errdefer allocator.free(self.zig_cache_dir);
 
-        try std.os.makePath(&self.arena.allocator, tmp_dir_name);
-        errdefer std.os.deleteTree(&self.arena.allocator, tmp_dir_name) catch {};
+        try std.os.makePath(allocator, tmp_dir_name);
+        errdefer std.os.deleteTree(allocator, tmp_dir_name) catch {};
     }
 
     fn deinit(self: *TestContext) void {
-        std.os.deleteTree(&self.arena.allocator, tmp_dir_name) catch {};
-        self.arena.allocator.free(self.zig_cache_dir);
-        self.arena.allocator.free(self.zig_lib_dir);
+        std.os.deleteTree(allocator, tmp_dir_name) catch {};
+        allocator.free(self.zig_cache_dir);
+        allocator.free(self.zig_lib_dir);
         self.loop.deinit();
-        self.arena.deinit();
-        self.direct_allocator.deinit();
     }
 
     fn run(self: *TestContext) !void {
@@ -99,14 +87,14 @@ const TestContext = struct {
     ) !void {
         var file_index_buf: [20]u8 = undefined;
         const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.next());
-        const file1_path = try std.os.path.join(&self.arena.allocator, tmp_dir_name, file_index, file1);
+        const file1_path = try std.os.path.join(allocator, tmp_dir_name, file_index, file1);
 
         if (std.os.path.dirname(file1_path)) |dirname| {
-            try std.os.makePath(&self.arena.allocator, dirname);
+            try std.os.makePath(allocator, dirname);
         }
 
         // TODO async I/O
-        try std.io.writeFile(&self.arena.allocator, file1_path, source);
+        try std.io.writeFile(allocator, file1_path, source);
 
         var module = try Module.create(
             &self.loop,
