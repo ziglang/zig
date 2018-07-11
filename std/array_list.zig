@@ -172,7 +172,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
 
             pub fn next(it: *Iterator) ?T {
                 if (it.count >= it.list.len) return null;
-                var val = it.list.at(it.count);
+                const val = it.list.at(it.count);
                 it.count += 1;
                 return val;
             }
