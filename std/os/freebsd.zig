@@ -348,7 +348,7 @@ pub fn WIFEXITED(s: i32) bool {
     return WTERMSIG(s) == 0;
 }
 pub fn WIFSTOPPED(s: i32) bool {
-    return (u16)(((unsigned(s) & 0xffff) *% 0x10001) >> 8) > 0x7f00;
+    return @intCast(u16, ((unsigned(s) & 0xffff) *% 0x10001) >> 8) > 0x7f00;
 }
 pub fn WIFSIGNALED(s: i32) bool {
     return (unsigned(s) & 0xffff) -% 1 < 0xff;
@@ -368,7 +368,7 @@ pub fn getErrno(r: usize) usize {
 }
 
 pub fn dup2(old: i32, new: i32) usize {
-    return arch.syscall2(arch.SYS_dup2, usize(old), usize(new));
+    return arch.syscall2(arch.SYS_dup2, @intCast(usize, old), @intCast(usize, new));
 }
 
 pub fn chdir(path: [*]const u8) usize {
@@ -388,7 +388,7 @@ pub fn getcwd(buf: [*]u8, size: usize) usize {
 }
 
 pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
-    return arch.syscall3(arch.SYS_getdents, usize(fd), @ptrToInt(dirp), count);
+    return arch.syscall3(arch.SYS_getdents, @intCast(usize, fd), @ptrToInt(dirp), count);
 }
 
 pub fn isatty(fd: i32) bool {
@@ -425,7 +425,7 @@ pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
 }
 
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
-    return arch.syscall4(arch.SYS_pread, usize(fd), @ptrToInt(buf), count, offset);
+    return arch.syscall4(arch.SYS_pread, @intCast(usize, fd), @ptrToInt(buf), count, offset);
 }
 
 pub fn pipe(fd: *[2]i32) usize {
