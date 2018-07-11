@@ -101,6 +101,25 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             const new_item_ptr = try self.addOne();
             new_item_ptr.* = item;
         }
+        
+        /// Removes the element at the specified index and returns it.
+        //   The empty slot is filled from the end of the list.
+        pub fn remove(self: *Self, n: usize) T {
+            if(self.len - 1 == n) return self.pop();
+            
+            var old_item = self.at(n);
+            self.set(n, self.pop());
+            return old_item;
+        }
+        
+        pub fn removeOrError(self: *Self, n: usize) !T {
+            if(n >= self.len) return error.OutOfBounds;
+            if(self.len - 1 == n) return self.pop();
+            
+            var old_item = self.at(n);
+            try self.setOrError(n, self.pop());
+            return old_item;
+        }
 
         pub fn appendSlice(self: *Self, items: []align(A) const T) !void {
             try self.ensureCapacity(self.len + items.len);
@@ -157,7 +176,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
                 it.count += 1;
                 return val;
             }
-
+            
             pub fn reset(it: *Iterator) void {
                 it.count = 0;
             }
@@ -230,6 +249,33 @@ test "basic ArrayList test" {
 
     assert(list.pop() == 42);
     assert(list.pop() == 33);
+}
+
+test "remove ArrayList test" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+    try list.append(4);
+    try list.append(5);
+    try list.append(6);
+    try list.append(7);
+    
+    //remove from middle
+    assert(list.remove(3) == 4);
+    assert(list.at(3) == 7);
+    assert(list.len == 6);
+    
+    //remove from end
+    assert(list.remove(5) == 6);
+    assert(list.len == 5);
+    
+    //remove from front
+    assert(list.remove(0) == 1);
+    assert(list.at(0) == 5);
+    assert(list.len == 4);
 }
 
 test "iterator ArrayList test" {
