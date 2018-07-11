@@ -1,6 +1,24 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("@intToEnum - no matching tag value",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\const Foo = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\pub fn main() void {
+        \\    baz(bar(3));
+        \\}
+        \\fn bar(a: u2) Foo {
+        \\    return @intToEnum(Foo, a);
+        \\}
+        \\fn baz(a: Foo) void {}
+    );
+
     cases.addRuntimeSafety("@floatToInt cannot fit - negative to unsigned",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

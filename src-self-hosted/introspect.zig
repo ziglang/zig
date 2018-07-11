@@ -53,3 +53,8 @@ pub fn resolveZigLibDir(allocator: *mem.Allocator) ![]u8 {
         return error.ZigLibDirNotFound;
     };
 }
+
+/// Caller must free result
+pub fn resolveZigCacheDir(allocator: *mem.Allocator) ![]u8 {
+    return std.mem.dupe(allocator, u8, "zig-cache");
+}

@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const mem = this;
 
 pub const Allocator = struct {
-    const Error = error{OutOfMemory};
+    pub const Error = error{OutOfMemory};
 
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
@@ -34,7 +34,7 @@ pub const Allocator = struct {
     /// Call `destroy` with the result
     pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
-        if (@sizeOf(T) == 0) return &{};
+        if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         const ptr = &slice[0];
         ptr.* = init;

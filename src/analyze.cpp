@@ -212,6 +212,43 @@ static uint8_t bits_needed_for_unsigned(uint64_t x) {
     return (upper >= x) ? base : (base + 1);
 }
 
+AstNode *type_decl_node(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+        case TypeTableEntryIdStruct:
+            return type_entry->data.structure.decl_node;
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.decl_node;
+        case TypeTableEntryIdUnion:
+            return type_entry->data.unionation.decl_node;
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdComptimeFloat:
+        case TypeTableEntryIdComptimeInt:
+        case TypeTableEntryIdUndefined:
+        case TypeTableEntryIdNull:
+        case TypeTableEntryIdOptional:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdErrorSet:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 bool type_is_complete(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
@@ -3728,6 +3765,7 @@ TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt
 }
 
 TypeEnumField *find_enum_field_by_tag(TypeTableEntry *enum_type, const BigInt *tag) {
+    assert(enum_type->data.enumeration.zero_bits_known);
     for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
         TypeEnumField *field = &enum_type->data.enumeration.fields[i];
         if (bigint_cmp(&field->value, tag) == CmpEQ) {
@@ -4416,22 +4454,14 @@ Buf *get_linux_libc_include_path(void) {
     }
     char *prev_newline = buf_ptr(out_stderr);
     ZigList<const char *> search_paths = {};
-    bool found_search_paths = false;
     for (;;) {
         char *newline = strchr(prev_newline, '\n');
         if (newline == nullptr) {
-            zig_panic("unable to determine libc include path: bad output from C compiler command");
+            break;
         }
         *newline = 0;
-        if (found_search_paths) {
-            if (strcmp(prev_newline, "End of search list.") == 0) {
-                break;
-            }
+        if (prev_newline[0] == ' ') {
             search_paths.append(prev_newline);
-        } else {
-            if (strcmp(prev_newline, "#include <...> search starts here:") == 0) {
-                found_search_paths = true;
-            }
         }
         prev_newline = newline + 1;
     }
@@ -4668,6 +4698,13 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             }
         case TypeTableEntryIdFloat:
             switch (const_val->type->data.floating.bit_count) {
+                case 16:
+                    {
+                        uint16_t result;
+                        static_assert(sizeof(result) == sizeof(const_val->data.x_f16), "");
+                        memcpy(&result, &const_val->data.x_f16, sizeof(result));
+                        return result * 65537u;
+                    }
                 case 32:
                     {
                         uint32_t result;
@@ -5128,6 +5165,9 @@ void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double va
         bigfloat_init_64(&const_val->data.x_bigfloat, value);
     } else if (type->id == TypeTableEntryIdFloat) {
         switch (type->data.floating.bit_count) {
+            case 16:
+                const_val->data.x_f16 = zig_double_to_f16(value);
+                break;
             case 32:
                 const_val->data.x_f32 = value;
                 break;
@@ -5441,6 +5481,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdFloat:
             assert(a->type->data.floating.bit_count == b->type->data.floating.bit_count);
             switch (a->type->data.floating.bit_count) {
+                case 16:
+                    return f16_eq(a->data.x_f16, b->data.x_f16);
                 case 32:
                     return a->data.x_f32 == b->data.x_f32;
                 case 64:
@@ -5458,8 +5500,22 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdFn:
             return const_values_equal_ptr(a, b);
-        case TypeTableEntryIdArray:
-            zig_panic("TODO");
+        case TypeTableEntryIdArray: {
+            assert(a->type->data.array.len == b->type->data.array.len);
+            assert(a->data.x_array.special != ConstArraySpecialUndef);
+            assert(b->data.x_array.special != ConstArraySpecialUndef);
+
+            size_t len = a->type->data.array.len;
+            ConstExprValue *a_elems = a->data.x_array.s_none.elements;
+            ConstExprValue *b_elems = b->data.x_array.s_none.elements;
+
+            for (size_t i = 0; i < len; ++i) {
+                if (!const_values_equal(&a_elems[i], &b_elems[i]))
+                    return false;
+            }
+
+            return true;
+        }
         case TypeTableEntryIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
                 ConstExprValue *field_a = &a->data.x_struct.fields[i];
@@ -5570,7 +5626,7 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, TypeT
                 return;
             }
         case ConstPtrSpecialHardCodedAddr:
-            buf_appendf(buf, "(*%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->data.pointer.child_type->name),
+            buf_appendf(buf, "(%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->name),
                     const_val->data.x_ptr.data.hard_coded_addr.addr);
             return;
         case ConstPtrSpecialDiscard:
@@ -5614,6 +5670,9 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             return;
         case TypeTableEntryIdFloat:
             switch (type_entry->data.floating.bit_count) {
+                case 16:
+                    buf_appendf(buf, "%f", zig_f16_to_double(const_val->data.x_f16));
+                    return;
                 case 32:
                     buf_appendf(buf, "%f", const_val->data.x_f32);
                     return;
@@ -5917,6 +5976,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.ctz.bit_count) * (uint32_t)810453934;
         case ZigLLVMFnIdClz:
             return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
+        case ZigLLVMFnIdPopCount:
+            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)101195049;
         case ZigLLVMFnIdFloor:
             return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1899859168;
         case ZigLLVMFnIdCeil:
@@ -5939,6 +6000,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.ctz.bit_count == b.data.ctz.bit_count;
         case ZigLLVMFnIdClz:
             return a.data.clz.bit_count == b.data.clz.bit_count;
+        case ZigLLVMFnIdPopCount:
+            return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
         case ZigLLVMFnIdSqrt:

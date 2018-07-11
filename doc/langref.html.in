@@ -368,6 +368,11 @@ pub fn main() void {
         </tr>
 
         <tr>
+          <td><code>f16</code></td>
+          <td><code>float</code></td>
+          <td>16-bit floating point (10-bit mantissa) IEEE-754-2008 binary16</td>
+        </tr>
+        <tr>
           <td><code>f32</code></td>
           <td><code>float</code></td>
           <td>32-bit floating point (23-bit mantissa) IEEE-754-2008 binary32</td>
@@ -611,6 +616,17 @@ test "init with undefined" {
     assert(x == 1);
 }
       {#code_end#}
+      <p>
+      <code>undefined</code> can be {#link|implicitly cast|Implicit Casts#} to any type.
+      Once this happens, it is no longer possible to detect that the value is <code>undefined</code>.
+      <code>undefined</code> means the value could be anything, even something that is nonsense
+      according to the type. Translated into English, <code>undefined</code> means "Not a meaningful
+      value. Using this value would be a bug. The value will be unused, or overwritten before being used."
+      </p>
+      <p>
+      In {#link|Debug#} mode, Zig writes <code>0xaa</code> bytes to undefined memory. This is to catch
+      bugs early, and to help detect use of undefined memory in a debugger.
+      </p>
       {#header_close#}
       {#header_close#}
       {#header_close#}
@@ -654,6 +670,7 @@ fn divide(a: i32, b: i32) i32 {
       {#header_open|Floats#}
       <p>Zig has the following floating point types:</p>
       <ul>
+          <li><code>f16</code> - IEEE-754-2008 binary16</li>
           <li><code>f32</code> - IEEE-754-2008 binary32</li>
           <li><code>f64</code> - IEEE-754-2008 binary64</li>
           <li><code>f128</code> - IEEE-754-2008 binary128</li>
@@ -662,7 +679,7 @@ fn divide(a: i32, b: i32) i32 {
       {#header_open|Float Literals#}
       <p>
       Float literals have type <code>comptime_float</code> which is guaranteed to hold at least all possible values
-      that the largest other floating point type can hold. Float literals implicitly cast to any other type.
+      that the largest other floating point type can hold. Float literals {#link|implicitly cast|Implicit Casts#} to any other type.
       </p>
       {#code_begin|syntax#}
 const floating_point = 123.0E+77;
@@ -1587,7 +1604,7 @@ test "variable alignment" {
     }
 }
       {#code_end#}
-      <p>In the same way that a <code>*i32</code> can be implicitly cast to a
+      <p>In the same way that a <code>*i32</code> can be {#link|implicitly cast|Implicit Casts#} to a
       <code>*const i32</code>, a pointer with a larger alignment can be implicitly
       cast to a pointer with a smaller alignment, but not vice versa.
       </p>
@@ -2231,21 +2248,28 @@ test "switch inside function" {
       {#see_also|comptime|enum|@compileError|Compile Variables#}
       {#header_close#}
       {#header_open|while#}
+      <p>
+      A while loop is used to repeatedly execute an expression until
+      some condition is no longer true.
+      </p>
       {#code_begin|test|while#}
 const assert = @import("std").debug.assert;
 
 test "while basic" {
-    // A while loop is used to repeatedly execute an expression until
-    // some condition is no longer true.
     var i: usize = 0;
     while (i < 10) {
         i += 1;
     }
     assert(i == 10);
 }
+      {#code_end#}
+      <p>
+      Use <code>break</code> to exit a while loop early.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while break" {
-    // You can use break to exit a while loop early.
     var i: usize = 0;
     while (true) {
         if (i == 10)
@@ -2254,9 +2278,14 @@ test "while break" {
     }
     assert(i == 10);
 }
+      {#code_end#}
+      <p>
+      Use <code>continue</code> to jump back to the beginning of the loop.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while continue" {
-    // You can use continue to jump back to the beginning of the loop.
     var i: usize = 0;
     while (true) {
         i += 1;
@@ -2266,18 +2295,21 @@ test "while continue" {
     }
     assert(i == 10);
 }
+      {#code_end#}
+      <p>
+      While loops support a continue expression which is executed when the loop
+      is continued. The <code>continue</code> keyword respects this expression.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while loop continuation expression" {
-    // You can give an expression to the while loop to execute when
-    // the loop is continued. This is respected by the continue control flow.
     var i: usize = 0;
     while (i < 10) : (i += 1) {}
     assert(i == 10);
 }
 
 test "while loop continuation expression, more complicated" {
-    // More complex blocks can be used as an expression in the loop continue
-    // expression.
     var i1: usize = 1;
     var j1: usize = 1;
     while (i1 * j1 < 2000) : ({ i1 *= 2; j1 *= 3; }) {
@@ -2285,6 +2317,20 @@ test "while loop continuation expression, more complicated" {
         assert(my_ij1 < 2000);
     }
 }
+      {#code_end#}
+      <p>
+      While loops are expressions. The result of the expression is the
+      result of the <code>else</code> clause of a while loop, which is executed when
+      the condition of the while loop is tested as false.
+      </p>
+      <p>
+      <code>break</code>, like <code>return</code>, accepts a value
+      parameter. This is the result of the <code>while</code> expression.
+      When you <code>break</code> from a while loop, the <code>else</code> branch is not
+      evaluated.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while else" {
     assert(rangeHasNumber(0, 10, 5));
@@ -2293,24 +2339,31 @@ test "while else" {
 
 fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
     var i = begin;
-    // While loops are expressions. The result of the expression is the
-    // result of the else clause of a while loop, which is executed when
-    // the condition of the while loop is tested as false.
     return while (i < end) : (i += 1) {
         if (i == number) {
-            // break expressions, like return expressions, accept a value
-            // parameter. This is the result of the while expression.
-            // When you break from a while loop, the else branch is not
-            // evaluated.
             break true;
         }
     } else false;
 }
+      {#code_end#}
+      {#header_open|while with Optionals#}
+      <p>
+      Just like {#link|if#} expressions, while loops can take an optional as the
+      condition and capture the payload. When {#link|null#} is encountered the loop
+      exits.
+      </p>
+      <p>
+      When the <code>|x|</code> syntax is present on a <code>while</code> expression,
+      the while condition must have an {#link|Optional Type#}.
+      </p>
+      <p>
+      The <code>else</code> branch is allowed on optional iteration. In this case, it will
+      be executed on the first null value encountered.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
 
 test "while null capture" {
-    // Just like if expressions, while loops can take an optional as the
-    // condition and capture the payload. When null is encountered the loop
-    // exits.
     var sum1: u32 = 0;
     numbers_left = 3;
     while (eventuallyNullSequence()) |value| {
@@ -2318,26 +2371,12 @@ test "while null capture" {
     }
     assert(sum1 == 3);
 
-    // The else branch is allowed on optional iteration. In this case, it will
-    // be executed on the first null value encountered.
     var sum2: u32 = 0;
     numbers_left = 3;
     while (eventuallyNullSequence()) |value| {
         sum2 += value;
     } else {
         assert(sum1 == 3);
-    }
-
-    // Just like if expressions, while loops can also take an error union as
-    // the condition and capture the payload or the error code. When the
-    // condition results in an error code the else branch is evaluated and
-    // the loop is finished.
-    var sum3: u32 = 0;
-    numbers_left = 3;
-    while (eventuallyErrorSequence()) |value| {
-        sum3 += value;
-    } else |err| {
-        assert(err == error.ReachedZero);
     }
 }
 
@@ -2349,6 +2388,35 @@ fn eventuallyNullSequence() ?u32 {
     };
 }
 
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|while with Error Unions#}
+      <p>
+      Just like {#link|if#} expressions, while loops can take an error union as
+      the condition and capture the payload or the error code. When the
+      condition results in an error code the else branch is evaluated and
+      the loop is finished.
+      </p>
+      <p>
+      When the <code>else |x|</code> syntax is present on a <code>while</code> expression,
+      the while condition must have an {#link|Error Union Type#}.
+      </p>
+      {#code_begin|test|while#}
+const assert = @import("std").debug.assert;
+
+test "while error union capture" {
+    var sum1: u32 = 0;
+    numbers_left = 3;
+    while (eventuallyErrorSequence()) |value| {
+        sum1 += value;
+    } else |err| {
+        assert(err == error.ReachedZero);
+    }
+}
+
+var numbers_left: u32 = undefined;
+
 fn eventuallyErrorSequence() error!u32 {
     return if (numbers_left == 0) error.ReachedZero else blk: {
         numbers_left -= 1;
@@ -2356,6 +2424,7 @@ fn eventuallyErrorSequence() error!u32 {
     };
 }
       {#code_end#}
+      {#header_close#}
 
       {#header_open|inline while#}
       <p>
@@ -2899,7 +2968,7 @@ test "fn reflection" {
       However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
-      You can implicitly cast an error from a subset to its superset:
+      You can {#link|implicitly cast|Implicit Casts#} an error from a subset to its superset:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -3032,7 +3101,7 @@ test "parse u64" {
       <p>
       Within the function definition, you can see some return statements that return
       an error, and at the bottom a return statement that returns a <code>u64</code>.
-      Both types implicitly cast to <code>error!u64</code>.
+      Both types {#link|implicitly cast|Implicit Casts#} to <code>error!u64</code>.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
@@ -3671,10 +3740,11 @@ test "implicit unsigned integer to signed integer" {
 }
 
 test "float widening" {
-    var a: f32 = 12.34;
-    var b: f64 = a;
-    var c: f128 = b;
-    assert(c == a);
+    var a: f16 = 12.34;
+    var b: f32 = a;
+    var c: f64 = b;
+    var d: f128 = c;
+    assert(d == a);
 }
       {#code_end#}
       {#header_close#}
@@ -4943,7 +5013,7 @@ comptime {
       <p>
       If <code>x</code> is zero, <code>@clz</code> returns <code>T.bit_count</code>.
       </p>
-
+      {#see_also|@ctz|@popCount#}
       {#header_close#}
       {#header_open|@cmpxchgStrong#}
       <pre><code class="zig">@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T</code></pre>
@@ -5079,6 +5149,7 @@ test "main" {
       <p>
       If <code>x</code> is zero, <code>@ctz</code> returns <code>T.bit_count</code>.
       </p>
+      {#see_also|@clz|@popCount#}
       {#header_close#}
       {#header_open|@divExact#}
       <pre><code class="zig">@divExact(numerator: T, denominator: T) T</code></pre>
@@ -5560,6 +5631,16 @@ test "call foo" {
         <li>When mixing C and Zig code, calling the canonical panic implementation across multiple .o files.</li>
       </ul>
       {#see_also|Root Source File#}
+      {#header_close#}
+      {#header_open|@popCount#}
+      <pre><code class="zig">@popCount(integer: var) var</code></pre>
+      <p>Counts the number of bits set in an integer.</p>
+      <p>
+      If <code>integer</code> is known at {#link|comptime#}, the return type is <code>comptime_int</code>.
+      Otherwise, the return type is an unsigned integer with the minimum number
+      of bits that can represent the bit count of the integer type.
+      </p>
+      {#see_also|@ctz|@clz#}
       {#header_close#}
       {#header_open|@ptrCast#}
       <pre><code class="zig">@ptrCast(comptime DestType: type, value: var) DestType</code></pre>
@@ -6060,7 +6141,7 @@ pub const TypeInfo = union(TypeId) {
       {#code_begin|syntax#}
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) void {
+pub fn build(b: *Builder) void {
     const exe = b.addExecutable("example", "example.zig");
     exe.setBuildMode(b.standardReleaseOptions());
     b.default_step.dependOn(&exe.step);
@@ -6137,7 +6218,14 @@ fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>reached unreachable code</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    std.debug.assert(false);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Index out of Bounds#}
       <p>At compile-time:</p>
@@ -6147,7 +6235,16 @@ comptime {
     const garbage = array[5];
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>index out of bounds</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+pub fn main() void {
+    var x = foo("hello");
+}
+
+fn foo(x: []const u8) u8 {
+    return x[5];
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Cast Negative Number to Unsigned Integer#}
       <p>At compile-time:</p>
@@ -6157,10 +6254,18 @@ comptime {
     const unsigned = @intCast(u32, value);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>attempt to cast negative value to unsigned integer</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var value: i32 = -1;
+    var unsigned = @intCast(u32, value);
+    std.debug.warn("value: {}\n", unsigned);
+}
+      {#code_end#}
       <p>
-      If you are trying to obtain the maximum value of an unsigned integer, use <code>@maxValue(T)</code>,
-      where <code>T</code> is the integer type, such as <code>u32</code>.
+      To obtain the maximum value of an unsigned integer, use {#link|@maxValue#}.
       </p>
       {#header_close#}
       {#header_open|Cast Truncates Data#}
@@ -6171,11 +6276,18 @@ comptime {
     const byte = @intCast(u8, spartan_count);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>integer cast truncated bits</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var spartan_count: u16 = 300;
+    const byte = @intCast(u8, spartan_count);
+    std.debug.warn("value: {}\n", byte);
+}
+      {#code_end#}
       <p>
-      If you are trying to truncate bits, use <code>@truncate(T, value)</code>,
-      where <code>T</code> is the integer type, such as <code>u32</code>, and <code>value</code>
-      is the value you want to truncate.
+      To truncate bits, use {#link|@truncate#}.
       </p>
       {#header_close#}
       {#header_open|Integer Overflow#}
@@ -6187,9 +6299,9 @@ comptime {
         <li><code>-</code> (negation)</li>
         <li><code>*</code> (multiplication)</li>
         <li><code>/</code> (division)</li>
-        <li><code>@divTrunc</code> (division)</li>
-        <li><code>@divFloor</code> (division)</li>
-        <li><code>@divExact</code> (division)</li>
+        <li>{#link|@divTrunc#} (division)</li>
+        <li>{#link|@divFloor#} (division)</li>
+        <li>{#link|@divExact#} (division)</li>
       </ul>
       <p>Example with addition at compile-time:</p>
       {#code_begin|test_err|operation caused overflow#}
@@ -6198,7 +6310,16 @@ comptime {
     byte += 1;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>integer overflow</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var byte: u8 = 255;
+    byte += 1;
+    std.debug.warn("value: {}\n", byte);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Standard Library Math Functions#}
       <p>These functions provided by the standard library return possible errors.</p>
@@ -6233,13 +6354,13 @@ pub fn main() !void {
       occurred, as well as returning the overflowed bits:
       </p>
       <ul>
-        <li><code>@addWithOverflow</code></li>
-        <li><code>@subWithOverflow</code></li>
-        <li><code>@mulWithOverflow</code></li>
-        <li><code>@shlWithOverflow</code></li>
+          <li>{#link|@addWithOverflow#}</li>
+          <li>{#link|@subWithOverflow#}</li>
+          <li>{#link|@mulWithOverflow#}</li>
+          <li>{#link|@shlWithOverflow#}</li>
       </ul>
       <p>
-      Example of <code>@addWithOverflow</code>:
+      Example of {#link|@addWithOverflow#}:
       </p>
       {#code_begin|exe#}
 const warn = @import("std").debug.warn;
@@ -6285,7 +6406,16 @@ comptime {
     const x = @shlExact(u8(0b01010101), 2);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>left shift overflowed bits</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var x: u8 = 0b01010101;
+    var y = @shlExact(x, 2);
+    std.debug.warn("value: {}\n", y);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Exact Right Shift Overflow#}
       <p>At compile-time:</p>
@@ -6294,7 +6424,16 @@ comptime {
     const x = @shrExact(u8(0b10101010), 2);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>right shift overflowed bits</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var x: u8 = 0b10101010;
+    var y = @shrExact(x, 2);
+    std.debug.warn("value: {}\n", y);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Division by Zero#}
       <p>At compile-time:</p>
@@ -6305,8 +6444,17 @@ comptime {
     const c = a / b;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>division by zero</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
 
+pub fn main() void {
+    var a: u32 = 1;
+    var b: u32 = 0;
+    var c = a / b;
+    std.debug.warn("value: {}\n", c);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Remainder Division by Zero#}
       <p>At compile-time:</p>
@@ -6317,14 +6465,57 @@ comptime {
     const c = a % b;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>remainder division by zero</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
 
+pub fn main() void {
+    var a: u32 = 10;
+    var b: u32 = 0;
+    var c = a % b;
+    std.debug.warn("value: {}\n", c);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Exact Division Remainder#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|exact division had a remainder#}
+comptime {
+    const a: u32 = 10;
+    const b: u32 = 3;
+    const c = @divExact(a, b);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var a: u32 = 10;
+    var b: u32 = 3;
+    var c = @divExact(a, b);
+    std.debug.warn("value: {}\n", c);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Slice Widen Remainder#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|unable to convert#}
+comptime {
+    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
+    var slice = @bytesToSlice(u32, bytes);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
+    var slice = @bytesToSlice(u32, bytes[0..]);
+    std.debug.warn("value: {}\n", slice[0]);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Attempt to Unwrap Null#}
       <p>At compile-time:</p>
@@ -6334,7 +6525,16 @@ comptime {
     const number = optional_number.?;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>attempt to unwrap null</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var optional_number: ?i32 = null;
+    var number = optional_number.?;
+    std.debug.warn("value: {}\n", number);
+}
+      {#code_end#}
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
       the <code>if</code> expression:</p>
       {#code_begin|exe|test#}
@@ -6349,6 +6549,7 @@ pub fn main() void {
     }
 }
       {#code_end#}
+      {#see_also|Optionals#}
       {#header_close#}
       {#header_open|Attempt to Unwrap Error#}
       <p>At compile-time:</p>
@@ -6361,7 +6562,19 @@ fn getNumberOrFail() !i32 {
     return error.UnableToReturnNumber;
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>attempt to unwrap error: ErrorCode</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    const number = getNumberOrFail() catch unreachable;
+    std.debug.warn("value: {}\n", number);
+}
+
+fn getNumberOrFail() !i32 {
+    return error.UnableToReturnNumber;
+}
+      {#code_end#}
       <p>One way to avoid this crash is to test for an error instead of assuming a successful result, with
       the <code>if</code> expression:</p>
       {#code_begin|exe#}
@@ -6381,6 +6594,7 @@ fn getNumberOrFail() !i32 {
     return error.UnableToReturnNumber;
 }
       {#code_end#}
+      {#see_also|Errors#}
       {#header_close#}
       {#header_open|Invalid Error Code#}
       <p>At compile-time:</p>
@@ -6391,23 +6605,187 @@ comptime {
     const invalid_err = @intToError(number);
 }
       {#code_end#}
-      <p>At runtime crashes with the message <code>invalid error code</code> and a stack trace.</p>
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+pub fn main() void {
+    var err = error.AnError;
+    var number = @errorToInt(err) + 500;
+    var invalid_err = @intToError(number);
+    std.debug.warn("value: {}\n", number);
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Invalid Enum Cast#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|has no tag matching integer value 3#}
+const Foo = enum {
+    A,
+    B,
+    C,
+};
+comptime {
+    const a: u2 = 3;
+    const b = @intToEnum(Foo, a);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
 
+const Foo = enum {
+    A,
+    B,
+    C,
+};
+
+pub fn main() void {
+    var a: u2 = 3;
+    var b = @intToEnum(Foo, a);
+    std.debug.warn("value: {}\n", @tagName(b));
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Invalid Error Set Cast#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|error.B not a member of error set 'Set2'#}
+const Set1 = error{
+    A,
+    B,
+};
+const Set2 = error{
+    A,
+    C,
+};
+comptime {
+    _ = @errSetCast(Set2, Set1.B);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+const Set1 = error{
+    A,
+    B,
+};
+const Set2 = error{
+    A,
+    C,
+};
+pub fn main() void {
+    foo(Set1.B);
+}
+fn foo(set1: Set1) void {
+    const x = @errSetCast(Set2, set1);
+    std.debug.warn("value: {}\n", x);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Incorrect Pointer Alignment#}
-      <p>TODO</p>
-
+      <p>At compile-time:</p>
+      {#code_begin|test_err|pointer address 0x1 is not aligned to 4 bytes#}
+comptime {
+    const ptr = @intToPtr(*i32, 0x1);
+    const aligned = @alignCast(4, ptr);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+pub fn main() !void {
+    var array align(4) = []u32{ 0x11111111, 0x11111111 };
+    const bytes = @sliceToBytes(array[0..]);
+    if (foo(bytes) != 0x11111111) return error.Wrong;
+}
+fn foo(bytes: []u8) u32 {
+    const slice4 = bytes[1..5];
+    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
+    return int_slice[0];
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Wrong Union Field Access#}
-      <p>TODO</p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|accessing union field 'float' while field 'int' is set#}
+comptime {
+    var f = Foo{ .int = 42 };
+    f.float = 12.34;
+}
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    bar(&f);
+}
+
+fn bar(f: *Foo) void {
+    f.float = 12.34;
+    std.debug.warn("value: {}\n", f.float);
+}
+      {#code_end#}
+      <p>
+      This safety is not available for <code>extern</code> or <code>packed</code> unions.
+      </p>
+      <p>
+      To change the active field of a union, assign the entire union, like this:
+      </p>
+      {#code_begin|exe#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    bar(&f);
+}
+
+fn bar(f: *Foo) void {
+    f.* = Foo{ .float = 12.34 };
+    std.debug.warn("value: {}\n", f.float);
+}
+      {#code_end#}
+      <p>
+      To change the active field of a union when a meaningful value for the field is not known,
+      use {#link|undefined#}, like this:
+      </p>
+      {#code_begin|exe#}
+const std = @import("std");
+
+const Foo = union {
+    float: f32,
+    int: u32,
+};
+
+pub fn main() void {
+    var f = Foo{ .int = 42 };
+    f = Foo{ .float = undefined };
+    bar(&f);
+    std.debug.warn("value: {}\n", f.float);
+}
+
+fn bar(f: *Foo) void {
+    f.float = 12.34;
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Out of Bounds Float To Integer Cast#}
@@ -7098,7 +7476,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong resume cancel await async orelse",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bytesToSlice sliceToBytes errSetCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall errorToInt intToError enumToInt intToEnum",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bytesToSlice sliceToBytes errSetCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz popCount import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall errorToInt intToError enumToInt intToEnum",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

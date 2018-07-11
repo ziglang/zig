@@ -15,13 +15,30 @@ comptime {
         @export("__lttf2", @import("comparetf2.zig").__letf2, linkage);
         @export("__netf2", @import("comparetf2.zig").__letf2, linkage);
         @export("__gttf2", @import("comparetf2.zig").__getf2, linkage);
+        @export("__gnu_h2f_ieee", @import("extendXfYf2.zig").__extendhfsf2, linkage);
+        @export("__gnu_f2h_ieee", @import("truncXfYf2.zig").__truncsfhf2, linkage);
     }
 
     @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
 
+    @export("__floattitf", @import("floattitf.zig").__floattitf, linkage);
+    @export("__floattidf", @import("floattidf.zig").__floattidf, linkage);
+    @export("__floattisf", @import("floattisf.zig").__floattisf, linkage);
+
+    @export("__floatunditf", @import("floatunditf.zig").__floatunditf, linkage);
+    @export("__floatunsitf", @import("floatunsitf.zig").__floatunsitf, linkage);
+
+    @export("__floatuntitf", @import("floatuntitf.zig").__floatuntitf, linkage);
     @export("__floatuntidf", @import("floatuntidf.zig").__floatuntidf, linkage);
+    @export("__floatuntisf", @import("floatuntisf.zig").__floatuntisf, linkage);
+
     @export("__extenddftf2", @import("extendXfYf2.zig").__extenddftf2, linkage);
     @export("__extendsftf2", @import("extendXfYf2.zig").__extendsftf2, linkage);
+    @export("__extendhfsf2", @import("extendXfYf2.zig").__extendhfsf2, linkage);
+
+    @export("__truncsfhf2", @import("truncXfYf2.zig").__truncsfhf2, linkage);
+    @export("__trunctfdf2", @import("truncXfYf2.zig").__trunctfdf2, linkage);
+    @export("__trunctfsf2", @import("truncXfYf2.zig").__trunctfsf2, linkage);
 
     @export("__fixunssfsi", @import("fixunssfsi.zig").__fixunssfsi, linkage);
     @export("__fixunssfdi", @import("fixunssfdi.zig").__fixunssfdi, linkage);

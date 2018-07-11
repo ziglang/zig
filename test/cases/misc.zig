@@ -53,6 +53,7 @@ test "@IntType builtin" {
 }
 
 test "floating point primitive bit counts" {
+    assert(f16.bit_count == 16);
     assert(f32.bit_count == 32);
     assert(f64.bit_count == 64);
 }

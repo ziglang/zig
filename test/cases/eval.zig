@@ -637,3 +637,8 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     var b = s.b();
     assert(b == 2);
 }
+
+test "@tagName of @typeId" {
+    const str = @tagName(@typeId(u8));
+    assert(std.mem.eql(u8, str, "Int"));
+}

@@ -44,14 +44,8 @@ pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t
     // If 0 <= exponent < significandBits, right shift to get the result.
     // Otherwise, shift left.
     if (exponent < significandBits) {
-        // TODO this is a workaround for the mysterious "integer cast truncated bits"
-        // happening on the next line
-        @setRuntimeSafety(false);
         return @intCast(fixuint_t, significand >> @intCast(Log2Int(rep_t), significandBits - exponent));
     } else {
-        // TODO this is a workaround for the mysterious "integer cast truncated bits"
-        // happening on the next line
-        @setRuntimeSafety(false);
         return @intCast(fixuint_t, significand) << @intCast(Log2Int(fixuint_t), exponent - significandBits);
     }
 }

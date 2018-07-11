@@ -6,15 +6,20 @@ test "division" {
 }
 fn testDivision() void {
     assert(div(u32, 13, 3) == 4);
+    assert(div(f16, 1.0, 2.0) == 0.5);
     assert(div(f32, 1.0, 2.0) == 0.5);
 
     assert(divExact(u32, 55, 11) == 5);
     assert(divExact(i32, -55, 11) == -5);
+    assert(divExact(f16, 55.0, 11.0) == 5.0);
+    assert(divExact(f16, -55.0, 11.0) == -5.0);
     assert(divExact(f32, 55.0, 11.0) == 5.0);
     assert(divExact(f32, -55.0, 11.0) == -5.0);
 
     assert(divFloor(i32, 5, 3) == 1);
     assert(divFloor(i32, -5, 3) == -2);
+    assert(divFloor(f16, 5.0, 3.0) == 1.0);
+    assert(divFloor(f16, -5.0, 3.0) == -2.0);
     assert(divFloor(f32, 5.0, 3.0) == 1.0);
     assert(divFloor(f32, -5.0, 3.0) == -2.0);
     assert(divFloor(i32, -0x80000000, -2) == 0x40000000);
@@ -24,8 +29,12 @@ fn testDivision() void {
 
     assert(divTrunc(i32, 5, 3) == 1);
     assert(divTrunc(i32, -5, 3) == -1);
+    assert(divTrunc(f16, 5.0, 3.0) == 1.0);
+    assert(divTrunc(f16, -5.0, 3.0) == -1.0);
     assert(divTrunc(f32, 5.0, 3.0) == 1.0);
     assert(divTrunc(f32, -5.0, 3.0) == -1.0);
+    assert(divTrunc(f64, 5.0, 3.0) == 1.0);
+    assert(divTrunc(f64, -5.0, 3.0) == -1.0);
 
     comptime {
         assert(
@@ -287,6 +296,14 @@ test "quad hex float literal parsing in range" {
     const d = 0x1.edcbff8ad76ab5bf46463233214fp-435;
 }
 
+test "quad hex float literal parsing accurate" {
+    const a: f128 = 0x1.1111222233334444555566667777p+0;
+
+    // implied 1 is dropped, with an exponent of 0 (0x3fff) after biasing.
+    const expected: u128 = 0x3fff1111222233334444555566667777;
+    assert(@bitCast(u128, a) == expected);
+}
+
 test "hex float literal within range" {
     const a = 0x1.0p16383;
     const b = 0x0.1p16387;
@@ -435,10 +452,11 @@ test "comptime float rem int" {
 }
 
 test "remainder division" {
+    comptime remdiv(f16);
     comptime remdiv(f32);
     comptime remdiv(f64);
     comptime remdiv(f128);
-    remdiv(f32);
+    remdiv(f16);
     remdiv(f64);
     remdiv(f128);
 }
@@ -453,6 +471,8 @@ test "@sqrt" {
     comptime testSqrt(f64, 12.0);
     testSqrt(f32, 13.0);
     comptime testSqrt(f32, 13.0);
+    testSqrt(f16, 13.0);
+    comptime testSqrt(f16, 13.0);
 
     const x = 14.0;
     const y = x * x;

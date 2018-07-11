@@ -81,6 +81,8 @@ void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base);
 
 size_t bigint_ctz(const BigInt *bi, size_t bit_count);
 size_t bigint_clz(const BigInt *bi, size_t bit_count);
+size_t bigint_popcount_signed(const BigInt *bi, size_t bit_count);
+size_t bigint_popcount_unsigned(const BigInt *bi);
 
 size_t bigint_bits_needed(const BigInt *op);
 

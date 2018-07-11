@@ -11,11 +11,15 @@ pub const Color = enum {
     On,
 };
 
+pub const Span = struct {
+    first: ast.TokenIndex,
+    last: ast.TokenIndex,
+};
+
 pub const Msg = struct {
     path: []const u8,
     text: []u8,
-    first_token: TokenIndex,
-    last_token: TokenIndex,
+    span: Span,
     tree: *ast.Tree,
 };
 
@@ -39,8 +43,10 @@ pub fn createFromParseError(
         .tree = tree,
         .path = path,
         .text = text_buf.toOwnedSlice(),
-        .first_token = loc_token,
-        .last_token = loc_token,
+        .span = Span{
+            .first = loc_token,
+            .last = loc_token,
+        },
     });
     errdefer allocator.destroy(msg);
 
@@ -48,8 +54,8 @@ pub fn createFromParseError(
 }
 
 pub fn printToStream(stream: var, msg: *const Msg, color_on: bool) !void {
-    const first_token = msg.tree.tokens.at(msg.first_token);
-    const last_token = msg.tree.tokens.at(msg.last_token);
+    const first_token = msg.tree.tokens.at(msg.span.first);
+    const last_token = msg.tree.tokens.at(msg.span.last);
     const start_loc = msg.tree.tokenLocationPtr(0, first_token);
     const end_loc = msg.tree.tokenLocationPtr(first_token.end, last_token);
     if (!color_on) {

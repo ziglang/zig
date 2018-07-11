@@ -258,6 +258,7 @@ struct ConstExprValue {
         // populated if special == ConstValSpecialStatic
         BigInt x_bigint;
         BigFloat x_bigfloat;
+        float16_t x_f16;
         float x_f32;
         double x_f64;
         float128_t x_f128;
@@ -1351,6 +1352,7 @@ enum BuiltinFnId {
     BuiltinFnIdCompileLog,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
+    BuiltinFnIdPopCount,
     BuiltinFnIdImport,
     BuiltinFnIdCImport,
     BuiltinFnIdErrName,
@@ -1476,6 +1478,7 @@ bool type_id_eql(TypeId a, TypeId b);
 enum ZigLLVMFnId {
     ZigLLVMFnIdCtz,
     ZigLLVMFnIdClz,
+    ZigLLVMFnIdPopCount,
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
@@ -1498,6 +1501,9 @@ struct ZigLLVMFnKey {
         struct {
             uint32_t bit_count;
         } clz;
+        struct {
+            uint32_t bit_count;
+        } pop_count;
         struct {
             uint32_t bit_count;
         } floating;
@@ -1598,6 +1604,7 @@ struct CodeGen {
         TypeTableEntry *entry_i128;
         TypeTableEntry *entry_isize;
         TypeTableEntry *entry_usize;
+        TypeTableEntry *entry_f16;
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_f64;
         TypeTableEntry *entry_f128;
@@ -2048,6 +2055,7 @@ enum IrInstructionId {
     IrInstructionIdUnionTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
+    IrInstructionIdPopCount,
     IrInstructionIdImport,
     IrInstructionIdCImport,
     IrInstructionIdCInclude,
@@ -2191,6 +2199,7 @@ struct IrInstructionSwitchBr {
     size_t case_count;
     IrInstructionSwitchBrCase *cases;
     IrInstruction *is_comptime;
+    IrInstruction *switch_prongs_void;
 };
 
 struct IrInstructionSwitchVar {
@@ -2537,6 +2546,12 @@ struct IrInstructionCtz {
 };
 
 struct IrInstructionClz {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionPopCount {
     IrInstruction base;
 
     IrInstruction *value;

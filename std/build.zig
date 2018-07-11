@@ -814,6 +814,7 @@ pub const LibExeObjStep = struct {
     out_h_filename: []const u8,
     assembly_files: ArrayList([]const u8),
     packages: ArrayList(Pkg),
+    build_options_contents: std.Buffer,
 
     // C only stuff
     source_files: ArrayList([]const u8),
@@ -905,6 +906,7 @@ pub const LibExeObjStep = struct {
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .disable_libc = true,
+            .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
         };
         self.computeOutFileNames();
         return self;
@@ -945,6 +947,7 @@ pub const LibExeObjStep = struct {
             .out_h_filename = undefined,
             .assembly_files = undefined,
             .packages = undefined,
+            .build_options_contents = undefined,
         };
         self.computeOutFileNames();
         return self;
@@ -1096,6 +1099,12 @@ pub const LibExeObjStep = struct {
         self.include_dirs.append(self.builder.cache_root) catch unreachable;
     }
 
+    pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
+        assert(self.is_zig);
+        const out = &std.io.BufferOutStream.init(&self.build_options_contents).stream;
+        out.print("pub const {} = {};\n", name, value) catch unreachable;
+    }
+
     pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(path) catch unreachable;
     }
@@ -1153,6 +1162,15 @@ pub const LibExeObjStep = struct {
 
         if (self.root_src) |root_src| {
             zig_args.append(builder.pathFromRoot(root_src)) catch unreachable;
+        }
+
+        if (self.build_options_contents.len() > 0) {
+            const build_options_file = try os.path.join(builder.allocator, builder.cache_root, builder.fmt("{}_build_options.zig", self.name));
+            try std.io.writeFile(builder.allocator, build_options_file, self.build_options_contents.toSliceConst());
+            try zig_args.append("--pkg-begin");
+            try zig_args.append("build_options");
+            try zig_args.append(builder.pathFromRoot(build_options_file));
+            try zig_args.append("--pkg-end");
         }
 
         for (self.object_files.toSliceConst()) |object_file| {
@@ -1578,6 +1596,8 @@ pub const TestStep = struct {
     target: Target,
     exec_cmd_args: ?[]const ?[]const u8,
     include_dirs: ArrayList([]const u8),
+    lib_paths: ArrayList([]const u8),
+    object_files: ArrayList([]const u8),
 
     pub fn init(builder: *Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1593,7 +1613,13 @@ pub const TestStep = struct {
             .target = Target{ .Native = {} },
             .exec_cmd_args = null,
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
+            .lib_paths = ArrayList([]const u8).init(builder.allocator),
+            .object_files = ArrayList([]const u8).init(builder.allocator),
         };
+    }
+
+    pub fn addLibPath(self: *TestStep, path: []const u8) void {
+        self.lib_paths.append(path) catch unreachable;
     }
 
     pub fn setVerbose(self: *TestStep, value: bool) void {
@@ -1618,6 +1644,10 @@ pub const TestStep = struct {
 
     pub fn setFilter(self: *TestStep, text: ?[]const u8) void {
         self.filter = text;
+    }
+
+    pub fn addObjectFile(self: *TestStep, path: []const u8) void {
+        self.object_files.append(path) catch unreachable;
     }
 
     pub fn setTarget(self: *TestStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
@@ -1681,6 +1711,11 @@ pub const TestStep = struct {
             try zig_args.append(self.name_prefix);
         }
 
+        for (self.object_files.toSliceConst()) |object_file| {
+            try zig_args.append("--object");
+            try zig_args.append(builder.pathFromRoot(object_file));
+        }
+
         {
             var it = self.link_libs.iterator();
             while (true) {
@@ -1714,6 +1749,11 @@ pub const TestStep = struct {
         for (builder.rpaths.toSliceConst()) |rpath| {
             try zig_args.append("-rpath");
             try zig_args.append(rpath);
+        }
+
+        for (self.lib_paths.toSliceConst()) |lib_path| {
+            try zig_args.append("--library-path");
+            try zig_args.append(lib_path);
         }
 
         for (builder.lib_paths.toSliceConst()) |lib_path| {

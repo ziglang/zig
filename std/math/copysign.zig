@@ -4,10 +4,20 @@ const assert = std.debug.assert;
 
 pub fn copysign(comptime T: type, x: T, y: T) T {
     return switch (T) {
+        f16 => copysign16(x, y),
         f32 => copysign32(x, y),
         f64 => copysign64(x, y),
         else => @compileError("copysign not implemented for " ++ @typeName(T)),
     };
+}
+
+fn copysign16(x: f16, y: f16) f16 {
+    const ux = @bitCast(u16, x);
+    const uy = @bitCast(u16, y);
+
+    const h1 = ux & (@maxValue(u16) / 2);
+    const h2 = uy & (u16(1) << 15);
+    return @bitCast(f16, h1 | h2);
 }
 
 fn copysign32(x: f32, y: f32) f32 {
@@ -29,8 +39,16 @@ fn copysign64(x: f64, y: f64) f64 {
 }
 
 test "math.copysign" {
+    assert(copysign(f16, 1.0, 1.0) == copysign16(1.0, 1.0));
     assert(copysign(f32, 1.0, 1.0) == copysign32(1.0, 1.0));
     assert(copysign(f64, 1.0, 1.0) == copysign64(1.0, 1.0));
+}
+
+test "math.copysign16" {
+    assert(copysign16(5.0, 1.0) == 5.0);
+    assert(copysign16(5.0, -1.0) == -5.0);
+    assert(copysign16(-5.0, -1.0) == -5.0);
+    assert(copysign16(-5.0, 1.0) == 5.0);
 }
 
 test "math.copysign32" {
