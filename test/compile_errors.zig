@@ -2,6 +2,33 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "optional pointer to void in extern struct",
+        \\const Foo = extern struct {
+        \\    x: ?*const void,
+        \\};
+        \\const Bar = extern struct {
+        \\    foo: Foo,
+        \\    y: i32,
+        \\};
+        \\export fn entry(bar: *Bar) void {}
+    ,
+        ".tmp_source.zig:2:5: error: extern structs cannot contain fields of type '?*const void'",
+    );
+
+    cases.add(
+        "use of comptime-known undefined function value",
+        \\const Cmd = struct {
+        \\    exec: fn () void,
+        \\};
+        \\export fn entry() void {
+        \\    const command = Cmd{ .exec = undefined };
+        \\    command.exec();
+        \\}
+    ,
+        ".tmp_source.zig:6:12: error: use of undefined value",
+    );
+
+    cases.add(
         "use of comptime-known undefined function value",
         \\const Cmd = struct {
         \\    exec: fn () void,

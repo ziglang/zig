@@ -1430,10 +1430,10 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdPromise:
+        case TypeTableEntryIdVoid:
             return false;
         case TypeTableEntryIdOpaque:
         case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
             return true;
         case TypeTableEntryIdInt:
@@ -1460,7 +1460,10 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdOptional:
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-                return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
+                if (child_type->id != TypeTableEntryIdPointer && child_type->id != TypeTableEntryIdFn) {
+                    return false;
+                }
+                return type_allowed_in_extern(g, child_type);
             }
         case TypeTableEntryIdEnum:
             return type_entry->data.enumeration.layout == ContainerLayoutExtern || type_entry->data.enumeration.layout == ContainerLayoutPacked;
@@ -1637,7 +1640,10 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         fn_type_id.return_type = specified_return_type;
     }
 
-    if (!calling_convention_allows_zig_types(fn_type_id.cc) && !type_allowed_in_extern(g, fn_type_id.return_type)) {
+    if (!calling_convention_allows_zig_types(fn_type_id.cc) &&
+        fn_type_id.return_type->id != TypeTableEntryIdVoid &&
+        !type_allowed_in_extern(g, fn_type_id.return_type))
+    {
         add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
                     buf_ptr(&fn_type_id.return_type->name),
@@ -1937,6 +1943,17 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
         if (type_is_invalid(field_type)) {
             struct_type->data.structure.is_invalid = true;
             break;
+        }
+
+        if (struct_type->data.structure.layout == ContainerLayoutExtern) {
+            if (!type_allowed_in_extern(g, field_type)) {
+                AstNode *field_source_node = decl_node->data.container_decl.fields.at(i);
+                add_node_error(g, field_source_node,
+                        buf_sprintf("extern structs cannot contain fields of type '%s'",
+                            buf_ptr(&field_type->name)));
+                struct_type->data.structure.is_invalid = true;
+                break;
+            }
         }
 
         if (!type_has_bits(field_type))

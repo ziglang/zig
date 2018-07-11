@@ -44,7 +44,7 @@ pub const timezone = extern struct {
     tz_dsttime: i32,
 };
 
-pub const mach_timebase_info_data = struct {
+pub const mach_timebase_info_data = extern struct {
     numer: u32,
     denom: u32,
 };
