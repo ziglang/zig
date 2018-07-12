@@ -574,9 +574,7 @@ pub const Builder = struct {
         }
 
         _ = try irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit);
-        const result = try Instruction.Const.buildVoid(irb, child_scope, false);
-        result.setGenerated();
-        return result;
+        return try Instruction.Const.buildVoid(irb, child_scope, true);
     }
 
     fn genDefersForBlock(
@@ -648,8 +646,7 @@ pub async fn gen(module: *Module, body_node: *ast.Node, scope: *Scope, parsed_fi
 
     const result = try irb.genNode(body_node, scope, LVal.None);
     if (!result.isNoReturn()) {
-        const void_inst = try Instruction.Const.buildVoid(&irb, scope, false);
-        (try Instruction.Return.build(&irb, scope, void_inst)).setGenerated();
+        (try Instruction.Return.build(&irb, scope, result)).setGenerated();
     }
 
     return irb.finish();
