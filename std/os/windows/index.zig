@@ -59,7 +59,6 @@ pub extern "kernel32" stdcallcc fn CreateSymbolicLinkA(
     dwFlags: DWORD,
 ) BOOLEAN;
 
-
 pub extern "kernel32" stdcallcc fn CreateIoCompletionPort(FileHandle: HANDLE, ExistingCompletionPort: ?HANDLE, CompletionKey: ULONG_PTR, NumberOfConcurrentThreads: DWORD) ?HANDLE;
 
 pub extern "kernel32" stdcallcc fn CreateThread(lpThreadAttributes: ?LPSECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?LPDWORD) ?HANDLE;
@@ -133,7 +132,6 @@ pub extern "kernel32" stdcallcc fn MoveFileExA(
     lpNewFileName: LPCSTR,
     dwFlags: DWORD,
 ) BOOL;
-
 
 pub extern "kernel32" stdcallcc fn PostQueuedCompletionStatus(CompletionPort: HANDLE, dwNumberOfBytesTransferred: DWORD, dwCompletionKey: ULONG_PTR, lpOverlapped: ?*OVERLAPPED) BOOL;
 
