@@ -1041,11 +1041,6 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         const node = try arena.create(ast.Node.Defer{
                             .base = ast.Node{ .id = ast.Node.Id.Defer },
                             .defer_token = token_index,
-                            .kind = switch (token_ptr.id) {
-                                Token.Id.Keyword_defer => ast.Node.Defer.Kind.Unconditional,
-                                Token.Id.Keyword_errdefer => ast.Node.Defer.Kind.Error,
-                                else => unreachable,
-                            },
                             .expr = undefined,
                         });
                         const node_ptr = try block.statements.addOne();

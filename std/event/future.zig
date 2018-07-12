@@ -57,7 +57,7 @@ test "std.event.Future" {
     const allocator = &da.allocator;
 
     var loop: Loop = undefined;
-    try loop.initSingleThreaded(allocator);
+    try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
     const handle = try async<allocator> testFuture(&loop);

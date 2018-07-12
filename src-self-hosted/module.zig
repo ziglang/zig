@@ -15,12 +15,21 @@ const errmsg = @import("errmsg.zig");
 const ast = std.zig.ast;
 const event = std.event;
 const assert = std.debug.assert;
+const AtomicRmwOp = builtin.AtomicRmwOp;
+const AtomicOrder = builtin.AtomicOrder;
+const Scope = @import("scope.zig").Scope;
+const Decl = @import("decl.zig").Decl;
+const ir = @import("ir.zig");
+const Visib = @import("visib.zig").Visib;
+const ParsedFile = @import("parsed_file.zig").ParsedFile;
+const Value = @import("value.zig").Value;
+const Type = Value.Type;
 
 pub const Module = struct {
     loop: *event.Loop,
     name: Buffer,
     root_src_path: ?[]const u8,
-    module: llvm.ModuleRef,
+    llvm_module: llvm.ModuleRef,
     context: llvm.ContextRef,
     builder: llvm.BuilderRef,
     target: Target,
@@ -91,6 +100,16 @@ pub const Module = struct {
 
     compile_errors: event.Locked(CompileErrList),
 
+    meta_type: *Type.MetaType,
+    void_type: *Type.Void,
+    bool_type: *Type.Bool,
+    noreturn_type: *Type.NoReturn,
+
+    void_value: *Value.Void,
+    true_value: *Value.Bool,
+    false_value: *Value.Bool,
+    noreturn_value: *Value.NoReturn,
+
     const CompileErrList = std.ArrayList(*errmsg.Msg);
 
     // TODO handle some of these earlier and report them in a way other than error codes
@@ -129,6 +148,7 @@ pub const Module = struct {
         Overflow,
         NotSupported,
         BufferTooSmall,
+        Unimplemented,
     };
 
     pub const Event = union(enum) {
@@ -180,8 +200,8 @@ pub const Module = struct {
         const context = c.LLVMContextCreate() orelse return error.OutOfMemory;
         errdefer c.LLVMContextDispose(context);
 
-        const module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) orelse return error.OutOfMemory;
-        errdefer c.LLVMDisposeModule(module);
+        const llvm_module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) orelse return error.OutOfMemory;
+        errdefer c.LLVMDisposeModule(llvm_module);
 
         const builder = c.LLVMCreateBuilderInContext(context) orelse return error.OutOfMemory;
         errdefer c.LLVMDisposeBuilder(builder);
@@ -189,12 +209,12 @@ pub const Module = struct {
         const events = try event.Channel(Event).create(loop, 0);
         errdefer events.destroy();
 
-        return loop.allocator.create(Module{
+        const module = try loop.allocator.create(Module{
             .loop = loop,
             .events = events,
             .name = name_buffer,
             .root_src_path = root_src_path,
-            .module = module,
+            .llvm_module = llvm_module,
             .context = context,
             .builder = builder,
             .target = target.*,
@@ -248,7 +268,109 @@ pub const Module = struct {
             .exported_symbol_names = event.Locked(Decl.Table).init(loop, Decl.Table.init(loop.allocator)),
             .build_group = event.Group(BuildError!void).init(loop),
             .compile_errors = event.Locked(CompileErrList).init(loop, CompileErrList.init(loop.allocator)),
+
+            .meta_type = undefined,
+            .void_type = undefined,
+            .void_value = undefined,
+            .bool_type = undefined,
+            .true_value = undefined,
+            .false_value = undefined,
+            .noreturn_type = undefined,
+            .noreturn_value = undefined,
         });
+        try module.initTypes();
+        return module;
+    }
+
+    fn initTypes(module: *Module) !void {
+        module.meta_type = try module.a().create(Type.MetaType{
+            .base = Type{
+                .base = Value{
+                    .id = Value.Id.Type,
+                    .typeof = undefined,
+                    .ref_count = 3, // 3 because it references itself twice
+                },
+                .id = builtin.TypeId.Type,
+            },
+            .value = undefined,
+        });
+        module.meta_type.value = &module.meta_type.base;
+        module.meta_type.base.base.typeof = &module.meta_type.base;
+        errdefer module.a().destroy(module.meta_type);
+
+        module.void_type = try module.a().create(Type.Void{
+            .base = Type{
+                .base = Value{
+                    .id = Value.Id.Type,
+                    .typeof = &Type.MetaType.get(module).base,
+                    .ref_count = 1,
+                },
+                .id = builtin.TypeId.Void,
+            },
+        });
+        errdefer module.a().destroy(module.void_type);
+
+        module.noreturn_type = try module.a().create(Type.NoReturn{
+            .base = Type{
+                .base = Value{
+                    .id = Value.Id.Type,
+                    .typeof = &Type.MetaType.get(module).base,
+                    .ref_count = 1,
+                },
+                .id = builtin.TypeId.NoReturn,
+            },
+        });
+        errdefer module.a().destroy(module.noreturn_type);
+
+        module.bool_type = try module.a().create(Type.Bool{
+            .base = Type{
+                .base = Value{
+                    .id = Value.Id.Type,
+                    .typeof = &Type.MetaType.get(module).base,
+                    .ref_count = 1,
+                },
+                .id = builtin.TypeId.Bool,
+            },
+        });
+        errdefer module.a().destroy(module.bool_type);
+
+        module.void_value = try module.a().create(Value.Void{
+            .base = Value{
+                .id = Value.Id.Void,
+                .typeof = &Type.Void.get(module).base,
+                .ref_count = 1,
+            },
+        });
+        errdefer module.a().destroy(module.void_value);
+
+        module.true_value = try module.a().create(Value.Bool{
+            .base = Value{
+                .id = Value.Id.Bool,
+                .typeof = &Type.Bool.get(module).base,
+                .ref_count = 1,
+            },
+            .x = true,
+        });
+        errdefer module.a().destroy(module.true_value);
+
+        module.false_value = try module.a().create(Value.Bool{
+            .base = Value{
+                .id = Value.Id.Bool,
+                .typeof = &Type.Bool.get(module).base,
+                .ref_count = 1,
+            },
+            .x = false,
+        });
+        errdefer module.a().destroy(module.false_value);
+
+        module.noreturn_value = try module.a().create(Value.NoReturn{
+            .base = Value{
+                .id = Value.Id.NoReturn,
+                .typeof = &Type.NoReturn.get(module).base,
+                .ref_count = 1,
+            },
+        });
+        errdefer module.a().destroy(module.noreturn_value);
     }
 
     fn dump(self: *Module) void {
@@ -256,9 +378,17 @@ pub const Module = struct {
     }
 
     pub fn destroy(self: *Module) void {
+        self.noreturn_value.base.deref(self);
+        self.void_value.base.deref(self);
+        self.false_value.base.deref(self);
+        self.true_value.base.deref(self);
+        self.noreturn_type.base.base.deref(self);
+        self.void_type.base.base.deref(self);
+        self.meta_type.base.base.deref(self);
+
         self.events.destroy();
         c.LLVMDisposeBuilder(self.builder);
-        c.LLVMDisposeModule(self.module);
+        c.LLVMDisposeModule(self.llvm_module);
         c.LLVMContextDispose(self.context);
         self.name.deinit();
 
@@ -331,8 +461,8 @@ pub const Module = struct {
         const tree = &parsed_file.tree;
 
         // create empty struct for it
-        const decls = try Scope.Decls.create(self.a(), null);
-        errdefer decls.destroy();
+        const decls = try Scope.Decls.create(self, null);
+        defer decls.base.deref(self);
 
         var decl_group = event.Group(BuildError!void).init(self.loop);
         errdefer decl_group.cancelAll();
@@ -359,14 +489,17 @@ pub const Module = struct {
                             .id = Decl.Id.Fn,
                             .name = name,
                             .visib = parseVisibToken(tree, fn_proto.visib_token),
-                            .resolution = Decl.Resolution.Unresolved,
+                            .resolution = event.Future(BuildError!void).init(self.loop),
+                            .resolution_in_progress = 0,
+                            .parsed_file = parsed_file,
+                            .parent_scope = &decls.base,
                         },
                         .value = Decl.Fn.Val{ .Unresolved = {} },
                         .fn_proto = fn_proto,
                     });
                     errdefer self.a().destroy(fn_decl);
 
-                    try decl_group.call(addTopLevelDecl, self, parsed_file, &fn_decl.base);
+                    try decl_group.call(addTopLevelDecl, self, &fn_decl.base);
                 },
                 ast.Node.Id.TestDecl => @panic("TODO"),
                 else => unreachable,
@@ -376,12 +509,12 @@ pub const Module = struct {
         try await (async self.build_group.wait() catch unreachable);
     }
 
-    async fn addTopLevelDecl(self: *Module, parsed_file: *ParsedFile, decl: *Decl) !void {
-        const is_export = decl.isExported(&parsed_file.tree);
+    async fn addTopLevelDecl(self: *Module, decl: *Decl) !void {
+        const is_export = decl.isExported(&decl.parsed_file.tree);
 
         if (is_export) {
-            try self.build_group.call(verifyUniqueSymbol, self, parsed_file, decl);
-            try self.build_group.call(generateDecl, self, parsed_file, decl);
+            try self.build_group.call(verifyUniqueSymbol, self, decl);
+            try self.build_group.call(resolveDecl, self, decl);
         }
     }
 
@@ -416,34 +549,19 @@ pub const Module = struct {
         try compile_errors.value.append(msg);
     }
 
-    async fn verifyUniqueSymbol(self: *Module, parsed_file: *ParsedFile, decl: *Decl) !void {
+    async fn verifyUniqueSymbol(self: *Module, decl: *Decl) !void {
         const exported_symbol_names = await (async self.exported_symbol_names.acquire() catch unreachable);
         defer exported_symbol_names.release();
 
         if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
             try self.addCompileError(
-                parsed_file,
+                decl.parsed_file,
                 decl.getSpan(),
                 "exported symbol collision: '{}'",
                 decl.name,
             );
+            // TODO add error note showing location of other symbol
         }
-    }
-
-    /// This declaration has been blessed as going into the final code generation.
-    async fn generateDecl(self: *Module, parsed_file: *ParsedFile, decl: *Decl) void {
-        switch (decl.id) {
-            Decl.Id.Var => @panic("TODO"),
-            Decl.Id.Fn => {
-                const fn_decl = @fieldParentPtr(Decl.Fn, "base", decl);
-                return await (async self.generateDeclFn(parsed_file, fn_decl) catch unreachable);
-            },
-            Decl.Id.CompTime => @panic("TODO"),
-        }
-    }
-
-    async fn generateDeclFn(self: *Module, parsed_file: *ParsedFile, fn_decl: *Decl.Fn) void {
-        fn_decl.value = Decl.Fn.Val{ .Ok = Value.Fn{} };
     }
 
     pub fn link(self: *Module, out_file: ?[]const u8) !void {
@@ -501,177 +619,48 @@ fn parseVisibToken(tree: *ast.Tree, optional_token_index: ?ast.TokenIndex) Visib
     }
 }
 
-pub const Scope = struct {
-    id: Id,
-    parent: ?*Scope,
-
-    pub const Id = enum {
-        Decls,
-        Block,
-    };
-
-    pub const Decls = struct {
-        base: Scope,
-        table: Decl.Table,
-
-        pub fn create(a: *Allocator, parent: ?*Scope) !*Decls {
-            const self = try a.create(Decls{
-                .base = Scope{
-                    .id = Id.Decls,
-                    .parent = parent,
-                },
-                .table = undefined,
-            });
-            errdefer a.destroy(self);
-
-            self.table = Decl.Table.init(a);
-            errdefer self.table.deinit();
-
-            return self;
-        }
-
-        pub fn destroy(self: *Decls) void {
-            self.table.deinit();
-            self.table.allocator.destroy(self);
-            self.* = undefined;
-        }
-    };
-
-    pub const Block = struct {
-        base: Scope,
-    };
-};
-
-pub const Visib = enum {
-    Private,
-    Pub,
-};
-
-pub const Decl = struct {
-    id: Id,
-    name: []const u8,
-    visib: Visib,
-    resolution: Resolution,
-
-    pub const Table = std.HashMap([]const u8, *Decl, mem.hash_slice_u8, mem.eql_slice_u8);
-
-    pub fn isExported(base: *const Decl, tree: *ast.Tree) bool {
-        switch (base.id) {
-            Id.Fn => {
-                const fn_decl = @fieldParentPtr(Fn, "base", base);
-                return fn_decl.isExported(tree);
-            },
-            else => return false,
-        }
+/// This declaration has been blessed as going into the final code generation.
+pub async fn resolveDecl(module: *Module, decl: *Decl) !void {
+    if (@atomicRmw(u8, &decl.resolution_in_progress, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) == 0) {
+        decl.resolution.data = await (async generateDecl(module, decl) catch unreachable);
+        decl.resolution.resolve();
+    } else {
+        return (await (async decl.resolution.get() catch unreachable)).*;
     }
+}
 
-    pub fn getSpan(base: *const Decl) errmsg.Span {
-        switch (base.id) {
-            Id.Fn => {
-                const fn_decl = @fieldParentPtr(Fn, "base", base);
-                const fn_proto = fn_decl.fn_proto;
-                const start = fn_proto.fn_token;
-                const end = fn_proto.name_token orelse start;
-                return errmsg.Span{
-                    .first = start,
-                    .last = end + 1,
-                };
-            },
-            else => @panic("TODO"),
-        }
+/// The function that actually does the generation.
+async fn generateDecl(module: *Module, decl: *Decl) !void {
+    switch (decl.id) {
+        Decl.Id.Var => @panic("TODO"),
+        Decl.Id.Fn => {
+            const fn_decl = @fieldParentPtr(Decl.Fn, "base", decl);
+            return await (async generateDeclFn(module, fn_decl) catch unreachable);
+        },
+        Decl.Id.CompTime => @panic("TODO"),
     }
+}
 
-    pub const Resolution = enum {
-        Unresolved,
-        InProgress,
-        Invalid,
-        Ok,
-    };
+async fn generateDeclFn(module: *Module, fn_decl: *Decl.Fn) !void {
+    const body_node = fn_decl.fn_proto.body_node orelse @panic("TODO extern fn proto decl");
 
-    pub const Id = enum {
-        Var,
-        Fn,
-        CompTime,
-    };
+    const fndef_scope = try Scope.FnDef.create(module, fn_decl.base.parent_scope);
+    defer fndef_scope.base.deref(module);
 
-    pub const Var = struct {
-        base: Decl,
-    };
+    const fn_type = try Type.Fn.create(module);
+    defer fn_type.base.base.deref(module);
 
-    pub const Fn = struct {
-        base: Decl,
-        value: Val,
-        fn_proto: *const ast.Node.FnProto,
+    const fn_val = try Value.Fn.create(module, fn_type, fndef_scope);
+    defer fn_val.base.deref(module);
 
-        // TODO https://github.com/ziglang/zig/issues/683 and then make this anonymous
-        pub const Val = union {
-            Unresolved: void,
-            Ok: Value.Fn,
-        };
+    fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
 
-        pub fn externLibName(self: Fn, tree: *ast.Tree) ?[]const u8 {
-            return if (self.fn_proto.extern_export_inline_token) |tok_index| x: {
-                const token = tree.tokens.at(tok_index);
-                break :x switch (token.id) {
-                    Token.Id.Extern => tree.tokenSlicePtr(token),
-                    else => null,
-                };
-            } else null;
-        }
-
-        pub fn isExported(self: Fn, tree: *ast.Tree) bool {
-            if (self.fn_proto.extern_export_inline_token) |tok_index| {
-                const token = tree.tokens.at(tok_index);
-                return token.id == Token.Id.Keyword_export;
-            } else {
-                return false;
-            }
-        }
-    };
-
-    pub const CompTime = struct {
-        base: Decl,
-    };
-};
-
-pub const Value = struct {
-    pub const Fn = struct {};
-};
-
-pub const Type = struct {
-    id: Id,
-
-    pub const Id = enum {
-        Type,
-        Void,
-        Bool,
-        NoReturn,
-        Int,
-        Float,
-        Pointer,
-        Array,
-        Struct,
-        ComptimeFloat,
-        ComptimeInt,
-        Undefined,
-        Null,
-        Optional,
-        ErrorUnion,
-        ErrorSet,
-        Enum,
-        Union,
-        Fn,
-        Opaque,
-        Promise,
-    };
-
-    pub const Struct = struct {
-        base: Type,
-        decls: *Scope.Decls,
-    };
-};
-
-pub const ParsedFile = struct {
-    tree: ast.Tree,
-    realpath: []const u8,
-};
+    const code = try await (async ir.gen(
+        module,
+        body_node,
+        &fndef_scope.base,
+        fn_decl.base.parsed_file,
+    ) catch unreachable);
+    //code.dump();
+    //try await (async irAnalyze(module, func) catch unreachable);
+}
