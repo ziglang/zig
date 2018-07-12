@@ -67,6 +67,9 @@ test "std.event.Future" {
 }
 
 async fn testFuture(loop: *Loop) void {
+    suspend |p| {
+        resume p;
+    }
     var future = Future(i32).init(loop);
 
     const a = async waitOnFuture(&future) catch @panic("memory");
@@ -79,10 +82,16 @@ async fn testFuture(loop: *Loop) void {
 }
 
 async fn waitOnFuture(future: *Future(i32)) i32 {
+    suspend |p| {
+        resume p;
+    }
     return (await (async future.get() catch @panic("memory"))).*;
 }
 
 async fn resolveFuture(future: *Future(i32)) void {
+    suspend |p| {
+        resume p;
+    }
     future.data = 6;
     future.resolve();
 }
