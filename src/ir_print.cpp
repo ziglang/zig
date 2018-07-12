@@ -1005,10 +1005,8 @@ static void ir_print_ptr_type(IrPrint *irp, IrInstructionPtrType *instruction) {
 }
 
 static void ir_print_decl_ref(IrPrint *irp, IrInstructionDeclRef *instruction) {
-    const char *ptr_str = instruction->lval.is_ptr ? "ptr " : "";
-    const char *const_str = instruction->lval.is_const ? "const " : "";
-    const char *volatile_str = instruction->lval.is_volatile ? "volatile " : "";
-    fprintf(irp->f, "declref %s%s%s%s", const_str, volatile_str, ptr_str, buf_ptr(instruction->tld->name));
+    const char *ptr_str = (instruction->lval == LValPtr) ? "ptr " : "";
+    fprintf(irp->f, "declref %s%s", ptr_str, buf_ptr(instruction->tld->name));
 }
 
 static void ir_print_panic(IrPrint *irp, IrInstructionPanic *instruction) {
