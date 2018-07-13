@@ -125,6 +125,7 @@ pub const Allocator = struct {
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
+/// dest.ptr must be <= src.ptr.
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     // TODO instead of manually doing this check for the whole array
     // and turning off runtime safety, the compiler should detect loops like
@@ -134,6 +135,23 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     for (source) |s, i|
         dest[i] = s;
 }
+
+/// Copy all of source into dest at position 0.
+/// dest.len must be >= source.len.
+/// dest.ptr must be >= src.ptr.
+pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
+    // TODO instead of manually doing this check for the whole array
+    // and turning off runtime safety, the compiler should detect loops like
+    // this and automatically omit safety checks for loops
+    @setRuntimeSafety(false);
+    assert(dest.len >= source.len);
+    var i = source.len;
+    while(i > 0){
+        i -= 1;
+        dest[i] = source[i];
+    }
+}
+
 
 pub fn set(comptime T: type, dest: []T, value: T) void {
     for (dest) |*d|
