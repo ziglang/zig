@@ -9593,23 +9593,6 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (value->id == IrInstructionIdLoadPtr) {
-        IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *) value;
-
-        if (load_ptr_inst->ptr->value.type->data.pointer.is_const) {
-            return load_ptr_inst->ptr;
-        }
-
-        type_ensure_zero_bits_known(ira->codegen, value->value.type);
-        if (type_is_invalid(value->value.type)) {
-            return ira->codegen->invalid_instruction;
-        }
-
-        if (!type_has_bits(value->value.type)) {
-            return load_ptr_inst->ptr;
-        }
-    }
-
     if (instr_is_comptime(value)) {
         ConstExprValue *val = ir_resolve_const(ira, value, UndefOk);
         if (!val)
