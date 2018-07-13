@@ -2249,10 +2249,8 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
             } else if (type_entry->id == TypeTableEntryIdEnum ||
                     type_entry->id == TypeTableEntryIdErrorSet ||
-                    type_entry->id == TypeTableEntryIdPointer ||
                     type_entry->id == TypeTableEntryIdBool ||
-                    type_entry->id == TypeTableEntryIdPromise ||
-                    type_entry->id == TypeTableEntryIdFn)
+                    get_codegen_ptr_type(type_entry) != nullptr)
             {
                 LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");

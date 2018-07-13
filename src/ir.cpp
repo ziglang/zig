@@ -11147,7 +11147,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     if (type_is_invalid(resolved_type))
         return resolved_type;
 
-
+    bool operator_allowed;
     switch (resolved_type->id) {
         case TypeTableEntryIdInvalid:
             zig_unreachable(); // handled above
@@ -11156,6 +11156,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdComptimeInt:
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
+            operator_allowed = true;
             break;
 
         case TypeTableEntryIdBool:
@@ -11170,19 +11171,8 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdPromise:
-            if (!is_equality_cmp) {
-                ir_add_error_node(ira, source_node,
-                    buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
-                return ira->codegen->builtin_types.entry_invalid;
-            }
-            break;
-
         case TypeTableEntryIdEnum:
-            if (!is_equality_cmp) {
-                ir_add_error_node(ira, source_node,
-                    buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
-                return ira->codegen->builtin_types.entry_invalid;
-            }
+            operator_allowed = is_equality_cmp;
             break;
 
         case TypeTableEntryIdUnreachable:
@@ -11190,12 +11180,18 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUndefined:
         case TypeTableEntryIdNull:
-        case TypeTableEntryIdOptional:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdUnion:
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
-            return ira->codegen->builtin_types.entry_invalid;
+            operator_allowed = false;
+            break;
+        case TypeTableEntryIdOptional:
+            operator_allowed = is_equality_cmp && get_codegen_ptr_type(resolved_type) != nullptr;
+            break;
+    }
+    if (!operator_allowed) {
+        ir_add_error_node(ira, source_node,
+            buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
     }
 
     IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, resolved_type);
