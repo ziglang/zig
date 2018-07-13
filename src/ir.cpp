@@ -246,8 +246,6 @@ static void ir_ref_bb(IrBasicBlock *bb) {
 static void ir_ref_instruction(IrInstruction *instruction, IrBasicBlock *cur_bb) {
     assert(instruction->id != IrInstructionIdInvalid);
     instruction->ref_count += 1;
-    if (instruction->owner_bb != cur_bb && !instr_is_comptime(instruction))
-        ir_ref_bb(instruction->owner_bb);
 }
 
 static void ir_ref_var(VariableTableEntry *var) {
