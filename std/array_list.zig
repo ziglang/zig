@@ -266,19 +266,36 @@ test "insert ArrayList test" {
     defer list.deinit();
 
     try list.append(1);
+    try list.append(2);
+    try list.append(3);
     try list.insert(0, 5);
     assert(list.items[0] == 5);
     assert(list.items[1] == 1);
+    assert(list.items[2] == 2);
+    assert(list.items[3] == 3);
+}
 
+test "insertSlice ArrayList test" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+    try list.append(4);
     try list.insertSlice(1, []const i32{
         9,
         8,
     });
-    assert(list.items[0] == 5);
+    assert(list.items[0] == 1);
     assert(list.items[1] == 9);
     assert(list.items[2] == 8);
+    assert(list.items[3] == 2);
+    assert(list.items[4] == 3);
+    assert(list.items[5] == 4);
 
     const items = []const i32{1};
     try list.insertSlice(0, items[0..0]);
-    assert(list.items[0] == 5);
+    assert(list.len == 6);
+    assert(list.items[0] == 1);
 }
