@@ -9237,26 +9237,9 @@ static TypeTableEntry *ir_finish_anal(IrAnalyze *ira, TypeTableEntry *result_typ
 }
 
 static IrInstruction *ir_get_const(IrAnalyze *ira, IrInstruction *old_instruction) {
-    IrInstruction *new_instruction;
-    if (old_instruction->id == IrInstructionIdVarPtr) {
-        IrInstructionVarPtr *old_var_ptr_instruction = (IrInstructionVarPtr *)old_instruction;
-        IrInstructionVarPtr *var_ptr_instruction = ir_create_instruction<IrInstructionVarPtr>(&ira->new_irb,
-                old_instruction->scope, old_instruction->source_node);
-        var_ptr_instruction->var = old_var_ptr_instruction->var;
-        new_instruction = &var_ptr_instruction->base;
-    } else if (old_instruction->id == IrInstructionIdFieldPtr) {
-        IrInstructionFieldPtr *field_ptr_instruction = ir_create_instruction<IrInstructionFieldPtr>(&ira->new_irb,
-                old_instruction->scope, old_instruction->source_node);
-        new_instruction = &field_ptr_instruction->base;
-    } else if (old_instruction->id == IrInstructionIdElemPtr) {
-        IrInstructionElemPtr *elem_ptr_instruction = ir_create_instruction<IrInstructionElemPtr>(&ira->new_irb,
-                old_instruction->scope, old_instruction->source_node);
-        new_instruction = &elem_ptr_instruction->base;
-    } else {
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
-                old_instruction->scope, old_instruction->source_node);
-        new_instruction = &const_instruction->base;
-    }
+    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
+            old_instruction->scope, old_instruction->source_node);
+    IrInstruction *new_instruction = &const_instruction->base;
     new_instruction->value.special = ConstValSpecialStatic;
     return new_instruction;
 }
