@@ -24,6 +24,7 @@ const Visib = @import("visib.zig").Visib;
 const ParsedFile = @import("parsed_file.zig").ParsedFile;
 const Value = @import("value.zig").Value;
 const Type = Value.Type;
+const Span = errmsg.Span;
 
 pub const Module = struct {
     loop: *event.Loop,
@@ -148,13 +149,14 @@ pub const Module = struct {
         Overflow,
         NotSupported,
         BufferTooSmall,
-        Unimplemented,
+        Unimplemented, // TODO remove this one
+        SemanticAnalysisFailed, // TODO remove this one
     };
 
     pub const Event = union(enum) {
         Ok,
-        Fail: []*errmsg.Msg,
         Error: BuildError,
+        Fail: []*errmsg.Msg,
     };
 
     pub const DarwinVersionMin = union(enum) {
@@ -413,21 +415,32 @@ pub const Module = struct {
         while (true) {
             // TODO directly awaiting async should guarantee memory allocation elision
             // TODO also async before suspending should guarantee memory allocation elision
-            (await (async self.addRootSrc() catch unreachable)) catch |err| {
-                await (async self.events.put(Event{ .Error = err }) catch unreachable);
-                return;
-            };
+            const build_result = await (async self.addRootSrc() catch unreachable);
+
+            // this makes a handy error return trace and stack trace in debug mode
+            if (std.debug.runtime_safety) {
+                build_result catch unreachable;
+            }
+
             const compile_errors = blk: {
                 const held = await (async self.compile_errors.acquire() catch unreachable);
                 defer held.release();
                 break :blk held.value.toOwnedSlice();
             };
 
-            if (compile_errors.len == 0) {
-                await (async self.events.put(Event.Ok) catch unreachable);
-            } else {
-                await (async self.events.put(Event{ .Fail = compile_errors }) catch unreachable);
+            if (build_result) |_| {
+                if (compile_errors.len == 0) {
+                    await (async self.events.put(Event.Ok) catch unreachable);
+                } else {
+                    await (async self.events.put(Event{ .Fail = compile_errors }) catch unreachable);
+                }
+            } else |err| {
+                // if there's an error then the compile errors have dangling references
+                self.a().free(compile_errors);
+
+                await (async self.events.put(Event{ .Error = err }) catch unreachable);
             }
+
             // for now we stop after 1
             return;
         }
@@ -477,7 +490,7 @@ pub const Module = struct {
                     const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
 
                     const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
-                        try self.addCompileError(parsed_file, errmsg.Span{
+                        try self.addCompileError(parsed_file, Span{
                             .first = fn_proto.fn_token,
                             .last = fn_proto.fn_token + 1,
                         }, "missing function name");
@@ -518,27 +531,23 @@ pub const Module = struct {
         }
     }
 
-    fn addCompileError(self: *Module, parsed_file: *ParsedFile, span: errmsg.Span, comptime fmt: []const u8, args: ...) !void {
+    fn addCompileError(self: *Module, parsed_file: *ParsedFile, span: Span, comptime fmt: []const u8, args: ...) !void {
         const text = try std.fmt.allocPrint(self.loop.allocator, fmt, args);
         errdefer self.loop.allocator.free(text);
 
-        try self.build_group.call(addCompileErrorAsync, self, parsed_file, span.first, span.last, text);
+        try self.build_group.call(addCompileErrorAsync, self, parsed_file, span, text);
     }
 
     async fn addCompileErrorAsync(
         self: *Module,
         parsed_file: *ParsedFile,
-        first_token: ast.TokenIndex,
-        last_token: ast.TokenIndex,
+        span: Span,
         text: []u8,
     ) !void {
         const msg = try self.loop.allocator.create(errmsg.Msg{
             .path = parsed_file.realpath,
             .text = text,
-            .span = errmsg.Span{
-                .first = first_token,
-                .last = last_token,
-            },
+            .span = span,
             .tree = &parsed_file.tree,
         });
         errdefer self.loop.allocator.destroy(msg);
@@ -624,6 +633,7 @@ pub async fn resolveDecl(module: *Module, decl: *Decl) !void {
     if (@atomicRmw(u8, &decl.resolution_in_progress, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) == 0) {
         decl.resolution.data = await (async generateDecl(module, decl) catch unreachable);
         decl.resolution.resolve();
+        return decl.resolution.data;
     } else {
         return (await (async decl.resolution.get() catch unreachable)).*;
     }
@@ -655,12 +665,41 @@ async fn generateDeclFn(module: *Module, fn_decl: *Decl.Fn) !void {
 
     fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
 
-    const code = try await (async ir.gen(
+    const unanalyzed_code = (await (async ir.gen(
         module,
         body_node,
         &fndef_scope.base,
+        Span.token(body_node.lastToken()),
         fn_decl.base.parsed_file,
-    ) catch unreachable);
-    //code.dump();
-    //try await (async irAnalyze(module, func) catch unreachable);
+    ) catch unreachable)) catch |err| switch (err) {
+        // This poison value should not cause the errdefers to run. It simply means
+        // that self.compile_errors is populated.
+        error.SemanticAnalysisFailed => return {},
+        else => return err,
+    };
+    defer unanalyzed_code.destroy(module.a());
+
+    if (module.verbose_ir) {
+        std.debug.warn("unanalyzed:\n");
+        unanalyzed_code.dump();
+    }
+
+    const analyzed_code = (await (async ir.analyze(
+        module,
+        fn_decl.base.parsed_file,
+        unanalyzed_code,
+        null,
+    ) catch unreachable)) catch |err| switch (err) {
+        // This poison value should not cause the errdefers to run. It simply means
+        // that self.compile_errors is populated.
+        error.SemanticAnalysisFailed => return {},
+        else => return err,
+    };
+    defer analyzed_code.destroy(module.a());
+
+    if (module.verbose_ir) {
+        std.debug.warn("analyzed:\n");
+        analyzed_code.dump();
+    }
+    // TODO now render to LLVM module
 }

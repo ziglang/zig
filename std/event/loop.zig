@@ -382,6 +382,21 @@ pub const Loop = struct {
         return async<self.allocator> S.asyncFunc(self, &handle, args);
     }
 
+    /// Awaiting a yield lets the event loop run, starting any unstarted async operations.
+    /// Note that async operations automatically start when a function yields for any other reason,
+    /// for example, when async I/O is performed. This function is intended to be used only when
+    /// CPU bound tasks would be waiting in the event loop but never get started because no async I/O
+    /// is performed.
+    pub async fn yield(self: *Loop) void {
+        suspend |p| {
+            var my_tick_node = Loop.NextTickNode{
+                .next = undefined,
+                .data = p,
+            };
+            loop.onNextTick(&my_tick_node);
+        }
+    }
+
     fn workerRun(self: *Loop) void {
         start_over: while (true) {
             if (@atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) == 0) {

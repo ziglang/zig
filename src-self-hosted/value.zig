@@ -24,8 +24,14 @@ pub const Value = struct {
                 Id.Void => @fieldParentPtr(Void, "base", base).destroy(module),
                 Id.Bool => @fieldParentPtr(Bool, "base", base).destroy(module),
                 Id.NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(module),
+                Id.Ptr => @fieldParentPtr(Ptr, "base", base).destroy(module),
             }
         }
+    }
+
+    pub fn getRef(base: *Value) *Value {
+        base.ref();
+        return base;
     }
 
     pub fn dump(base: *const Value) void {
@@ -38,6 +44,7 @@ pub const Value = struct {
         Void,
         Bool,
         NoReturn,
+        Ptr,
     };
 
     pub const Type = @import("type.zig").Type;
@@ -119,6 +126,20 @@ pub const Value = struct {
         }
 
         pub fn destroy(self: *NoReturn, module: *Module) void {
+            module.a().destroy(self);
+        }
+    };
+
+    pub const Ptr = struct {
+        base: Value,
+
+        pub const Mut = enum {
+            CompTimeConst,
+            CompTimeVar,
+            RunTime,
+        };
+
+        pub fn destroy(self: *Ptr, module: *Module) void {
             module.a().destroy(self);
         }
     };

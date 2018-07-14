@@ -39,6 +39,14 @@ pub const Type = struct {
         }
     }
 
+    pub fn dump(base: *const Type) void {
+        std.debug.warn("{}", @tagName(base.id));
+    }
+
+    pub fn getAbiAlignment(base: *Type, module: *Module) u32 {
+        @panic("TODO getAbiAlignment");
+    }
+
     pub const Struct = struct {
         base: Type,
         decls: *Scope.Decls,
@@ -143,9 +151,34 @@ pub const Type = struct {
     };
     pub const Pointer = struct {
         base: Type,
+        mut: Mut,
+        vol: Vol,
+        size: Size,
+        alignment: u32,
+
+        pub const Mut = enum {
+            Mut,
+            Const,
+        };
+        pub const Vol = enum {
+            Non,
+            Volatile,
+        };
+        pub const Size = builtin.TypeInfo.Pointer.Size;
 
         pub fn destroy(self: *Pointer, module: *Module) void {
             module.a().destroy(self);
+        }
+
+        pub fn get(
+            module: *Module,
+            elem_type: *Type,
+            mut: Mut,
+            vol: Vol,
+            size: Size,
+            alignment: u32,
+        ) *Pointer {
+            @panic("TODO get pointer");
         }
     };
     pub const Array = struct {

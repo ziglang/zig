@@ -497,7 +497,7 @@ async fn processBuildEvents(module: *Module, color: errmsg.Color) void {
         },
         Module.Event.Error => |err| {
             std.debug.warn("build failed: {}\n", @errorName(err));
-            @panic("TODO error return trace");
+            os.exit(1);
         },
         Module.Event.Fail => |msgs| {
             for (msgs) |msg| {

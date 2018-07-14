@@ -14,6 +14,13 @@ pub const Color = enum {
 pub const Span = struct {
     first: ast.TokenIndex,
     last: ast.TokenIndex,
+
+    pub fn token(i: TokenIndex) Span {
+        return Span {
+            .first = i,
+            .last = i,
+        };
+    }
 };
 
 pub const Msg = struct {
