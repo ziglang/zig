@@ -3166,6 +3166,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         return nullptr;
     } else if (first_arg_ret) {
         return instruction->tmp_ptr;
+    } else if (handle_is_ptr(src_return_type)) {
+        auto store_instr = LLVMBuildStore(g->builder, result, instruction->tmp_ptr);
+        LLVMSetAlignment(store_instr, LLVMGetAlignment(instruction->tmp_ptr));
+        return instruction->tmp_ptr;
     } else {
         return result;
     }
