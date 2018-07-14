@@ -527,6 +527,7 @@ const usage_fmt =
     \\Options:
     \\   --help                 Print this help and exit
     \\   --color [auto|off|on]  Enable or disable colored error messages
+    \\   --stdin                Format code from stdin
     \\
     \\
 ;
@@ -538,6 +539,7 @@ const args_fmt_spec = []Flag{
         "off",
         "on",
     }),
+    Flag.Bool("--stdin"),
 };
 
 const Fmt = struct {
@@ -579,11 +581,6 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         os.exit(0);
     }
 
-    if (flags.positionals.len == 0) {
-        try stderr.write("expected at least one source file argument\n");
-        os.exit(1);
-    }
-
     const color = blk: {
         if (flags.single("color")) |color_flag| {
             if (mem.eql(u8, color_flag, "auto")) {
@@ -597,6 +594,44 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
             break :blk errmsg.Color.Auto;
         }
     };
+
+    if (flags.present("stdin")) {
+        if (flags.positionals.len != 0) {
+            try stderr.write("cannot use --stdin with positional arguments\n");
+            os.exit(1);
+        }
+
+        var stdin_file = try io.getStdIn();
+        var stdin = io.FileInStream.init(&stdin_file);
+
+        const source_code = try stdin.stream.readAllAlloc(allocator, @maxValue(usize));
+        defer allocator.free(source_code);
+
+        var tree = std.zig.parse(allocator, source_code) catch |err| {
+            try stderr.print("error parsing stdin: {}\n", err);
+            os.exit(1);
+        };
+        defer tree.deinit();
+
+        var error_it = tree.errors.iterator(0);
+        while (error_it.next()) |parse_error| {
+            const msg = try errmsg.createFromParseError(allocator, parse_error, &tree, "<stdin>");
+            defer allocator.destroy(msg);
+
+            try errmsg.printToFile(&stderr_file, msg, color);
+        }
+        if (tree.errors.len != 0) {
+            os.exit(1);
+        }
+
+        _ = try std.zig.render(allocator, stdout, &tree);
+        return;
+    }
+
+    if (flags.positionals.len == 0) {
+        try stderr.write("expected at least one source file argument\n");
+        os.exit(1);
+    }
 
     var fmt = Fmt{
         .seen = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator),
