@@ -302,8 +302,17 @@ pub const FixedBufferAllocator = struct {
     }
 
     fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
+        assert(old_mem.len <= self.end_index);
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
+        } else if (old_mem.ptr == self.buffer.ptr + self.end_index - old_mem.len) {
+            const start_index = self.end_index - old_mem.len;
+            const new_end_index = start_index + new_size;
+            if (new_end_index > self.buffer.len) return error.OutOfMemory;
+            const result = self.buffer[start_index..new_end_index];
+            self.end_index = new_end_index;
+            return result;
         } else {
             const result = try alloc(allocator, new_size, alignment);
             mem.copy(u8, result, old_mem);
