@@ -467,6 +467,17 @@ test "FixedBufferAllocator" {
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
 }
 
+test "FixedBufferAllocator Reuse memory on realloc" {
+    var small_fixed_buffer: [10]u8 = undefined;
+    var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
+
+    var slice = try fixed_buffer_allocator.allocator.alloc(u8, 5);
+    assert(slice.len == 5);
+    slice = try fixed_buffer_allocator.allocator.realloc(u8, slice, 10);
+    assert(slice.len == 10);
+    debug.assertError(fixed_buffer_allocator.allocator.realloc(u8, slice, 11), error.OutOfMemory);
+}
+
 test "ThreadSafeFixedBufferAllocator" {
     var fixed_buffer_allocator = ThreadSafeFixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
