@@ -302,8 +302,17 @@ pub const FixedBufferAllocator = struct {
     }
 
     fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
+        assert(old_mem.len <= self.end_index);
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
+        } else if (old_mem.ptr == self.buffer.ptr + self.end_index - old_mem.len) {
+            const start_index = self.end_index - old_mem.len;
+            const new_end_index = start_index + new_size;
+            if (new_end_index > self.buffer.len) return error.OutOfMemory;
+            const result = self.buffer[start_index..new_end_index];
+            self.end_index = new_end_index;
+            return result;
         } else {
             const result = try alloc(allocator, new_size, alignment);
             mem.copy(u8, result, old_mem);
@@ -467,6 +476,35 @@ test "FixedBufferAllocator" {
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
 }
 
+test "FixedBufferAllocator Reuse memory on realloc" {
+    var small_fixed_buffer: [10]u8 = undefined;
+    // check if we re-use the memory
+    {
+        var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
+
+        var slice0 = try fixed_buffer_allocator.allocator.alloc(u8, 5);
+        assert(slice0.len == 5);
+        var slice1 = try fixed_buffer_allocator.allocator.realloc(u8, slice0, 10);
+        assert(slice1.ptr == slice0.ptr);
+        assert(slice1.len == 10);
+        debug.assertError(fixed_buffer_allocator.allocator.realloc(u8, slice1, 11), error.OutOfMemory);
+    }
+    // check that we don't re-use the memory if it's not the most recent block
+    {
+        var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
+
+        var slice0 = try fixed_buffer_allocator.allocator.alloc(u8, 2);
+        slice0[0] = 1;
+        slice0[1] = 2;
+        var slice1 = try fixed_buffer_allocator.allocator.alloc(u8, 2);
+        var slice2 = try fixed_buffer_allocator.allocator.realloc(u8, slice0, 4);
+        assert(slice0.ptr != slice2.ptr);
+        assert(slice1.ptr != slice2.ptr);
+        assert(slice2[0] == 1);
+        assert(slice2[1] == 2);
+    }
+}
+
 test "ThreadSafeFixedBufferAllocator" {
     var fixed_buffer_allocator = ThreadSafeFixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
@@ -482,12 +520,14 @@ fn testAllocator(allocator: *mem.Allocator) !void {
         item.* = try allocator.create(@intCast(i32, i));
     }
 
-    for (slice) |item, i| {
+    slice = try allocator.realloc(*i32, slice, 20000);
+    assert(slice.len == 20000);
+
+    for (slice[0..100]) |item, i| {
+        assert(item.* == @intCast(i32, i));
         allocator.destroy(item);
     }
 
-    slice = try allocator.realloc(*i32, slice, 20000);
-    assert(slice.len == 20000);
     slice = try allocator.realloc(*i32, slice, 50);
     assert(slice.len == 50);
     slice = try allocator.realloc(*i32, slice, 25);
