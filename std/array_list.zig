@@ -121,10 +121,8 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
             var better_capacity = self.items.len;
             if (better_capacity >= new_capacity) return;
-            while (true) {
-                better_capacity += better_capacity / 2 + 8;
-                if (better_capacity >= new_capacity) break;
-            }
+            better_capacity += better_capacity / 2 + 8;
+            better_capacity = std.mem.max(usize, []usize{better_capacity, new_capacity});
             self.items = try self.allocator.alignedRealloc(T, A, self.items, better_capacity);
         }
 
