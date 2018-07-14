@@ -442,6 +442,7 @@ test "DirectAllocator" {
 
     const allocator = &direct_allocator.allocator;
     try testAllocator(allocator);
+    try testAllocatorAligned(allocator, 16);
     try testAllocatorLargeAlignment(allocator);
 }
 
@@ -453,6 +454,7 @@ test "ArenaAllocator" {
     defer arena_allocator.deinit();
 
     try testAllocator(&arena_allocator.allocator);
+    try testAllocatorAligned(&arena_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&arena_allocator.allocator);
 }
 
@@ -461,6 +463,7 @@ test "FixedBufferAllocator" {
     var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
     try testAllocator(&fixed_buffer_allocator.allocator);
+    try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
 }
 
@@ -468,12 +471,13 @@ test "ThreadSafeFixedBufferAllocator" {
     var fixed_buffer_allocator = ThreadSafeFixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
     try testAllocator(&fixed_buffer_allocator.allocator);
+    try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
 }
 
 fn testAllocator(allocator: *mem.Allocator) !void {
     var slice = try allocator.alloc(*i32, 100);
-
+    assert(slice.len == 100);
     for (slice) |*item, i| {
         item.* = try allocator.create(@intCast(i32, i));
     }
@@ -483,11 +487,41 @@ fn testAllocator(allocator: *mem.Allocator) !void {
     }
 
     slice = try allocator.realloc(*i32, slice, 20000);
+    assert(slice.len == 20000);
     slice = try allocator.realloc(*i32, slice, 50);
+    assert(slice.len == 50);
     slice = try allocator.realloc(*i32, slice, 25);
+    assert(slice.len == 25);
+    slice = try allocator.realloc(*i32, slice, 0);
+    assert(slice.len == 0);
     slice = try allocator.realloc(*i32, slice, 10);
+    assert(slice.len == 10);
 
     allocator.free(slice);
+}
+
+fn testAllocatorAligned(allocator: *mem.Allocator, comptime alignment: u29) !void {
+    // initial
+    var slice = try allocator.alignedAlloc(u8, alignment, 10);
+    assert(slice.len == 10);
+    // grow
+    slice = try allocator.alignedRealloc(u8, alignment, slice, 100);
+    assert(slice.len == 100);
+    // shrink
+    slice = try allocator.alignedRealloc(u8, alignment, slice, 10);
+    assert(slice.len == 10);
+    // go to zero
+    slice = try allocator.alignedRealloc(u8, alignment, slice, 0);
+    assert(slice.len == 0);
+    // realloc from zero
+    slice = try allocator.alignedRealloc(u8, alignment, slice, 100);
+    assert(slice.len == 100);
+    // shrink with shrink
+    slice = allocator.alignedShrink(u8, alignment, slice, 10);
+    assert(slice.len == 10);
+    // shrink to zero
+    slice = allocator.alignedShrink(u8, alignment, slice, 0);
+    assert(slice.len == 0);
 }
 
 fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
