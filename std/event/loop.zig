@@ -9,7 +9,7 @@ const AtomicOrder = builtin.AtomicOrder;
 
 pub const Loop = struct {
     allocator: *mem.Allocator,
-    next_tick_queue: std.atomic.QueueMpsc(promise),
+    next_tick_queue: std.atomic.Queue(promise),
     os_data: OsData,
     final_resume_node: ResumeNode,
     dispatch_lock: u8, // TODO make this a bool
@@ -21,7 +21,7 @@ pub const Loop = struct {
     available_eventfd_resume_nodes: std.atomic.Stack(ResumeNode.EventFd),
     eventfd_resume_nodes: []std.atomic.Stack(ResumeNode.EventFd).Node,
 
-    pub const NextTickNode = std.atomic.QueueMpsc(promise).Node;
+    pub const NextTickNode = std.atomic.Queue(promise).Node;
 
     pub const ResumeNode = struct {
         id: Id,
@@ -77,7 +77,7 @@ pub const Loop = struct {
             .pending_event_count = 0,
             .allocator = allocator,
             .os_data = undefined,
-            .next_tick_queue = std.atomic.QueueMpsc(promise).init(),
+            .next_tick_queue = std.atomic.Queue(promise).init(),
             .dispatch_lock = 1, // start locked so threads go directly into epoll wait
             .extra_threads = undefined,
             .available_eventfd_resume_nodes = std.atomic.Stack(ResumeNode.EventFd).init(),
@@ -101,7 +101,6 @@ pub const Loop = struct {
         errdefer self.deinitOsData();
     }
 
-    /// must call stop before deinit
     pub fn deinit(self: *Loop) void {
         self.deinitOsData();
         self.allocator.free(self.extra_threads);
@@ -380,6 +379,21 @@ pub const Loop = struct {
         };
         var handle: promise->@typeOf(func).ReturnType = undefined;
         return async<self.allocator> S.asyncFunc(self, &handle, args);
+    }
+
+    /// Awaiting a yield lets the event loop run, starting any unstarted async operations.
+    /// Note that async operations automatically start when a function yields for any other reason,
+    /// for example, when async I/O is performed. This function is intended to be used only when
+    /// CPU bound tasks would be waiting in the event loop but never get started because no async I/O
+    /// is performed.
+    pub async fn yield(self: *Loop) void {
+        suspend |p| {
+            var my_tick_node = Loop.NextTickNode{
+                .next = undefined,
+                .data = p,
+            };
+            loop.onNextTick(&my_tick_node);
+        }
     }
 
     fn workerRun(self: *Loop) void {

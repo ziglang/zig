@@ -2212,10 +2212,8 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
             } else if (type_entry->id == TypeTableEntryIdEnum ||
                     type_entry->id == TypeTableEntryIdErrorSet ||
-                    type_entry->id == TypeTableEntryIdPointer ||
                     type_entry->id == TypeTableEntryIdBool ||
-                    type_entry->id == TypeTableEntryIdPromise ||
-                    type_entry->id == TypeTableEntryIdFn)
+                    get_codegen_ptr_type(type_entry) != nullptr)
             {
                 LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
@@ -3102,6 +3100,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (!ret_has_bits) {
         return nullptr;
     } else if (first_arg_ret) {
+        return instruction->tmp_ptr;
+    } else if (handle_is_ptr(src_return_type)) {
+        auto store_instr = LLVMBuildStore(g->builder, result, instruction->tmp_ptr);
+        LLVMSetAlignment(store_instr, LLVMGetAlignment(instruction->tmp_ptr));
         return instruction->tmp_ptr;
     } else {
         return result;

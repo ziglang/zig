@@ -2239,7 +2239,7 @@ test "switch inside function" {
             // On an OS other than fuchsia, block is not even analyzed,
             // so this compile error is not triggered.
             // On fuchsia this compile error would be triggered.
-            @compileError("windows not supported");
+            @compileError("fuchsia not supported");
         },
         else => {},
     }
@@ -2303,13 +2303,13 @@ test "while continue" {
       {#code_begin|test|while#}
 const assert = @import("std").debug.assert;
 
-test "while loop continuation expression" {
+test "while loop continue expression" {
     var i: usize = 0;
     while (i < 10) : (i += 1) {}
     assert(i == 10);
 }
 
-test "while loop continuation expression, more complicated" {
+test "while loop continue expression, more complicated" {
     var i1: usize = 1;
     var j1: usize = 1;
     while (i1 * j1 < 2000) : ({ i1 *= 2; j1 *= 3; }) {
@@ -7118,10 +7118,16 @@ Environments:
   opencl</code></pre>
       <p>
       The Zig Standard Library (<code>@import("std")</code>) has architecture, environment, and operating sytsem
-      abstractions, and thus takes additional work to support more platforms. It currently supports
-      Linux x86_64. Not all standard library code requires operating system abstractions, however,
+      abstractions, and thus takes additional work to support more platforms.
+      Not all standard library code requires operating system abstractions, however,
       so things such as generic data structures work an all above platforms.
       </p>
+      <p>The current list of targets supported by the Zig Standard Library is:</p>
+      <ul>
+      <li>Linux x86_64</li>
+      <li>Windows x86_64</li>
+      <li>MacOS x86_64</li>
+      </ul>
       {#header_close#}
       {#header_open|Style Guide#}
       <p>

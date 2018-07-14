@@ -42,7 +42,7 @@ pub const Symbol = struct {
     name: []const u8,
     address: u64,
 
-    fn addressLessThan(lhs: *const Symbol, rhs: *const Symbol) bool {
+    fn addressLessThan(lhs: Symbol, rhs: Symbol) bool {
         return lhs.address < rhs.address;
     }
 };

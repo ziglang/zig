@@ -2003,12 +2003,6 @@ struct IrBasicBlock {
     IrInstruction *must_be_comptime_source_instr;
 };
 
-struct LVal {
-    bool is_ptr;
-    bool is_const;
-    bool is_volatile;
-};
-
 enum IrInstructionId {
     IrInstructionIdInvalid,
     IrInstructionIdBr,
@@ -2968,6 +2962,11 @@ struct IrInstructionTypeName {
     IrInstruction base;
 
     IrInstruction *type_value;
+};
+
+enum LVal {
+    LValNone,
+    LValPtr,
 };
 
 struct IrInstructionDeclRef {

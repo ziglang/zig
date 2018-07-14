@@ -35,73 +35,31 @@ pub fn build(b: *Builder) !void {
         "BUILD_INFO",
     });
     var index: usize = 0;
-    const cmake_binary_dir = nextValue(&index, build_info);
-    const cxx_compiler = nextValue(&index, build_info);
-    const llvm_config_exe = nextValue(&index, build_info);
-    const lld_include_dir = nextValue(&index, build_info);
-    const lld_libraries = nextValue(&index, build_info);
-    const std_files = nextValue(&index, build_info);
-    const c_header_files = nextValue(&index, build_info);
-    const dia_guids_lib = nextValue(&index, build_info);
+    var ctx = Context{
+        .cmake_binary_dir = nextValue(&index, build_info),
+        .cxx_compiler = nextValue(&index, build_info),
+        .llvm_config_exe = nextValue(&index, build_info),
+        .lld_include_dir = nextValue(&index, build_info),
+        .lld_libraries = nextValue(&index, build_info),
+        .std_files = nextValue(&index, build_info),
+        .c_header_files = nextValue(&index, build_info),
+        .dia_guids_lib = nextValue(&index, build_info),
+        .llvm = undefined,
+    };
+    ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
-    const llvm = findLLVM(b, llvm_config_exe) catch unreachable;
+    var test_stage2 = b.addTest("src-self-hosted/test.zig");
+    test_stage2.setBuildMode(builtin.Mode.Debug);
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
 
-    // This is for finding /lib/libz.a on alpine linux.
-    // TODO turn this into -Dextra-lib-path=/lib option
-    exe.addLibPath("/lib");
-
-    exe.addIncludeDir("src");
-    exe.addIncludeDir(cmake_binary_dir);
-    addCppLib(b, exe, cmake_binary_dir, "zig_cpp");
-    if (lld_include_dir.len != 0) {
-        exe.addIncludeDir(lld_include_dir);
-        var it = mem.split(lld_libraries, ";");
-        while (it.next()) |lib| {
-            exe.addObjectFile(lib);
-        }
-    } else {
-        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_wasm");
-        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_elf");
-        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_coff");
-        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_lib");
-    }
-    dependOnLib(exe, llvm);
-
-    if (exe.target.getOs() == builtin.Os.linux) {
-        const libstdcxx_path_padded = try b.exec([][]const u8{
-            cxx_compiler,
-            "-print-file-name=libstdc++.a",
-        });
-        const libstdcxx_path = mem.split(libstdcxx_path_padded, "\r\n").next().?;
-        if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
-            warn(
-                \\Unable to determine path to libstdc++.a
-                \\On Fedora, install libstdc++-static and try again.
-                \\
-            );
-            return error.RequiredLibraryNotFound;
-        }
-        exe.addObjectFile(libstdcxx_path);
-
-        exe.linkSystemLibrary("pthread");
-    } else if (exe.target.isDarwin()) {
-        exe.linkSystemLibrary("c++");
-    }
-
-    if (dia_guids_lib.len != 0) {
-        exe.addObjectFile(dia_guids_lib);
-    }
-
-    if (exe.target.getOs() != builtin.Os.windows) {
-        exe.linkSystemLibrary("xml2");
-    }
-    exe.linkSystemLibrary("c");
+    try configureStage2(b, test_stage2, ctx);
+    try configureStage2(b, exe, ctx);
 
     b.default_step.dependOn(&exe.step);
 
+    const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
@@ -110,30 +68,40 @@ pub fn build(b: *Builder) !void {
     exe.setVerboseLink(verbose_link_exe);
 
     b.installArtifact(exe);
-    installStdLib(b, std_files);
-    installCHeaders(b, c_header_files);
+    installStdLib(b, ctx.std_files);
+    installCHeaders(b, ctx.c_header_files);
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
-    const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") orelse false;
 
-    test_step.dependOn(docs_step);
+    const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
+    test_stage2_step.dependOn(&test_stage2.step);
+    test_step.dependOn(test_stage2_step);
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", with_lldb));
+    const all_modes = []builtin.Mode{
+        builtin.Mode.Debug,
+        builtin.Mode.ReleaseSafe,
+        builtin.Mode.ReleaseFast,
+        builtin.Mode.ReleaseSmall,
+    };
+    const modes = if (skip_release) []builtin.Mode{builtin.Mode.Debug} else all_modes;
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", modes));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", modes));
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filter));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", modes));
+
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
-    test_step.dependOn(tests.addCompileErrorTests(b, test_filter));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter));
-    test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter));
+    test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
+    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
+    test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     test_step.dependOn(tests.addGenHTests(b, test_filter));
+    test_step.dependOn(docs_step);
 }
 
-fn dependOnLib(lib_exe_obj: *std.build.LibExeObjStep, dep: *const LibraryDep) void {
+fn dependOnLib(lib_exe_obj: var, dep: *const LibraryDep) void {
     for (dep.libdirs.toSliceConst()) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
@@ -148,7 +116,7 @@ fn dependOnLib(lib_exe_obj: *std.build.LibExeObjStep, dep: *const LibraryDep) vo
     }
 }
 
-fn addCppLib(b: *Builder, lib_exe_obj: *std.build.LibExeObjStep, cmake_binary_dir: []const u8, lib_name: []const u8) void {
+fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
     lib_exe_obj.addObjectFile(os.path.join(b.allocator, cmake_binary_dir, "zig_cpp", b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())) catch unreachable);
 }
@@ -254,3 +222,68 @@ fn nextValue(index: *usize, build_info: []const u8) []const u8 {
         }
     }
 }
+
+fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
+    // This is for finding /lib/libz.a on alpine linux.
+    // TODO turn this into -Dextra-lib-path=/lib option
+    exe.addLibPath("/lib");
+
+    exe.addIncludeDir("src");
+    exe.addIncludeDir(ctx.cmake_binary_dir);
+    addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
+    if (ctx.lld_include_dir.len != 0) {
+        exe.addIncludeDir(ctx.lld_include_dir);
+        var it = mem.split(ctx.lld_libraries, ";");
+        while (it.next()) |lib| {
+            exe.addObjectFile(lib);
+        }
+    } else {
+        addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_wasm");
+        addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_elf");
+        addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_coff");
+        addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_lib");
+    }
+    dependOnLib(exe, ctx.llvm);
+
+    if (exe.target.getOs() == builtin.Os.linux) {
+        const libstdcxx_path_padded = try b.exec([][]const u8{
+            ctx.cxx_compiler,
+            "-print-file-name=libstdc++.a",
+        });
+        const libstdcxx_path = mem.split(libstdcxx_path_padded, "\r\n").next().?;
+        if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
+            warn(
+                \\Unable to determine path to libstdc++.a
+                \\On Fedora, install libstdc++-static and try again.
+                \\
+            );
+            return error.RequiredLibraryNotFound;
+        }
+        exe.addObjectFile(libstdcxx_path);
+
+        exe.linkSystemLibrary("pthread");
+    } else if (exe.target.isDarwin()) {
+        exe.linkSystemLibrary("c++");
+    }
+
+    if (ctx.dia_guids_lib.len != 0) {
+        exe.addObjectFile(ctx.dia_guids_lib);
+    }
+
+    if (exe.target.getOs() != builtin.Os.windows) {
+        exe.linkSystemLibrary("xml2");
+    }
+    exe.linkSystemLibrary("c");
+}
+
+const Context = struct {
+    cmake_binary_dir: []const u8,
+    cxx_compiler: []const u8,
+    llvm_config_exe: []const u8,
+    lld_include_dir: []const u8,
+    lld_libraries: []const u8,
+    std_files: []const u8,
+    c_header_files: []const u8,
+    dia_guids_lib: []const u8,
+    llvm: LibraryDep,
+};

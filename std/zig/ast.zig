@@ -970,13 +970,7 @@ pub const Node = struct {
     pub const Defer = struct {
         base: Node,
         defer_token: TokenIndex,
-        kind: Kind,
         expr: *Node,
-
-        const Kind = enum {
-            Error,
-            Unconditional,
-        };
 
         pub fn iterate(self: *Defer, index: usize) ?*Node {
             var i = index;

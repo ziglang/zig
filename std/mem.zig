@@ -23,7 +23,10 @@ pub const Allocator = struct {
     /// * this function must return successfully.
     /// * alignment <= alignment of old_mem.ptr
     ///
-    /// The returned newly allocated memory is undefined.
+    /// When `reallocFn` returns,
+    /// `return_value[0..min(old_mem.len, new_byte_count)]` must be the same
+    /// as `old_mem` was when `reallocFn` is called. The bytes of
+    /// `return_value[old_mem.len..]` have undefined values.
     /// `alignment` is guaranteed to be >= 1
     /// `alignment` is guaranteed to be a power of 2
     reallocFn: fn (self: *Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
@@ -71,7 +74,7 @@ pub const Allocator = struct {
 
     pub fn alignedRealloc(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) ![]align(alignment) T {
         if (old_mem.len == 0) {
-            return self.alloc(T, n);
+            return self.alignedAlloc(T, alignment, n);
         }
         if (n == 0) {
             self.free(old_mem);
@@ -125,6 +128,7 @@ pub const Allocator = struct {
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
+/// dest.ptr must be <= src.ptr.
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     // TODO instead of manually doing this check for the whole array
     // and turning off runtime safety, the compiler should detect loops like
@@ -134,6 +138,23 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     for (source) |s, i|
         dest[i] = s;
 }
+
+/// Copy all of source into dest at position 0.
+/// dest.len must be >= source.len.
+/// dest.ptr must be >= src.ptr.
+pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
+    // TODO instead of manually doing this check for the whole array
+    // and turning off runtime safety, the compiler should detect loops like
+    // this and automatically omit safety checks for loops
+    @setRuntimeSafety(false);
+    assert(dest.len >= source.len);
+    var i = source.len;
+    while(i > 0){
+        i -= 1;
+        dest[i] = source[i];
+    }
+}
+
 
 pub fn set(comptime T: type, dest: []T, value: T) void {
     for (dest) |*d|
