@@ -74,7 +74,7 @@ pub const Allocator = struct {
 
     pub fn alignedRealloc(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) ![]align(alignment) T {
         if (old_mem.len == 0) {
-            return self.alloc(T, n);
+            return self.alignedAlloc(T, alignment, n);
         }
         if (n == 0) {
             self.free(old_mem);
