@@ -375,15 +375,8 @@ pub const Instruction = struct {
 
         pub fn analyze(self: *const AddImplicitReturnType, ira: *Analyze) !*Instruction {
             const target = try self.params.target.getAsParam();
-
             try ira.src_implicit_return_type_list.append(target);
-
-            return ira.irb.build(
-                AddImplicitReturnType,
-                self.base.scope,
-                self.base.span,
-                Params{ .target = target },
-            );
+            return ira.irb.buildConstVoid(self.base.scope, self.base.span, true);
         }
     };
 };

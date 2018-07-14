@@ -101,7 +101,6 @@ pub const Loop = struct {
         errdefer self.deinitOsData();
     }
 
-    /// must call stop before deinit
     pub fn deinit(self: *Loop) void {
         self.deinitOsData();
         self.allocator.free(self.extra_threads);

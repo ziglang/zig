@@ -8,15 +8,16 @@ const Module = @import("module.zig").Module;
 pub const Value = struct {
     id: Id,
     typeof: *Type,
-    ref_count: usize,
+    ref_count: std.atomic.Int(usize),
 
+    /// Thread-safe
     pub fn ref(base: *Value) void {
-        base.ref_count += 1;
+        _ = base.ref_count.incr();
     }
 
+    /// Thread-safe
     pub fn deref(base: *Value, module: *Module) void {
-        base.ref_count -= 1;
-        if (base.ref_count == 0) {
+        if (base.ref_count.decr() == 1) {
             base.typeof.base.deref(module);
             switch (base.id) {
                 Id.Type => @fieldParentPtr(Type, "base", base).destroy(module),
@@ -52,6 +53,10 @@ pub const Value = struct {
     pub const Fn = struct {
         base: Value,
 
+        /// The main external name that is used in the .o file.
+        /// TODO https://github.com/ziglang/zig/issues/265
+        symbol_name: std.Buffer,
+
         /// parent should be the top level decls or container decls
         fndef_scope: *Scope.FnDef,
 
@@ -62,16 +67,18 @@ pub const Value = struct {
         block_scope: *Scope.Block,
 
         /// Creates a Fn value with 1 ref
-        pub fn create(module: *Module, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef) !*Fn {
+        /// Takes ownership of symbol_name
+        pub fn create(module: *Module, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: std.Buffer) !*Fn {
             const self = try module.a().create(Fn{
                 .base = Value{
                     .id = Value.Id.Fn,
                     .typeof = &fn_type.base,
-                    .ref_count = 1,
+                    .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .fndef_scope = fndef_scope,
                 .child_scope = &fndef_scope.base,
                 .block_scope = undefined,
+                .symbol_name = symbol_name,
             });
             fn_type.base.base.ref();
             fndef_scope.fn_val = self;
@@ -81,6 +88,7 @@ pub const Value = struct {
 
         pub fn destroy(self: *Fn, module: *Module) void {
             self.fndef_scope.base.deref(module);
+            self.symbol_name.deinit();
             module.a().destroy(self);
         }
     };

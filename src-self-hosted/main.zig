@@ -14,6 +14,7 @@ const c = @import("c.zig");
 const introspect = @import("introspect.zig");
 const Args = arg.Args;
 const Flag = arg.Flag;
+const EventLoopLocal = @import("module.zig").EventLoopLocal;
 const Module = @import("module.zig").Module;
 const Target = @import("target.zig").Target;
 const errmsg = @import("errmsg.zig");
@@ -386,9 +387,13 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Mo
 
     var loop: event.Loop = undefined;
     try loop.initMultiThreaded(allocator);
+    defer loop.deinit();
+
+    var event_loop_local = EventLoopLocal.init(&loop);
+    defer event_loop_local.deinit();
 
     var module = try Module.create(
-        &loop,
+        &event_loop_local,
         root_name,
         root_source_file,
         Target.Native,

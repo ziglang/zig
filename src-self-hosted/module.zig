@@ -25,14 +25,58 @@ const ParsedFile = @import("parsed_file.zig").ParsedFile;
 const Value = @import("value.zig").Value;
 const Type = Value.Type;
 const Span = errmsg.Span;
+const codegen = @import("codegen.zig");
+
+/// Data that is local to the event loop.
+pub const EventLoopLocal = struct {
+    loop: *event.Loop,
+    llvm_handle_pool: std.atomic.Stack(llvm.ContextRef),
+
+    fn init(loop: *event.Loop) EventLoopLocal {
+        return EventLoopLocal{
+            .loop = loop,
+            .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
+        };
+    }
+
+    fn deinit(self: *EventLoopLocal) void {
+        while (self.llvm_handle_pool.pop()) |node| {
+            c.LLVMContextDispose(node.data);
+            self.loop.allocator.destroy(node);
+        }
+    }
+
+    /// Gets an exclusive handle on any LlvmContext.
+    /// Caller must release the handle when done.
+    pub fn getAnyLlvmContext(self: *EventLoopLocal) !LlvmHandle {
+        if (self.llvm_handle_pool.pop()) |node| return LlvmHandle{ .node = node };
+
+        const context_ref = c.LLVMContextCreate() orelse return error.OutOfMemory;
+        errdefer c.LLVMContextDispose(context_ref);
+
+        const node = try self.loop.allocator.create(std.atomic.Stack(llvm.ContextRef).Node{
+            .next = undefined,
+            .data = context_ref,
+        });
+        errdefer self.loop.allocator.destroy(node);
+
+        return LlvmHandle{ .node = node };
+    }
+};
+
+pub const LlvmHandle = struct {
+    node: *std.atomic.Stack(llvm.ContextRef).Node,
+
+    pub fn release(self: LlvmHandle, event_loop_local: *EventLoopLocal) void {
+        event_loop_local.llvm_handle_pool.push(self.node);
+    }
+};
 
 pub const Module = struct {
+    event_loop_local: *EventLoopLocal,
     loop: *event.Loop,
     name: Buffer,
     root_src_path: ?[]const u8,
-    llvm_module: llvm.ModuleRef,
-    context: llvm.ContextRef,
-    builder: llvm.BuilderRef,
     target: Target,
     build_mode: builtin.Mode,
     zig_lib_dir: []const u8,
@@ -187,7 +231,7 @@ pub const Module = struct {
     };
 
     pub fn create(
-        loop: *event.Loop,
+        event_loop_local: *EventLoopLocal,
         name: []const u8,
         root_src_path: ?[]const u8,
         target: *const Target,
@@ -196,29 +240,20 @@ pub const Module = struct {
         zig_lib_dir: []const u8,
         cache_dir: []const u8,
     ) !*Module {
+        const loop = event_loop_local.loop;
+
         var name_buffer = try Buffer.init(loop.allocator, name);
         errdefer name_buffer.deinit();
-
-        const context = c.LLVMContextCreate() orelse return error.OutOfMemory;
-        errdefer c.LLVMContextDispose(context);
-
-        const llvm_module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) orelse return error.OutOfMemory;
-        errdefer c.LLVMDisposeModule(llvm_module);
-
-        const builder = c.LLVMCreateBuilderInContext(context) orelse return error.OutOfMemory;
-        errdefer c.LLVMDisposeBuilder(builder);
 
         const events = try event.Channel(Event).create(loop, 0);
         errdefer events.destroy();
 
         const module = try loop.allocator.create(Module{
             .loop = loop,
+            .event_loop_local = event_loop_local,
             .events = events,
             .name = name_buffer,
             .root_src_path = root_src_path,
-            .llvm_module = llvm_module,
-            .context = context,
-            .builder = builder,
             .target = target.*,
             .kind = kind,
             .build_mode = build_mode,
@@ -290,7 +325,7 @@ pub const Module = struct {
                 .base = Value{
                     .id = Value.Id.Type,
                     .typeof = undefined,
-                    .ref_count = 3, // 3 because it references itself twice
+                    .ref_count = std.atomic.Int(usize).init(3), // 3 because it references itself twice
                 },
                 .id = builtin.TypeId.Type,
             },
@@ -305,7 +340,7 @@ pub const Module = struct {
                 .base = Value{
                     .id = Value.Id.Type,
                     .typeof = &Type.MetaType.get(module).base,
-                    .ref_count = 1,
+                    .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Void,
             },
@@ -317,7 +352,7 @@ pub const Module = struct {
                 .base = Value{
                     .id = Value.Id.Type,
                     .typeof = &Type.MetaType.get(module).base,
-                    .ref_count = 1,
+                    .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.NoReturn,
             },
@@ -329,7 +364,7 @@ pub const Module = struct {
                 .base = Value{
                     .id = Value.Id.Type,
                     .typeof = &Type.MetaType.get(module).base,
-                    .ref_count = 1,
+                    .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Bool,
             },
@@ -340,7 +375,7 @@ pub const Module = struct {
             .base = Value{
                 .id = Value.Id.Void,
                 .typeof = &Type.Void.get(module).base,
-                .ref_count = 1,
+                .ref_count = std.atomic.Int(usize).init(1),
             },
         });
         errdefer module.a().destroy(module.void_value);
@@ -349,7 +384,7 @@ pub const Module = struct {
             .base = Value{
                 .id = Value.Id.Bool,
                 .typeof = &Type.Bool.get(module).base,
-                .ref_count = 1,
+                .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = true,
         });
@@ -359,7 +394,7 @@ pub const Module = struct {
             .base = Value{
                 .id = Value.Id.Bool,
                 .typeof = &Type.Bool.get(module).base,
-                .ref_count = 1,
+                .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = false,
         });
@@ -369,14 +404,10 @@ pub const Module = struct {
             .base = Value{
                 .id = Value.Id.NoReturn,
                 .typeof = &Type.NoReturn.get(module).base,
-                .ref_count = 1,
+                .ref_count = std.atomic.Int(usize).init(1),
             },
         });
         errdefer module.a().destroy(module.noreturn_value);
-    }
-
-    fn dump(self: *Module) void {
-        c.LLVMDumpModule(self.module);
     }
 
     pub fn destroy(self: *Module) void {
@@ -389,9 +420,6 @@ pub const Module = struct {
         self.meta_type.base.base.deref(self);
 
         self.events.destroy();
-        c.LLVMDisposeBuilder(self.builder);
-        c.LLVMDisposeModule(self.llvm_module);
-        c.LLVMContextDispose(self.context);
         self.name.deinit();
 
         self.a().destroy(self);
@@ -657,10 +685,19 @@ async fn generateDeclFn(module: *Module, fn_decl: *Decl.Fn) !void {
     const fndef_scope = try Scope.FnDef.create(module, fn_decl.base.parent_scope);
     defer fndef_scope.base.deref(module);
 
-    const fn_type = try Type.Fn.create(module);
+    // TODO actually look at the return type of the AST
+    const return_type = &Type.Void.get(module).base;
+    defer return_type.base.deref(module);
+
+    const is_var_args = false;
+    const params = ([*]Type.Fn.Param)(undefined)[0..0];
+    const fn_type = try Type.Fn.create(module, return_type, params, is_var_args);
     defer fn_type.base.base.deref(module);
 
-    const fn_val = try Value.Fn.create(module, fn_type, fndef_scope);
+    var symbol_name = try std.Buffer.init(module.a(), fn_decl.base.name);
+    errdefer symbol_name.deinit();
+
+    const fn_val = try Value.Fn.create(module, fn_type, fndef_scope, symbol_name);
     defer fn_val.base.deref(module);
 
     fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
@@ -674,6 +711,7 @@ async fn generateDeclFn(module: *Module, fn_decl: *Decl.Fn) !void {
     ) catch unreachable)) catch |err| switch (err) {
         // This poison value should not cause the errdefers to run. It simply means
         // that self.compile_errors is populated.
+        // TODO https://github.com/ziglang/zig/issues/769
         error.SemanticAnalysisFailed => return {},
         else => return err,
     };
@@ -692,14 +730,18 @@ async fn generateDeclFn(module: *Module, fn_decl: *Decl.Fn) !void {
     ) catch unreachable)) catch |err| switch (err) {
         // This poison value should not cause the errdefers to run. It simply means
         // that self.compile_errors is populated.
+        // TODO https://github.com/ziglang/zig/issues/769
         error.SemanticAnalysisFailed => return {},
         else => return err,
     };
-    defer analyzed_code.destroy(module.a());
+    errdefer analyzed_code.destroy(module.a());
 
     if (module.verbose_ir) {
         std.debug.warn("analyzed:\n");
         analyzed_code.dump();
     }
-    // TODO now render to LLVM module
+
+    // Kick off rendering to LLVM module, but it doesn't block the fn decl
+    // analysis from being complete.
+    try module.build_group.call(codegen.renderToLlvm, module, fn_val, analyzed_code);
 }

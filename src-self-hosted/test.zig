@@ -6,6 +6,7 @@ const Module = @import("module.zig").Module;
 const introspect = @import("introspect.zig");
 const assertOrPanic = std.debug.assertOrPanic;
 const errmsg = @import("errmsg.zig");
+const EventLoopLocal = @import("module.zig").EventLoopLocal;
 
 test "compile errors" {
     var ctx: TestContext = undefined;
@@ -22,6 +23,7 @@ const allocator = std.heap.c_allocator;
 
 pub const TestContext = struct {
     loop: std.event.Loop,
+    event_loop_local: EventLoopLocal,
     zig_lib_dir: []u8,
     zig_cache_dir: []u8,
     file_index: std.atomic.Int(usize),
@@ -34,6 +36,7 @@ pub const TestContext = struct {
         self.* = TestContext{
             .any_err = {},
             .loop = undefined,
+            .event_loop_local = undefined,
             .zig_lib_dir = undefined,
             .zig_cache_dir = undefined,
             .group = undefined,
@@ -42,6 +45,9 @@ pub const TestContext = struct {
 
         try self.loop.initMultiThreaded(allocator);
         errdefer self.loop.deinit();
+
+        self.event_loop_local = EventLoopLocal.init(&self.loop);
+        errdefer self.event_loop_local.deinit();
 
         self.group = std.event.Group(error!void).init(&self.loop);
         errdefer self.group.cancelAll();
@@ -60,6 +66,7 @@ pub const TestContext = struct {
         std.os.deleteTree(allocator, tmp_dir_name) catch {};
         allocator.free(self.zig_cache_dir);
         allocator.free(self.zig_lib_dir);
+        self.event_loop_local.deinit();
         self.loop.deinit();
     }
 
@@ -83,7 +90,7 @@ pub const TestContext = struct {
         msg: []const u8,
     ) !void {
         var file_index_buf: [20]u8 = undefined;
-        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.next());
+        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
         const file1_path = try std.os.path.join(allocator, tmp_dir_name, file_index, file1);
 
         if (std.os.path.dirname(file1_path)) |dirname| {
@@ -94,7 +101,7 @@ pub const TestContext = struct {
         try std.io.writeFile(allocator, file1_path, source);
 
         var module = try Module.create(
-            &self.loop,
+            &self.event_loop_local,
             "test",
             file1_path,
             Target.Native,
