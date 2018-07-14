@@ -494,10 +494,14 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
 
         var slice0 = try fixed_buffer_allocator.allocator.alloc(u8, 2);
+        slice0[0] = 1;
+        slice0[1] = 2;
         var slice1 = try fixed_buffer_allocator.allocator.alloc(u8, 2);
         var slice2 = try fixed_buffer_allocator.allocator.realloc(u8, slice0, 4);
         assert(slice0.ptr != slice2.ptr);
         assert(slice1.ptr != slice2.ptr);
+        assert(slice2[0] == 1);
+        assert(slice2[1] == 2);
     }
 }
 
@@ -516,12 +520,14 @@ fn testAllocator(allocator: *mem.Allocator) !void {
         item.* = try allocator.create(@intCast(i32, i));
     }
 
-    for (slice) |item, i| {
+    slice = try allocator.realloc(*i32, slice, 20000);
+    assert(slice.len == 20000);
+
+    for (slice[0..100]) |item, i| {
+        assert(item.* == @intCast(i32, i));
         allocator.destroy(item);
     }
 
-    slice = try allocator.realloc(*i32, slice, 20000);
-    assert(slice.len == 20000);
     slice = try allocator.realloc(*i32, slice, 50);
     assert(slice.len == 50);
     slice = try allocator.realloc(*i32, slice, 25);
