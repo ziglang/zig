@@ -23,7 +23,10 @@ pub const Allocator = struct {
     /// * this function must return successfully.
     /// * alignment <= alignment of old_mem.ptr
     ///
-    /// The returned newly allocated memory is undefined.
+    /// When `reallocFn` returns,
+    /// `return_value[0..min(old_mem.len, new_byte_count)]` must be the same
+    /// as `old_mem` was when `reallocFn` is called. The bytes of
+    /// `return_value[old_mem.len..]` have undefined values.
     /// `alignment` is guaranteed to be >= 1
     /// `alignment` is guaranteed to be a power of 2
     reallocFn: fn (self: *Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
