@@ -478,13 +478,27 @@ test "FixedBufferAllocator" {
 
 test "FixedBufferAllocator Reuse memory on realloc" {
     var small_fixed_buffer: [10]u8 = undefined;
-    var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
+    // check if we re-use the memory
+    {
+        var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
 
-    var slice = try fixed_buffer_allocator.allocator.alloc(u8, 5);
-    assert(slice.len == 5);
-    slice = try fixed_buffer_allocator.allocator.realloc(u8, slice, 10);
-    assert(slice.len == 10);
-    debug.assertError(fixed_buffer_allocator.allocator.realloc(u8, slice, 11), error.OutOfMemory);
+        var slice0 = try fixed_buffer_allocator.allocator.alloc(u8, 5);
+        assert(slice0.len == 5);
+        var slice1 = try fixed_buffer_allocator.allocator.realloc(u8, slice0, 10);
+        assert(slice1.ptr == slice0.ptr);
+        assert(slice1.len == 10);
+        debug.assertError(fixed_buffer_allocator.allocator.realloc(u8, slice1, 11), error.OutOfMemory);
+    }
+    // check that we don't re-use the memory if it's not the most recent block
+    {
+        var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
+
+        var slice0 = try fixed_buffer_allocator.allocator.alloc(u8, 2);
+        var slice1 = try fixed_buffer_allocator.allocator.alloc(u8, 2);
+        var slice2 = try fixed_buffer_allocator.allocator.realloc(u8, slice0, 4);
+        assert(slice0.ptr != slice2.ptr);
+        assert(slice1.ptr != slice2.ptr);
+    }
 }
 
 test "ThreadSafeFixedBufferAllocator" {
