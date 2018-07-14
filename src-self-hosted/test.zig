@@ -2,11 +2,11 @@ const std = @import("std");
 const mem = std.mem;
 const builtin = @import("builtin");
 const Target = @import("target.zig").Target;
-const Module = @import("module.zig").Module;
+const Compilation = @import("compilation.zig").Compilation;
 const introspect = @import("introspect.zig");
 const assertOrPanic = std.debug.assertOrPanic;
 const errmsg = @import("errmsg.zig");
-const EventLoopLocal = @import("module.zig").EventLoopLocal;
+const EventLoopLocal = @import("compilation.zig").EventLoopLocal;
 
 test "compile errors" {
     var ctx: TestContext = undefined;
@@ -100,42 +100,42 @@ pub const TestContext = struct {
         // TODO async I/O
         try std.io.writeFile(allocator, file1_path, source);
 
-        var module = try Module.create(
+        var comp = try Compilation.create(
             &self.event_loop_local,
             "test",
             file1_path,
             Target.Native,
-            Module.Kind.Obj,
+            Compilation.Kind.Obj,
             builtin.Mode.Debug,
             self.zig_lib_dir,
             self.zig_cache_dir,
         );
-        errdefer module.destroy();
+        errdefer comp.destroy();
 
-        try module.build();
+        try comp.build();
 
-        try self.group.call(getModuleEvent, module, source, path, line, column, msg);
+        try self.group.call(getModuleEvent, comp, source, path, line, column, msg);
     }
 
     async fn getModuleEvent(
-        module: *Module,
+        comp: *Compilation,
         source: []const u8,
         path: []const u8,
         line: usize,
         column: usize,
         text: []const u8,
     ) !void {
-        defer module.destroy();
-        const build_event = await (async module.events.get() catch unreachable);
+        defer comp.destroy();
+        const build_event = await (async comp.events.get() catch unreachable);
 
         switch (build_event) {
-            Module.Event.Ok => {
+            Compilation.Event.Ok => {
                 @panic("build incorrectly succeeded");
             },
-            Module.Event.Error => |err| {
+            Compilation.Event.Error => |err| {
                 @panic("build incorrectly failed");
             },
-            Module.Event.Fail => |msgs| {
+            Compilation.Event.Fail => |msgs| {
                 assertOrPanic(msgs.len != 0);
                 for (msgs) |msg| {
                     if (mem.endsWith(u8, msg.path, path) and mem.eql(u8, msg.text, text)) {

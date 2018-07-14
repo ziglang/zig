@@ -9,13 +9,13 @@ const Value = @import("value.zig").Value;
 const Token = std.zig.Token;
 const errmsg = @import("errmsg.zig");
 const Scope = @import("scope.zig").Scope;
-const Module = @import("module.zig").Module;
+const Compilation = @import("compilation.zig").Compilation;
 
 pub const Decl = struct {
     id: Id,
     name: []const u8,
     visib: Visib,
-    resolution: event.Future(Module.BuildError!void),
+    resolution: event.Future(Compilation.BuildError!void),
     resolution_in_progress: u8,
     parsed_file: *ParsedFile,
     parent_scope: *Scope,

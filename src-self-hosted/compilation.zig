@@ -72,7 +72,7 @@ pub const LlvmHandle = struct {
     }
 };
 
-pub const Module = struct {
+pub const Compilation = struct {
     event_loop_local: *EventLoopLocal,
     loop: *event.Loop,
     name: Buffer,
@@ -239,7 +239,7 @@ pub const Module = struct {
         build_mode: builtin.Mode,
         zig_lib_dir: []const u8,
         cache_dir: []const u8,
-    ) !*Module {
+    ) !*Compilation {
         const loop = event_loop_local.loop;
 
         var name_buffer = try Buffer.init(loop.allocator, name);
@@ -248,7 +248,7 @@ pub const Module = struct {
         const events = try event.Channel(Event).create(loop, 0);
         errdefer events.destroy();
 
-        const module = try loop.allocator.create(Module{
+        const comp = try loop.allocator.create(Compilation{
             .loop = loop,
             .event_loop_local = event_loop_local,
             .events = events,
@@ -315,12 +315,12 @@ pub const Module = struct {
             .noreturn_type = undefined,
             .noreturn_value = undefined,
         });
-        try module.initTypes();
-        return module;
+        try comp.initTypes();
+        return comp;
     }
 
-    fn initTypes(module: *Module) !void {
-        module.meta_type = try module.a().create(Type.MetaType{
+    fn initTypes(comp: *Compilation) !void {
+        comp.meta_type = try comp.a().create(Type.MetaType{
             .base = Type{
                 .base = Value{
                     .id = Value.Id.Type,
@@ -331,86 +331,86 @@ pub const Module = struct {
             },
             .value = undefined,
         });
-        module.meta_type.value = &module.meta_type.base;
-        module.meta_type.base.base.typeof = &module.meta_type.base;
-        errdefer module.a().destroy(module.meta_type);
+        comp.meta_type.value = &comp.meta_type.base;
+        comp.meta_type.base.base.typeof = &comp.meta_type.base;
+        errdefer comp.a().destroy(comp.meta_type);
 
-        module.void_type = try module.a().create(Type.Void{
+        comp.void_type = try comp.a().create(Type.Void{
             .base = Type{
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(module).base,
+                    .typeof = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Void,
             },
         });
-        errdefer module.a().destroy(module.void_type);
+        errdefer comp.a().destroy(comp.void_type);
 
-        module.noreturn_type = try module.a().create(Type.NoReturn{
+        comp.noreturn_type = try comp.a().create(Type.NoReturn{
             .base = Type{
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(module).base,
+                    .typeof = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.NoReturn,
             },
         });
-        errdefer module.a().destroy(module.noreturn_type);
+        errdefer comp.a().destroy(comp.noreturn_type);
 
-        module.bool_type = try module.a().create(Type.Bool{
+        comp.bool_type = try comp.a().create(Type.Bool{
             .base = Type{
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(module).base,
+                    .typeof = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Bool,
             },
         });
-        errdefer module.a().destroy(module.bool_type);
+        errdefer comp.a().destroy(comp.bool_type);
 
-        module.void_value = try module.a().create(Value.Void{
+        comp.void_value = try comp.a().create(Value.Void{
             .base = Value{
                 .id = Value.Id.Void,
-                .typeof = &Type.Void.get(module).base,
+                .typeof = &Type.Void.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
-        errdefer module.a().destroy(module.void_value);
+        errdefer comp.a().destroy(comp.void_value);
 
-        module.true_value = try module.a().create(Value.Bool{
+        comp.true_value = try comp.a().create(Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
-                .typeof = &Type.Bool.get(module).base,
+                .typeof = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = true,
         });
-        errdefer module.a().destroy(module.true_value);
+        errdefer comp.a().destroy(comp.true_value);
 
-        module.false_value = try module.a().create(Value.Bool{
+        comp.false_value = try comp.a().create(Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
-                .typeof = &Type.Bool.get(module).base,
+                .typeof = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = false,
         });
-        errdefer module.a().destroy(module.false_value);
+        errdefer comp.a().destroy(comp.false_value);
 
-        module.noreturn_value = try module.a().create(Value.NoReturn{
+        comp.noreturn_value = try comp.a().create(Value.NoReturn{
             .base = Value{
                 .id = Value.Id.NoReturn,
-                .typeof = &Type.NoReturn.get(module).base,
+                .typeof = &Type.NoReturn.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
-        errdefer module.a().destroy(module.noreturn_value);
+        errdefer comp.a().destroy(comp.noreturn_value);
     }
 
-    pub fn destroy(self: *Module) void {
+    pub fn destroy(self: *Compilation) void {
         self.noreturn_value.base.deref(self);
         self.void_value.base.deref(self);
         self.false_value.base.deref(self);
@@ -425,7 +425,7 @@ pub const Module = struct {
         self.a().destroy(self);
     }
 
-    pub fn build(self: *Module) !void {
+    pub fn build(self: *Compilation) !void {
         if (self.llvm_argv.len != 0) {
             var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(self.a(), [][]const []const u8{
                 [][]const u8{"zig (LLVM option parsing)"},
@@ -439,7 +439,7 @@ pub const Module = struct {
         _ = try async<self.a()> self.buildAsync();
     }
 
-    async fn buildAsync(self: *Module) void {
+    async fn buildAsync(self: *Compilation) void {
         while (true) {
             // TODO directly awaiting async should guarantee memory allocation elision
             // TODO also async before suspending should guarantee memory allocation elision
@@ -474,7 +474,7 @@ pub const Module = struct {
         }
     }
 
-    async fn addRootSrc(self: *Module) !void {
+    async fn addRootSrc(self: *Compilation) !void {
         const root_src_path = self.root_src_path orelse @panic("TODO handle null root src path");
         // TODO async/await os.path.real
         const root_src_real_path = os.path.real(self.a(), root_src_path) catch |err| {
@@ -550,7 +550,7 @@ pub const Module = struct {
         try await (async self.build_group.wait() catch unreachable);
     }
 
-    async fn addTopLevelDecl(self: *Module, decl: *Decl) !void {
+    async fn addTopLevelDecl(self: *Compilation, decl: *Decl) !void {
         const is_export = decl.isExported(&decl.parsed_file.tree);
 
         if (is_export) {
@@ -559,7 +559,7 @@ pub const Module = struct {
         }
     }
 
-    fn addCompileError(self: *Module, parsed_file: *ParsedFile, span: Span, comptime fmt: []const u8, args: ...) !void {
+    fn addCompileError(self: *Compilation, parsed_file: *ParsedFile, span: Span, comptime fmt: []const u8, args: ...) !void {
         const text = try std.fmt.allocPrint(self.loop.allocator, fmt, args);
         errdefer self.loop.allocator.free(text);
 
@@ -567,7 +567,7 @@ pub const Module = struct {
     }
 
     async fn addCompileErrorAsync(
-        self: *Module,
+        self: *Compilation,
         parsed_file: *ParsedFile,
         span: Span,
         text: []u8,
@@ -586,7 +586,7 @@ pub const Module = struct {
         try compile_errors.value.append(msg);
     }
 
-    async fn verifyUniqueSymbol(self: *Module, decl: *Decl) !void {
+    async fn verifyUniqueSymbol(self: *Compilation, decl: *Decl) !void {
         const exported_symbol_names = await (async self.exported_symbol_names.acquire() catch unreachable);
         defer exported_symbol_names.release();
 
@@ -601,12 +601,12 @@ pub const Module = struct {
         }
     }
 
-    pub fn link(self: *Module, out_file: ?[]const u8) !void {
+    pub fn link(self: *Compilation, out_file: ?[]const u8) !void {
         warn("TODO link");
         return error.Todo;
     }
 
-    pub fn addLinkLib(self: *Module, name: []const u8, provided_explicitly: bool) !*LinkLib {
+    pub fn addLinkLib(self: *Compilation, name: []const u8, provided_explicitly: bool) !*LinkLib {
         const is_libc = mem.eql(u8, name, "c");
 
         if (is_libc) {
@@ -634,7 +634,7 @@ pub const Module = struct {
         return link_lib;
     }
 
-    fn a(self: Module) *mem.Allocator {
+    fn a(self: Compilation) *mem.Allocator {
         return self.loop.allocator;
     }
 };
@@ -657,9 +657,9 @@ fn parseVisibToken(tree: *ast.Tree, optional_token_index: ?ast.TokenIndex) Visib
 }
 
 /// This declaration has been blessed as going into the final code generation.
-pub async fn resolveDecl(module: *Module, decl: *Decl) !void {
+pub async fn resolveDecl(comp: *Compilation, decl: *Decl) !void {
     if (@atomicRmw(u8, &decl.resolution_in_progress, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) == 0) {
-        decl.resolution.data = await (async generateDecl(module, decl) catch unreachable);
+        decl.resolution.data = await (async generateDecl(comp, decl) catch unreachable);
         decl.resolution.resolve();
         return decl.resolution.data;
     } else {
@@ -668,42 +668,42 @@ pub async fn resolveDecl(module: *Module, decl: *Decl) !void {
 }
 
 /// The function that actually does the generation.
-async fn generateDecl(module: *Module, decl: *Decl) !void {
+async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
     switch (decl.id) {
         Decl.Id.Var => @panic("TODO"),
         Decl.Id.Fn => {
             const fn_decl = @fieldParentPtr(Decl.Fn, "base", decl);
-            return await (async generateDeclFn(module, fn_decl) catch unreachable);
+            return await (async generateDeclFn(comp, fn_decl) catch unreachable);
         },
         Decl.Id.CompTime => @panic("TODO"),
     }
 }
 
-async fn generateDeclFn(module: *Module, fn_decl: *Decl.Fn) !void {
+async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const body_node = fn_decl.fn_proto.body_node orelse @panic("TODO extern fn proto decl");
 
-    const fndef_scope = try Scope.FnDef.create(module, fn_decl.base.parent_scope);
-    defer fndef_scope.base.deref(module);
+    const fndef_scope = try Scope.FnDef.create(comp, fn_decl.base.parent_scope);
+    defer fndef_scope.base.deref(comp);
 
     // TODO actually look at the return type of the AST
-    const return_type = &Type.Void.get(module).base;
-    defer return_type.base.deref(module);
+    const return_type = &Type.Void.get(comp).base;
+    defer return_type.base.deref(comp);
 
     const is_var_args = false;
     const params = ([*]Type.Fn.Param)(undefined)[0..0];
-    const fn_type = try Type.Fn.create(module, return_type, params, is_var_args);
-    defer fn_type.base.base.deref(module);
+    const fn_type = try Type.Fn.create(comp, return_type, params, is_var_args);
+    defer fn_type.base.base.deref(comp);
 
-    var symbol_name = try std.Buffer.init(module.a(), fn_decl.base.name);
+    var symbol_name = try std.Buffer.init(comp.a(), fn_decl.base.name);
     errdefer symbol_name.deinit();
 
-    const fn_val = try Value.Fn.create(module, fn_type, fndef_scope, symbol_name);
-    defer fn_val.base.deref(module);
+    const fn_val = try Value.Fn.create(comp, fn_type, fndef_scope, symbol_name);
+    defer fn_val.base.deref(comp);
 
     fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
 
     const unanalyzed_code = (await (async ir.gen(
-        module,
+        comp,
         body_node,
         &fndef_scope.base,
         Span.token(body_node.lastToken()),
@@ -715,15 +715,15 @@ async fn generateDeclFn(module: *Module, fn_decl: *Decl.Fn) !void {
         error.SemanticAnalysisFailed => return {},
         else => return err,
     };
-    defer unanalyzed_code.destroy(module.a());
+    defer unanalyzed_code.destroy(comp.a());
 
-    if (module.verbose_ir) {
+    if (comp.verbose_ir) {
         std.debug.warn("unanalyzed:\n");
         unanalyzed_code.dump();
     }
 
     const analyzed_code = (await (async ir.analyze(
-        module,
+        comp,
         fn_decl.base.parsed_file,
         unanalyzed_code,
         null,
@@ -734,14 +734,14 @@ async fn generateDeclFn(module: *Module, fn_decl: *Decl.Fn) !void {
         error.SemanticAnalysisFailed => return {},
         else => return err,
     };
-    errdefer analyzed_code.destroy(module.a());
+    errdefer analyzed_code.destroy(comp.a());
 
-    if (module.verbose_ir) {
+    if (comp.verbose_ir) {
         std.debug.warn("analyzed:\n");
         analyzed_code.dump();
     }
 
-    // Kick off rendering to LLVM module, but it doesn't block the fn decl
+    // Kick off rendering to LLVM comp, but it doesn't block the fn decl
     // analysis from being complete.
-    try module.build_group.call(codegen.renderToLlvm, module, fn_val, analyzed_code);
+    try comp.build_group.call(codegen.renderToLlvm, comp, fn_val, analyzed_code);
 }

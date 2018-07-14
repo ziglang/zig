@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Scope = @import("scope.zig").Scope;
-const Module = @import("module.zig").Module;
+const Compilation = @import("compilation.zig").Compilation;
 
 /// Values are ref-counted, heap-allocated, and copy-on-write
 /// If there is only 1 ref then write need not copy
@@ -16,16 +16,16 @@ pub const Value = struct {
     }
 
     /// Thread-safe
-    pub fn deref(base: *Value, module: *Module) void {
+    pub fn deref(base: *Value, comp: *Compilation) void {
         if (base.ref_count.decr() == 1) {
-            base.typeof.base.deref(module);
+            base.typeof.base.deref(comp);
             switch (base.id) {
-                Id.Type => @fieldParentPtr(Type, "base", base).destroy(module),
-                Id.Fn => @fieldParentPtr(Fn, "base", base).destroy(module),
-                Id.Void => @fieldParentPtr(Void, "base", base).destroy(module),
-                Id.Bool => @fieldParentPtr(Bool, "base", base).destroy(module),
-                Id.NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(module),
-                Id.Ptr => @fieldParentPtr(Ptr, "base", base).destroy(module),
+                Id.Type => @fieldParentPtr(Type, "base", base).destroy(comp),
+                Id.Fn => @fieldParentPtr(Fn, "base", base).destroy(comp),
+                Id.Void => @fieldParentPtr(Void, "base", base).destroy(comp),
+                Id.Bool => @fieldParentPtr(Bool, "base", base).destroy(comp),
+                Id.NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(comp),
+                Id.Ptr => @fieldParentPtr(Ptr, "base", base).destroy(comp),
             }
         }
     }
@@ -68,8 +68,8 @@ pub const Value = struct {
 
         /// Creates a Fn value with 1 ref
         /// Takes ownership of symbol_name
-        pub fn create(module: *Module, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: std.Buffer) !*Fn {
-            const self = try module.a().create(Fn{
+        pub fn create(comp: *Compilation, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: std.Buffer) !*Fn {
+            const self = try comp.a().create(Fn{
                 .base = Value{
                     .id = Value.Id.Fn,
                     .typeof = &fn_type.base,
@@ -86,23 +86,23 @@ pub const Value = struct {
             return self;
         }
 
-        pub fn destroy(self: *Fn, module: *Module) void {
-            self.fndef_scope.base.deref(module);
+        pub fn destroy(self: *Fn, comp: *Compilation) void {
+            self.fndef_scope.base.deref(comp);
             self.symbol_name.deinit();
-            module.a().destroy(self);
+            comp.a().destroy(self);
         }
     };
 
     pub const Void = struct {
         base: Value,
 
-        pub fn get(module: *Module) *Void {
-            module.void_value.base.ref();
-            return module.void_value;
+        pub fn get(comp: *Compilation) *Void {
+            comp.void_value.base.ref();
+            return comp.void_value;
         }
 
-        pub fn destroy(self: *Void, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Void, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
@@ -110,31 +110,31 @@ pub const Value = struct {
         base: Value,
         x: bool,
 
-        pub fn get(module: *Module, x: bool) *Bool {
+        pub fn get(comp: *Compilation, x: bool) *Bool {
             if (x) {
-                module.true_value.base.ref();
-                return module.true_value;
+                comp.true_value.base.ref();
+                return comp.true_value;
             } else {
-                module.false_value.base.ref();
-                return module.false_value;
+                comp.false_value.base.ref();
+                return comp.false_value;
             }
         }
 
-        pub fn destroy(self: *Bool, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Bool, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const NoReturn = struct {
         base: Value,
 
-        pub fn get(module: *Module) *NoReturn {
-            module.noreturn_value.base.ref();
-            return module.noreturn_value;
+        pub fn get(comp: *Compilation) *NoReturn {
+            comp.noreturn_value.base.ref();
+            return comp.noreturn_value;
         }
 
-        pub fn destroy(self: *NoReturn, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *NoReturn, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
@@ -147,8 +147,8 @@ pub const Value = struct {
             RunTime,
         };
 
-        pub fn destroy(self: *Ptr, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Ptr, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 };

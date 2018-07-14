@@ -1,10 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Scope = @import("scope.zig").Scope;
-const Module = @import("module.zig").Module;
+const Compilation = @import("compilation.zig").Compilation;
 const Value = @import("value.zig").Value;
 const llvm = @import("llvm.zig");
-const CompilationUnit = @import("codegen.zig").CompilationUnit;
+const ObjectFile = @import("codegen.zig").ObjectFile;
 
 pub const Type = struct {
     base: Value,
@@ -12,63 +12,63 @@ pub const Type = struct {
 
     pub const Id = builtin.TypeId;
 
-    pub fn destroy(base: *Type, module: *Module) void {
+    pub fn destroy(base: *Type, comp: *Compilation) void {
         switch (base.id) {
-            Id.Struct => @fieldParentPtr(Struct, "base", base).destroy(module),
-            Id.Fn => @fieldParentPtr(Fn, "base", base).destroy(module),
-            Id.Type => @fieldParentPtr(MetaType, "base", base).destroy(module),
-            Id.Void => @fieldParentPtr(Void, "base", base).destroy(module),
-            Id.Bool => @fieldParentPtr(Bool, "base", base).destroy(module),
-            Id.NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(module),
-            Id.Int => @fieldParentPtr(Int, "base", base).destroy(module),
-            Id.Float => @fieldParentPtr(Float, "base", base).destroy(module),
-            Id.Pointer => @fieldParentPtr(Pointer, "base", base).destroy(module),
-            Id.Array => @fieldParentPtr(Array, "base", base).destroy(module),
-            Id.ComptimeFloat => @fieldParentPtr(ComptimeFloat, "base", base).destroy(module),
-            Id.ComptimeInt => @fieldParentPtr(ComptimeInt, "base", base).destroy(module),
-            Id.Undefined => @fieldParentPtr(Undefined, "base", base).destroy(module),
-            Id.Null => @fieldParentPtr(Null, "base", base).destroy(module),
-            Id.Optional => @fieldParentPtr(Optional, "base", base).destroy(module),
-            Id.ErrorUnion => @fieldParentPtr(ErrorUnion, "base", base).destroy(module),
-            Id.ErrorSet => @fieldParentPtr(ErrorSet, "base", base).destroy(module),
-            Id.Enum => @fieldParentPtr(Enum, "base", base).destroy(module),
-            Id.Union => @fieldParentPtr(Union, "base", base).destroy(module),
-            Id.Namespace => @fieldParentPtr(Namespace, "base", base).destroy(module),
-            Id.Block => @fieldParentPtr(Block, "base", base).destroy(module),
-            Id.BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(module),
-            Id.ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(module),
-            Id.Opaque => @fieldParentPtr(Opaque, "base", base).destroy(module),
-            Id.Promise => @fieldParentPtr(Promise, "base", base).destroy(module),
+            Id.Struct => @fieldParentPtr(Struct, "base", base).destroy(comp),
+            Id.Fn => @fieldParentPtr(Fn, "base", base).destroy(comp),
+            Id.Type => @fieldParentPtr(MetaType, "base", base).destroy(comp),
+            Id.Void => @fieldParentPtr(Void, "base", base).destroy(comp),
+            Id.Bool => @fieldParentPtr(Bool, "base", base).destroy(comp),
+            Id.NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(comp),
+            Id.Int => @fieldParentPtr(Int, "base", base).destroy(comp),
+            Id.Float => @fieldParentPtr(Float, "base", base).destroy(comp),
+            Id.Pointer => @fieldParentPtr(Pointer, "base", base).destroy(comp),
+            Id.Array => @fieldParentPtr(Array, "base", base).destroy(comp),
+            Id.ComptimeFloat => @fieldParentPtr(ComptimeFloat, "base", base).destroy(comp),
+            Id.ComptimeInt => @fieldParentPtr(ComptimeInt, "base", base).destroy(comp),
+            Id.Undefined => @fieldParentPtr(Undefined, "base", base).destroy(comp),
+            Id.Null => @fieldParentPtr(Null, "base", base).destroy(comp),
+            Id.Optional => @fieldParentPtr(Optional, "base", base).destroy(comp),
+            Id.ErrorUnion => @fieldParentPtr(ErrorUnion, "base", base).destroy(comp),
+            Id.ErrorSet => @fieldParentPtr(ErrorSet, "base", base).destroy(comp),
+            Id.Enum => @fieldParentPtr(Enum, "base", base).destroy(comp),
+            Id.Union => @fieldParentPtr(Union, "base", base).destroy(comp),
+            Id.Namespace => @fieldParentPtr(Namespace, "base", base).destroy(comp),
+            Id.Block => @fieldParentPtr(Block, "base", base).destroy(comp),
+            Id.BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(comp),
+            Id.ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(comp),
+            Id.Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
+            Id.Promise => @fieldParentPtr(Promise, "base", base).destroy(comp),
         }
     }
 
-    pub fn getLlvmType(base: *Type, cunit: *CompilationUnit) (error{OutOfMemory}!llvm.TypeRef) {
+    pub fn getLlvmType(base: *Type, ofile: *ObjectFile) (error{OutOfMemory}!llvm.TypeRef) {
         switch (base.id) {
-            Id.Struct => return @fieldParentPtr(Struct, "base", base).getLlvmType(cunit),
-            Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmType(cunit),
+            Id.Struct => return @fieldParentPtr(Struct, "base", base).getLlvmType(ofile),
+            Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmType(ofile),
             Id.Type => unreachable,
             Id.Void => unreachable,
-            Id.Bool => return @fieldParentPtr(Bool, "base", base).getLlvmType(cunit),
+            Id.Bool => return @fieldParentPtr(Bool, "base", base).getLlvmType(ofile),
             Id.NoReturn => unreachable,
-            Id.Int => return @fieldParentPtr(Int, "base", base).getLlvmType(cunit),
-            Id.Float => return @fieldParentPtr(Float, "base", base).getLlvmType(cunit),
-            Id.Pointer => return @fieldParentPtr(Pointer, "base", base).getLlvmType(cunit),
-            Id.Array => return @fieldParentPtr(Array, "base", base).getLlvmType(cunit),
+            Id.Int => return @fieldParentPtr(Int, "base", base).getLlvmType(ofile),
+            Id.Float => return @fieldParentPtr(Float, "base", base).getLlvmType(ofile),
+            Id.Pointer => return @fieldParentPtr(Pointer, "base", base).getLlvmType(ofile),
+            Id.Array => return @fieldParentPtr(Array, "base", base).getLlvmType(ofile),
             Id.ComptimeFloat => unreachable,
             Id.ComptimeInt => unreachable,
             Id.Undefined => unreachable,
             Id.Null => unreachable,
-            Id.Optional => return @fieldParentPtr(Optional, "base", base).getLlvmType(cunit),
-            Id.ErrorUnion => return @fieldParentPtr(ErrorUnion, "base", base).getLlvmType(cunit),
-            Id.ErrorSet => return @fieldParentPtr(ErrorSet, "base", base).getLlvmType(cunit),
-            Id.Enum => return @fieldParentPtr(Enum, "base", base).getLlvmType(cunit),
-            Id.Union => return @fieldParentPtr(Union, "base", base).getLlvmType(cunit),
+            Id.Optional => return @fieldParentPtr(Optional, "base", base).getLlvmType(ofile),
+            Id.ErrorUnion => return @fieldParentPtr(ErrorUnion, "base", base).getLlvmType(ofile),
+            Id.ErrorSet => return @fieldParentPtr(ErrorSet, "base", base).getLlvmType(ofile),
+            Id.Enum => return @fieldParentPtr(Enum, "base", base).getLlvmType(ofile),
+            Id.Union => return @fieldParentPtr(Union, "base", base).getLlvmType(ofile),
             Id.Namespace => unreachable,
             Id.Block => unreachable,
-            Id.BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(cunit),
+            Id.BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(ofile),
             Id.ArgTuple => unreachable,
-            Id.Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(cunit),
-            Id.Promise => return @fieldParentPtr(Promise, "base", base).getLlvmType(cunit),
+            Id.Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(ofile),
+            Id.Promise => return @fieldParentPtr(Promise, "base", base).getLlvmType(ofile),
         }
     }
 
@@ -76,7 +76,7 @@ pub const Type = struct {
         std.debug.warn("{}", @tagName(base.id));
     }
 
-    pub fn getAbiAlignment(base: *Type, module: *Module) u32 {
+    pub fn getAbiAlignment(base: *Type, comp: *Compilation) u32 {
         @panic("TODO getAbiAlignment");
     }
 
@@ -84,11 +84,11 @@ pub const Type = struct {
         base: Type,
         decls: *Scope.Decls,
 
-        pub fn destroy(self: *Struct, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Struct, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Struct, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Struct, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -104,12 +104,12 @@ pub const Type = struct {
             typeof: *Type,
         };
 
-        pub fn create(module: *Module, return_type: *Type, params: []Param, is_var_args: bool) !*Fn {
-            const result = try module.a().create(Fn{
+        pub fn create(comp: *Compilation, return_type: *Type, params: []Param, is_var_args: bool) !*Fn {
+            const result = try comp.a().create(Fn{
                 .base = Type{
                     .base = Value{
                         .id = Value.Id.Type,
-                        .typeof = &MetaType.get(module).base,
+                        .typeof = &MetaType.get(comp).base,
                         .ref_count = std.atomic.Int(usize).init(1),
                     },
                     .id = builtin.TypeId.Fn,
@@ -118,7 +118,7 @@ pub const Type = struct {
                 .params = params,
                 .is_var_args = is_var_args,
             });
-            errdefer module.a().destroy(result);
+            errdefer comp.a().destroy(result);
 
             result.return_type.base.ref();
             for (result.params) |param| {
@@ -127,23 +127,23 @@ pub const Type = struct {
             return result;
         }
 
-        pub fn destroy(self: *Fn, module: *Module) void {
-            self.return_type.base.deref(module);
+        pub fn destroy(self: *Fn, comp: *Compilation) void {
+            self.return_type.base.deref(comp);
             for (self.params) |param| {
-                param.typeof.base.deref(module);
+                param.typeof.base.deref(comp);
             }
-            module.a().destroy(self);
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Fn, cunit: *CompilationUnit) !llvm.TypeRef {
+        pub fn getLlvmType(self: *Fn, ofile: *ObjectFile) !llvm.TypeRef {
             const llvm_return_type = switch (self.return_type.id) {
-                Type.Id.Void => llvm.VoidTypeInContext(cunit.context) orelse return error.OutOfMemory,
-                else => try self.return_type.getLlvmType(cunit),
+                Type.Id.Void => llvm.VoidTypeInContext(ofile.context) orelse return error.OutOfMemory,
+                else => try self.return_type.getLlvmType(ofile),
             };
-            const llvm_param_types = try cunit.a().alloc(llvm.TypeRef, self.params.len);
-            defer cunit.a().free(llvm_param_types);
+            const llvm_param_types = try ofile.a().alloc(llvm.TypeRef, self.params.len);
+            defer ofile.a().free(llvm_param_types);
             for (llvm_param_types) |*llvm_param_type, i| {
-                llvm_param_type.* = try self.params[i].typeof.getLlvmType(cunit);
+                llvm_param_type.* = try self.params[i].typeof.getLlvmType(ofile);
             }
 
             return llvm.FunctionType(
@@ -160,13 +160,13 @@ pub const Type = struct {
         value: *Type,
 
         /// Adds 1 reference to the resulting type
-        pub fn get(module: *Module) *MetaType {
-            module.meta_type.base.base.ref();
-            return module.meta_type;
+        pub fn get(comp: *Compilation) *MetaType {
+            comp.meta_type.base.base.ref();
+            return comp.meta_type;
         }
 
-        pub fn destroy(self: *MetaType, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *MetaType, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
@@ -174,13 +174,13 @@ pub const Type = struct {
         base: Type,
 
         /// Adds 1 reference to the resulting type
-        pub fn get(module: *Module) *Void {
-            module.void_type.base.base.ref();
-            return module.void_type;
+        pub fn get(comp: *Compilation) *Void {
+            comp.void_type.base.base.ref();
+            return comp.void_type;
         }
 
-        pub fn destroy(self: *Void, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Void, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
@@ -188,16 +188,16 @@ pub const Type = struct {
         base: Type,
 
         /// Adds 1 reference to the resulting type
-        pub fn get(module: *Module) *Bool {
-            module.bool_type.base.base.ref();
-            return module.bool_type;
+        pub fn get(comp: *Compilation) *Bool {
+            comp.bool_type.base.base.ref();
+            return comp.bool_type;
         }
 
-        pub fn destroy(self: *Bool, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Bool, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Bool, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Bool, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -206,24 +206,24 @@ pub const Type = struct {
         base: Type,
 
         /// Adds 1 reference to the resulting type
-        pub fn get(module: *Module) *NoReturn {
-            module.noreturn_type.base.base.ref();
-            return module.noreturn_type;
+        pub fn get(comp: *Compilation) *NoReturn {
+            comp.noreturn_type.base.base.ref();
+            return comp.noreturn_type;
         }
 
-        pub fn destroy(self: *NoReturn, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *NoReturn, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const Int = struct {
         base: Type,
 
-        pub fn destroy(self: *Int, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Int, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Int, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Int, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -231,11 +231,11 @@ pub const Type = struct {
     pub const Float = struct {
         base: Type,
 
-        pub fn destroy(self: *Float, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Float, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Float, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Float, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -256,12 +256,12 @@ pub const Type = struct {
         };
         pub const Size = builtin.TypeInfo.Pointer.Size;
 
-        pub fn destroy(self: *Pointer, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Pointer, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
         pub fn get(
-            module: *Module,
+            comp: *Compilation,
             elem_type: *Type,
             mut: Mut,
             vol: Vol,
@@ -271,7 +271,7 @@ pub const Type = struct {
             @panic("TODO get pointer");
         }
 
-        pub fn getLlvmType(self: *Pointer, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Pointer, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -279,11 +279,11 @@ pub const Type = struct {
     pub const Array = struct {
         base: Type,
 
-        pub fn destroy(self: *Array, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Array, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Array, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Array, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -291,43 +291,43 @@ pub const Type = struct {
     pub const ComptimeFloat = struct {
         base: Type,
 
-        pub fn destroy(self: *ComptimeFloat, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *ComptimeFloat, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const ComptimeInt = struct {
         base: Type,
 
-        pub fn destroy(self: *ComptimeInt, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *ComptimeInt, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const Undefined = struct {
         base: Type,
 
-        pub fn destroy(self: *Undefined, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Undefined, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const Null = struct {
         base: Type,
 
-        pub fn destroy(self: *Null, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Null, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const Optional = struct {
         base: Type,
 
-        pub fn destroy(self: *Optional, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Optional, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Optional, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Optional, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -335,11 +335,11 @@ pub const Type = struct {
     pub const ErrorUnion = struct {
         base: Type,
 
-        pub fn destroy(self: *ErrorUnion, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *ErrorUnion, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *ErrorUnion, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *ErrorUnion, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -347,11 +347,11 @@ pub const Type = struct {
     pub const ErrorSet = struct {
         base: Type,
 
-        pub fn destroy(self: *ErrorSet, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *ErrorSet, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *ErrorSet, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *ErrorSet, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -359,11 +359,11 @@ pub const Type = struct {
     pub const Enum = struct {
         base: Type,
 
-        pub fn destroy(self: *Enum, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Enum, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Enum, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Enum, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -371,11 +371,11 @@ pub const Type = struct {
     pub const Union = struct {
         base: Type,
 
-        pub fn destroy(self: *Union, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Union, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Union, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Union, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -383,27 +383,27 @@ pub const Type = struct {
     pub const Namespace = struct {
         base: Type,
 
-        pub fn destroy(self: *Namespace, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Namespace, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const Block = struct {
         base: Type,
 
-        pub fn destroy(self: *Block, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Block, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const BoundFn = struct {
         base: Type,
 
-        pub fn destroy(self: *BoundFn, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *BoundFn, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *BoundFn, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *BoundFn, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -411,19 +411,19 @@ pub const Type = struct {
     pub const ArgTuple = struct {
         base: Type,
 
-        pub fn destroy(self: *ArgTuple, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *ArgTuple, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
     };
 
     pub const Opaque = struct {
         base: Type,
 
-        pub fn destroy(self: *Opaque, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Opaque, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Opaque, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Opaque, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };
@@ -431,11 +431,11 @@ pub const Type = struct {
     pub const Promise = struct {
         base: Type,
 
-        pub fn destroy(self: *Promise, module: *Module) void {
-            module.a().destroy(self);
+        pub fn destroy(self: *Promise, comp: *Compilation) void {
+            comp.a().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Promise, cunit: *CompilationUnit) llvm.TypeRef {
+        pub fn getLlvmType(self: *Promise, ofile: *ObjectFile) llvm.TypeRef {
             @panic("TODO");
         }
     };

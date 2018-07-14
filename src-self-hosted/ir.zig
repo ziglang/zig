@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Module = @import("module.zig").Module;
+const Compilation = @import("compilation.zig").Compilation;
 const Scope = @import("scope.zig").Scope;
 const ast = std.zig.ast;
 const Allocator = std.mem.Allocator;
@@ -243,7 +243,7 @@ pub const Instruction = struct {
                     Value.Ptr.Mut.CompTimeConst,
                     self.params.mut,
                     self.params.volatility,
-                    val.typeof.getAbiAlignment(ira.irb.module),
+                    val.typeof.getAbiAlignment(ira.irb.comp),
                 );
             }
 
@@ -254,12 +254,12 @@ pub const Instruction = struct {
             });
             const elem_type = target.getKnownType();
             const ptr_type = Type.Pointer.get(
-                ira.irb.module,
+                ira.irb.comp,
                 elem_type,
                 self.params.mut,
                 self.params.volatility,
                 Type.Pointer.Size.One,
-                elem_type.getAbiAlignment(ira.irb.module),
+                elem_type.getAbiAlignment(ira.irb.comp),
             );
             // TODO: potentially set the hint that this is a stack pointer. But it might not be - this
             // could be a ref of a global, for example
@@ -417,7 +417,7 @@ pub const Code = struct {
     arena: std.heap.ArenaAllocator,
     return_type: ?*Type,
 
-    /// allocator is module.a()
+    /// allocator is comp.a()
     pub fn destroy(self: *Code, allocator: *Allocator) void {
         self.arena.deinit();
         allocator.destroy(self);
@@ -437,7 +437,7 @@ pub const Code = struct {
 };
 
 pub const Builder = struct {
-    module: *Module,
+    comp: *Compilation,
     code: *Code,
     current_basic_block: *BasicBlock,
     next_debug_id: usize,
@@ -446,17 +446,17 @@ pub const Builder = struct {
 
     pub const Error = Analyze.Error;
 
-    pub fn init(module: *Module, parsed_file: *ParsedFile) !Builder {
-        const code = try module.a().create(Code{
+    pub fn init(comp: *Compilation, parsed_file: *ParsedFile) !Builder {
+        const code = try comp.a().create(Code{
             .basic_block_list = undefined,
-            .arena = std.heap.ArenaAllocator.init(module.a()),
+            .arena = std.heap.ArenaAllocator.init(comp.a()),
             .return_type = null,
         });
         code.basic_block_list = std.ArrayList(*BasicBlock).init(&code.arena.allocator);
-        errdefer code.destroy(module.a());
+        errdefer code.destroy(comp.a());
 
         return Builder{
-            .module = module,
+            .comp = comp,
             .parsed_file = parsed_file,
             .current_basic_block = undefined,
             .code = code,
@@ -466,7 +466,7 @@ pub const Builder = struct {
     }
 
     pub fn abort(self: *Builder) void {
-        self.code.destroy(self.module.a());
+        self.code.destroy(self.comp.a());
     }
 
     /// Call code.destroy() when done
@@ -581,7 +581,7 @@ pub const Builder = struct {
     }
 
     pub fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Instruction {
-        const block_scope = try Scope.Block.create(irb.module, parent_scope);
+        const block_scope = try Scope.Block.create(irb.comp, parent_scope);
 
         const outer_block_scope = &block_scope.base;
         var child_scope = outer_block_scope;
@@ -623,8 +623,8 @@ pub const Builder = struct {
                     Token.Id.Keyword_errdefer => Scope.Defer.Kind.ErrorExit,
                     else => unreachable,
                 };
-                const defer_expr_scope = try Scope.DeferExpr.create(irb.module, parent_scope, defer_node.expr);
-                const defer_child_scope = try Scope.Defer.create(irb.module, parent_scope, kind, defer_expr_scope);
+                const defer_expr_scope = try Scope.DeferExpr.create(irb.comp, parent_scope, defer_node.expr);
+                const defer_child_scope = try Scope.Defer.create(irb.comp, parent_scope, kind, defer_expr_scope);
                 child_scope = &defer_child_scope.base;
                 continue;
             }
@@ -770,8 +770,8 @@ pub const Builder = struct {
                 .debug_id = self.next_debug_id,
                 .val = switch (I.ir_val_init) {
                     IrVal.Init.Unknown => IrVal.Unknown,
-                    IrVal.Init.NoReturn => IrVal{ .KnownValue = &Value.NoReturn.get(self.module).base },
-                    IrVal.Init.Void => IrVal{ .KnownValue = &Value.Void.get(self.module).base },
+                    IrVal.Init.NoReturn => IrVal{ .KnownValue = &Value.NoReturn.get(self.comp).base },
+                    IrVal.Init.Void => IrVal{ .KnownValue = &Value.Void.get(self.comp).base },
                 },
                 .ref_count = 0,
                 .span = span,
@@ -819,13 +819,13 @@ pub const Builder = struct {
 
     fn buildConstBool(self: *Builder, scope: *Scope, span: Span, x: bool) !*Instruction {
         const inst = try self.build(Instruction.Const, scope, span, Instruction.Const.Params{});
-        inst.val = IrVal{ .KnownValue = &Value.Bool.get(self.module, x).base };
+        inst.val = IrVal{ .KnownValue = &Value.Bool.get(self.comp, x).base };
         return inst;
     }
 
     fn buildConstVoid(self: *Builder, scope: *Scope, span: Span, is_generated: bool) !*Instruction {
         const inst = try self.buildExtra(Instruction.Const, scope, span, Instruction.Const.Params{}, is_generated);
-        inst.val = IrVal{ .KnownValue = &Value.Void.get(self.module).base };
+        inst.val = IrVal{ .KnownValue = &Value.Void.get(self.comp).base };
         return inst;
     }
 };
@@ -850,8 +850,8 @@ const Analyze = struct {
         OutOfMemory,
     };
 
-    pub fn init(module: *Module, parsed_file: *ParsedFile, explicit_return_type: ?*Type) !Analyze {
-        var irb = try Builder.init(module, parsed_file);
+    pub fn init(comp: *Compilation, parsed_file: *ParsedFile, explicit_return_type: ?*Type) !Analyze {
+        var irb = try Builder.init(comp, parsed_file);
         errdefer irb.abort();
 
         return Analyze{
@@ -929,12 +929,12 @@ const Analyze = struct {
     }
 
     fn addCompileError(self: *Analyze, span: Span, comptime fmt: []const u8, args: ...) !void {
-        return self.irb.module.addCompileError(self.irb.parsed_file, span, fmt, args);
+        return self.irb.comp.addCompileError(self.irb.parsed_file, span, fmt, args);
     }
 
     fn resolvePeerTypes(self: *Analyze, expected_type: ?*Type, peers: []const *Instruction) Analyze.Error!*Type {
         // TODO actual implementation
-        return &Type.Void.get(self.irb.module).base;
+        return &Type.Void.get(self.irb.comp).base;
     }
 
     fn implicitCast(self: *Analyze, target: *Instruction, optional_dest_type: ?*Type) Analyze.Error!*Instruction {
@@ -959,13 +959,13 @@ const Analyze = struct {
 };
 
 pub async fn gen(
-    module: *Module,
+    comp: *Compilation,
     body_node: *ast.Node,
     scope: *Scope,
     end_span: Span,
     parsed_file: *ParsedFile,
 ) !*Code {
-    var irb = try Builder.init(module, parsed_file);
+    var irb = try Builder.init(comp, parsed_file);
     errdefer irb.abort();
 
     const entry_block = try irb.createBasicBlock(scope, "Entry");
@@ -991,8 +991,8 @@ pub async fn gen(
     return irb.finish();
 }
 
-pub async fn analyze(module: *Module, parsed_file: *ParsedFile, old_code: *Code, expected_type: ?*Type) !*Code {
-    var ira = try Analyze.init(module, parsed_file, expected_type);
+pub async fn analyze(comp: *Compilation, parsed_file: *ParsedFile, old_code: *Code, expected_type: ?*Type) !*Code {
+    var ira = try Analyze.init(comp, parsed_file, expected_type);
     errdefer ira.abort();
 
     const old_entry_bb = old_code.basic_block_list.at(0);
@@ -1025,7 +1025,7 @@ pub async fn analyze(module: *Module, parsed_file: *ParsedFile, old_code: *Code,
     }
 
     if (ira.src_implicit_return_type_list.len == 0) {
-        ira.irb.code.return_type = &Type.NoReturn.get(module).base;
+        ira.irb.code.return_type = &Type.NoReturn.get(comp).base;
         return ira.irb.finish();
     }
 
