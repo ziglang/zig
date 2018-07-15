@@ -240,7 +240,6 @@ fn getC(data: *const BitField1) u2 {
     return data.c;
 }
 
-const u24 = @IntType(false, 24);
 const Foo24Bits = packed struct {
     field: u24,
 };
