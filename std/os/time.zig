@@ -25,7 +25,6 @@ pub fn sleep(seconds: usize, nanoseconds: usize) void {
     }
 }
 
-const u63 = @IntType(false, 63);
 pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
     var req = posix.timespec{
         .tv_sec = seconds,

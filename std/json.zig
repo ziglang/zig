@@ -6,7 +6,6 @@ const std = @import("index.zig");
 const debug = std.debug;
 const mem = std.mem;
 
-const u1 = @IntType(false, 1);
 const u256 = @IntType(false, 256);
 
 // A single token slice into the parent string.

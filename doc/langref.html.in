@@ -2310,10 +2310,10 @@ test "while loop continue expression" {
 }
 
 test "while loop continue expression, more complicated" {
-    var i1: usize = 1;
-    var j1: usize = 1;
-    while (i1 * j1 < 2000) : ({ i1 *= 2; j1 *= 3; }) {
-        const my_ij1 = i1 * j1;
+    var i_1: usize = 1;
+    var j_1: usize = 1;
+    while (i_1 * j_1 < 2000) : ({ i_1 *= 2; j_1 *= 3; }) {
+        const my_ij1 = i_1 * j_1;
         assert(my_ij1 < 2000);
     }
 }
