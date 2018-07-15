@@ -208,9 +208,6 @@ pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     return true;
 }
 
-test "mem.eqlIgnoreCase" {
-}
-
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
 pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
