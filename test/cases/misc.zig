@@ -24,32 +24,33 @@ test "call disabled extern fn" {
 }
 
 test "@IntType builtin" {
+    assert(@IntType(true, 1) == i1);
+    assert(@IntType(true, 2) == i2);
     assert(@IntType(true, 8) == i8);
     assert(@IntType(true, 16) == i16);
     assert(@IntType(true, 32) == i32);
+    assert(@IntType(true, 55) == i55);
     assert(@IntType(true, 64) == i64);
+    assert(@IntType(true, 123) == i123);
+    assert(@IntType(true, 128) == i128);
 
+    assert(@IntType(false, 1) == u1);
+    assert(@IntType(false, 2) == u2);
     assert(@IntType(false, 8) == u8);
     assert(@IntType(false, 16) == u16);
     assert(@IntType(false, 32) == u32);
+    assert(@IntType(false, 55) == u55);
     assert(@IntType(false, 64) == u64);
+    assert(@IntType(false, 123) == u123);
+    assert(@IntType(false, 128) == u128);
 
-    assert(i8.bit_count == 8);
-    assert(i16.bit_count == 16);
-    assert(i32.bit_count == 32);
-    assert(i64.bit_count == 64);
-
-    assert(i8.is_signed);
-    assert(i16.is_signed);
-    assert(i32.is_signed);
-    assert(i64.is_signed);
-    assert(isize.is_signed);
-
-    assert(!u8.is_signed);
-    assert(!u16.is_signed);
-    assert(!u32.is_signed);
-    assert(!u64.is_signed);
-    assert(!usize.is_signed);
+    inline for([2]bool{true, false}) |signed| {
+        comptime var bit_count = 1;
+        inline while(bit_count <= 128) : (bit_count += 1) {
+            assert(@IntType(signed, bit_count).bit_count == bit_count);
+            assert(@IntType(signed, bit_count).is_signed == signed);
+        }
+    }
 }
 
 test "floating point primitive bit counts" {
@@ -57,11 +58,6 @@ test "floating point primitive bit counts" {
     assert(f32.bit_count == 32);
     assert(f64.bit_count == 64);
 }
-
-const u1 = @IntType(false, 1);
-const u63 = @IntType(false, 63);
-const i1 = @IntType(true, 1);
-const i63 = @IntType(true, 63);
 
 test "@minValue and @maxValue" {
     assert(@maxValue(u1) == 1);

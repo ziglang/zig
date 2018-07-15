@@ -967,7 +967,7 @@ static LLVMValueRef get_write_register_fn_val(CodeGen *g) {
     // !0 = !{!"sp\00"}
 
     LLVMTypeRef param_types[] = {
-        LLVMMetadataTypeInContext(LLVMGetGlobalContext()), 
+        LLVMMetadataTypeInContext(LLVMGetGlobalContext()),
         LLVMIntType(g->pointer_size_bytes * 8),
     };
 
@@ -3137,7 +3137,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
     LLVMCallConv llvm_cc = get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc);
     LLVMValueRef result;
-    
+
     if (instruction->new_stack == nullptr) {
         result = ZigLLVMBuildCall(g->builder, fn_val,
                 gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
@@ -3581,7 +3581,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, TypeTableEntry *enum_
 
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMPointerType(u8_slice_type->type_ref, 0),
             &tag_int_type->type_ref, 1, false);
-    
+
     Buf *fn_name = get_mangled_name(g, buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name)), false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
@@ -6063,18 +6063,11 @@ static void do_code_gen(CodeGen *g) {
 }
 
 static const uint8_t int_sizes_in_bits[] = {
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    16,
-    29,
-    32,
-    64,
-    128,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+    33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,
+    63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92,
+    93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+    118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128
 };
 
 struct CIntTypeInfo {
@@ -6757,7 +6750,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         assert(ContainerLayoutAuto == 0);
         assert(ContainerLayoutExtern == 1);
         assert(ContainerLayoutPacked == 2);
-    
+
         assert(CallingConventionUnspecified == 0);
         assert(CallingConventionC == 1);
         assert(CallingConventionCold == 2);
