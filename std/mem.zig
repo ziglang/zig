@@ -236,7 +236,7 @@ pub fn isUpper(value: u8) bool {
 
 /// Convert lowercase byte to uppercase byte.
 pub fn toUpper(value: u8) u8 {
-    // Based on musl toUpper.
+    // Based on musl toupper.
     if (isLower(value)) return value & 0x5f;
     return value;
 }
