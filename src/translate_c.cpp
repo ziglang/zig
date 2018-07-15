@@ -1134,6 +1134,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
         case Type::DependentAddressSpace:
+        case Type::DependentVector:
             emit_warning(c, source_loc, "unsupported type: '%s'", ty->getTypeClassName());
             return nullptr;
     }
@@ -2573,6 +2574,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
         case Type::DependentAddressSpace:
+        case Type::DependentVector:
             return res;
     }
     zig_unreachable();
