@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Scope = @import("scope.zig").Scope;
 const Compilation = @import("compilation.zig").Compilation;
+const ObjectFile = @import("codegen.zig").ObjectFile;
+const llvm = @import("llvm.zig");
 
 /// Values are ref-counted, heap-allocated, and copy-on-write
 /// If there is only 1 ref then write need not copy
@@ -37,6 +39,17 @@ pub const Value = struct {
 
     pub fn dump(base: *const Value) void {
         std.debug.warn("{}", @tagName(base.id));
+    }
+
+    pub fn getLlvmConst(base: *Value, ofile: *ObjectFile) (error{OutOfMemory}!?llvm.ValueRef) {
+        switch (base.id) {
+            Id.Type => unreachable,
+            Id.Fn => @panic("TODO"),
+            Id.Void => return null,
+            Id.Bool => return @fieldParentPtr(Bool, "base", base).getLlvmConst(ofile),
+            Id.NoReturn => unreachable,
+            Id.Ptr => @panic("TODO"),
+        }
     }
 
     pub const Id = enum {
@@ -122,6 +135,15 @@ pub const Value = struct {
 
         pub fn destroy(self: *Bool, comp: *Compilation) void {
             comp.a().destroy(self);
+        }
+
+        pub fn getLlvmConst(self: *Bool, ofile: *ObjectFile) ?llvm.ValueRef {
+            const llvm_type = llvm.Int1TypeInContext(ofile.context);
+            if (self.x) {
+                return llvm.ConstAllOnes(llvm_type);
+            } else {
+                return llvm.ConstNull(llvm_type);
+            }
         }
     };
 

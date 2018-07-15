@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = mem.Allocator;
 const Decl = @import("decl.zig").Decl;
 const Compilation = @import("compilation.zig").Compilation;
@@ -6,6 +7,7 @@ const mem = std.mem;
 const ast = std.zig.ast;
 const Value = @import("value.zig").Value;
 const ir = @import("ir.zig");
+const Span = @import("errmsg.zig").Span;
 
 pub const Scope = struct {
     id: Id,
@@ -93,6 +95,35 @@ pub const Scope = struct {
         end_block: *ir.BasicBlock,
         is_comptime: *ir.Instruction,
 
+        safety: Safety,
+
+        const Safety = union(enum) {
+            Auto,
+            Manual: Manual,
+
+            const Manual = struct {
+                /// the source span that disabled the safety value
+                span: Span,
+
+                /// whether safety is enabled
+                enabled: bool,
+            };
+
+            fn get(self: Safety, comp: *Compilation) bool {
+                return switch (self) {
+                    Safety.Auto => switch (comp.build_mode) {
+                        builtin.Mode.Debug,
+                        builtin.Mode.ReleaseSafe,
+                        => true,
+                        builtin.Mode.ReleaseFast,
+                        builtin.Mode.ReleaseSmall,
+                        => false,
+                    },
+                    @TagType(Safety).Manual => |man| man.enabled,
+                };
+            }
+        };
+
         /// Creates a Block scope with 1 reference
         pub fn create(comp: *Compilation, parent: ?*Scope) !*Block {
             const self = try comp.a().create(Block{
@@ -105,6 +136,7 @@ pub const Scope = struct {
                 .incoming_blocks = undefined,
                 .end_block = undefined,
                 .is_comptime = undefined,
+                .safety = Safety.Auto,
             });
             errdefer comp.a().destroy(self);
 

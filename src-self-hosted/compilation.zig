@@ -606,6 +606,10 @@ pub const Compilation = struct {
         return error.Todo;
     }
 
+    pub fn haveLibC(self: *Compilation) bool {
+        return self.libc_link_lib != null;
+    }
+
     pub fn addLinkLib(self: *Compilation, name: []const u8, provided_explicitly: bool) !*LinkLib {
         const is_libc = mem.eql(u8, name, "c");
 
@@ -741,7 +745,7 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
         analyzed_code.dump();
     }
 
-    // Kick off rendering to LLVM comp, but it doesn't block the fn decl
+    // Kick off rendering to LLVM module, but it doesn't block the fn decl
     // analysis from being complete.
     try comp.build_group.call(codegen.renderToLlvm, comp, fn_val, analyzed_code);
 }
