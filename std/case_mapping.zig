@@ -1,7 +1,7 @@
-// This code is generated from UnicodeData.txt using parse.py
+// This code is generated from UnicodeData.txt using ./scripts/gen_case_mappings.py
 
-pub fn isLower(value: u8) bool {
-    return switch (value) {
+pub fn isLower(code_point: u32) bool {
+    return switch (code_point) {
         0x61 ... 0x7a,
         0xdf ... 0xf6,
         0xf8 ... 0xff,
@@ -645,8 +645,8 @@ pub fn isLower(value: u8) bool {
     };
 }
 
-pub fn isUpper(value: u8) bool {
-    return switch (value) {
+pub fn isUpper(code_point: u32) bool {
+    return switch (code_point) {
         0x41 ... 0x5a,
         0xc0 ... 0xd6,
         0xd8 ... 0xde,
@@ -1273,8 +1273,8 @@ pub fn isUpper(value: u8) bool {
     };
 }
 
-pub fn toLower(value: u8) u8 {
-    return switch (value) {
+pub fn toLower(code_point: u32) u32 {
+    return switch (code_point) {
         0x41 => 0x61,
         0x42 => 0x62,
         0x43 => 0x63,
@@ -2658,12 +2658,12 @@ pub fn toLower(value: u8) u8 {
         0x1e91f => 0x1e941,
         0x1e920 => 0x1e942,
         0x1e921 => 0x1e943,
-        else => value,
+        else => code_point,
     };
 }
 
-pub fn toUpper(value: u8) u8 {
-    return switch (value) {
+pub fn toUpper(code_point: u32) u32 {
+    return switch (code_point) {
         0x61 => 0x41,
         0x62 => 0x42,
         0x63 => 0x43,
@@ -4064,6 +4064,6 @@ pub fn toUpper(value: u8) u8 {
         0x1e941 => 0x1e91f,
         0x1e942 => 0x1e920,
         0x1e943 => 0x1e921,
-        else => value,
+        else => code_point,
     };
 }
