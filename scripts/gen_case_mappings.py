@@ -22,8 +22,8 @@ def switch_cases(values):
 
 
 def write_testing_func(output, func_name, char_set):
-    output.write('pub fn {0}(value: u8) bool {{\n'.format(func_name))
-    output.write('    return switch (value) {\n')
+    output.write('pub fn {0}(code_point: u32) bool {{\n'.format(func_name))
+    output.write('    return switch (code_point) {\n')
     cases = switch_cases(sorted(char_set))
     for case in cases:
         if case != cases[0]:
@@ -40,11 +40,11 @@ def write_testing_func(output, func_name, char_set):
 
 
 def write_conversion_func(output, func_name, mapping):
-    output.write('pub fn {0}(value: u8) u8 {{\n'.format(func_name))
-    output.write('    return switch (value) {\n')
+    output.write('pub fn {0}(code_point: u32) u32 {{\n'.format(func_name))
+    output.write('    return switch (code_point) {\n')
     for key in sorted(mapping.keys()):
         output.write('        {0} => {1},\n'.format(hex(key), hex(mapping[key])))
-    output.write('        else => value,\n')
+    output.write('        else => code_point,\n')
     output.write('    };\n')
     output.write('}\n')
 

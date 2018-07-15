@@ -198,90 +198,11 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     return true;
 }
 
-/// Compares two byte slices and returns whether they are equal ignoring uppercase/lowercase
-/// differences.
-pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
-    if (a.len != b.len) return false;
-    for (a) |item, index| {
-        if (b[index] != item and toLower(b[index]) != toLower(item)) return false;
-    }
-    return true;
-}
-
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
 pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
-}
-
-/// Check if value is a lowercase byte.
-pub fn isLower(value: u8) bool {
-    // Based on musl islower.
-    return (value -% 'a') < 26;
-}
-
-/// Convert uppercase byte to lowercase byte.
-pub fn toLower(value: u8) u8 {
-    // Based on musl tolower.
-    if (isUpper(value)) return value | 32;
-    return value;
-}
-
-/// Check if value is an uppercase byte.
-pub fn isUpper(value: u8) bool {
-    // Based on musl isupper.
-    return (value -% 'A') < 26;
-}
-
-/// Convert lowercase byte to uppercase byte.
-pub fn toUpper(value: u8) u8 {
-    // Based on musl toupper.
-    if (isLower(value)) return value & 0x5f;
-    return value;
-}
-
-test "mem.isUpper" {
-    const lowercase_alphabet = "abcdefghijklmnopqrstuvwxyz";
-    const uppercase_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    for (uppercase_alphabet) |byte, i| {
-        assert(isUpper(byte));
-        assert(!isUpper(lowercase_alphabet[i]));
-    }
-}
-
-test "mem.toUpper" {
-    const lowercase_alphabet = "abcdefghijklmnopqrstuvwxyz";
-    const uppercase_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    for (uppercase_alphabet) |byte, i| {
-        assert(toUpper(lowercase_alphabet[i]) == byte);
-        assert(toUpper(byte) == byte);
-    }
-}
-
-test "mem.isLower" {
-    const lowercase_alphabet = "abcdefghijklmnopqrstuvwxyz";
-    const uppercase_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    for (lowercase_alphabet) |byte, i| {
-        assert(isLower(byte));
-        assert(!isLower(uppercase_alphabet[i]));
-    }
-}
-
-test "mem.toLower" {
-    const lowercase_alphabet = "abcdefghijklmnopqrstuvwxyz";
-    const uppercase_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    for (lowercase_alphabet) |byte, i| {
-        assert(toLower(byte) == byte);
-        assert(toLower(uppercase_alphabet[i]) == byte);
-    }
-}
-
-test "mem.eqlIgnoreCase" {
-    assert(eqlIgnoreCase("hello world", "hello world"));
-    assert(eqlIgnoreCase("hello WORLD", "hello world"));
-    assert(eqlIgnoreCase("heLlo WORLD", "heLlo world"));
-    assert(eqlIgnoreCase("hello world", "hello WORLD"));
 }
 
 /// Remove values from the beginning of a slice.
