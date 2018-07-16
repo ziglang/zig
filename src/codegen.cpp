@@ -6062,21 +6062,6 @@ static void do_code_gen(CodeGen *g) {
     }
 }
 
-static const uint8_t int_sizes_in_bits[] = {
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    16,
-    29,
-    32,
-    64,
-    128,
-};
-
 struct CIntTypeInfo {
     CIntType id;
     const char *name;
