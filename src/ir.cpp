@@ -9408,7 +9408,7 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
         if (type_is_invalid(casted_payload->value.type))
             return ira->codegen->invalid_instruction;
 
-        ConstExprValue *val = ir_resolve_const(ira, casted_payload, UndefBad);
+        ConstExprValue *val = ir_resolve_const(ira, casted_payload, UndefOk);
         if (!val)
             return ira->codegen->invalid_instruction;
 
