@@ -113,15 +113,6 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return old_item;
         }
 
-        pub fn removeOrError(self: *Self, n: usize) !T {
-            if (n >= self.len) return error.OutOfBounds;
-            if (self.len - 1 == n) return self.pop();
-
-            var old_item = self.at(n);
-            try self.setOrError(n, self.pop());
-            return old_item;
-        }
-
         pub fn appendSlice(self: *Self, items: []align(A) const T) !void {
             try self.ensureCapacity(self.len + items.len);
             mem.copy(T, self.items[self.len..], items);
