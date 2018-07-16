@@ -6161,16 +6161,6 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_arg_tuple = entry;
     }
 
-    for (size_t int_size_i = 0; int_size_i < array_length(int_sizes_in_bits); int_size_i += 1) {
-        uint8_t size_in_bits = int_sizes_in_bits[int_size_i];
-        for (size_t is_sign_i = 0; is_sign_i < array_length(is_signed_list); is_sign_i += 1) {
-            bool is_signed = is_signed_list[is_sign_i];
-            TypeTableEntry *entry = make_int_type(g, is_signed, size_in_bits);
-            g->primitive_type_table.put(&entry->name, entry);
-            get_int_type_ptr(g, is_signed, size_in_bits)[0] = entry;
-        }
-    }
-
     for (size_t i = 0; i < array_length(c_int_type_infos); i += 1) {
         const CIntTypeInfo *info = &c_int_type_infos[i];
         uint32_t size_in_bits = target_c_type_size_in_bits(&g->zig_target, info->id);
@@ -6286,12 +6276,9 @@ static void define_builtin_types(CodeGen *g) {
     g->builtin_types.entry_u29 = get_int_type(g, false, 29);
     g->builtin_types.entry_u32 = get_int_type(g, false, 32);
     g->builtin_types.entry_u64 = get_int_type(g, false, 64);
-    g->builtin_types.entry_u128 = get_int_type(g, false, 128);
     g->builtin_types.entry_i8 = get_int_type(g, true, 8);
-    g->builtin_types.entry_i16 = get_int_type(g, true, 16);
     g->builtin_types.entry_i32 = get_int_type(g, true, 32);
     g->builtin_types.entry_i64 = get_int_type(g, true, 64);
-    g->builtin_types.entry_i128 = get_int_type(g, true, 128);
 
     {
         g->builtin_types.entry_c_void = get_opaque_type(g, nullptr, nullptr, "c_void");

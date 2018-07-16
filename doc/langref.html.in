@@ -2310,11 +2310,11 @@ test "while loop continue expression" {
 }
 
 test "while loop continue expression, more complicated" {
-    var i1: usize = 1;
-    var j1: usize = 1;
-    while (i1 * j1 < 2000) : ({ i1 *= 2; j1 *= 3; }) {
-        const my_ij1 = i1 * j1;
-        assert(my_ij1 < 2000);
+    var i: usize = 1;
+    var j: usize = 1;
+    while (i * j < 2000) : ({ i *= 2; j *= 3; }) {
+        const my_ij = i * j;
+        assert(my_ij < 2000);
     }
 }
       {#code_end#}
@@ -5424,7 +5424,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@IntType#}
-      <pre><code class="zig">@IntType(comptime is_signed: bool, comptime bit_count: u8) type</code></pre>
+      <pre><code class="zig">@IntType(comptime is_signed: bool, comptime bit_count: u32) type</code></pre>
       <p>
       This function returns an integer type with the given signness and bit count.
       </p>

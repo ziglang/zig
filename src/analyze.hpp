@@ -19,7 +19,6 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count);
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
 uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry);
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_c_int_type(CodeGen *g, CIntType c_int_type);
@@ -203,5 +202,7 @@ bool fn_type_can_fail(FnTypeId *fn_type_id);
 bool type_can_fail(TypeTableEntry *type_entry);
 bool fn_eval_cacheable(Scope *scope, TypeTableEntry *return_type);
 AstNode *type_decl_node(TypeTableEntry *type_entry);
+
+TypeTableEntry *get_primitive_type(CodeGen *g, Buf *name);
 
 #endif

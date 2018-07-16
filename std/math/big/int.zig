@@ -996,7 +996,6 @@ pub const Int = struct {
 // They will still run on larger than this and should pass, but the multi-limb code-paths
 // may be untested in some cases.
 
-const u256 = @IntType(false, 256);
 const al = debug.global_allocator;
 
 test "big.int comptime_int set" {

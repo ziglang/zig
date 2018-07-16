@@ -3227,9 +3227,8 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
     }
 
     {
-        auto entry = g->primitive_type_table.maybe_get(tld->name);
-        if (entry) {
-            TypeTableEntry *type = entry->value;
+        TypeTableEntry *type = get_primitive_type(g, tld->name);
+        if (type != nullptr) {
             add_node_error(g, tld->source_node,
                     buf_sprintf("declaration shadows type '%s'", buf_ptr(&type->name)));
         }
@@ -3474,9 +3473,8 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
             add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
             variable_entry->value->type = g->builtin_types.entry_invalid;
         } else {
-            auto primitive_table_entry = g->primitive_type_table.maybe_get(name);
-            if (primitive_table_entry) {
-                TypeTableEntry *type = primitive_table_entry->value;
+            TypeTableEntry *type = get_primitive_type(g, name);
+            if (type != nullptr) {
                 add_node_error(g, source_node,
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->value->type = g->builtin_types.entry_invalid;
@@ -4307,43 +4305,7 @@ void semantic_analyze(CodeGen *g) {
     }
 }
 
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
-    size_t index;
-    if (size_in_bits == 2) {
-        index = 0;
-    } else if (size_in_bits == 3) {
-        index = 1;
-    } else if (size_in_bits == 4) {
-        index = 2;
-    } else if (size_in_bits == 5) {
-        index = 3;
-    } else if (size_in_bits == 6) {
-        index = 4;
-    } else if (size_in_bits == 7) {
-        index = 5;
-    } else if (size_in_bits == 8) {
-        index = 6;
-    } else if (size_in_bits == 16) {
-        index = 7;
-    } else if (size_in_bits == 29) {
-        index = 8;
-    } else if (size_in_bits == 32) {
-        index = 9;
-    } else if (size_in_bits == 64) {
-        index = 10;
-    } else if (size_in_bits == 128) {
-        index = 11;
-    } else {
-        return nullptr;
-    }
-    return &g->builtin_types.entry_int[is_signed ? 0 : 1][index];
-}
-
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
-    TypeTableEntry **common_entry = get_int_type_ptr(g, is_signed, size_in_bits);
-    if (common_entry)
-        return *common_entry;
-
     TypeId type_id = {};
     type_id.id = TypeTableEntryIdInt;
     type_id.data.integer.is_signed = is_signed;
@@ -4953,6 +4915,8 @@ bool fn_eval_cacheable(Scope *scope, TypeTableEntry *return_type) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
+            if (type_is_invalid(var_scope->var->value->type))
+                return false;
             if (can_mutate_comptime_var_state(var_scope->var->value))
                 return false;
         } else if (scope->id == ScopeIdFnDef) {
@@ -6309,4 +6273,29 @@ bool type_can_fail(TypeTableEntry *type_entry) {
 
 bool fn_type_can_fail(FnTypeId *fn_type_id) {
     return type_can_fail(fn_type_id->return_type) || fn_type_id->cc == CallingConventionAsync;
+}
+
+TypeTableEntry *get_primitive_type(CodeGen *g, Buf *name) {
+    if (buf_len(name) >= 2) {
+        uint8_t first_c = buf_ptr(name)[0];
+        if (first_c == 'i' || first_c == 'u') {
+            for (size_t i = 1; i < buf_len(name); i += 1) {
+                uint8_t c = buf_ptr(name)[i];
+                if (c < '0' || c > '9') {
+                    goto not_integer;
+                }
+            }
+            bool is_signed = (first_c == 'i');
+            uint32_t bit_count = atoi(buf_ptr(name) + 1);
+            return get_int_type(g, is_signed, bit_count);
+        }
+    }
+
+not_integer:
+
+    auto primitive_table_entry = g->primitive_type_table.maybe_get(name);
+    if (primitive_table_entry != nullptr) {
+        return primitive_table_entry->value;
+    }
+    return nullptr;
 }

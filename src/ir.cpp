@@ -3217,9 +3217,8 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
             add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
             variable_entry->value->type = codegen->builtin_types.entry_invalid;
         } else {
-            auto primitive_table_entry = codegen->primitive_type_table.maybe_get(name);
-            if (primitive_table_entry) {
-                TypeTableEntry *type = primitive_table_entry->value;
+            TypeTableEntry *type = get_primitive_type(codegen, name);
+            if (type != nullptr) {
                 add_node_error(codegen, node,
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->value->type = codegen->builtin_types.entry_invalid;
@@ -3661,9 +3660,9 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         return &const_instruction->base;
     }
 
-    auto primitive_table_entry = irb->codegen->primitive_type_table.maybe_get(variable_name);
-    if (primitive_table_entry) {
-        IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_table_entry->value);
+    TypeTableEntry *primitive_type = get_primitive_type(irb->codegen, variable_name);
+    if (primitive_type != nullptr) {
+        IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_type);
         if (lval == LValPtr) {
             return ir_build_ref(irb, scope, node, value, false, false);
         } else {
@@ -10691,11 +10690,11 @@ static bool ir_resolve_align(IrAnalyze *ira, IrInstruction *value, uint32_t *out
     return true;
 }
 
-static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out) {
+static bool ir_resolve_unsigned(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *int_type, uint64_t *out) {
     if (type_is_invalid(value->value.type))
         return false;
 
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_usize);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, int_type);
     if (type_is_invalid(casted_value->value.type))
         return false;
 
@@ -10705,6 +10704,10 @@ static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out
 
     *out = bigint_as_unsigned(&const_val->data.x_bigint);
     return true;
+}
+
+static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out) {
+    return ir_resolve_unsigned(ira, value, ira->codegen->builtin_types.entry_usize, out);
 }
 
 static bool ir_resolve_bool(IrAnalyze *ira, IrInstruction *value, bool *out) {
@@ -18025,7 +18028,7 @@ static TypeTableEntry *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstruc
 
     IrInstruction *bit_count_value = instruction->bit_count->other;
     uint64_t bit_count;
-    if (!ir_resolve_usize(ira, bit_count_value, &bit_count))
+    if (!ir_resolve_unsigned(ira, bit_count_value, ira->codegen->builtin_types.entry_u32, &bit_count))
         return ira->codegen->builtin_types.entry_invalid;
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);

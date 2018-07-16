@@ -4,8 +4,6 @@ const endian = @import("../endian.zig");
 const debug = @import("../debug/index.zig");
 const builtin = @import("builtin");
 
-pub const u160 = @IntType(false, 160);
-
 const RoundParam = struct {
     a: usize,
     b: usize,
