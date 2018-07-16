@@ -5,8 +5,6 @@ const Allocator = mem.Allocator;
 const assert = debug.assert;
 const ArrayList = std.ArrayList;
 
-const fmt = std.fmt;
-
 /// A buffer that allocates memory and maintains a null byte at the end.
 pub const Buffer = struct {
     list: ArrayList(u8),

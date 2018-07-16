@@ -40,6 +40,16 @@ pub fn Future(comptime T: type) type {
             return &self.data;
         }
 
+        /// Gets the data without waiting for it. If it's available, a pointer is
+        /// returned. Otherwise, null is returned.
+        pub fn getOrNull(self: *Self) ?*T {
+            if (@atomicLoad(u8, &self.available, AtomicOrder.SeqCst) == 1) {
+                return &self.data;
+            } else {
+                return null;
+            }
+        }
+
         /// Make the data become available. May be called only once.
         /// Before calling this, modify the `data` property.
         pub fn resolve(self: *Self) void {

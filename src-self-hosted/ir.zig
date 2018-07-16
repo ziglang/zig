@@ -10,6 +10,8 @@ const assert = std.debug.assert;
 const Token = std.zig.Token;
 const ParsedFile = @import("parsed_file.zig").ParsedFile;
 const Span = @import("errmsg.zig").Span;
+const llvm = @import("llvm.zig");
+const ObjectFile = @import("codegen.zig").ObjectFile;
 
 pub const LVal = enum {
     None,
@@ -61,6 +63,9 @@ pub const Instruction = struct {
     /// the instruction that this one derives from in analysis
     parent: ?*Instruction,
 
+    /// populated durign codegen
+    llvm_value: ?llvm.ValueRef,
+
     pub fn cast(base: *Instruction, comptime T: type) ?*T {
         if (base.id == comptime typeToId(T)) {
             return @fieldParentPtr(T, "base", base);
@@ -108,12 +113,23 @@ pub const Instruction = struct {
         inline while (i < @memberCount(Id)) : (i += 1) {
             if (base.id == @field(Id, @memberName(Id, i))) {
                 const T = @field(Instruction, @memberName(Id, i));
-                const new_inst = try @fieldParentPtr(T, "base", base).analyze(ira);
-                new_inst.linkToParent(base);
-                return new_inst;
+                return @fieldParentPtr(T, "base", base).analyze(ira);
             }
         }
         unreachable;
+    }
+
+    pub fn render(base: *Instruction, ofile: *ObjectFile, fn_val: *Value.Fn) (error{OutOfMemory}!?llvm.ValueRef) {
+        switch (base.id) {
+            Id.Return => return @fieldParentPtr(Return, "base", base).render(ofile, fn_val),
+            Id.Const => return @fieldParentPtr(Const, "base", base).render(ofile, fn_val),
+            Id.Ref => @panic("TODO"),
+            Id.DeclVar => @panic("TODO"),
+            Id.CheckVoidStmt => @panic("TODO"),
+            Id.Phi => @panic("TODO"),
+            Id.Br => @panic("TODO"),
+            Id.AddImplicitReturnType => @panic("TODO"),
+        }
     }
 
     fn getAsParam(param: *Instruction) !*Instruction {
@@ -186,6 +202,10 @@ pub const Instruction = struct {
             new_inst.val = IrVal{ .KnownValue = self.base.val.KnownValue.getRef() };
             return new_inst;
         }
+
+        pub fn render(self: *Const, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
+            return self.base.val.KnownValue.getLlvmConst(ofile);
+        }
     };
 
     pub const Return = struct {
@@ -213,6 +233,18 @@ pub const Instruction = struct {
             // TODO detect returning local variable address
 
             return ira.irb.build(Return, self.base.scope, self.base.span, Params{ .return_value = casted_value });
+        }
+
+        pub fn render(self: *Return, ofile: *ObjectFile, fn_val: *Value.Fn) ?llvm.ValueRef {
+            const value = self.params.return_value.llvm_value;
+            const return_type = self.params.return_value.getKnownType();
+
+            if (return_type.handleIsPtr()) {
+                @panic("TODO");
+            } else {
+                _ = llvm.BuildRet(ofile.builder, value);
+            }
+            return null;
         }
     };
 
@@ -387,11 +419,15 @@ pub const Variable = struct {
 
 pub const BasicBlock = struct {
     ref_count: usize,
-    name_hint: []const u8,
+    name_hint: [*]const u8, // must be a C string literal
     debug_id: usize,
     scope: *Scope,
     instruction_list: std.ArrayList(*Instruction),
     ref_instruction: ?*Instruction,
+
+    /// for codegen
+    llvm_block: llvm.BasicBlockRef,
+    llvm_exit_block: llvm.BasicBlockRef,
 
     /// the basic block that is derived from this one in analysis
     child: ?*BasicBlock,
@@ -426,7 +462,7 @@ pub const Code = struct {
     pub fn dump(self: *Code) void {
         var bb_i: usize = 0;
         for (self.basic_block_list.toSliceConst()) |bb| {
-            std.debug.warn("{}_{}:\n", bb.name_hint, bb.debug_id);
+            std.debug.warn("{s}_{}:\n", bb.name_hint, bb.debug_id);
             for (bb.instruction_list.toSliceConst()) |instr| {
                 std.debug.warn("  ");
                 instr.dump();
@@ -475,7 +511,7 @@ pub const Builder = struct {
     }
 
     /// No need to clean up resources thanks to the arena allocator.
-    pub fn createBasicBlock(self: *Builder, scope: *Scope, name_hint: []const u8) !*BasicBlock {
+    pub fn createBasicBlock(self: *Builder, scope: *Scope, name_hint: [*]const u8) !*BasicBlock {
         const basic_block = try self.arena().create(BasicBlock{
             .ref_count = 0,
             .name_hint = name_hint,
@@ -485,6 +521,8 @@ pub const Builder = struct {
             .child = null,
             .parent = null,
             .ref_instruction = null,
+            .llvm_block = undefined,
+            .llvm_exit_block = undefined,
         });
         self.next_debug_id += 1;
         return basic_block;
@@ -600,7 +638,7 @@ pub const Builder = struct {
         if (block.label) |label| {
             block_scope.incoming_values = std.ArrayList(*Instruction).init(irb.arena());
             block_scope.incoming_blocks = std.ArrayList(*BasicBlock).init(irb.arena());
-            block_scope.end_block = try irb.createBasicBlock(parent_scope, "BlockEnd");
+            block_scope.end_block = try irb.createBasicBlock(parent_scope, c"BlockEnd");
             block_scope.is_comptime = try irb.buildConstBool(
                 parent_scope,
                 Span.token(block.lbrace),
@@ -777,6 +815,7 @@ pub const Builder = struct {
                 .span = span,
                 .child = null,
                 .parent = null,
+                .llvm_value = undefined,
             },
             .params = params,
         });
@@ -968,7 +1007,7 @@ pub async fn gen(
     var irb = try Builder.init(comp, parsed_file);
     errdefer irb.abort();
 
-    const entry_block = try irb.createBasicBlock(scope, "Entry");
+    const entry_block = try irb.createBasicBlock(scope, c"Entry");
     entry_block.ref(); // Entry block gets a reference because we enter it to begin.
     try irb.setCursorAtEndAndAppendBlock(entry_block);
 
@@ -1013,6 +1052,7 @@ pub async fn analyze(comp: *Compilation, parsed_file: *ParsedFile, old_code: *Co
         }
 
         const return_inst = try old_instruction.analyze(&ira);
+        return_inst.linkToParent(old_instruction);
         // Note: if we ever modify the above to handle error.CompileError by continuing analysis,
         // then here we want to check if ira.isCompTime() and return early if true
 

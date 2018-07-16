@@ -72,6 +72,81 @@ pub const Type = struct {
         }
     }
 
+    pub fn handleIsPtr(base: *Type) bool {
+        switch (base.id) {
+            Id.Type,
+            Id.ComptimeFloat,
+            Id.ComptimeInt,
+            Id.Undefined,
+            Id.Null,
+            Id.Namespace,
+            Id.Block,
+            Id.BoundFn,
+            Id.ArgTuple,
+            Id.Opaque,
+            => unreachable,
+
+            Id.NoReturn,
+            Id.Void,
+            Id.Bool,
+            Id.Int,
+            Id.Float,
+            Id.Pointer,
+            Id.ErrorSet,
+            Id.Enum,
+            Id.Fn,
+            Id.Promise,
+            => return false,
+
+            Id.Struct => @panic("TODO"),
+            Id.Array => @panic("TODO"),
+            Id.Optional => @panic("TODO"),
+            Id.ErrorUnion => @panic("TODO"),
+            Id.Union => @panic("TODO"),
+        }
+    }
+
+    pub fn hasBits(base: *Type) bool {
+        switch (base.id) {
+            Id.Type,
+            Id.ComptimeFloat,
+            Id.ComptimeInt,
+            Id.Undefined,
+            Id.Null,
+            Id.Namespace,
+            Id.Block,
+            Id.BoundFn,
+            Id.ArgTuple,
+            Id.Opaque,
+            => unreachable,
+
+            Id.Void,
+            Id.NoReturn,
+            => return false,
+
+            Id.Bool,
+            Id.Int,
+            Id.Float,
+            Id.Fn,
+            Id.Promise,
+            => return true,
+
+            Id.ErrorSet => @panic("TODO"),
+            Id.Enum => @panic("TODO"),
+            Id.Pointer => @panic("TODO"),
+            Id.Struct => @panic("TODO"),
+            Id.Array => @panic("TODO"),
+            Id.Optional => @panic("TODO"),
+            Id.ErrorUnion => @panic("TODO"),
+            Id.Union => @panic("TODO"),
+        }
+    }
+
+    pub fn cast(base: *Type, comptime T: type) ?*T {
+        if (base.id != @field(Id, @typeName(T))) return null;
+        return @fieldParentPtr(T, "base", base);
+    }
+
     pub fn dump(base: *const Type) void {
         std.debug.warn("{}", @tagName(base.id));
     }
