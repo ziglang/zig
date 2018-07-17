@@ -183,7 +183,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
     };
 }
 
-test "basic ArrayList test" {
+test "std.ArrayList.basic" {
     var bytes: [1024]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
 
@@ -270,7 +270,7 @@ test "std.ArrayList.swapRemove" {
     assert(list.len == 4);
 }
 
-test "iterator ArrayList test" {
+test "std.ArrayList.iterator" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
@@ -299,7 +299,7 @@ test "iterator ArrayList test" {
     assert(it.next().? == 1);
 }
 
-test "insert ArrayList test" {
+test "std.ArrayList.insert" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
@@ -313,7 +313,7 @@ test "insert ArrayList test" {
     assert(list.items[3] == 3);
 }
 
-test "insertSlice ArrayList test" {
+test "std.ArrayList.insertSlice" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
