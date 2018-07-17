@@ -54,6 +54,19 @@ pub const Buffer = struct {
         return result;
     }
 
+    pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: ...) !Buffer {
+        const countSize = struct {
+            fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
+                size.* += bytes.len;
+            }
+        }.countSize;
+        var size: usize = 0;
+        std.fmt.format(&size, error{}, countSize, format, args) catch |err| switch (err) {};
+        var self = try Buffer.initSize(allocator, size);
+        assert((std.fmt.bufPrint(self.list.items, format, args) catch unreachable).len == size);
+        return self;
+    }
+
     pub fn deinit(self: *Buffer) void {
         self.list.deinit();
     }

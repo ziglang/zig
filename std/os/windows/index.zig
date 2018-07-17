@@ -1,3 +1,5 @@
+const std = @import("../../index.zig");
+const assert = std.debug.assert;
 test "import" {
     _ = @import("util.zig");
 }
@@ -439,3 +441,86 @@ pub const SYSTEM_INFO = extern struct {
     wProcessorLevel: WORD,
     wProcessorRevision: WORD,
 };
+
+pub extern "ole32.dll" stdcallcc fn CoTaskMemFree(pv: LPVOID) void;
+
+pub extern "shell32.dll" stdcallcc fn SHGetKnownFolderPath(rfid: *const KNOWNFOLDERID, dwFlags: DWORD, hToken: ?HANDLE, ppszPath: *[*]WCHAR) HRESULT;
+
+pub const HRESULT = c_long;
+
+pub const KNOWNFOLDERID = GUID;
+pub const GUID = extern struct {
+    Data1: c_ulong,
+    Data2: c_ushort,
+    Data3: c_ushort,
+    Data4: [8]u8,
+
+    pub fn parse(str: []const u8) GUID {
+        var guid: GUID = undefined;
+        var index: usize = 0;
+        assert(str[index] == '{');
+        index += 1;
+
+        guid.Data1 = std.fmt.parseUnsigned(c_ulong, str[index..index + 8], 16) catch unreachable;
+        index += 8;
+
+        assert(str[index] == '-');
+        index += 1;
+
+        guid.Data2 = std.fmt.parseUnsigned(c_ushort, str[index..index + 4], 16) catch unreachable;
+        index += 4;
+
+        assert(str[index] == '-');
+        index += 1;
+
+        guid.Data3 = std.fmt.parseUnsigned(c_ushort, str[index..index + 4], 16) catch unreachable;
+        index += 4;
+
+        assert(str[index] == '-');
+        index += 1;
+
+        guid.Data4[0] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+        index += 2;
+        guid.Data4[1] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+        index += 2;
+
+        assert(str[index] == '-');
+        index += 1;
+
+        var i: usize = 2;
+        while (i < guid.Data4.len) : (i += 1) {
+            guid.Data4[i] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+            index += 2;
+        }
+
+        assert(str[index] == '}');
+        index += 1;
+        return guid;
+    }
+};
+
+pub const FOLDERID_LocalAppData = GUID.parse("{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}");
+
+pub const KF_FLAG_DEFAULT = 0;
+pub const KF_FLAG_NO_APPCONTAINER_REDIRECTION = 65536;
+pub const KF_FLAG_CREATE = 32768;
+pub const KF_FLAG_DONT_VERIFY = 16384;
+pub const KF_FLAG_DONT_UNEXPAND = 8192;
+pub const KF_FLAG_NO_ALIAS = 4096;
+pub const KF_FLAG_INIT = 2048;
+pub const KF_FLAG_DEFAULT_PATH = 1024;
+pub const KF_FLAG_NOT_PARENT_RELATIVE = 512;
+pub const KF_FLAG_SIMPLE_IDLIST = 256;
+pub const KF_FLAG_ALIAS_ONLY = -2147483648;
+
+pub const S_OK = 0;
+pub const E_NOTIMPL = @bitCast(c_long, c_ulong(0x80004001));
+pub const E_NOINTERFACE = @bitCast(c_long, c_ulong(0x80004002));
+pub const E_POINTER = @bitCast(c_long, c_ulong(0x80004003));
+pub const E_ABORT = @bitCast(c_long, c_ulong(0x80004004));
+pub const E_FAIL = @bitCast(c_long, c_ulong(0x80004005));
+pub const E_UNEXPECTED = @bitCast(c_long, c_ulong(0x8000FFFF));
+pub const E_ACCESSDENIED = @bitCast(c_long, c_ulong(0x80070005));
+pub const E_HANDLE = @bitCast(c_long, c_ulong(0x80070006));
+pub const E_OUTOFMEMORY = @bitCast(c_long, c_ulong(0x8007000E));
+pub const E_INVALIDARG = @bitCast(c_long, c_ulong(0x80070057));

@@ -46,7 +46,7 @@ pub const TestContext = struct {
         try self.loop.initMultiThreaded(allocator);
         errdefer self.loop.deinit();
 
-        self.event_loop_local = EventLoopLocal.init(&self.loop);
+        self.event_loop_local = try EventLoopLocal.init(&self.loop);
         errdefer self.event_loop_local.deinit();
 
         self.group = std.event.Group(error!void).init(&self.loop);
@@ -107,6 +107,7 @@ pub const TestContext = struct {
             Target.Native,
             Compilation.Kind.Obj,
             builtin.Mode.Debug,
+            true, // is_static
             self.zig_lib_dir,
             self.zig_cache_dir,
         );

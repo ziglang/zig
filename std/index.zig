@@ -36,6 +36,8 @@ pub const sort = @import("sort.zig");
 pub const unicode = @import("unicode.zig");
 pub const zig = @import("zig/index.zig");
 
+pub const lazyInit = @import("lazy_init.zig").lazyInit;
+
 test "std" {
     // run tests from these
     _ = @import("atomic/index.zig");
@@ -71,4 +73,5 @@ test "std" {
     _ = @import("sort.zig");
     _ = @import("unicode.zig");
     _ = @import("zig/index.zig");
+    _ = @import("lazy_init.zig");
 }

@@ -160,7 +160,7 @@ pub const Type = struct {
         decls: *Scope.Decls,
 
         pub fn destroy(self: *Struct, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Struct, ofile: *ObjectFile) llvm.TypeRef {
@@ -180,7 +180,7 @@ pub const Type = struct {
         };
 
         pub fn create(comp: *Compilation, return_type: *Type, params: []Param, is_var_args: bool) !*Fn {
-            const result = try comp.a().create(Fn{
+            const result = try comp.gpa().create(Fn{
                 .base = Type{
                     .base = Value{
                         .id = Value.Id.Type,
@@ -193,7 +193,7 @@ pub const Type = struct {
                 .params = params,
                 .is_var_args = is_var_args,
             });
-            errdefer comp.a().destroy(result);
+            errdefer comp.gpa().destroy(result);
 
             result.return_type.base.ref();
             for (result.params) |param| {
@@ -207,7 +207,7 @@ pub const Type = struct {
             for (self.params) |param| {
                 param.typeof.base.deref(comp);
             }
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Fn, ofile: *ObjectFile) !llvm.TypeRef {
@@ -215,8 +215,8 @@ pub const Type = struct {
                 Type.Id.Void => llvm.VoidTypeInContext(ofile.context) orelse return error.OutOfMemory,
                 else => try self.return_type.getLlvmType(ofile),
             };
-            const llvm_param_types = try ofile.a().alloc(llvm.TypeRef, self.params.len);
-            defer ofile.a().free(llvm_param_types);
+            const llvm_param_types = try ofile.gpa().alloc(llvm.TypeRef, self.params.len);
+            defer ofile.gpa().free(llvm_param_types);
             for (llvm_param_types) |*llvm_param_type, i| {
                 llvm_param_type.* = try self.params[i].typeof.getLlvmType(ofile);
             }
@@ -241,7 +241,7 @@ pub const Type = struct {
         }
 
         pub fn destroy(self: *MetaType, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -255,7 +255,7 @@ pub const Type = struct {
         }
 
         pub fn destroy(self: *Void, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -269,7 +269,7 @@ pub const Type = struct {
         }
 
         pub fn destroy(self: *Bool, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Bool, ofile: *ObjectFile) llvm.TypeRef {
@@ -287,7 +287,7 @@ pub const Type = struct {
         }
 
         pub fn destroy(self: *NoReturn, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -295,7 +295,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Int, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Int, ofile: *ObjectFile) llvm.TypeRef {
@@ -307,7 +307,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Float, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Float, ofile: *ObjectFile) llvm.TypeRef {
@@ -332,7 +332,7 @@ pub const Type = struct {
         pub const Size = builtin.TypeInfo.Pointer.Size;
 
         pub fn destroy(self: *Pointer, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn get(
@@ -355,7 +355,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Array, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Array, ofile: *ObjectFile) llvm.TypeRef {
@@ -367,7 +367,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *ComptimeFloat, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -375,7 +375,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *ComptimeInt, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -383,7 +383,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Undefined, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -391,7 +391,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Null, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -399,7 +399,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Optional, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Optional, ofile: *ObjectFile) llvm.TypeRef {
@@ -411,7 +411,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *ErrorUnion, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *ErrorUnion, ofile: *ObjectFile) llvm.TypeRef {
@@ -423,7 +423,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *ErrorSet, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *ErrorSet, ofile: *ObjectFile) llvm.TypeRef {
@@ -435,7 +435,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Enum, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Enum, ofile: *ObjectFile) llvm.TypeRef {
@@ -447,7 +447,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Union, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Union, ofile: *ObjectFile) llvm.TypeRef {
@@ -459,7 +459,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Namespace, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -467,7 +467,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Block, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -475,7 +475,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *BoundFn, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *BoundFn, ofile: *ObjectFile) llvm.TypeRef {
@@ -487,7 +487,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *ArgTuple, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -495,7 +495,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Opaque, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Opaque, ofile: *ObjectFile) llvm.TypeRef {
@@ -507,7 +507,7 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Promise, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Promise, ofile: *ObjectFile) llvm.TypeRef {

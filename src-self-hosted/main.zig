@@ -363,6 +363,8 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         }
     };
 
+    const is_static = flags.present("static");
+
     const assembly_files = flags.many("assembly");
     const link_objects = flags.many("object");
     if (root_source_file == null and link_objects.len == 0 and assembly_files.len == 0) {
@@ -389,7 +391,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    var event_loop_local = EventLoopLocal.init(&loop);
+    var event_loop_local = try EventLoopLocal.init(&loop);
     defer event_loop_local.deinit();
 
     var comp = try Compilation.create(
@@ -399,6 +401,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         Target.Native,
         out_type,
         build_mode,
+        is_static,
         zig_lib_dir,
         full_cache_dir,
     );
@@ -426,7 +429,6 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.clang_argv = clang_argv_buf.toSliceConst();
 
     comp.strip = flags.present("strip");
-    comp.is_static = flags.present("static");
 
     if (flags.single("libc-lib-dir")) |libc_lib_dir| {
         comp.libc_lib_dir = libc_lib_dir;
@@ -481,9 +483,9 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     }
 
     comp.emit_file_type = emit_type;
-    comp.link_objects = link_objects;
     comp.assembly_files = assembly_files;
     comp.link_out_file = flags.single("out-file");
+    comp.link_objects = link_objects;
 
     try comp.build();
     const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);

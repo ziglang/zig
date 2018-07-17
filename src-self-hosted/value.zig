@@ -4,6 +4,7 @@ const Scope = @import("scope.zig").Scope;
 const Compilation = @import("compilation.zig").Compilation;
 const ObjectFile = @import("codegen.zig").ObjectFile;
 const llvm = @import("llvm.zig");
+const Buffer = std.Buffer;
 
 /// Values are ref-counted, heap-allocated, and copy-on-write
 /// If there is only 1 ref then write need not copy
@@ -68,7 +69,7 @@ pub const Value = struct {
 
         /// The main external name that is used in the .o file.
         /// TODO https://github.com/ziglang/zig/issues/265
-        symbol_name: std.Buffer,
+        symbol_name: Buffer,
 
         /// parent should be the top level decls or container decls
         fndef_scope: *Scope.FnDef,
@@ -79,10 +80,22 @@ pub const Value = struct {
         /// parent is child_scope
         block_scope: *Scope.Block,
 
+        /// Path to the object file that contains this function
+        containing_object: Buffer,
+
+        link_set_node: *std.LinkedList(?*Value.Fn).Node,
+
         /// Creates a Fn value with 1 ref
         /// Takes ownership of symbol_name
-        pub fn create(comp: *Compilation, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: std.Buffer) !*Fn {
-            const self = try comp.a().create(Fn{
+        pub fn create(comp: *Compilation, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: Buffer) !*Fn {
+            const link_set_node = try comp.gpa().create(Compilation.FnLinkSet.Node{
+                .data = null,
+                .next = undefined,
+                .prev = undefined,
+            });
+            errdefer comp.gpa().destroy(link_set_node);
+
+            const self = try comp.gpa().create(Fn{
                 .base = Value{
                     .id = Value.Id.Fn,
                     .typeof = &fn_type.base,
@@ -92,6 +105,8 @@ pub const Value = struct {
                 .child_scope = &fndef_scope.base,
                 .block_scope = undefined,
                 .symbol_name = symbol_name,
+                .containing_object = Buffer.initNull(comp.gpa()),
+                .link_set_node = link_set_node,
             });
             fn_type.base.base.ref();
             fndef_scope.fn_val = self;
@@ -100,9 +115,19 @@ pub const Value = struct {
         }
 
         pub fn destroy(self: *Fn, comp: *Compilation) void {
+            // remove with a tombstone so that we do not have to grab a lock
+            if (self.link_set_node.data != null) {
+                // it's now the job of the link step to find this tombstone and
+                // deallocate it.
+                self.link_set_node.data = null;
+            } else {
+                comp.gpa().destroy(self.link_set_node);
+            }
+
+            self.containing_object.deinit();
             self.fndef_scope.base.deref(comp);
             self.symbol_name.deinit();
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -115,7 +140,7 @@ pub const Value = struct {
         }
 
         pub fn destroy(self: *Void, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -134,7 +159,7 @@ pub const Value = struct {
         }
 
         pub fn destroy(self: *Bool, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
 
         pub fn getLlvmConst(self: *Bool, ofile: *ObjectFile) ?llvm.ValueRef {
@@ -156,7 +181,7 @@ pub const Value = struct {
         }
 
         pub fn destroy(self: *NoReturn, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -170,7 +195,7 @@ pub const Value = struct {
         };
 
         pub fn destroy(self: *Ptr, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 };
