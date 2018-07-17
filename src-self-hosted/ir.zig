@@ -453,7 +453,7 @@ pub const Code = struct {
     arena: std.heap.ArenaAllocator,
     return_type: ?*Type,
 
-    /// allocator is comp.a()
+    /// allocator is comp.gpa()
     pub fn destroy(self: *Code, allocator: *Allocator) void {
         self.arena.deinit();
         allocator.destroy(self);
@@ -483,13 +483,13 @@ pub const Builder = struct {
     pub const Error = Analyze.Error;
 
     pub fn init(comp: *Compilation, parsed_file: *ParsedFile) !Builder {
-        const code = try comp.a().create(Code{
+        const code = try comp.gpa().create(Code{
             .basic_block_list = undefined,
-            .arena = std.heap.ArenaAllocator.init(comp.a()),
+            .arena = std.heap.ArenaAllocator.init(comp.gpa()),
             .return_type = null,
         });
         code.basic_block_list = std.ArrayList(*BasicBlock).init(&code.arena.allocator);
-        errdefer code.destroy(comp.a());
+        errdefer code.destroy(comp.gpa());
 
         return Builder{
             .comp = comp,
@@ -502,7 +502,7 @@ pub const Builder = struct {
     }
 
     pub fn abort(self: *Builder) void {
-        self.code.destroy(self.comp.a());
+        self.code.destroy(self.comp.gpa());
     }
 
     /// Call code.destroy() when done

@@ -2,6 +2,12 @@ const builtin = @import("builtin");
 const c = @import("c.zig");
 const assert = @import("std").debug.assert;
 
+// we wrap the c module for 3 reasons:
+// 1. to avoid accidentally calling the non-thread-safe functions
+// 2. patch up some of the types to remove nullability
+// 3. some functions have been augmented by zig_llvm.cpp to be more powerful,
+//    such as ZigLLVMTargetMachineEmitToFile
+
 pub const AttributeIndex = c_uint;
 pub const Bool = c_int;
 
@@ -12,25 +18,51 @@ pub const ValueRef = removeNullability(c.LLVMValueRef);
 pub const TypeRef = removeNullability(c.LLVMTypeRef);
 pub const BasicBlockRef = removeNullability(c.LLVMBasicBlockRef);
 pub const AttributeRef = removeNullability(c.LLVMAttributeRef);
+pub const TargetRef = removeNullability(c.LLVMTargetRef);
+pub const TargetMachineRef = removeNullability(c.LLVMTargetMachineRef);
+pub const TargetDataRef = removeNullability(c.LLVMTargetDataRef);
+pub const DIBuilder = c.ZigLLVMDIBuilder;
 
 pub const AddAttributeAtIndex = c.LLVMAddAttributeAtIndex;
 pub const AddFunction = c.LLVMAddFunction;
+pub const AddModuleCodeViewFlag = c.ZigLLVMAddModuleCodeViewFlag;
+pub const AddModuleDebugInfoFlag = c.ZigLLVMAddModuleDebugInfoFlag;
 pub const ClearCurrentDebugLocation = c.ZigLLVMClearCurrentDebugLocation;
+pub const ConstAllOnes = c.LLVMConstAllOnes;
 pub const ConstInt = c.LLVMConstInt;
+pub const ConstNull = c.LLVMConstNull;
 pub const ConstStringInContext = c.LLVMConstStringInContext;
 pub const ConstStructInContext = c.LLVMConstStructInContext;
+pub const CopyStringRepOfTargetData = c.LLVMCopyStringRepOfTargetData;
 pub const CreateBuilderInContext = c.LLVMCreateBuilderInContext;
+pub const CreateCompileUnit = c.ZigLLVMCreateCompileUnit;
+pub const CreateDIBuilder = c.ZigLLVMCreateDIBuilder;
 pub const CreateEnumAttribute = c.LLVMCreateEnumAttribute;
+pub const CreateFile = c.ZigLLVMCreateFile;
 pub const CreateStringAttribute = c.LLVMCreateStringAttribute;
+pub const CreateTargetDataLayout = c.LLVMCreateTargetDataLayout;
+pub const CreateTargetMachine = c.LLVMCreateTargetMachine;
+pub const DIBuilderFinalize = c.ZigLLVMDIBuilderFinalize;
 pub const DisposeBuilder = c.LLVMDisposeBuilder;
+pub const DisposeDIBuilder = c.ZigLLVMDisposeDIBuilder;
+pub const DisposeMessage = c.LLVMDisposeMessage;
 pub const DisposeModule = c.LLVMDisposeModule;
+pub const DisposeTargetData = c.LLVMDisposeTargetData;
+pub const DisposeTargetMachine = c.LLVMDisposeTargetMachine;
 pub const DoubleTypeInContext = c.LLVMDoubleTypeInContext;
 pub const DumpModule = c.LLVMDumpModule;
 pub const FP128TypeInContext = c.LLVMFP128TypeInContext;
 pub const FloatTypeInContext = c.LLVMFloatTypeInContext;
 pub const GetEnumAttributeKindForName = c.LLVMGetEnumAttributeKindForName;
+pub const GetHostCPUName = c.ZigLLVMGetHostCPUName;
 pub const GetMDKindIDInContext = c.LLVMGetMDKindIDInContext;
+pub const GetNativeFeatures = c.ZigLLVMGetNativeFeatures;
 pub const HalfTypeInContext = c.LLVMHalfTypeInContext;
+pub const InitializeAllAsmParsers = c.LLVMInitializeAllAsmParsers;
+pub const InitializeAllAsmPrinters = c.LLVMInitializeAllAsmPrinters;
+pub const InitializeAllTargetInfos = c.LLVMInitializeAllTargetInfos;
+pub const InitializeAllTargetMCs = c.LLVMInitializeAllTargetMCs;
+pub const InitializeAllTargets = c.LLVMInitializeAllTargets;
 pub const InsertBasicBlockInContext = c.LLVMInsertBasicBlockInContext;
 pub const Int128TypeInContext = c.LLVMInt128TypeInContext;
 pub const Int16TypeInContext = c.LLVMInt16TypeInContext;
@@ -47,13 +79,16 @@ pub const MDStringInContext = c.LLVMMDStringInContext;
 pub const MetadataTypeInContext = c.LLVMMetadataTypeInContext;
 pub const ModuleCreateWithNameInContext = c.LLVMModuleCreateWithNameInContext;
 pub const PPCFP128TypeInContext = c.LLVMPPCFP128TypeInContext;
+pub const SetDataLayout = c.LLVMSetDataLayout;
+pub const SetTarget = c.LLVMSetTarget;
 pub const StructTypeInContext = c.LLVMStructTypeInContext;
 pub const TokenTypeInContext = c.LLVMTokenTypeInContext;
 pub const VoidTypeInContext = c.LLVMVoidTypeInContext;
 pub const X86FP80TypeInContext = c.LLVMX86FP80TypeInContext;
 pub const X86MMXTypeInContext = c.LLVMX86MMXTypeInContext;
-pub const ConstAllOnes = c.LLVMConstAllOnes;
-pub const ConstNull = c.LLVMConstNull;
+
+pub const GetTargetFromTriple = LLVMGetTargetFromTriple;
+extern fn LLVMGetTargetFromTriple(Triple: [*]const u8, T: *TargetRef, ErrorMessage: ?*[*]u8) Bool;
 
 pub const VerifyModule = LLVMVerifyModule;
 extern fn LLVMVerifyModule(M: ModuleRef, Action: VerifierFailureAction, OutMessage: *?[*]u8) Bool;
@@ -83,6 +118,31 @@ pub const PrintMessageAction = VerifierFailureAction.LLVMPrintMessageAction;
 pub const ReturnStatusAction = VerifierFailureAction.LLVMReturnStatusAction;
 pub const VerifierFailureAction = c.LLVMVerifierFailureAction;
 
+pub const CodeGenLevelNone = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelNone;
+pub const CodeGenLevelLess = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelLess;
+pub const CodeGenLevelDefault = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelDefault;
+pub const CodeGenLevelAggressive = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelAggressive;
+pub const CodeGenOptLevel = c.LLVMCodeGenOptLevel;
+
+pub const RelocDefault = c.LLVMRelocMode.LLVMRelocDefault;
+pub const RelocStatic = c.LLVMRelocMode.LLVMRelocStatic;
+pub const RelocPIC = c.LLVMRelocMode.LLVMRelocPIC;
+pub const RelocDynamicNoPic = c.LLVMRelocMode.LLVMRelocDynamicNoPic;
+pub const RelocMode = c.LLVMRelocMode;
+
+pub const CodeModelDefault = c.LLVMCodeModel.LLVMCodeModelDefault;
+pub const CodeModelJITDefault = c.LLVMCodeModel.LLVMCodeModelJITDefault;
+pub const CodeModelSmall = c.LLVMCodeModel.LLVMCodeModelSmall;
+pub const CodeModelKernel = c.LLVMCodeModel.LLVMCodeModelKernel;
+pub const CodeModelMedium = c.LLVMCodeModel.LLVMCodeModelMedium;
+pub const CodeModelLarge = c.LLVMCodeModel.LLVMCodeModelLarge;
+pub const CodeModel = c.LLVMCodeModel;
+
+pub const EmitAssembly = EmitOutputType.ZigLLVM_EmitAssembly;
+pub const EmitBinary = EmitOutputType.ZigLLVM_EmitBinary;
+pub const EmitLLVMIr = EmitOutputType.ZigLLVM_EmitLLVMIr;
+pub const EmitOutputType = c.ZigLLVM_EmitOutputType;
+
 fn removeNullability(comptime T: type) type {
     comptime assert(@typeId(T) == builtin.TypeId.Optional);
     return T.Child;
@@ -90,3 +150,14 @@ fn removeNullability(comptime T: type) type {
 
 pub const BuildRet = LLVMBuildRet;
 extern fn LLVMBuildRet(arg0: BuilderRef, V: ?ValueRef) ValueRef;
+
+pub const TargetMachineEmitToFile = ZigLLVMTargetMachineEmitToFile;
+extern fn ZigLLVMTargetMachineEmitToFile(
+    targ_machine_ref: TargetMachineRef,
+    module_ref: ModuleRef,
+    filename: [*]const u8,
+    output_type: EmitOutputType,
+    error_message: *[*]u8,
+    is_debug: bool,
+    is_small: bool,
+) bool;

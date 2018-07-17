@@ -6,15 +6,20 @@ const AtomicOrder = builtin.AtomicOrder;
 const Lock = std.event.Lock;
 const Loop = std.event.Loop;
 
-/// This is a value that starts out unavailable, until a value is put().
+/// This is a value that starts out unavailable, until resolve() is called
 /// While it is unavailable, coroutines suspend when they try to get() it,
-/// and then are resumed when the value is put().
-/// At this point the value remains forever available, and another put() is not allowed.
+/// and then are resumed when resolve() is called.
+/// At this point the value remains forever available, and another resolve() is not allowed.
 pub fn Future(comptime T: type) type {
     return struct {
         lock: Lock,
         data: T,
-        available: u8, // TODO make this a bool
+
+        /// TODO make this an enum
+        /// 0 - not started
+        /// 1 - started
+        /// 2 - finished
+        available: u8,
 
         const Self = this;
         const Queue = std.atomic.Queue(promise);
@@ -31,7 +36,7 @@ pub fn Future(comptime T: type) type {
         /// available.
         /// Thread-safe.
         pub async fn get(self: *Self) *T {
-            if (@atomicLoad(u8, &self.available, AtomicOrder.SeqCst) == 1) {
+            if (@atomicLoad(u8, &self.available, AtomicOrder.SeqCst) == 2) {
                 return &self.data;
             }
             const held = await (async self.lock.acquire() catch unreachable);
@@ -43,18 +48,36 @@ pub fn Future(comptime T: type) type {
         /// Gets the data without waiting for it. If it's available, a pointer is
         /// returned. Otherwise, null is returned.
         pub fn getOrNull(self: *Self) ?*T {
-            if (@atomicLoad(u8, &self.available, AtomicOrder.SeqCst) == 1) {
+            if (@atomicLoad(u8, &self.available, AtomicOrder.SeqCst) == 2) {
                 return &self.data;
             } else {
                 return null;
             }
         }
 
+        /// If someone else has started working on the data, wait for them to complete
+        /// and return a pointer to the data. Otherwise, return null, and the caller
+        /// should start working on the data.
+        /// It's not required to call start() before resolve() but it can be useful since
+        /// this method is thread-safe.
+        pub async fn start(self: *Self) ?*T {
+            const state = @cmpxchgStrong(u8, &self.available, 0, 1, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return null;
+            switch (state) {
+                1 => {
+                    const held = await (async self.lock.acquire() catch unreachable);
+                    held.release();
+                    return &self.data;
+                },
+                2 => return &self.data,
+                else => unreachable,
+            }
+        }
+
         /// Make the data become available. May be called only once.
         /// Before calling this, modify the `data` property.
         pub fn resolve(self: *Self) void {
-            const prev = @atomicRmw(u8, &self.available, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-            assert(prev == 0); // put() called twice
+            const prev = @atomicRmw(u8, &self.available, AtomicRmwOp.Xchg, 2, AtomicOrder.SeqCst);
+            assert(prev == 0 or prev == 1); // resolve() called twice
             Lock.Held.release(Lock.Held{ .lock = &self.lock });
         }
     };
