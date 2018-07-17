@@ -90,6 +90,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     llvm.DIBuilderFinalize(dibuilder);
 
     if (comp.verbose_llvm_ir) {
+        std.debug.warn("raw module:\n");
         llvm.DumpModule(ofile.module);
     }
 
@@ -122,6 +123,13 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     }
     //validate_inline_fns(g); TODO
     fn_val.containing_object = output_path;
+    if (comp.verbose_llvm_ir) {
+        std.debug.warn("optimized module:\n");
+        llvm.DumpModule(ofile.module);
+    }
+    if (comp.verbose_link) {
+        std.debug.warn("created {}\n", output_path.toSliceConst());
+    }
 }
 
 pub const ObjectFile = struct {

@@ -22,6 +22,9 @@
 #define ZIG_EXTERN_C
 #endif
 
+// ATTENTION: If you modify this file, be sure to update the corresponding
+// extern function declarations in the self-hosted compiler.
+
 struct ZigLLVMDIType;
 struct ZigLLVMDIBuilder;
 struct ZigLLVMDICompileUnit;

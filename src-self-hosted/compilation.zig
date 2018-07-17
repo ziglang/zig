@@ -27,6 +27,7 @@ const Type = Value.Type;
 const Span = errmsg.Span;
 const codegen = @import("codegen.zig");
 const Package = @import("package.zig").Package;
+const link = @import("link.zig").link;
 
 /// Data that is local to the event loop.
 pub const EventLoopLocal = struct {
@@ -238,6 +239,7 @@ pub const Compilation = struct {
         LinkQuotaExceeded,
         EnvironmentVariableNotFound,
         AppDataDirUnavailable,
+        LinkFailed,
     };
 
     pub const Event = union(enum) {
@@ -563,8 +565,7 @@ pub const Compilation = struct {
     async fn buildAsync(self: *Compilation) void {
         while (true) {
             // TODO directly awaiting async should guarantee memory allocation elision
-            // TODO also async before suspending should guarantee memory allocation elision
-            const build_result = await (async self.addRootSrc() catch unreachable);
+            const build_result = await (async self.compileAndLink() catch unreachable);
 
             // this makes a handy error return trace and stack trace in debug mode
             if (std.debug.runtime_safety) {
@@ -595,7 +596,7 @@ pub const Compilation = struct {
         }
     }
 
-    async fn addRootSrc(self: *Compilation) !void {
+    async fn compileAndLink(self: *Compilation) !void {
         const root_src_path = self.root_src_path orelse @panic("TODO handle null root src path");
         // TODO async/await os.path.real
         const root_src_real_path = os.path.real(self.gpa(), root_src_path) catch |err| {
@@ -669,6 +670,17 @@ pub const Compilation = struct {
         }
         try await (async decl_group.wait() catch unreachable);
         try await (async self.prelink_group.wait() catch unreachable);
+
+        const any_prelink_errors = blk: {
+            const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
+            defer compile_errors.release();
+
+            break :blk compile_errors.value.len != 0;
+        };
+
+        if (!any_prelink_errors) {
+            try link(self);
+        }
     }
 
     async fn addTopLevelDecl(self: *Compilation, decl: *Decl) !void {
@@ -720,11 +732,6 @@ pub const Compilation = struct {
             );
             // TODO add error note showing location of other symbol
         }
-    }
-
-    pub fn link(self: *Compilation, out_file: ?[]const u8) !void {
-        warn("TODO link");
-        return error.Todo;
     }
 
     pub fn haveLibC(self: *Compilation) bool {
@@ -882,9 +889,8 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
     errdefer symbol_name.deinit();
 
+    // The Decl.Fn owns the initial 1 reference count
     const fn_val = try Value.Fn.create(comp, fn_type, fndef_scope, symbol_name);
-    defer fn_val.base.deref(comp);
-
     fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
 
     const unanalyzed_code = (await (async ir.gen(
@@ -948,12 +954,10 @@ fn getZigDir(allocator: *mem.Allocator) ![]u8 {
     return getAppDataDir(allocator, "zig");
 }
 
-
 const GetAppDataDirError = error{
     OutOfMemory,
     AppDataDirUnavailable,
 };
-
 
 /// Caller owns returned memory.
 /// TODO move to zig std lib
@@ -961,9 +965,12 @@ fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataDirEr
     switch (builtin.os) {
         builtin.Os.windows => {
             var dir_path_ptr: [*]u16 = undefined;
-            switch (os.windows.SHGetKnownFolderPath(&os.windows.FOLDERID_LocalAppData, os.windows.KF_FLAG_CREATE,
-                null, &dir_path_ptr,))
-            {
+            switch (os.windows.SHGetKnownFolderPath(
+                &os.windows.FOLDERID_LocalAppData,
+                os.windows.KF_FLAG_CREATE,
+                null,
+                &dir_path_ptr,
+            )) {
                 os.windows.S_OK => {
                     defer os.windows.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
                     const global_dir = try utf16leToUtf8(allocator, utf16lePtrSlice(dir_path_ptr));
@@ -974,7 +981,7 @@ fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataDirEr
                 else => return error.AppDataDirUnavailable,
             }
         },
-        // TODO for macos it should be "~/Library/Application Support/<APPNAME>" 
+        // TODO for macos it should be "~/Library/Application Support/<APPNAME>"
         else => {
             const home_dir = os.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
