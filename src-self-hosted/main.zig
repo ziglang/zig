@@ -31,6 +31,7 @@ const usage =
     \\  build-exe   [source]         Create executable from source or object files
     \\  build-lib   [source]         Create library from source or object files
     \\  build-obj   [source]         Create object from source or assembly
+    \\  find-libc                    Show native libc installation paths
     \\  fmt         [source]         Parse file and render in canonical zig format
     \\  targets                      List available compilation targets
     \\  version                      Print version number and exit
@@ -80,6 +81,10 @@ pub fn main() !void {
         Command{
             .name = "build-obj",
             .exec = cmdBuildObj,
+        },
+        Command{
+            .name = "find-libc",
+            .exec = cmdFindLibc,
         },
         Command{
             .name = "fmt",
@@ -134,7 +139,6 @@ const usage_build_generic =
     \\  --cache-dir [path]           Override the cache directory
     \\  --emit [filetype]            Emit a specific file format as compilation output
     \\  --enable-timing-info         Print timing diagnostics
-    \\  --libc-include-dir [path]    Directory where libc stdlib.h resides
     \\  --name [name]                Override output name
     \\  --output [file]              Override destination path
     \\  --output-h [file]            Override generated header file path
@@ -165,10 +169,6 @@ const usage_build_generic =
     \\  --ar-path [path]             Set the path to ar
     \\  --dynamic-linker [path]      Set the path to ld.so
     \\  --each-lib-rpath             Add rpath for each used dynamic library
-    \\  --libc-lib-dir [path]        Directory where libc crt1.o resides
-    \\  --libc-static-lib-dir [path] Directory where libc crtbegin.o resides
-    \\  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides
-    \\  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides
     \\  --library [lib]              Link against lib
     \\  --forbid-library [lib]       Make it an error to link against lib
     \\  --library-path [dir]         Add a directory to the library search path
@@ -210,7 +210,6 @@ const args_build_generic = []Flag{
         "llvm-ir",
     }),
     Flag.Bool("--enable-timing-info"),
-    Flag.Arg1("--libc-include-dir"),
     Flag.Arg1("--name"),
     Flag.Arg1("--output"),
     Flag.Arg1("--output-h"),
@@ -236,10 +235,6 @@ const args_build_generic = []Flag{
     Flag.Arg1("--ar-path"),
     Flag.Arg1("--dynamic-linker"),
     Flag.Bool("--each-lib-rpath"),
-    Flag.Arg1("--libc-lib-dir"),
-    Flag.Arg1("--libc-static-lib-dir"),
-    Flag.Arg1("--msvc-lib-dir"),
-    Flag.Arg1("--kernel32-lib-dir"),
     Flag.ArgMergeN("--library", 1),
     Flag.ArgMergeN("--forbid-library", 1),
     Flag.ArgMergeN("--library-path", 1),
@@ -430,21 +425,6 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
     comp.strip = flags.present("strip");
 
-    if (flags.single("libc-lib-dir")) |libc_lib_dir| {
-        comp.libc_lib_dir = libc_lib_dir;
-    }
-    if (flags.single("libc-static-lib-dir")) |libc_static_lib_dir| {
-        comp.libc_static_lib_dir = libc_static_lib_dir;
-    }
-    if (flags.single("libc-include-dir")) |libc_include_dir| {
-        comp.libc_include_dir = libc_include_dir;
-    }
-    if (flags.single("msvc-lib-dir")) |msvc_lib_dir| {
-        comp.msvc_lib_dir = msvc_lib_dir;
-    }
-    if (flags.single("kernel32-lib-dir")) |kernel32_lib_dir| {
-        comp.kernel32_lib_dir = kernel32_lib_dir;
-    }
     if (flags.single("dynamic-linker")) |dynamic_linker| {
         comp.dynamic_linker = dynamic_linker;
     }
@@ -578,6 +558,41 @@ const Fmt = struct {
         }
     }
 };
+
+fn cmdFindLibc(allocator: *Allocator, args: []const []const u8) !void {
+    var loop: event.Loop = undefined;
+    try loop.initMultiThreaded(allocator);
+    defer loop.deinit();
+
+    var event_loop_local = try EventLoopLocal.init(&loop);
+    defer event_loop_local.deinit();
+
+    const handle = try async<loop.allocator> findLibCAsync(&event_loop_local);
+    defer cancel handle;
+
+    loop.run();
+}
+
+async fn findLibCAsync(event_loop_local: *EventLoopLocal) void {
+    const libc = (await (async event_loop_local.getNativeLibC() catch unreachable)) catch |err| {
+        stderr.print("unable to find libc: {}\n", @errorName(err)) catch os.exit(1);
+        os.exit(1);
+    };
+    stderr.print(
+        \\include_dir={}
+        \\lib_dir={}
+        \\static_lib_dir={}
+        \\msvc_lib_dir={}
+        \\kernel32_lib_dir={}
+        \\
+    ,
+        libc.include_dir,
+        libc.lib_dir,
+        libc.static_lib_dir orelse "",
+        libc.msvc_lib_dir orelse "",
+        libc.kernel32_lib_dir orelse "",
+    ) catch os.exit(1);
+}
 
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);

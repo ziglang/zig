@@ -28,6 +28,7 @@ const Span = errmsg.Span;
 const codegen = @import("codegen.zig");
 const Package = @import("package.zig").Package;
 const link = @import("link.zig").link;
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 /// Data that is local to the event loop.
 pub const EventLoopLocal = struct {
@@ -36,6 +37,8 @@ pub const EventLoopLocal = struct {
 
     /// TODO pool these so that it doesn't have to lock
     prng: event.Locked(std.rand.DefaultPrng),
+
+    native_libc: event.Future(LibCInstallation),
 
     var lazy_init_targets = std.lazyInit(void);
 
@@ -52,6 +55,7 @@ pub const EventLoopLocal = struct {
             .loop = loop,
             .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
             .prng = event.Locked(std.rand.DefaultPrng).init(loop, std.rand.DefaultPrng.init(seed)),
+            .native_libc = event.Future(LibCInstallation).init(loop),
         };
     }
 
@@ -77,6 +81,13 @@ pub const EventLoopLocal = struct {
         errdefer self.loop.allocator.destroy(node);
 
         return LlvmHandle{ .node = node };
+    }
+
+    pub async fn getNativeLibC(self: *EventLoopLocal) !*LibCInstallation {
+        if (await (async self.native_libc.start() catch unreachable)) |ptr| return ptr;
+        try await (async self.native_libc.data.findNative(self.loop) catch unreachable);
+        self.native_libc.resolve();
+        return &self.native_libc.data;
     }
 };
 
@@ -109,11 +120,6 @@ pub const Compilation = struct {
 
     linker_script: ?[]const u8,
     cache_dir: []const u8,
-    libc_lib_dir: ?[]const u8,
-    libc_static_lib_dir: ?[]const u8,
-    libc_include_dir: ?[]const u8,
-    msvc_lib_dir: ?[]const u8,
-    kernel32_lib_dir: ?[]const u8,
     dynamic_linker: ?[]const u8,
     out_h_path: ?[]const u8,
 
@@ -318,11 +324,6 @@ pub const Compilation = struct {
             .verbose_link = false,
 
             .linker_script = null,
-            .libc_lib_dir = null,
-            .libc_static_lib_dir = null,
-            .libc_include_dir = null,
-            .msvc_lib_dir = null,
-            .kernel32_lib_dir = null,
             .dynamic_linker = null,
             .out_h_path = null,
             .is_test = false,
@@ -762,8 +763,22 @@ pub const Compilation = struct {
         try self.link_libs_list.append(link_lib);
         if (is_libc) {
             self.libc_link_lib = link_lib;
+
+            // get a head start on looking for the native libc
+            if (self.target == Target.Native) {
+                try async<self.loop.allocator> self.startFindingNativeLibC();
+            }
         }
         return link_lib;
+    }
+
+    /// cancels itself so no need to await or cancel the promise.
+    async fn startFindingNativeLibC(self: *Compilation) void {
+        // we don't care if it fails, we're just trying to kick off the future resolution
+        _ = (await (async self.loop.call(EventLoopLocal.getNativeLibC, self.event_loop_local) catch unreachable)) catch {};
+        suspend |p| {
+            cancel p;
+        }
     }
 
     /// General Purpose Allocator. Must free when done.
