@@ -51,6 +51,20 @@ pub fn Queue(comptime T: type) type {
             return head;
         }
 
+        pub fn unget(self: *Self, node: *Node) void {
+            while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+            defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+
+            const opt_head = self.head;
+            self.head = node;
+            if (opt_head) |head| {
+                head.next = node;
+            } else {
+                assert(self.tail == null);
+                self.tail = node;
+            }
+        }
+
         pub fn isEmpty(self: *Self) bool {
             return @atomicLoad(?*Node, &self.head, builtin.AtomicOrder.SeqCst) != null;
         }
