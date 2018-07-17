@@ -113,6 +113,14 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return old_item;
         }
 
+        /// Removes the element at the specified index and returns it
+        /// or an error.OutOfBounds is returned. If no error then
+        /// the empty slot is filled from the end of the list.
+        pub fn swapRemoveOrError(self: *Self, i: usize) !T {
+            if (i >= self.len) return error.OutOfBounds;
+            return self.swapRemove(i);
+        }
+
         pub fn appendSlice(self: *Self, items: []align(A) const T) !void {
             try self.ensureCapacity(self.len + items.len);
             mem.copy(T, self.items[self.len..], items);
@@ -268,6 +276,34 @@ test "std.ArrayList.swapRemove" {
     assert(list.swapRemove(0) == 1);
     assert(list.at(0) == 5);
     assert(list.len == 4);
+}
+
+test "std.ArrayList.swapRemoveOrError" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    // Test just after initialization
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test after adding one item and remote it
+    try list.append(1);
+    assert((try list.swapRemoveOrError(0)) == 1);
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test after adding two items and remote both
+    try list.append(1);
+    try list.append(2);
+    assert((try list.swapRemoveOrError(1)) == 2);
+    assert((try list.swapRemoveOrError(0)) == 1);
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test out of bounds with one item
+    try list.append(1);
+    assertError(list.swapRemoveOrError(1), error.OutOfBounds);
+
+    // Test out of bounds with two items
+    try list.append(2);
+    assertError(list.swapRemoveOrError(2), error.OutOfBounds);
 }
 
 test "std.ArrayList.iterator" {
