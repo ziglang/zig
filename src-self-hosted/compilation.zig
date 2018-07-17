@@ -237,6 +237,7 @@ pub const Compilation = struct {
         ReadOnlyFileSystem,
         LinkQuotaExceeded,
         EnvironmentVariableNotFound,
+        AppDataDirUnavailable,
     };
 
     pub const Event = union(enum) {
@@ -944,13 +945,64 @@ async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) void {
 }
 
 fn getZigDir(allocator: *mem.Allocator) ![]u8 {
-    const home_dir = try getHomeDir(allocator);
-    defer allocator.free(home_dir);
-
-    return os.path.join(allocator, home_dir, ".zig");
+    return getAppDataDir(allocator, "zig");
 }
 
-/// TODO move to zig std lib, and make it work for other OSes
-fn getHomeDir(allocator: *mem.Allocator) ![]u8 {
-    return os.getEnvVarOwned(allocator, "HOME");
+
+const GetAppDataDirError = error{
+    OutOfMemory,
+    AppDataDirUnavailable,
+};
+
+
+/// Caller owns returned memory.
+/// TODO move to zig std lib
+fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
+    switch (builtin.os) {
+        builtin.Os.windows => {
+            var dir_path_ptr: [*]u16 = undefined;
+            switch (os.windows.SHGetKnownFolderPath(&os.windows.FOLDERID_LocalAppData, os.windows.KF_FLAG_CREATE,
+                null, &dir_path_ptr,))
+            {
+                os.windows.S_OK => {
+                    defer os.windows.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
+                    const global_dir = try utf16leToUtf8(allocator, utf16lePtrSlice(dir_path_ptr));
+                    defer allocator.free(global_dir);
+                    return os.path.join(allocator, global_dir, appname);
+                },
+                os.windows.E_OUTOFMEMORY => return error.OutOfMemory,
+                else => return error.AppDataDirUnavailable,
+            }
+        },
+        // TODO for macos it should be "~/Library/Application Support/<APPNAME>" 
+        else => {
+            const home_dir = os.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.EnvironmentVariableNotFound => return error.AppDataDirUnavailable, // TODO look in /etc/passwd
+            };
+            defer allocator.free(home_dir);
+            return os.path.join(allocator, home_dir, ".local", "share", appname);
+        },
+    }
+}
+
+test "getAppDataDir" {
+    const result = try getAppDataDir(std.debug.global_allocator, "zig");
+    std.debug.warn("{}...", result);
+}
+
+// TODO full utf-16 LE support
+fn utf16leToUtf8(allocator: *mem.Allocator, utf16le: []const u16) ![]u8 {
+    const utf8_bytes = try allocator.alloc(u8, utf16le.len);
+    for (utf16le) |codepoint, i| {
+        assert(codepoint < 127); // TODO full utf-16 LE support
+        utf8_bytes[i] = @intCast(u8, codepoint);
+    }
+    return utf8_bytes;
+}
+
+fn utf16lePtrSlice(ptr: [*]const u16) []const u16 {
+    var index: usize = 0;
+    while (ptr[index] != 0) : (index += 1) {}
+    return ptr[0..index];
 }
