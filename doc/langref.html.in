@@ -1087,7 +1087,7 @@ unwrapped == 1234</code></pre>
           </td>
           <td>
             If <code>a</code> is <code>false</code>, returns <code>false</code>
-            without evaluating <code>b</code>. Otherwise, retuns <code>b</code>.
+            without evaluating <code>b</code>. Otherwise, returns <code>b</code>.
           </td>
           <td>
             <pre><code class="zig">false and true == false</code></pre>
@@ -1102,7 +1102,7 @@ unwrapped == 1234</code></pre>
           </td>
           <td>
             If <code>a</code> is <code>true</code>, returns <code>true</code>
-            without evaluating <code>b</code>. Otherwise, retuns <code>b</code>.
+            without evaluating <code>b</code>. Otherwise, returns <code>b</code>.
           </td>
           <td>
             <pre><code class="zig">false or true == true</code></pre>
@@ -1483,7 +1483,7 @@ test "pointer array access" {
 }
 
 test "pointer slicing" {
-    // In Zig, we prefer using slices over null-terminated pointers.
+    // In Zig, we prefer slices over pointers to null-terminated arrays.
     // You can turn an array into a slice using slice syntax:
     var array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const slice = array[2..4];
