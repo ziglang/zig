@@ -35,15 +35,21 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
                 else => return error.AppDataDirUnavailable,
             }
         },
-        // TODO for macos it should be "~/Library/Application Support/<APPNAME>"
-        else => {
-            const home_dir = os.getEnvVarOwned(allocator, "HOME") catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.EnvironmentVariableNotFound => return error.AppDataDirUnavailable, // TODO look in /etc/passwd
+        builtin.Os.macosx => {
+            const home_dir = os.getEnvPosix("HOME") orelse {
+                // TODO look in /etc/passwd
+                return error.AppDataDirUnavailable;
             };
-            defer allocator.free(home_dir);
+            return os.path.join(allocator, home_dir, "Library", "Application Support", appname);
+        },
+        builtin.Os.linux => {
+            const home_dir = os.getEnvPosix("HOME") orelse {
+                // TODO look in /etc/passwd
+                return error.AppDataDirUnavailable;
+            };
             return os.path.join(allocator, home_dir, ".local", "share", appname);
         },
+        else => @compileError("Unsupported OS"),
     }
 }
 
@@ -53,8 +59,11 @@ fn utf16lePtrSlice(ptr: [*]const u16) []const u16 {
     return ptr[0..index];
 }
 
-test "getAppDataDir" {
-    const result = try getAppDataDir(std.debug.global_allocator, "zig");
-    std.debug.warn("{}...", result);
+test "std.os.getAppDataDir" {
+    var buf: [512]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+
+    // We can't actually validate the result
+    _ = getAppDataDir(allocator, "zig") catch return;
 }
 

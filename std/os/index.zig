@@ -498,6 +498,7 @@ pub var linux_aux_raw = []usize{0} ** 38;
 pub var posix_environ_raw: [][*]u8 = undefined;
 
 /// Caller must free result when done.
+/// TODO make this go through libc when we have it
 pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
@@ -541,6 +542,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     }
 }
 
+/// TODO make this go through libc when we have it
 pub fn getEnvPosix(key: []const u8) ?[]const u8 {
     for (posix_environ_raw) |ptr| {
         var line_i: usize = 0;
@@ -563,6 +565,7 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
+/// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
         const key_with_null = try cstr.addNullByte(allocator, key);
