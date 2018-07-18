@@ -1454,7 +1454,9 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdFn:
             return type_entry->data.fn.fn_type_id.cc == CallingConventionC;
         case TypeTableEntryIdPointer:
-            return type_allowed_in_extern(g, type_entry->data.pointer.child_type);
+            if (type_size(g, type_entry) == 0)
+                return false;
+            return true;
         case TypeTableEntryIdStruct:
             return type_entry->data.structure.layout == ContainerLayoutExtern || type_entry->data.structure.layout == ContainerLayoutPacked;
         case TypeTableEntryIdOptional:
