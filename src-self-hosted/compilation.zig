@@ -120,7 +120,6 @@ pub const Compilation = struct {
 
     linker_script: ?[]const u8,
     cache_dir: []const u8,
-    dynamic_linker: ?[]const u8,
     out_h_path: ?[]const u8,
 
     is_test: bool,
@@ -201,6 +200,13 @@ pub const Compilation = struct {
     root_package: *Package,
     std_package: *Package,
 
+    override_libc: ?*LibCInstallation,
+
+    /// need to wait on this group before deinitializing
+    deinit_group: event.Group(void),
+
+    destroy_handle: promise,
+
     const CompileErrList = std.ArrayList(*errmsg.Msg);
 
     // TODO handle some of these earlier and report them in a way other than error codes
@@ -246,6 +252,8 @@ pub const Compilation = struct {
         EnvironmentVariableNotFound,
         AppDataDirUnavailable,
         LinkFailed,
+        LibCRequiredButNotProvidedOrFound,
+        LibCMissingDynamicLinker,
     };
 
     pub const Event = union(enum) {
@@ -324,7 +332,6 @@ pub const Compilation = struct {
             .verbose_link = false,
 
             .linker_script = null,
-            .dynamic_linker = null,
             .out_h_path = null,
             .is_test = false,
             .each_lib_rpath = false,
@@ -351,6 +358,7 @@ pub const Compilation = struct {
             .link_out_file = null,
             .exported_symbol_names = event.Locked(Decl.Table).init(loop, Decl.Table.init(loop.allocator)),
             .prelink_group = event.Group(BuildError!void).init(loop),
+            .deinit_group = event.Group(void).init(loop),
             .compile_errors = event.Locked(CompileErrList).init(loop, CompileErrList.init(loop.allocator)),
 
             .meta_type = undefined,
@@ -368,6 +376,9 @@ pub const Compilation = struct {
 
             .root_package = undefined,
             .std_package = undefined,
+
+            .override_libc = null,
+            .destroy_handle = undefined,
         });
         errdefer {
             comp.arena_allocator.deinit();
@@ -431,6 +442,9 @@ pub const Compilation = struct {
         }
 
         try comp.initTypes();
+        errdefer comp.derefTypes();
+
+        comp.destroy_handle = try async<loop.allocator> comp.internalDeinit();
 
         return comp;
     }
@@ -526,11 +540,7 @@ pub const Compilation = struct {
         errdefer comp.gpa().destroy(comp.noreturn_value);
     }
 
-    pub fn destroy(self: *Compilation) void {
-        if (self.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
-            os.deleteTree(self.arena(), tmp_dir) catch {};
-        } else |_| {};
-
+    fn derefTypes(self: *Compilation) void {
         self.noreturn_value.base.deref(self);
         self.void_value.base.deref(self);
         self.false_value.base.deref(self);
@@ -538,6 +548,17 @@ pub const Compilation = struct {
         self.noreturn_type.base.base.deref(self);
         self.void_type.base.base.deref(self);
         self.meta_type.base.base.deref(self);
+    }
+
+    async fn internalDeinit(self: *Compilation) void {
+        suspend;
+        await (async self.deinit_group.wait() catch unreachable);
+        if (self.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
+            // TODO evented I/O?
+            os.deleteTree(self.arena(), tmp_dir) catch {};
+        } else |_| {};
+
+        self.derefTypes();
 
         self.events.destroy();
 
@@ -547,6 +568,10 @@ pub const Compilation = struct {
 
         self.arena_allocator.deinit();
         self.gpa().destroy(self);
+    }
+
+    pub fn destroy(self: *Compilation) void {
+        resume self.destroy_handle;
     }
 
     pub fn build(self: *Compilation) !void {
@@ -680,7 +705,7 @@ pub const Compilation = struct {
         };
 
         if (!any_prelink_errors) {
-            try link(self);
+            try await (async link(self) catch unreachable);
         }
     }
 
@@ -765,8 +790,8 @@ pub const Compilation = struct {
             self.libc_link_lib = link_lib;
 
             // get a head start on looking for the native libc
-            if (self.target == Target.Native) {
-                try async<self.loop.allocator> self.startFindingNativeLibC();
+            if (self.target == Target.Native and self.override_libc == null) {
+                try self.deinit_group.call(startFindingNativeLibC, self);
             }
         }
         return link_lib;
@@ -774,11 +799,9 @@ pub const Compilation = struct {
 
     /// cancels itself so no need to await or cancel the promise.
     async fn startFindingNativeLibC(self: *Compilation) void {
+        await (async self.loop.yield() catch unreachable);
         // we don't care if it fails, we're just trying to kick off the future resolution
-        _ = (await (async self.loop.call(EventLoopLocal.getNativeLibC, self.event_loop_local) catch unreachable)) catch {};
-        suspend |p| {
-            cancel p;
-        }
+        _ = (await (async self.event_loop_local.getNativeLibC() catch unreachable)) catch return;
     }
 
     /// General Purpose Allocator. Must free when done.

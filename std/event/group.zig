@@ -6,7 +6,7 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const assert = std.debug.assert;
 
-/// ReturnType should be `void` or `E!void`
+/// ReturnType must be `void` or `E!void`
 pub fn Group(comptime ReturnType: type) type {
     return struct {
         coro_stack: Stack,
@@ -39,7 +39,7 @@ pub fn Group(comptime ReturnType: type) type {
         }
 
         /// This is equivalent to an async call, but the async function is added to the group, instead
-        /// of returning a promise. func must be async and have return type void.
+        /// of returning a promise. func must be async and have return type ReturnType.
         /// Thread-safe.
         pub fn call(self: *Self, comptime func: var, args: ...) (error{OutOfMemory}!void) {
             const S = struct {

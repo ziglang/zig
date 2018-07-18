@@ -18,6 +18,7 @@ const EventLoopLocal = @import("compilation.zig").EventLoopLocal;
 const Compilation = @import("compilation.zig").Compilation;
 const Target = @import("target.zig").Target;
 const errmsg = @import("errmsg.zig");
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: os.File = undefined;
 var stderr: *io.OutStream(io.FileOutStream.Error) = undefined;
@@ -28,14 +29,14 @@ const usage =
     \\
     \\Commands:
     \\
-    \\  build-exe   [source]         Create executable from source or object files
-    \\  build-lib   [source]         Create library from source or object files
-    \\  build-obj   [source]         Create object from source or assembly
-    \\  find-libc                    Show native libc installation paths
-    \\  fmt         [source]         Parse file and render in canonical zig format
-    \\  targets                      List available compilation targets
-    \\  version                      Print version number and exit
-    \\  zen                          Print zen of zig and exit
+    \\  build-exe  [source]      Create executable from source or object files
+    \\  build-lib  [source]      Create library from source or object files
+    \\  build-obj  [source]      Create object from source or assembly
+    \\  fmt        [source]      Parse file and render in canonical zig format
+    \\  libc       [paths_file]  Display native libc paths file or validate one
+    \\  targets                  List available compilation targets
+    \\  version                  Print version number and exit
+    \\  zen                      Print zen of zig and exit
     \\
     \\
 ;
@@ -83,12 +84,12 @@ pub fn main() !void {
             .exec = cmdBuildObj,
         },
         Command{
-            .name = "find-libc",
-            .exec = cmdFindLibc,
-        },
-        Command{
             .name = "fmt",
             .exec = cmdFmt,
+        },
+        Command{
+            .name = "libc",
+            .exec = cmdLibC,
         },
         Command{
             .name = "targets",
@@ -135,6 +136,7 @@ const usage_build_generic =
     \\  --color [auto|off|on]        Enable or disable colored error messages
     \\
     \\Compile Options:
+    \\  --libc [file]                Provide a file which specifies libc paths
     \\  --assembly [source]          Add assembly file to build
     \\  --cache-dir [path]           Override the cache directory
     \\  --emit [filetype]            Emit a specific file format as compilation output
@@ -167,7 +169,6 @@ const usage_build_generic =
     \\
     \\Link Options:
     \\  --ar-path [path]             Set the path to ar
-    \\  --dynamic-linker [path]      Set the path to ld.so
     \\  --each-lib-rpath             Add rpath for each used dynamic library
     \\  --library [lib]              Link against lib
     \\  --forbid-library [lib]       Make it an error to link against lib
@@ -210,6 +211,7 @@ const args_build_generic = []Flag{
         "llvm-ir",
     }),
     Flag.Bool("--enable-timing-info"),
+    Flag.Arg1("--libc"),
     Flag.Arg1("--name"),
     Flag.Arg1("--output"),
     Flag.Arg1("--output-h"),
@@ -233,7 +235,6 @@ const args_build_generic = []Flag{
     Flag.Arg1("-mllvm"),
 
     Flag.Arg1("--ar-path"),
-    Flag.Arg1("--dynamic-linker"),
     Flag.Bool("--each-lib-rpath"),
     Flag.ArgMergeN("--library", 1),
     Flag.ArgMergeN("--forbid-library", 1),
@@ -382,6 +383,8 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
     defer allocator.free(zig_lib_dir);
 
+    var override_libc: LibCInstallation = undefined;
+
     var loop: event.Loop = undefined;
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
@@ -401,6 +404,15 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         full_cache_dir,
     );
     defer comp.destroy();
+
+    if (flags.single("libc")) |libc_path| {
+        parseLibcPaths(loop.allocator, &override_libc, libc_path);
+        comp.override_libc = &override_libc;
+    }
+
+    for (flags.many("library")) |lib| {
+        _ = try comp.addLinkLib(lib, true);
+    }
 
     comp.version_major = try std.fmt.parseUnsigned(u32, flags.single("ver-major") orelse "0", 10);
     comp.version_minor = try std.fmt.parseUnsigned(u32, flags.single("ver-minor") orelse "0", 10);
@@ -424,10 +436,6 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.clang_argv = clang_argv_buf.toSliceConst();
 
     comp.strip = flags.present("strip");
-
-    if (flags.single("dynamic-linker")) |dynamic_linker| {
-        comp.dynamic_linker = dynamic_linker;
-    }
 
     comp.verbose_tokenize = flags.present("verbose-tokenize");
     comp.verbose_ast_tree = flags.present("verbose-ast-tree");
@@ -479,7 +487,6 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
 
     switch (build_event) {
         Compilation.Event.Ok => {
-            std.debug.warn("Build succeeded\n");
             return;
         },
         Compilation.Event.Error => |err| {
@@ -559,7 +566,32 @@ const Fmt = struct {
     }
 };
 
-fn cmdFindLibc(allocator: *Allocator, args: []const []const u8) !void {
+fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {
+    libc.parse(allocator, libc_paths_file, stderr) catch |err| {
+        stderr.print(
+            "Unable to parse libc path file '{}': {}.\n" ++
+                "Try running `zig libc` to see an example for the native target.\n",
+            libc_paths_file,
+            @errorName(err),
+        ) catch os.exit(1);
+        os.exit(1);
+    };
+}
+
+fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
+    switch (args.len) {
+        0 => {},
+        1 => {
+            var libc_installation: LibCInstallation = undefined;
+            parseLibcPaths(allocator, &libc_installation, args[0]);
+            return;
+        },
+        else => {
+            try stderr.print("unexpected extra parameter: {}\n", args[1]);
+            os.exit(1);
+        },
+    }
+
     var loop: event.Loop = undefined;
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
@@ -578,20 +610,7 @@ async fn findLibCAsync(event_loop_local: *EventLoopLocal) void {
         stderr.print("unable to find libc: {}\n", @errorName(err)) catch os.exit(1);
         os.exit(1);
     };
-    stderr.print(
-        \\include_dir={}
-        \\lib_dir={}
-        \\static_lib_dir={}
-        \\msvc_lib_dir={}
-        \\kernel32_lib_dir={}
-        \\
-    ,
-        libc.include_dir,
-        libc.lib_dir,
-        libc.static_lib_dir orelse "",
-        libc.msvc_lib_dir orelse "",
-        libc.kernel32_lib_dir orelse "",
-    ) catch os.exit(1);
+    libc.render(stdout) catch os.exit(1);
 }
 
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {

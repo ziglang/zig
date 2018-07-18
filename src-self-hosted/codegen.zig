@@ -15,7 +15,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     defer fn_val.base.deref(comp);
     defer code.destroy(comp.gpa());
 
-    var output_path = try await (async comp.createRandomOutputPath(comp.target.oFileExt()) catch unreachable);
+    var output_path = try await (async comp.createRandomOutputPath(comp.target.objFileExt()) catch unreachable);
     errdefer output_path.deinit();
 
     const llvm_handle = try comp.event_loop_local.getAnyLlvmContext();
