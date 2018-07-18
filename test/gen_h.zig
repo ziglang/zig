@@ -76,4 +76,51 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\TEST_EXPORT void entry(struct Foo foo, uint8_t bar[]);
         \\
     );
+
+    cases.add("ptr to zig struct",
+        \\const S = struct {
+        \\    a: u8,
+        \\};
+        \\
+        \\export fn a(s: *S) u8 {
+        \\    return s.a;
+        \\}
+
+    ,
+        \\struct S;
+        \\TEST_EXPORT uint8_t a(struct S * s);
+        \\
+    );
+
+    cases.add("ptr to zig union",
+        \\const U = union(enum) {
+        \\    A: u8,
+        \\    B: u16,
+        \\};
+        \\
+        \\export fn a(s: *U) u8 {
+        \\    return s.A;
+        \\}
+
+    ,
+        \\union U;
+        \\TEST_EXPORT uint8_t a(union U * s);
+        \\
+    );
+
+    cases.add("ptr to zig enum",
+        \\const E = enum(u8) {
+        \\    A,
+        \\    B,
+        \\};
+        \\
+        \\export fn a(s: *E) u8 {
+        \\    return @enumToInt(s.*);
+        \\}
+
+    ,
+        \\enum E;
+        \\TEST_EXPORT uint8_t a(enum E * s);
+        \\
+    );
 }
