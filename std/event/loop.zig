@@ -233,8 +233,6 @@ pub const Loop = struct {
                 }
             },
             builtin.Os.windows => {
-                self.os_data.extra_thread_count = extra_thread_count;
-
                 self.os_data.io_port = try std.os.windowsCreateIoCompletionPort(
                     windows.INVALID_HANDLE_VALUE,
                     null,
@@ -468,7 +466,7 @@ pub const Loop = struct {
                 },
                 builtin.Os.windows => {
                     var i: usize = 0;
-                    while (i < self.os_data.extra_thread_count) : (i += 1) {
+                    while (i < self.extra_threads.len + 1) : (i += 1) {
                         while (true) {
                             const overlapped = @intToPtr(?*windows.OVERLAPPED, 0x1);
                             std.os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, @ptrToInt(&self.final_resume_node), overlapped) catch continue;

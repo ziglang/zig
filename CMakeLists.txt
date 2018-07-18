@@ -557,6 +557,7 @@ set(ZIG_STD_FILES
     "os/darwin_errno.zig"
     "os/epoch.zig"
     "os/file.zig"
+    "os/get_app_data_dir.zig"
     "os/get_user_id.zig"
     "os/index.zig"
     "os/linux/errno.zig"

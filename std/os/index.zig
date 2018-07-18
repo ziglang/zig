@@ -18,6 +18,7 @@ test "std.os" {
     _ = @import("test.zig");
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
+    _ = @import("get_app_data_dir.zig");
 }
 
 pub const windows = @import("windows/index.zig");
@@ -75,6 +76,9 @@ pub const WindowsOpenError = windows_util.OpenError;
 pub const WindowsWriteError = windows_util.WriteError;
 
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
+
+pub const getAppDataDir = @import("get_app_data_dir.zig").getAppDataDir;
+pub const GetAppDataDirError = @import("get_app_data_dir.zig").GetAppDataDirError;
 
 const debug = std.debug;
 const assert = debug.assert;

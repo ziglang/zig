@@ -1,5 +1,8 @@
 const std = @import("./index.zig");
+const builtin = @import("builtin");
 const debug = std.debug;
+const assert = std.debug.assert;
+const mem = std.mem;
 
 /// Returns how many bytes the UTF-8 representation would require
 /// for the given codepoint.
@@ -440,4 +443,90 @@ fn testDecode(bytes: []const u8) !u32 {
     if (bytes.len < length) return error.UnexpectedEof;
     debug.assert(bytes.len == length);
     return utf8Decode(bytes);
+}
+
+// TODO: make this API on top of a non-allocating Utf16LeView
+pub fn utf16leToUtf8(allocator: *mem.Allocator, utf16le: []const u16) ![]u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    // optimistically guess that it will all be ascii.
+    try result.ensureCapacity(utf16le.len);
+
+    const utf16le_as_bytes = @sliceToBytes(utf16le);
+    var i: usize = 0;
+    var out_index: usize = 0;
+    while (i < utf16le_as_bytes.len) : (i += 2) {
+        // decode
+        const c0: u32 = mem.readIntLE(u16, utf16le_as_bytes[i..i + 2]);
+        var codepoint: u32 = undefined;
+        if (c0 & ~u32(0x03ff) == 0xd800) {
+            // surrogate pair
+            i += 2;
+            if (i >= utf16le_as_bytes.len) return error.DanglingSurrogateHalf;
+            const c1: u32 = mem.readIntLE(u16, utf16le_as_bytes[i..i + 2]);
+            if (c1 & ~u32(0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
+            codepoint = 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
+        } else if (c0 & ~u32(0x03ff) == 0xdc00) {
+            return error.UnexpectedSecondSurrogateHalf;
+        } else {
+            codepoint = c0;
+        }
+
+        // encode
+        const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
+        try result.resize(result.len + utf8_len);
+        _ = utf8Encode(codepoint, result.items[out_index..]) catch unreachable;
+        out_index += utf8_len;
+    }
+
+    return result.toOwnedSlice();
+}
+
+test "utf16leToUtf8" {
+    var utf16le: [2]u16 = undefined;
+    const utf16le_as_bytes = @sliceToBytes(utf16le[0..]);
+
+    {
+        mem.writeInt(utf16le_as_bytes[0..], u16('A'), builtin.Endian.Little);
+        mem.writeInt(utf16le_as_bytes[2..], u16('a'), builtin.Endian.Little);
+        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        assert(mem.eql(u8, utf8, "Aa"));
+    }
+
+    {
+        mem.writeInt(utf16le_as_bytes[0..], u16(0x80), builtin.Endian.Little);
+        mem.writeInt(utf16le_as_bytes[2..], u16(0xffff), builtin.Endian.Little);
+        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        assert(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
+    }
+
+    {
+        // the values just outside the surrogate half range
+        mem.writeInt(utf16le_as_bytes[0..], u16(0xd7ff), builtin.Endian.Little);
+        mem.writeInt(utf16le_as_bytes[2..], u16(0xe000), builtin.Endian.Little);
+        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        assert(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
+    }
+
+    {
+        // smallest surrogate pair
+        mem.writeInt(utf16le_as_bytes[0..], u16(0xd800), builtin.Endian.Little);
+        mem.writeInt(utf16le_as_bytes[2..], u16(0xdc00), builtin.Endian.Little);
+        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        assert(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
+    }
+
+    {
+        // largest surrogate pair
+        mem.writeInt(utf16le_as_bytes[0..], u16(0xdbff), builtin.Endian.Little);
+        mem.writeInt(utf16le_as_bytes[2..], u16(0xdfff), builtin.Endian.Little);
+        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        assert(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
+    }
+
+    {
+        mem.writeInt(utf16le_as_bytes[0..], u16(0xdbff), builtin.Endian.Little);
+        mem.writeInt(utf16le_as_bytes[2..], u16(0xdc00), builtin.Endian.Little);
+        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        assert(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
+    }
 }
