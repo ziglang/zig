@@ -49,6 +49,24 @@ pub const Scope = struct {
         }
     }
 
+    pub fn findDeferExpr(base: *Scope) ?*DeferExpr {
+        var scope = base;
+        while (true) {
+            switch (scope.id) {
+                Id.DeferExpr => return @fieldParentPtr(DeferExpr, "base", base),
+
+                Id.FnDef,
+                Id.Decls,
+                => return null,
+
+                Id.Block,
+                Id.Defer,
+                Id.CompTime,
+                => scope = scope.parent orelse return null,
+            }
+        }
+    }
+
     pub const Id = enum {
         Decls,
         Block,
@@ -90,10 +108,10 @@ pub const Scope = struct {
 
     pub const Block = struct {
         base: Scope,
-        incoming_values: std.ArrayList(*ir.Instruction),
+        incoming_values: std.ArrayList(*ir.Inst),
         incoming_blocks: std.ArrayList(*ir.BasicBlock),
         end_block: *ir.BasicBlock,
-        is_comptime: *ir.Instruction,
+        is_comptime: *ir.Inst,
 
         safety: Safety,
 
@@ -242,6 +260,7 @@ pub const Scope = struct {
     pub const DeferExpr = struct {
         base: Scope,
         expr_node: *ast.Node,
+        reported_err: bool,
 
         /// Creates a DeferExpr scope with 1 reference
         pub fn create(comp: *Compilation, parent: ?*Scope, expr_node: *ast.Node) !*DeferExpr {
@@ -252,6 +271,7 @@ pub const Scope = struct {
                     .ref_count = 1,
                 },
                 .expr_node = expr_node,
+                .reported_err = false,
             });
             errdefer comp.gpa().destroy(self);
 

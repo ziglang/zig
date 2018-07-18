@@ -46,7 +46,7 @@ pub const IrVal = union(enum) {
     }
 };
 
-pub const Instruction = struct {
+pub const Inst = struct {
     id: Id,
     scope: *Scope,
     debug_id: usize,
@@ -59,15 +59,15 @@ pub const Instruction = struct {
     is_generated: bool,
 
     /// the instruction that is derived from this one in analysis
-    child: ?*Instruction,
+    child: ?*Inst,
 
     /// the instruction that this one derives from in analysis
-    parent: ?*Instruction,
+    parent: ?*Inst,
 
     /// populated durign codegen
     llvm_value: ?llvm.ValueRef,
 
-    pub fn cast(base: *Instruction, comptime T: type) ?*T {
+    pub fn cast(base: *Inst, comptime T: type) ?*T {
         if (base.id == comptime typeToId(T)) {
             return @fieldParentPtr(T, "base", base);
         }
@@ -77,18 +77,18 @@ pub const Instruction = struct {
     pub fn typeToId(comptime T: type) Id {
         comptime var i = 0;
         inline while (i < @memberCount(Id)) : (i += 1) {
-            if (T == @field(Instruction, @memberName(Id, i))) {
+            if (T == @field(Inst, @memberName(Id, i))) {
                 return @field(Id, @memberName(Id, i));
             }
         }
         unreachable;
     }
 
-    pub fn dump(base: *const Instruction) void {
+    pub fn dump(base: *const Inst) void {
         comptime var i = 0;
         inline while (i < @memberCount(Id)) : (i += 1) {
             if (base.id == @field(Id, @memberName(Id, i))) {
-                const T = @field(Instruction, @memberName(Id, i));
+                const T = @field(Inst, @memberName(Id, i));
                 std.debug.warn("#{} = {}(", base.debug_id, @tagName(base.id));
                 @fieldParentPtr(T, "base", base).dump();
                 std.debug.warn(")");
@@ -98,29 +98,29 @@ pub const Instruction = struct {
         unreachable;
     }
 
-    pub fn hasSideEffects(base: *const Instruction) bool {
+    pub fn hasSideEffects(base: *const Inst) bool {
         comptime var i = 0;
         inline while (i < @memberCount(Id)) : (i += 1) {
             if (base.id == @field(Id, @memberName(Id, i))) {
-                const T = @field(Instruction, @memberName(Id, i));
+                const T = @field(Inst, @memberName(Id, i));
                 return @fieldParentPtr(T, "base", base).hasSideEffects();
             }
         }
         unreachable;
     }
 
-    pub fn analyze(base: *Instruction, ira: *Analyze) Analyze.Error!*Instruction {
+    pub fn analyze(base: *Inst, ira: *Analyze) Analyze.Error!*Inst {
         comptime var i = 0;
         inline while (i < @memberCount(Id)) : (i += 1) {
             if (base.id == @field(Id, @memberName(Id, i))) {
-                const T = @field(Instruction, @memberName(Id, i));
+                const T = @field(Inst, @memberName(Id, i));
                 return @fieldParentPtr(T, "base", base).analyze(ira);
             }
         }
         unreachable;
     }
 
-    pub fn render(base: *Instruction, ofile: *ObjectFile, fn_val: *Value.Fn) (error{OutOfMemory}!?llvm.ValueRef) {
+    pub fn render(base: *Inst, ofile: *ObjectFile, fn_val: *Value.Fn) (error{OutOfMemory}!?llvm.ValueRef) {
         switch (base.id) {
             Id.Return => return @fieldParentPtr(Return, "base", base).render(ofile, fn_val),
             Id.Const => return @fieldParentPtr(Const, "base", base).render(ofile, fn_val),
@@ -133,14 +133,14 @@ pub const Instruction = struct {
         }
     }
 
-    fn ref(base: *Instruction, builder: *Builder) void {
+    fn ref(base: *Inst, builder: *Builder) void {
         base.ref_count += 1;
         if (base.owner_bb != builder.current_basic_block and !base.isCompTime()) {
             base.owner_bb.ref();
         }
     }
 
-    fn getAsParam(param: *Instruction) !*Instruction {
+    fn getAsParam(param: *Inst) !*Inst {
         const child = param.child orelse return error.SemanticAnalysisFailed;
         switch (child.val) {
             IrVal.Unknown => return error.SemanticAnalysisFailed,
@@ -149,7 +149,7 @@ pub const Instruction = struct {
     }
 
     /// asserts that the type is known
-    fn getKnownType(self: *Instruction) *Type {
+    fn getKnownType(self: *Inst) *Type {
         switch (self.val) {
             IrVal.KnownType => |typeof| return typeof,
             IrVal.KnownValue => |value| return value.typeof,
@@ -157,11 +157,11 @@ pub const Instruction = struct {
         }
     }
 
-    pub fn setGenerated(base: *Instruction) void {
+    pub fn setGenerated(base: *Inst) void {
         base.is_generated = true;
     }
 
-    pub fn isNoReturn(base: *const Instruction) bool {
+    pub fn isNoReturn(base: *const Inst) bool {
         switch (base.val) {
             IrVal.Unknown => return false,
             IrVal.KnownValue => |x| return x.typeof.id == Type.Id.NoReturn,
@@ -169,11 +169,11 @@ pub const Instruction = struct {
         }
     }
 
-    pub fn isCompTime(base: *const Instruction) bool {
+    pub fn isCompTime(base: *const Inst) bool {
         return base.val == IrVal.KnownValue;
     }
 
-    pub fn linkToParent(self: *Instruction, parent: *Instruction) void {
+    pub fn linkToParent(self: *Inst, parent: *Inst) void {
         assert(self.parent == null);
         assert(parent.child == null);
         self.parent = parent;
@@ -192,7 +192,7 @@ pub const Instruction = struct {
     };
 
     pub const Const = struct {
-        base: Instruction,
+        base: Inst,
         params: Params,
 
         const Params = struct {};
@@ -209,7 +209,7 @@ pub const Instruction = struct {
             return false;
         }
 
-        pub fn analyze(self: *const Const, ira: *Analyze) !*Instruction {
+        pub fn analyze(self: *const Const, ira: *Analyze) !*Inst {
             const new_inst = try ira.irb.build(Const, self.base.scope, self.base.span, Params{});
             new_inst.val = IrVal{ .KnownValue = self.base.val.KnownValue.getRef() };
             return new_inst;
@@ -221,11 +221,11 @@ pub const Instruction = struct {
     };
 
     pub const Return = struct {
-        base: Instruction,
+        base: Inst,
         params: Params,
 
         const Params = struct {
-            return_value: *Instruction,
+            return_value: *Inst,
         };
 
         const ir_val_init = IrVal.Init.NoReturn;
@@ -238,7 +238,7 @@ pub const Instruction = struct {
             return true;
         }
 
-        pub fn analyze(self: *const Return, ira: *Analyze) !*Instruction {
+        pub fn analyze(self: *const Return, ira: *Analyze) !*Inst {
             const value = try self.params.return_value.getAsParam();
             const casted_value = try ira.implicitCast(value, ira.explicit_return_type);
 
@@ -261,11 +261,11 @@ pub const Instruction = struct {
     };
 
     pub const Ref = struct {
-        base: Instruction,
+        base: Inst,
         params: Params,
 
         const Params = struct {
-            target: *Instruction,
+            target: *Inst,
             mut: Type.Pointer.Mut,
             volatility: Type.Pointer.Vol,
         };
@@ -278,7 +278,7 @@ pub const Instruction = struct {
             return false;
         }
 
-        pub fn analyze(self: *const Ref, ira: *Analyze) !*Instruction {
+        pub fn analyze(self: *const Ref, ira: *Analyze) !*Inst {
             const target = try self.params.target.getAsParam();
 
             if (ira.getCompTimeValOrNullUndefOk(target)) |val| {
@@ -314,7 +314,7 @@ pub const Instruction = struct {
     };
 
     pub const DeclVar = struct {
-        base: Instruction,
+        base: Inst,
         params: Params,
 
         const Params = struct {
@@ -329,17 +329,17 @@ pub const Instruction = struct {
             return true;
         }
 
-        pub fn analyze(self: *const DeclVar, ira: *Analyze) !*Instruction {
+        pub fn analyze(self: *const DeclVar, ira: *Analyze) !*Inst {
             return error.Unimplemented; // TODO
         }
     };
 
     pub const CheckVoidStmt = struct {
-        base: Instruction,
+        base: Inst,
         params: Params,
 
         const Params = struct {
-            target: *Instruction,
+            target: *Inst,
         };
 
         const ir_val_init = IrVal.Init.Unknown;
@@ -350,18 +350,18 @@ pub const Instruction = struct {
             return true;
         }
 
-        pub fn analyze(self: *const CheckVoidStmt, ira: *Analyze) !*Instruction {
+        pub fn analyze(self: *const CheckVoidStmt, ira: *Analyze) !*Inst {
             return error.Unimplemented; // TODO
         }
     };
 
     pub const Phi = struct {
-        base: Instruction,
+        base: Inst,
         params: Params,
 
         const Params = struct {
             incoming_blocks: []*BasicBlock,
-            incoming_values: []*Instruction,
+            incoming_values: []*Inst,
         };
 
         const ir_val_init = IrVal.Init.Unknown;
@@ -372,18 +372,18 @@ pub const Instruction = struct {
             return false;
         }
 
-        pub fn analyze(self: *const Phi, ira: *Analyze) !*Instruction {
+        pub fn analyze(self: *const Phi, ira: *Analyze) !*Inst {
             return error.Unimplemented; // TODO
         }
     };
 
     pub const Br = struct {
-        base: Instruction,
+        base: Inst,
         params: Params,
 
         const Params = struct {
             dest_block: *BasicBlock,
-            is_comptime: *Instruction,
+            is_comptime: *Inst,
         };
 
         const ir_val_init = IrVal.Init.NoReturn;
@@ -394,17 +394,41 @@ pub const Instruction = struct {
             return true;
         }
 
-        pub fn analyze(self: *const Br, ira: *Analyze) !*Instruction {
+        pub fn analyze(self: *const Br, ira: *Analyze) !*Inst {
+            return error.Unimplemented; // TODO
+        }
+    };
+
+    pub const CondBr = struct {
+        base: Inst,
+        params: Params,
+
+        const Params = struct {
+            condition: *Inst,
+            then_block: *BasicBlock,
+            else_block: *BasicBlock,
+            is_comptime: *Inst,
+        };
+
+        const ir_val_init = IrVal.Init.NoReturn;
+
+        pub fn dump(inst: *const CondBr) void {}
+
+        pub fn hasSideEffects(inst: *const CondBr) bool {
+            return true;
+        }
+
+        pub fn analyze(self: *const CondBr, ira: *Analyze) !*Inst {
             return error.Unimplemented; // TODO
         }
     };
 
     pub const AddImplicitReturnType = struct {
-        base: Instruction,
+        base: Inst,
         params: Params,
 
         pub const Params = struct {
-            target: *Instruction,
+            target: *Inst,
         };
 
         const ir_val_init = IrVal.Init.Unknown;
@@ -417,10 +441,115 @@ pub const Instruction = struct {
             return true;
         }
 
-        pub fn analyze(self: *const AddImplicitReturnType, ira: *Analyze) !*Instruction {
+        pub fn analyze(self: *const AddImplicitReturnType, ira: *Analyze) !*Inst {
             const target = try self.params.target.getAsParam();
             try ira.src_implicit_return_type_list.append(target);
             return ira.irb.buildConstVoid(self.base.scope, self.base.span, true);
+        }
+    };
+
+    pub const TestErr = struct {
+        base: Inst,
+        params: Params,
+
+        pub const Params = struct {
+            target: *Inst,
+        };
+
+        const ir_val_init = IrVal.Init.Unknown;
+
+        pub fn dump(inst: *const TestErr) void {
+            std.debug.warn("#{}", inst.params.target.debug_id);
+        }
+
+        pub fn hasSideEffects(inst: *const TestErr) bool {
+            return false;
+        }
+
+        pub fn analyze(self: *const TestErr, ira: *Analyze) !*Inst {
+            const target = try self.params.target.getAsParam();
+            const target_type = target.getKnownType();
+            switch (target_type.id) {
+                Type.Id.ErrorUnion => {
+                    return error.Unimplemented;
+                    //    if (instr_is_comptime(value)) {
+                    //        ConstExprValue *err_union_val = ir_resolve_const(ira, value, UndefBad);
+                    //        if (!err_union_val)
+                    //            return ira->codegen->builtin_types.entry_invalid;
+
+                    //        if (err_union_val->special != ConstValSpecialRuntime) {
+                    //            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+                    //            out_val->data.x_bool = (err_union_val->data.x_err_union.err != nullptr);
+                    //            return ira->codegen->builtin_types.entry_bool;
+                    //        }
+                    //    }
+
+                    //    TypeTableEntry *err_set_type = type_entry->data.error_union.err_set_type;
+                    //    if (!resolve_inferred_error_set(ira->codegen, err_set_type, instruction->base.source_node)) {
+                    //        return ira->codegen->builtin_types.entry_invalid;
+                    //    }
+                    //    if (!type_is_global_error_set(err_set_type) &&
+                    //        err_set_type->data.error_set.err_count == 0)
+                    //    {
+                    //        assert(err_set_type->data.error_set.infer_fn == nullptr);
+                    //        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+                    //        out_val->data.x_bool = false;
+                    //        return ira->codegen->builtin_types.entry_bool;
+                    //    }
+
+                    //    ir_build_test_err_from(&ira->new_irb, &instruction->base, value);
+                    //    return ira->codegen->builtin_types.entry_bool;
+                },
+                Type.Id.ErrorSet => {
+                    return ira.irb.buildConstBool(self.base.scope, self.base.span, true);
+                },
+                else => {
+                    return ira.irb.buildConstBool(self.base.scope, self.base.span, false);
+                },
+            }
+        }
+    };
+
+    pub const TestCompTime = struct {
+        base: Inst,
+        params: Params,
+
+        pub const Params = struct {
+            target: *Inst,
+        };
+
+        const ir_val_init = IrVal.Init.Unknown;
+
+        pub fn dump(inst: *const TestCompTime) void {
+            std.debug.warn("#{}", inst.params.target.debug_id);
+        }
+
+        pub fn hasSideEffects(inst: *const TestCompTime) bool {
+            return false;
+        }
+
+        pub fn analyze(self: *const TestCompTime, ira: *Analyze) !*Inst {
+            const target = try self.params.target.getAsParam();
+            return ira.irb.buildConstBool(self.base.scope, self.base.span, target.isCompTime());
+        }
+    };
+
+    pub const SaveErrRetAddr = struct {
+        base: Inst,
+        params: Params,
+
+        const Params = struct {};
+
+        const ir_val_init = IrVal.Init.Unknown;
+
+        pub fn dump(inst: *const SaveErrRetAddr) void {}
+
+        pub fn hasSideEffects(inst: *const SaveErrRetAddr) bool {
+            return true;
+        }
+
+        pub fn analyze(self: *const SaveErrRetAddr, ira: *Analyze) !*Inst {
+            return ira.irb.build(Inst.SaveErrRetAddr, self.base.scope, self.base.span, Params{});
         }
     };
 };
@@ -434,8 +563,8 @@ pub const BasicBlock = struct {
     name_hint: [*]const u8, // must be a C string literal
     debug_id: usize,
     scope: *Scope,
-    instruction_list: std.ArrayList(*Instruction),
-    ref_instruction: ?*Instruction,
+    instruction_list: std.ArrayList(*Inst),
+    ref_instruction: ?*Inst,
 
     /// for codegen
     llvm_block: llvm.BasicBlockRef,
@@ -491,10 +620,12 @@ pub const Builder = struct {
     next_debug_id: usize,
     parsed_file: *ParsedFile,
     is_comptime: bool,
+    is_async: bool,
+    begin_scope: ?*Scope,
 
     pub const Error = Analyze.Error;
 
-    pub fn init(comp: *Compilation, parsed_file: *ParsedFile) !Builder {
+    pub fn init(comp: *Compilation, parsed_file: *ParsedFile, begin_scope: ?*Scope) !Builder {
         const code = try comp.gpa().create(Code{
             .basic_block_list = undefined,
             .arena = std.heap.ArenaAllocator.init(comp.gpa()),
@@ -510,6 +641,8 @@ pub const Builder = struct {
             .code = code,
             .next_debug_id = 0,
             .is_comptime = false,
+            .is_async = false,
+            .begin_scope = begin_scope,
         };
     }
 
@@ -529,7 +662,7 @@ pub const Builder = struct {
             .name_hint = name_hint,
             .debug_id = self.next_debug_id,
             .scope = scope,
-            .instruction_list = std.ArrayList(*Instruction).init(self.arena()),
+            .instruction_list = std.ArrayList(*Inst).init(self.arena()),
             .child = null,
             .parent = null,
             .ref_instruction = null,
@@ -549,66 +682,69 @@ pub const Builder = struct {
         self.current_basic_block = basic_block;
     }
 
-    pub fn genNode(irb: *Builder, node: *ast.Node, scope: *Scope, lval: LVal) Error!*Instruction {
+    pub fn genNode(irb: *Builder, node: *ast.Node, scope: *Scope, lval: LVal) Error!*Inst {
         switch (node.id) {
             ast.Node.Id.Root => unreachable,
             ast.Node.Id.Use => unreachable,
             ast.Node.Id.TestDecl => unreachable,
-            ast.Node.Id.VarDecl => @panic("TODO"),
-            ast.Node.Id.Defer => @panic("TODO"),
-            ast.Node.Id.InfixOp => @panic("TODO"),
-            ast.Node.Id.PrefixOp => @panic("TODO"),
-            ast.Node.Id.SuffixOp => @panic("TODO"),
-            ast.Node.Id.Switch => @panic("TODO"),
-            ast.Node.Id.While => @panic("TODO"),
-            ast.Node.Id.For => @panic("TODO"),
-            ast.Node.Id.If => @panic("TODO"),
-            ast.Node.Id.ControlFlowExpression => return error.Unimplemented,
-            ast.Node.Id.Suspend => @panic("TODO"),
-            ast.Node.Id.VarType => @panic("TODO"),
-            ast.Node.Id.ErrorType => @panic("TODO"),
-            ast.Node.Id.FnProto => @panic("TODO"),
-            ast.Node.Id.PromiseType => @panic("TODO"),
-            ast.Node.Id.IntegerLiteral => @panic("TODO"),
-            ast.Node.Id.FloatLiteral => @panic("TODO"),
-            ast.Node.Id.StringLiteral => @panic("TODO"),
-            ast.Node.Id.MultilineStringLiteral => @panic("TODO"),
-            ast.Node.Id.CharLiteral => @panic("TODO"),
-            ast.Node.Id.BoolLiteral => @panic("TODO"),
-            ast.Node.Id.NullLiteral => @panic("TODO"),
-            ast.Node.Id.UndefinedLiteral => @panic("TODO"),
-            ast.Node.Id.ThisLiteral => @panic("TODO"),
-            ast.Node.Id.Unreachable => @panic("TODO"),
-            ast.Node.Id.Identifier => @panic("TODO"),
+            ast.Node.Id.VarDecl => return error.Unimplemented,
+            ast.Node.Id.Defer => return error.Unimplemented,
+            ast.Node.Id.InfixOp => return error.Unimplemented,
+            ast.Node.Id.PrefixOp => return error.Unimplemented,
+            ast.Node.Id.SuffixOp => return error.Unimplemented,
+            ast.Node.Id.Switch => return error.Unimplemented,
+            ast.Node.Id.While => return error.Unimplemented,
+            ast.Node.Id.For => return error.Unimplemented,
+            ast.Node.Id.If => return error.Unimplemented,
+            ast.Node.Id.ControlFlowExpression => {
+                const control_flow_expr = @fieldParentPtr(ast.Node.ControlFlowExpression, "base", node);
+                return irb.genControlFlowExpr(control_flow_expr, scope, lval);
+            },
+            ast.Node.Id.Suspend => return error.Unimplemented,
+            ast.Node.Id.VarType => return error.Unimplemented,
+            ast.Node.Id.ErrorType => return error.Unimplemented,
+            ast.Node.Id.FnProto => return error.Unimplemented,
+            ast.Node.Id.PromiseType => return error.Unimplemented,
+            ast.Node.Id.IntegerLiteral => return error.Unimplemented,
+            ast.Node.Id.FloatLiteral => return error.Unimplemented,
+            ast.Node.Id.StringLiteral => return error.Unimplemented,
+            ast.Node.Id.MultilineStringLiteral => return error.Unimplemented,
+            ast.Node.Id.CharLiteral => return error.Unimplemented,
+            ast.Node.Id.BoolLiteral => return error.Unimplemented,
+            ast.Node.Id.NullLiteral => return error.Unimplemented,
+            ast.Node.Id.UndefinedLiteral => return error.Unimplemented,
+            ast.Node.Id.ThisLiteral => return error.Unimplemented,
+            ast.Node.Id.Unreachable => return error.Unimplemented,
+            ast.Node.Id.Identifier => return error.Unimplemented,
             ast.Node.Id.GroupedExpression => {
                 const grouped_expr = @fieldParentPtr(ast.Node.GroupedExpression, "base", node);
                 return irb.genNode(grouped_expr.expr, scope, lval);
             },
-            ast.Node.Id.BuiltinCall => @panic("TODO"),
-            ast.Node.Id.ErrorSetDecl => @panic("TODO"),
-            ast.Node.Id.ContainerDecl => @panic("TODO"),
-            ast.Node.Id.Asm => @panic("TODO"),
-            ast.Node.Id.Comptime => @panic("TODO"),
+            ast.Node.Id.BuiltinCall => return error.Unimplemented,
+            ast.Node.Id.ErrorSetDecl => return error.Unimplemented,
+            ast.Node.Id.ContainerDecl => return error.Unimplemented,
+            ast.Node.Id.Asm => return error.Unimplemented,
+            ast.Node.Id.Comptime => return error.Unimplemented,
             ast.Node.Id.Block => {
                 const block = @fieldParentPtr(ast.Node.Block, "base", node);
                 return irb.lvalWrap(scope, try irb.genBlock(block, scope), lval);
             },
-            ast.Node.Id.DocComment => @panic("TODO"),
-            ast.Node.Id.SwitchCase => @panic("TODO"),
-            ast.Node.Id.SwitchElse => @panic("TODO"),
-            ast.Node.Id.Else => @panic("TODO"),
-            ast.Node.Id.Payload => @panic("TODO"),
-            ast.Node.Id.PointerPayload => @panic("TODO"),
-            ast.Node.Id.PointerIndexPayload => @panic("TODO"),
-            ast.Node.Id.StructField => @panic("TODO"),
-            ast.Node.Id.UnionTag => @panic("TODO"),
-            ast.Node.Id.EnumTag => @panic("TODO"),
-            ast.Node.Id.ErrorTag => @panic("TODO"),
-            ast.Node.Id.AsmInput => @panic("TODO"),
-            ast.Node.Id.AsmOutput => @panic("TODO"),
-            ast.Node.Id.AsyncAttribute => @panic("TODO"),
-            ast.Node.Id.ParamDecl => @panic("TODO"),
-            ast.Node.Id.FieldInitializer => @panic("TODO"),
+            ast.Node.Id.DocComment => return error.Unimplemented,
+            ast.Node.Id.SwitchCase => return error.Unimplemented,
+            ast.Node.Id.SwitchElse => return error.Unimplemented,
+            ast.Node.Id.Else => return error.Unimplemented,
+            ast.Node.Id.Payload => return error.Unimplemented,
+            ast.Node.Id.PointerPayload => return error.Unimplemented,
+            ast.Node.Id.PointerIndexPayload => return error.Unimplemented,
+            ast.Node.Id.StructField => return error.Unimplemented,
+            ast.Node.Id.UnionTag => return error.Unimplemented,
+            ast.Node.Id.EnumTag => return error.Unimplemented,
+            ast.Node.Id.ErrorTag => return error.Unimplemented,
+            ast.Node.Id.AsmInput => return error.Unimplemented,
+            ast.Node.Id.AsmOutput => return error.Unimplemented,
+            ast.Node.Id.AsyncAttribute => return error.Unimplemented,
+            ast.Node.Id.ParamDecl => return error.Unimplemented,
+            ast.Node.Id.FieldInitializer => return error.Unimplemented,
         }
     }
 
@@ -630,7 +766,7 @@ pub const Builder = struct {
         }
     }
 
-    pub fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Instruction {
+    pub fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Inst {
         const block_scope = try Scope.Block.create(irb.comp, parent_scope);
 
         const outer_block_scope = &block_scope.base;
@@ -648,7 +784,7 @@ pub const Builder = struct {
         }
 
         if (block.label) |label| {
-            block_scope.incoming_values = std.ArrayList(*Instruction).init(irb.arena());
+            block_scope.incoming_values = std.ArrayList(*Inst).init(irb.arena());
             block_scope.incoming_blocks = std.ArrayList(*BasicBlock).init(irb.arena());
             block_scope.end_block = try irb.createBasicBlock(parent_scope, c"BlockEnd");
             block_scope.is_comptime = try irb.buildConstBool(
@@ -659,7 +795,7 @@ pub const Builder = struct {
         }
 
         var is_continuation_unreachable = false;
-        var noreturn_return_value: ?*Instruction = null;
+        var noreturn_return_value: ?*Inst = null;
 
         var stmt_it = block.statements.iterator(0);
         while (stmt_it.next()) |statement_node_ptr| {
@@ -686,16 +822,16 @@ pub const Builder = struct {
                 noreturn_return_value = statement_value;
             }
 
-            if (statement_value.cast(Instruction.DeclVar)) |decl_var| {
+            if (statement_value.cast(Inst.DeclVar)) |decl_var| {
                 // variable declarations start a new scope
                 child_scope = decl_var.params.variable.child_scope;
             } else if (!is_continuation_unreachable) {
                 // this statement's value must be void
                 _ = irb.build(
-                    Instruction.CheckVoidStmt,
+                    Inst.CheckVoidStmt,
                     child_scope,
                     statement_value.span,
-                    Instruction.CheckVoidStmt.Params{ .target = statement_value },
+                    Inst.CheckVoidStmt.Params{ .target = statement_value },
                 );
             }
         }
@@ -707,7 +843,7 @@ pub const Builder = struct {
             }
 
             try irb.setCursorAtEndAndAppendBlock(block_scope.end_block);
-            return irb.build(Instruction.Phi, parent_scope, Span.token(block.rbrace), Instruction.Phi.Params{
+            return irb.build(Inst.Phi, parent_scope, Span.token(block.rbrace), Inst.Phi.Params{
                 .incoming_blocks = block_scope.incoming_blocks.toOwnedSlice(),
                 .incoming_values = block_scope.incoming_values.toOwnedSlice(),
             });
@@ -720,14 +856,14 @@ pub const Builder = struct {
             );
             _ = try irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit);
 
-            _ = try irb.buildGen(Instruction.Br, parent_scope, Span.token(block.rbrace), Instruction.Br.Params{
+            _ = try irb.buildGen(Inst.Br, parent_scope, Span.token(block.rbrace), Inst.Br.Params{
                 .dest_block = block_scope.end_block,
                 .is_comptime = block_scope.is_comptime,
             });
 
             try irb.setCursorAtEndAndAppendBlock(block_scope.end_block);
 
-            return irb.build(Instruction.Phi, parent_scope, Span.token(block.rbrace), Instruction.Phi.Params{
+            return irb.build(Inst.Phi, parent_scope, Span.token(block.rbrace), Inst.Phi.Params{
                 .incoming_blocks = block_scope.incoming_blocks.toOwnedSlice(),
                 .incoming_values = block_scope.incoming_values.toOwnedSlice(),
             });
@@ -735,6 +871,135 @@ pub const Builder = struct {
 
         _ = try irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit);
         return irb.buildConstVoid(child_scope, Span.token(block.rbrace), true);
+    }
+
+    pub fn genControlFlowExpr(
+        irb: *Builder,
+        control_flow_expr: *ast.Node.ControlFlowExpression,
+        scope: *Scope,
+        lval: LVal,
+    ) !*Inst {
+        switch (control_flow_expr.kind) {
+            ast.Node.ControlFlowExpression.Kind.Break => |arg| return error.Unimplemented,
+            ast.Node.ControlFlowExpression.Kind.Continue => |arg| return error.Unimplemented,
+            ast.Node.ControlFlowExpression.Kind.Return => {
+                const src_span = Span.token(control_flow_expr.ltoken);
+                if (scope.findFnDef() == null) {
+                    try irb.comp.addCompileError(
+                        irb.parsed_file,
+                        src_span,
+                        "return expression outside function definition",
+                    );
+                    return error.SemanticAnalysisFailed;
+                }
+
+                if (scope.findDeferExpr()) |scope_defer_expr| {
+                    if (!scope_defer_expr.reported_err) {
+                        try irb.comp.addCompileError(
+                            irb.parsed_file,
+                            src_span,
+                            "cannot return from defer expression",
+                        );
+                        scope_defer_expr.reported_err = true;
+                    }
+                    return error.SemanticAnalysisFailed;
+                }
+
+                const outer_scope = irb.begin_scope.?;
+                const return_value = if (control_flow_expr.rhs) |rhs| blk: {
+                    break :blk try irb.genNode(rhs, scope, LVal.None);
+                } else blk: {
+                    break :blk try irb.buildConstVoid(scope, src_span, true);
+                };
+
+                const defer_counts = irb.countDefers(scope, outer_scope);
+                const have_err_defers = defer_counts.error_exit != 0;
+                if (have_err_defers or irb.comp.have_err_ret_tracing) {
+                    const err_block = try irb.createBasicBlock(scope, c"ErrRetErr");
+                    const ok_block = try irb.createBasicBlock(scope, c"ErrRetOk");
+                    if (!have_err_defers) {
+                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
+                    }
+
+                    const is_err = try irb.build(
+                        Inst.TestErr,
+                        scope,
+                        src_span,
+                        Inst.TestErr.Params{ .target = return_value },
+                    );
+
+                    const err_is_comptime = try irb.buildTestCompTime(scope, src_span, is_err);
+
+                    _ = try irb.buildGen(Inst.CondBr, scope, src_span, Inst.CondBr.Params{
+                        .condition = is_err,
+                        .then_block = err_block,
+                        .else_block = ok_block,
+                        .is_comptime = err_is_comptime,
+                    });
+
+                    const ret_stmt_block = try irb.createBasicBlock(scope, c"RetStmt");
+
+                    try irb.setCursorAtEndAndAppendBlock(err_block);
+                    if (have_err_defers) {
+                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ErrorExit);
+                    }
+                    if (irb.comp.have_err_ret_tracing and !irb.isCompTime(scope)) {
+                        _ = try irb.build(Inst.SaveErrRetAddr, scope, src_span, Inst.SaveErrRetAddr.Params{});
+                    }
+                    _ = try irb.build(Inst.Br, scope, src_span, Inst.Br.Params{
+                        .dest_block = ret_stmt_block,
+                        .is_comptime = err_is_comptime,
+                    });
+
+                    try irb.setCursorAtEndAndAppendBlock(ok_block);
+                    if (have_err_defers) {
+                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
+                    }
+                    _ = try irb.build(Inst.Br, scope, src_span, Inst.Br.Params{
+                        .dest_block = ret_stmt_block,
+                        .is_comptime = err_is_comptime,
+                    });
+
+                    try irb.setCursorAtEndAndAppendBlock(ret_stmt_block);
+                    return irb.genAsyncReturn(scope, src_span, return_value, false);
+                } else {
+                    _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
+                    return irb.genAsyncReturn(scope, src_span, return_value, false);
+                }
+            },
+        }
+    }
+
+    const DeferCounts = struct {
+        scope_exit: usize,
+        error_exit: usize,
+    };
+
+    fn countDefers(irb: *Builder, inner_scope: *Scope, outer_scope: *Scope) DeferCounts {
+        var result = DeferCounts{ .scope_exit = 0, .error_exit = 0 };
+
+        var scope = inner_scope;
+        while (scope != outer_scope) {
+            switch (scope.id) {
+                Scope.Id.Defer => {
+                    const defer_scope = @fieldParentPtr(Scope.Defer, "base", scope);
+                    switch (defer_scope.kind) {
+                        Scope.Defer.Kind.ScopeExit => result.scope_exit += 1,
+                        Scope.Defer.Kind.ErrorExit => result.error_exit += 1,
+                    }
+                    scope = scope.parent orelse break;
+                },
+                Scope.Id.FnDef => break,
+
+                Scope.Id.CompTime,
+                Scope.Id.Block,
+                => scope = scope.parent orelse break,
+
+                Scope.Id.DeferExpr => unreachable,
+                Scope.Id.Decls => unreachable,
+            }
+        }
+        return result;
     }
 
     fn genDefersForBlock(
@@ -764,10 +1029,10 @@ pub const Builder = struct {
                             is_noreturn = true;
                         } else {
                             _ = try irb.build(
-                                Instruction.CheckVoidStmt,
+                                Inst.CheckVoidStmt,
                                 &defer_expr_scope.base,
                                 Span.token(defer_expr_scope.expr_node.lastToken()),
-                                Instruction.CheckVoidStmt.Params{ .target = instruction },
+                                Inst.CheckVoidStmt.Params{ .target = instruction },
                             );
                         }
                     }
@@ -785,13 +1050,13 @@ pub const Builder = struct {
         }
     }
 
-    pub fn lvalWrap(irb: *Builder, scope: *Scope, instruction: *Instruction, lval: LVal) !*Instruction {
+    pub fn lvalWrap(irb: *Builder, scope: *Scope, instruction: *Inst, lval: LVal) !*Inst {
         switch (lval) {
             LVal.None => return instruction,
             LVal.Ptr => {
                 // We needed a pointer to a value, but we got a value. So we create
                 // an instruction which just makes a const pointer of it.
-                return irb.build(Instruction.Ref, scope, instruction.span, Instruction.Ref.Params{
+                return irb.build(Inst.Ref, scope, instruction.span, Inst.Ref.Params{
                     .target = instruction,
                     .mut = Type.Pointer.Mut.Const,
                     .volatility = Type.Pointer.Vol.Non,
@@ -811,10 +1076,10 @@ pub const Builder = struct {
         span: Span,
         params: I.Params,
         is_generated: bool,
-    ) !*Instruction {
+    ) !*Inst {
         const inst = try self.arena().create(I{
-            .base = Instruction{
-                .id = Instruction.typeToId(I),
+            .base = Inst{
+                .id = Inst.typeToId(I),
                 .is_generated = is_generated,
                 .scope = scope,
                 .debug_id = self.next_debug_id,
@@ -838,8 +1103,8 @@ pub const Builder = struct {
         inline while (i < @memberCount(I.Params)) : (i += 1) {
             const FieldType = comptime @typeOf(@field(I.Params(undefined), @memberName(I.Params, i)));
             switch (FieldType) {
-                *Instruction => @field(inst.params, @memberName(I.Params, i)).ref(self),
-                ?*Instruction => if (@field(inst.params, @memberName(I.Params, i))) |other| other.ref(self),
+                *Inst => @field(inst.params, @memberName(I.Params, i)).ref(self),
+                ?*Inst => if (@field(inst.params, @memberName(I.Params, i))) |other| other.ref(self),
                 else => {},
             }
         }
@@ -855,7 +1120,7 @@ pub const Builder = struct {
         scope: *Scope,
         span: Span,
         params: I.Params,
-    ) !*Instruction {
+    ) !*Inst {
         return self.buildExtra(I, scope, span, params, false);
     }
 
@@ -865,20 +1130,70 @@ pub const Builder = struct {
         scope: *Scope,
         span: Span,
         params: I.Params,
-    ) !*Instruction {
+    ) !*Inst {
         return self.buildExtra(I, scope, span, params, true);
     }
 
-    fn buildConstBool(self: *Builder, scope: *Scope, span: Span, x: bool) !*Instruction {
-        const inst = try self.build(Instruction.Const, scope, span, Instruction.Const.Params{});
+    fn buildConstBool(self: *Builder, scope: *Scope, span: Span, x: bool) !*Inst {
+        const inst = try self.build(Inst.Const, scope, span, Inst.Const.Params{});
         inst.val = IrVal{ .KnownValue = &Value.Bool.get(self.comp, x).base };
         return inst;
     }
 
-    fn buildConstVoid(self: *Builder, scope: *Scope, span: Span, is_generated: bool) !*Instruction {
-        const inst = try self.buildExtra(Instruction.Const, scope, span, Instruction.Const.Params{}, is_generated);
+    fn buildConstVoid(self: *Builder, scope: *Scope, span: Span, is_generated: bool) !*Inst {
+        const inst = try self.buildExtra(Inst.Const, scope, span, Inst.Const.Params{}, is_generated);
         inst.val = IrVal{ .KnownValue = &Value.Void.get(self.comp).base };
         return inst;
+    }
+
+    /// If the code is explicitly set to be comptime, then builds a const bool,
+    /// otherwise builds a TestCompTime instruction.
+    fn buildTestCompTime(self: *Builder, scope: *Scope, span: Span, target: *Inst) !*Inst {
+        if (self.isCompTime(scope)) {
+            return self.buildConstBool(scope, span, true);
+        } else {
+            return self.build(
+                Inst.TestCompTime,
+                scope,
+                span,
+                Inst.TestCompTime.Params{ .target = target },
+            );
+        }
+    }
+
+    fn genAsyncReturn(irb: *Builder, scope: *Scope, span: Span, result: *Inst, is_gen: bool) !*Inst {
+        _ = irb.buildGen(
+            Inst.AddImplicitReturnType,
+            scope,
+            span,
+            Inst.AddImplicitReturnType.Params{ .target = result },
+        );
+
+        if (!irb.is_async) {
+            return irb.buildExtra(
+                Inst.Return,
+                scope,
+                span,
+                Inst.Return.Params{ .return_value = result },
+                is_gen,
+            );
+        }
+        return error.Unimplemented;
+
+        //ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_field_ptr, return_value);
+        //IrInstruction *promise_type_val = ir_build_const_type(irb, scope, node,
+        //        get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+        //// TODO replace replacement_value with @intToPtr(?promise, 0x1) when it doesn't crash zig
+        //IrInstruction *replacement_value = irb->exec->coro_handle;
+        //IrInstruction *maybe_await_handle = ir_build_atomic_rmw(irb, scope, node,
+        //        promise_type_val, irb->exec->coro_awaiter_field_ptr, nullptr, replacement_value, nullptr,
+        //        AtomicRmwOp_xchg, AtomicOrderSeqCst);
+        //ir_build_store_ptr(irb, scope, node, irb->exec->await_handle_var_ptr, maybe_await_handle);
+        //IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, maybe_await_handle);
+        //IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, false);
+        //return ir_build_cond_br(irb, scope, node, is_non_null, irb->exec->coro_normal_final, irb->exec->coro_early_final,
+        //        is_comptime);
+        //// the above blocks are rendered by ir_gen after the rest of codegen
     }
 };
 
@@ -888,7 +1203,7 @@ const Analyze = struct {
     const_predecessor_bb: ?*BasicBlock,
     parent_basic_block: *BasicBlock,
     instruction_index: usize,
-    src_implicit_return_type_list: std.ArrayList(*Instruction),
+    src_implicit_return_type_list: std.ArrayList(*Inst),
     explicit_return_type: ?*Type,
 
     pub const Error = error{
@@ -903,7 +1218,7 @@ const Analyze = struct {
     };
 
     pub fn init(comp: *Compilation, parsed_file: *ParsedFile, explicit_return_type: ?*Type) !Analyze {
-        var irb = try Builder.init(comp, parsed_file);
+        var irb = try Builder.init(comp, parsed_file, null);
         errdefer irb.abort();
 
         return Analyze{
@@ -912,7 +1227,7 @@ const Analyze = struct {
             .const_predecessor_bb = null,
             .parent_basic_block = undefined, // initialized with startBasicBlock
             .instruction_index = undefined, // initialized with startBasicBlock
-            .src_implicit_return_type_list = std.ArrayList(*Instruction).init(irb.arena()),
+            .src_implicit_return_type_list = std.ArrayList(*Inst).init(irb.arena()),
             .explicit_return_type = explicit_return_type,
         };
     }
@@ -921,7 +1236,7 @@ const Analyze = struct {
         self.irb.abort();
     }
 
-    pub fn getNewBasicBlock(self: *Analyze, old_bb: *BasicBlock, ref_old_instruction: ?*Instruction) !*BasicBlock {
+    pub fn getNewBasicBlock(self: *Analyze, old_bb: *BasicBlock, ref_old_instruction: ?*Inst) !*BasicBlock {
         if (old_bb.child) |child| {
             if (ref_old_instruction == null or child.ref_instruction != ref_old_instruction)
                 return child;
@@ -984,18 +1299,18 @@ const Analyze = struct {
         return self.irb.comp.addCompileError(self.irb.parsed_file, span, fmt, args);
     }
 
-    fn resolvePeerTypes(self: *Analyze, expected_type: ?*Type, peers: []const *Instruction) Analyze.Error!*Type {
+    fn resolvePeerTypes(self: *Analyze, expected_type: ?*Type, peers: []const *Inst) Analyze.Error!*Type {
         // TODO actual implementation
         return &Type.Void.get(self.irb.comp).base;
     }
 
-    fn implicitCast(self: *Analyze, target: *Instruction, optional_dest_type: ?*Type) Analyze.Error!*Instruction {
+    fn implicitCast(self: *Analyze, target: *Inst, optional_dest_type: ?*Type) Analyze.Error!*Inst {
         const dest_type = optional_dest_type orelse return target;
-        @panic("TODO implicitCast");
+        return error.Unimplemented;
     }
 
-    fn getCompTimeValOrNullUndefOk(self: *Analyze, target: *Instruction) ?*Value {
-        @panic("TODO getCompTimeValOrNullUndefOk");
+    fn getCompTimeValOrNullUndefOk(self: *Analyze, target: *Inst) ?*Value {
+        @panic("TODO");
     }
 
     fn getCompTimeRef(
@@ -1005,8 +1320,8 @@ const Analyze = struct {
         mut: Type.Pointer.Mut,
         volatility: Type.Pointer.Vol,
         ptr_align: u32,
-    ) Analyze.Error!*Instruction {
-        @panic("TODO getCompTimeRef");
+    ) Analyze.Error!*Inst {
+        return error.Unimplemented;
     }
 };
 
@@ -1014,10 +1329,9 @@ pub async fn gen(
     comp: *Compilation,
     body_node: *ast.Node,
     scope: *Scope,
-    end_span: Span,
     parsed_file: *ParsedFile,
 ) !*Code {
-    var irb = try Builder.init(comp, parsed_file);
+    var irb = try Builder.init(comp, parsed_file, scope);
     errdefer irb.abort();
 
     const entry_block = try irb.createBasicBlock(scope, c"Entry");
@@ -1026,18 +1340,8 @@ pub async fn gen(
 
     const result = try irb.genNode(body_node, scope, LVal.None);
     if (!result.isNoReturn()) {
-        _ = irb.buildGen(
-            Instruction.AddImplicitReturnType,
-            scope,
-            end_span,
-            Instruction.AddImplicitReturnType.Params{ .target = result },
-        );
-        _ = irb.buildGen(
-            Instruction.Return,
-            scope,
-            end_span,
-            Instruction.Return.Params{ .return_value = result },
-        );
+        // no need for save_err_ret_addr because this cannot return error
+        _ = try irb.genAsyncReturn(scope, Span.token(body_node.lastToken()), result, true);
     }
 
     return irb.finish();

@@ -207,6 +207,8 @@ pub const Compilation = struct {
 
     destroy_handle: promise,
 
+    have_err_ret_tracing: bool,
+
     const CompileErrList = std.ArrayList(*errmsg.Msg);
 
     // TODO handle some of these earlier and report them in a way other than error codes
@@ -379,6 +381,7 @@ pub const Compilation = struct {
 
             .override_libc = null,
             .destroy_handle = undefined,
+            .have_err_ret_tracing = false,
         });
         errdefer {
             comp.arena_allocator.deinit();
@@ -660,7 +663,11 @@ pub const Compilation = struct {
         while (it.next()) |decl_ptr| {
             const decl = decl_ptr.*;
             switch (decl.id) {
-                ast.Node.Id.Comptime => @panic("TODO"),
+                ast.Node.Id.Comptime => {
+                    const comptime_node = @fieldParentPtr(ast.Node.Comptime, "base", decl);
+
+                    try decl_group.call(addCompTimeBlock, self, parsed_file, &decls.base, comptime_node);
+                },
                 ast.Node.Id.VarDecl => @panic("TODO"),
                 ast.Node.Id.FnProto => {
                     const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
@@ -707,6 +714,69 @@ pub const Compilation = struct {
         if (!any_prelink_errors) {
             try await (async link(self) catch unreachable);
         }
+    }
+
+    /// caller takes ownership of resulting Code
+    async fn genAndAnalyzeCode(
+        comp: *Compilation,
+        parsed_file: *ParsedFile,
+        scope: *Scope,
+        node: *ast.Node,
+        expected_type: ?*Type,
+    ) !?*ir.Code {
+        const unanalyzed_code = (await (async ir.gen(
+            comp,
+            node,
+            scope,
+            parsed_file,
+        ) catch unreachable)) catch |err| switch (err) {
+            // This poison value should not cause the errdefers to run. It simply means
+            // that self.compile_errors is populated.
+            // TODO https://github.com/ziglang/zig/issues/769
+            error.SemanticAnalysisFailed => return null,
+            else => return err,
+        };
+        defer unanalyzed_code.destroy(comp.gpa());
+
+        if (comp.verbose_ir) {
+            std.debug.warn("unanalyzed:\n");
+            unanalyzed_code.dump();
+        }
+
+        const analyzed_code = (await (async ir.analyze(
+            comp,
+            parsed_file,
+            unanalyzed_code,
+            expected_type,
+        ) catch unreachable)) catch |err| switch (err) {
+            // This poison value should not cause the errdefers to run. It simply means
+            // that self.compile_errors is populated.
+            // TODO https://github.com/ziglang/zig/issues/769
+            error.SemanticAnalysisFailed => return null,
+            else => return err,
+        };
+        errdefer analyzed_code.destroy(comp.gpa());
+
+        return analyzed_code;
+    }
+
+    async fn addCompTimeBlock(
+        comp: *Compilation,
+        parsed_file: *ParsedFile,
+        scope: *Scope,
+        comptime_node: *ast.Node.Comptime,
+    ) !void {
+        const void_type = Type.Void.get(comp);
+        defer void_type.base.base.deref(comp);
+
+        const analyzed_code = (try await (async genAndAnalyzeCode(
+            comp,
+            parsed_file,
+            scope,
+            comptime_node.expr,
+            &void_type.base,
+        ) catch unreachable)) orelse return;
+        analyzed_code.destroy(comp.gpa());
     }
 
     async fn addTopLevelDecl(self: *Compilation, decl: *Decl) !void {
@@ -931,38 +1001,12 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const fn_val = try Value.Fn.create(comp, fn_type, fndef_scope, symbol_name);
     fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
 
-    const unanalyzed_code = (await (async ir.gen(
-        comp,
-        body_node,
+    const analyzed_code = (try await (async comp.genAndAnalyzeCode(
+        fn_decl.base.parsed_file,
         &fndef_scope.base,
-        Span.token(body_node.lastToken()),
-        fn_decl.base.parsed_file,
-    ) catch unreachable)) catch |err| switch (err) {
-        // This poison value should not cause the errdefers to run. It simply means
-        // that self.compile_errors is populated.
-        // TODO https://github.com/ziglang/zig/issues/769
-        error.SemanticAnalysisFailed => return {},
-        else => return err,
-    };
-    defer unanalyzed_code.destroy(comp.gpa());
-
-    if (comp.verbose_ir) {
-        std.debug.warn("unanalyzed:\n");
-        unanalyzed_code.dump();
-    }
-
-    const analyzed_code = (await (async ir.analyze(
-        comp,
-        fn_decl.base.parsed_file,
-        unanalyzed_code,
+        body_node,
         null,
-    ) catch unreachable)) catch |err| switch (err) {
-        // This poison value should not cause the errdefers to run. It simply means
-        // that self.compile_errors is populated.
-        // TODO https://github.com/ziglang/zig/issues/769
-        error.SemanticAnalysisFailed => return {},
-        else => return err,
-    };
+    ) catch unreachable)) orelse return;
     errdefer analyzed_code.destroy(comp.gpa());
 
     if (comp.verbose_ir) {
