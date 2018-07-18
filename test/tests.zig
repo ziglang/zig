@@ -89,12 +89,13 @@ pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: 
     return cases.step;
 }
 
-pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(BuildExamplesContext{
         .b = b,
         .step = b.step("test-build-examples", "Build the examples"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     build_examples.addCases(cases);
@@ -697,6 +698,7 @@ pub const BuildExamplesContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
+    modes: []const Mode,
 
     pub fn addC(self: *BuildExamplesContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -739,12 +741,7 @@ pub const BuildExamplesContext = struct {
     pub fn addAllArgs(self: *BuildExamplesContext, root_src: []const u8, link_libc: bool) void {
         const b = self.b;
 
-        for ([]Mode{
-            Mode.Debug,
-            Mode.ReleaseSafe,
-            Mode.ReleaseFast,
-            Mode.ReleaseSmall,
-        }) |mode| {
+        for (self.modes) |mode| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "build {} ({})", root_src, @tagName(mode)) catch unreachable;
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;

@@ -92,7 +92,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", modes));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
+    test_step.dependOn(tests.addBuildExampleTests(b, test_filter, modes));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
     test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
