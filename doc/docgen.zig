@@ -250,7 +250,7 @@ fn eatToken(tokenizer: *Tokenizer, id: Token.Id) !Token {
     return token;
 }
 
-const HeaderOpen = struct {
+const SectionOpen = struct {
     name: []const u8,
     url: []const u8,
     n: usize,
@@ -295,7 +295,7 @@ const Node = union(enum) {
     Content: []const u8,
     Nav,
     Builtin,
-    HeaderOpen: HeaderOpen,
+    SectionOpen: SectionOpen,
     SeeAlso: []const SeeAlsoItem,
     Code: Code,
     Link: Link,
@@ -316,7 +316,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
     var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
     errdefer urls.deinit();
 
-    var header_stack_size: usize = 0;
+    var section_depth: usize = 0;
     var last_action = Action.Open;
 
     var toc_buf = try std.Buffer.initSize(allocator, 0);
@@ -334,8 +334,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
         const token = tokenizer.next();
         switch (token.id) {
             Token.Id.Eof => {
-                if (header_stack_size != 0) {
-                    return parseError(tokenizer, token, "unbalanced headers");
+                if (section_depth != 0) {
+                    return parseError(tokenizer, token, "unbalanced sections");
                 }
                 try toc.write("    </ul>\n");
                 break;
@@ -354,45 +354,48 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                 } else if (mem.eql(u8, tag_name, "builtin")) {
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
                     try nodes.append(Node.Builtin);
-                } else if (mem.eql(u8, tag_name, "header_open")) {
+                } else if (mem.eql(u8, tag_name, "header_open")) { // TODO: Rename to section_open
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const content_token = try eatToken(tokenizer, Token.Id.TagContent);
                     const content = tokenizer.buffer[content_token.start..content_token.end];
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
 
-                    header_stack_size += 1;
+                    section_depth += 1;
 
                     const urlized = try urlize(allocator, content);
                     try nodes.append(Node{
-                        .HeaderOpen = HeaderOpen{
+                        .SectionOpen = SectionOpen{
                             .name = content,
                             .url = urlized,
-                            .n = header_stack_size,
+                            .n = section_depth,
                         },
                     });
                     if (try urls.put(urlized, tag_token)) |other_tag_token| {
-                        parseError(tokenizer, tag_token, "duplicate header url: #{}", urlized) catch {};
+                        parseError(tokenizer, tag_token, "duplicate section url: #{}", urlized) catch {};
                         parseError(tokenizer, other_tag_token, "other tag here") catch {};
                         return error.ParseError;
                     }
                     if (last_action == Action.Open) {
                         try toc.writeByte('\n');
-                        try toc.writeByteNTimes(' ', header_stack_size * 4);
+                        try toc.writeByteNTimes(' ', section_depth * 4);
                         try toc.write("<ul>\n");
                     } else {
                         last_action = Action.Open;
                     }
-                    try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
+                    try toc.writeByteNTimes(' ', 4 + section_depth * 4);
                     try toc.print("<li><a href=\"#{}\">{}</a>", urlized, content);
-                } else if (mem.eql(u8, tag_name, "header_close")) {
-                    if (header_stack_size == 0) {
-                        return parseError(tokenizer, tag_token, "unbalanced close header");
+                } else if (mem.eql(u8, tag_name, "header_close")) { // TODO: Rename to section_close
+                    if (section_depth == 0) {
+                        return parseError(tokenizer, tag_token, "unbalanced close section");
                     }
-                    header_stack_size -= 1;
+                    section_depth -= 1;
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
 
+                    try nodes.append(Node{
+                        .Content = "</section>",
+                    });
                     if (last_action == Action.Close) {
-                        try toc.writeByteNTimes(' ', 8 + header_stack_size * 4);
+                        try toc.writeByteNTimes(' ', 8 + section_depth * 4);
                         try toc.write("</ul></li>\n");
                     } else {
                         try toc.write("</li>\n");
@@ -711,8 +714,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
             Node.Builtin => {
                 try out.print("<pre><code class=\"zig\">{}</code></pre>", builtin_code);
             },
-            Node.HeaderOpen => |info| {
-                try out.print("<h{} id=\"{}\">{}</h{}>\n", info.n, info.url, info.name, info.n);
+            Node.SectionOpen => |info| {
+                try out.print("<section id=\"{}\"><h{}>{}</h{}>\n", info.url, info.n, info.name, info.n);
             },
             Node.SeeAlso => |items| {
                 try out.write("<p>See also:</p><ul>\n");
