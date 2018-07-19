@@ -8,6 +8,7 @@ const ast = std.zig.ast;
 const Value = @import("value.zig").Value;
 const ir = @import("ir.zig");
 const Span = @import("errmsg.zig").Span;
+const assert = std.debug.assert;
 
 pub const Scope = struct {
     id: Id,
@@ -23,7 +24,8 @@ pub const Scope = struct {
         if (base.ref_count == 0) {
             if (base.parent) |parent| parent.deref(comp);
             switch (base.id) {
-                Id.Decls => @fieldParentPtr(Decls, "base", base).destroy(),
+                Id.Root => @fieldParentPtr(Root, "base", base).destroy(comp),
+                Id.Decls => @fieldParentPtr(Decls, "base", base).destroy(comp),
                 Id.Block => @fieldParentPtr(Block, "base", base).destroy(comp),
                 Id.FnDef => @fieldParentPtr(FnDef, "base", base).destroy(comp),
                 Id.CompTime => @fieldParentPtr(CompTime, "base", base).destroy(comp),
@@ -31,6 +33,15 @@ pub const Scope = struct {
                 Id.DeferExpr => @fieldParentPtr(DeferExpr, "base", base).destroy(comp),
             }
         }
+    }
+
+    pub fn findRoot(base: *Scope) *Root {
+        var scope = base;
+        while (scope.parent) |parent| {
+            scope = parent;
+        }
+        assert(scope.id == Id.Root);
+        return @fieldParentPtr(Root, "base", scope);
     }
 
     pub fn findFnDef(base: *Scope) ?*FnDef {
@@ -44,6 +55,7 @@ pub const Scope = struct {
                 Id.Defer,
                 Id.DeferExpr,
                 Id.CompTime,
+                Id.Root,
                 => scope = scope.parent orelse return null,
             }
         }
@@ -62,12 +74,14 @@ pub const Scope = struct {
                 Id.Block,
                 Id.Defer,
                 Id.CompTime,
+                Id.Root,
                 => scope = scope.parent orelse return null,
             }
         }
     }
 
     pub const Id = enum {
+        Root,
         Decls,
         Block,
         FnDef,
@@ -76,12 +90,43 @@ pub const Scope = struct {
         DeferExpr,
     };
 
+    pub const Root = struct {
+        base: Scope,
+        tree: ast.Tree,
+        realpath: []const u8,
+
+        /// Creates a Root scope with 1 reference
+        /// Takes ownership of realpath
+        /// Caller must set tree
+        pub fn create(comp: *Compilation, tree: ast.Tree, realpath: []u8) !*Root {
+            const self = try comp.gpa().create(Root{
+                .base = Scope{
+                    .id = Id.Root,
+                    .parent = null,
+                    .ref_count = 1,
+                },
+                .tree = tree,
+                .realpath = realpath,
+            });
+            errdefer comp.gpa().destroy(self);
+
+            return self;
+        }
+
+        pub fn destroy(self: *Root, comp: *Compilation) void {
+            comp.gpa().free(self.tree.source);
+            self.tree.deinit();
+            comp.gpa().free(self.realpath);
+            comp.gpa().destroy(self);
+        }
+    };
+
     pub const Decls = struct {
         base: Scope,
         table: Decl.Table,
 
         /// Creates a Decls scope with 1 reference
-        pub fn create(comp: *Compilation, parent: ?*Scope) !*Decls {
+        pub fn create(comp: *Compilation, parent: *Scope) !*Decls {
             const self = try comp.gpa().create(Decls{
                 .base = Scope{
                     .id = Id.Decls,
@@ -95,14 +140,14 @@ pub const Scope = struct {
             self.table = Decl.Table.init(comp.gpa());
             errdefer self.table.deinit();
 
-            if (parent) |p| p.ref();
+            parent.ref();
 
             return self;
         }
 
-        pub fn destroy(self: *Decls) void {
+        pub fn destroy(self: *Decls, comp: *Compilation) void {
             self.table.deinit();
-            self.table.allocator.destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -143,7 +188,7 @@ pub const Scope = struct {
         };
 
         /// Creates a Block scope with 1 reference
-        pub fn create(comp: *Compilation, parent: ?*Scope) !*Block {
+        pub fn create(comp: *Compilation, parent: *Scope) !*Block {
             const self = try comp.gpa().create(Block{
                 .base = Scope{
                     .id = Id.Block,
@@ -158,7 +203,7 @@ pub const Scope = struct {
             });
             errdefer comp.gpa().destroy(self);
 
-            if (parent) |p| p.ref();
+            parent.ref();
             return self;
         }
 
@@ -175,7 +220,7 @@ pub const Scope = struct {
 
         /// Creates a FnDef scope with 1 reference
         /// Must set the fn_val later
-        pub fn create(comp: *Compilation, parent: ?*Scope) !*FnDef {
+        pub fn create(comp: *Compilation, parent: *Scope) !*FnDef {
             const self = try comp.gpa().create(FnDef{
                 .base = Scope{
                     .id = Id.FnDef,
@@ -185,7 +230,7 @@ pub const Scope = struct {
                 .fn_val = undefined,
             });
 
-            if (parent) |p| p.ref();
+            parent.ref();
 
             return self;
         }
@@ -199,7 +244,7 @@ pub const Scope = struct {
         base: Scope,
 
         /// Creates a CompTime scope with 1 reference
-        pub fn create(comp: *Compilation, parent: ?*Scope) !*CompTime {
+        pub fn create(comp: *Compilation, parent: *Scope) !*CompTime {
             const self = try comp.gpa().create(CompTime{
                 .base = Scope{
                     .id = Id.CompTime,
@@ -208,7 +253,7 @@ pub const Scope = struct {
                 },
             });
 
-            if (parent) |p| p.ref();
+            parent.ref();
             return self;
         }
 
@@ -230,7 +275,7 @@ pub const Scope = struct {
         /// Creates a Defer scope with 1 reference
         pub fn create(
             comp: *Compilation,
-            parent: ?*Scope,
+            parent: *Scope,
             kind: Kind,
             defer_expr_scope: *DeferExpr,
         ) !*Defer {
@@ -247,7 +292,7 @@ pub const Scope = struct {
 
             defer_expr_scope.base.ref();
 
-            if (parent) |p| p.ref();
+            parent.ref();
             return self;
         }
 
@@ -263,7 +308,7 @@ pub const Scope = struct {
         reported_err: bool,
 
         /// Creates a DeferExpr scope with 1 reference
-        pub fn create(comp: *Compilation, parent: ?*Scope, expr_node: *ast.Node) !*DeferExpr {
+        pub fn create(comp: *Compilation, parent: *Scope, expr_node: *ast.Node) !*DeferExpr {
             const self = try comp.gpa().create(DeferExpr{
                 .base = Scope{
                     .id = Id.DeferExpr,
@@ -275,7 +320,7 @@ pub const Scope = struct {
             });
             errdefer comp.gpa().destroy(self);
 
-            if (parent) |p| p.ref();
+            parent.ref();
             return self;
         }
 

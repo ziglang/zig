@@ -8,7 +8,6 @@ const Value = @import("value.zig").Value;
 const Type = Value.Type;
 const assert = std.debug.assert;
 const Token = std.zig.Token;
-const ParsedFile = @import("parsed_file.zig").ParsedFile;
 const Span = @import("errmsg.zig").Span;
 const llvm = @import("llvm.zig");
 const ObjectFile = @import("codegen.zig").ObjectFile;
@@ -611,6 +610,33 @@ pub const Code = struct {
             }
         }
     }
+
+    /// returns a ref-incremented value, or adds a compile error
+    pub fn getCompTimeResult(self: *Code, comp: *Compilation) !*Value {
+        const bb = self.basic_block_list.at(0);
+        for (bb.instruction_list.toSliceConst()) |inst| {
+            if (inst.cast(Inst.Return)) |ret_inst| {
+                const ret_value = ret_inst.params.return_value;
+                if (ret_value.isCompTime()) {
+                    return ret_value.val.KnownValue.getRef();
+                }
+                try comp.addCompileError(
+                    ret_value.scope.findRoot(),
+                    ret_value.span,
+                    "unable to evaluate constant expression",
+                );
+                return error.SemanticAnalysisFailed;
+            } else if (inst.hasSideEffects()) {
+                try comp.addCompileError(
+                    inst.scope.findRoot(),
+                    inst.span,
+                    "unable to evaluate constant expression",
+                );
+                return error.SemanticAnalysisFailed;
+            }
+        }
+        unreachable;
+    }
 };
 
 pub const Builder = struct {
@@ -618,14 +644,14 @@ pub const Builder = struct {
     code: *Code,
     current_basic_block: *BasicBlock,
     next_debug_id: usize,
-    parsed_file: *ParsedFile,
+    root_scope: *Scope.Root,
     is_comptime: bool,
     is_async: bool,
     begin_scope: ?*Scope,
 
     pub const Error = Analyze.Error;
 
-    pub fn init(comp: *Compilation, parsed_file: *ParsedFile, begin_scope: ?*Scope) !Builder {
+    pub fn init(comp: *Compilation, root_scope: *Scope.Root, begin_scope: ?*Scope) !Builder {
         const code = try comp.gpa().create(Code{
             .basic_block_list = undefined,
             .arena = std.heap.ArenaAllocator.init(comp.gpa()),
@@ -636,7 +662,7 @@ pub const Builder = struct {
 
         return Builder{
             .comp = comp,
-            .parsed_file = parsed_file,
+            .root_scope = root_scope,
             .current_basic_block = undefined,
             .code = code,
             .next_debug_id = 0,
@@ -718,7 +744,10 @@ pub const Builder = struct {
             ast.Node.Id.UndefinedLiteral => return error.Unimplemented,
             ast.Node.Id.ThisLiteral => return error.Unimplemented,
             ast.Node.Id.Unreachable => return error.Unimplemented,
-            ast.Node.Id.Identifier => return error.Unimplemented,
+            ast.Node.Id.Identifier => {
+                const identifier = @fieldParentPtr(ast.Node.Identifier, "base", node);
+                return irb.genIdentifier(identifier, scope, lval);
+            },
             ast.Node.Id.GroupedExpression => {
                 const grouped_expr = @fieldParentPtr(ast.Node.GroupedExpression, "base", node);
                 return irb.genNode(grouped_expr.expr, scope, lval);
@@ -761,16 +790,17 @@ pub const Builder = struct {
                 Scope.Id.CompTime => return true,
                 Scope.Id.FnDef => return false,
                 Scope.Id.Decls => unreachable,
+                Scope.Id.Root => unreachable,
                 Scope.Id.Block,
                 Scope.Id.Defer,
                 Scope.Id.DeferExpr,
-                => scope = scope.parent orelse return false,
+                => scope = scope.parent.?,
             }
         }
     }
 
     pub fn genIntLit(irb: *Builder, int_lit: *ast.Node.IntegerLiteral, scope: *Scope) !*Inst {
-        const int_token = irb.parsed_file.tree.tokenSlice(int_lit.token);
+        const int_token = irb.root_scope.tree.tokenSlice(int_lit.token);
 
         var base: u8 = undefined;
         var rest: []const u8 = undefined;
@@ -845,7 +875,7 @@ pub const Builder = struct {
 
             if (statement_node.cast(ast.Node.Defer)) |defer_node| {
                 // defer starts a new scope
-                const defer_token = irb.parsed_file.tree.tokens.at(defer_node.defer_token);
+                const defer_token = irb.root_scope.tree.tokens.at(defer_node.defer_token);
                 const kind = switch (defer_token.id) {
                     Token.Id.Keyword_defer => Scope.Defer.Kind.ScopeExit,
                     Token.Id.Keyword_errdefer => Scope.Defer.Kind.ErrorExit,
@@ -928,7 +958,7 @@ pub const Builder = struct {
                 const src_span = Span.token(control_flow_expr.ltoken);
                 if (scope.findFnDef() == null) {
                     try irb.comp.addCompileError(
-                        irb.parsed_file,
+                        irb.root_scope,
                         src_span,
                         "return expression outside function definition",
                     );
@@ -938,7 +968,7 @@ pub const Builder = struct {
                 if (scope.findDeferExpr()) |scope_defer_expr| {
                     if (!scope_defer_expr.reported_err) {
                         try irb.comp.addCompileError(
-                            irb.parsed_file,
+                            irb.root_scope,
                             src_span,
                             "cannot return from defer expression",
                         );
@@ -1012,6 +1042,69 @@ pub const Builder = struct {
         }
     }
 
+    pub fn genIdentifier(irb: *Builder, identifier: *ast.Node.Identifier, scope: *Scope, lval: LVal) !*Inst {
+        const src_span = Span.token(identifier.token);
+        const name = irb.root_scope.tree.tokenSlice(identifier.token);
+
+        //if (buf_eql_str(variable_name, "_") && lval == LValPtr) {
+        //    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, node);
+        //    const_instruction->base.value.type = get_pointer_to_type(irb->codegen,
+        //            irb->codegen->builtin_types.entry_void, false);
+        //    const_instruction->base.value.special = ConstValSpecialStatic;
+        //    const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialDiscard;
+        //    return &const_instruction->base;
+        //}
+
+        if (irb.comp.getPrimitiveType(name)) |result| {
+            if (result) |primitive_type| {
+                defer primitive_type.base.deref(irb.comp);
+                switch (lval) {
+                    LVal.Ptr => return error.Unimplemented,
+                    LVal.None => return irb.buildConstValue(scope, src_span, &primitive_type.base),
+                }
+            }
+        } else |err| switch (err) {
+            error.Overflow => {
+                try irb.comp.addCompileError(irb.root_scope, src_span, "integer too large");
+                return error.SemanticAnalysisFailed;
+            },
+        }
+        //TypeTableEntry *primitive_type = get_primitive_type(irb->codegen, variable_name);
+        //if (primitive_type != nullptr) {
+        //    IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_type);
+        //    if (lval == LValPtr) {
+        //        return ir_build_ref(irb, scope, node, value, false, false);
+        //    } else {
+        //        return value;
+        //    }
+        //}
+
+        //VariableTableEntry *var = find_variable(irb->codegen, scope, variable_name);
+        //if (var) {
+        //    IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, node, var);
+        //    if (lval == LValPtr)
+        //        return var_ptr;
+        //    else
+        //        return ir_build_load_ptr(irb, scope, node, var_ptr);
+        //}
+
+        //Tld *tld = find_decl(irb->codegen, scope, variable_name);
+        //if (tld)
+        //    return ir_build_decl_ref(irb, scope, node, tld, lval);
+
+        //if (node->owner->any_imports_failed) {
+        //    // skip the error message since we had a failing import in this file
+        //    // if an import breaks we don't need redundant undeclared identifier errors
+        //    return irb->codegen->invalid_instruction;
+        //}
+
+        // TODO put a variable of same name with invalid type in global scope
+        // so that future references to this same name will find a variable with an invalid type
+
+        try irb.comp.addCompileError(irb.root_scope, src_span, "unknown identifier '{}'", name);
+        return error.SemanticAnalysisFailed;
+    }
+
     const DeferCounts = struct {
         scope_exit: usize,
         error_exit: usize,
@@ -1035,10 +1128,11 @@ pub const Builder = struct {
 
                 Scope.Id.CompTime,
                 Scope.Id.Block,
+                Scope.Id.Decls,
+                Scope.Id.Root,
                 => scope = scope.parent orelse break,
 
                 Scope.Id.DeferExpr => unreachable,
-                Scope.Id.Decls => unreachable,
             }
         }
         return result;
@@ -1081,6 +1175,7 @@ pub const Builder = struct {
                 },
                 Scope.Id.FnDef,
                 Scope.Id.Decls,
+                Scope.Id.Root,
                 => return is_noreturn,
 
                 Scope.Id.CompTime,
@@ -1188,6 +1283,12 @@ pub const Builder = struct {
         return inst;
     }
 
+    fn buildConstValue(self: *Builder, scope: *Scope, span: Span, v: *Value) !*Inst {
+        const inst = try self.build(Inst.Const, scope, span, Inst.Const.Params{});
+        inst.val = IrVal{ .KnownValue = v.getRef() };
+        return inst;
+    }
+
     /// If the code is explicitly set to be comptime, then builds a const bool,
     /// otherwise builds a TestCompTime instruction.
     fn buildTestCompTime(self: *Builder, scope: *Scope, span: Span, target: *Inst) !*Inst {
@@ -1259,8 +1360,8 @@ const Analyze = struct {
         OutOfMemory,
     };
 
-    pub fn init(comp: *Compilation, parsed_file: *ParsedFile, explicit_return_type: ?*Type) !Analyze {
-        var irb = try Builder.init(comp, parsed_file, null);
+    pub fn init(comp: *Compilation, root_scope: *Scope.Root, explicit_return_type: ?*Type) !Analyze {
+        var irb = try Builder.init(comp, root_scope, null);
         errdefer irb.abort();
 
         return Analyze{
@@ -1338,7 +1439,7 @@ const Analyze = struct {
     }
 
     fn addCompileError(self: *Analyze, span: Span, comptime fmt: []const u8, args: ...) !void {
-        return self.irb.comp.addCompileError(self.irb.parsed_file, span, fmt, args);
+        return self.irb.comp.addCompileError(self.irb.root_scope, span, fmt, args);
     }
 
     fn resolvePeerTypes(self: *Analyze, expected_type: ?*Type, peers: []const *Inst) Analyze.Error!*Type {
@@ -1800,9 +1901,8 @@ pub async fn gen(
     comp: *Compilation,
     body_node: *ast.Node,
     scope: *Scope,
-    parsed_file: *ParsedFile,
 ) !*Code {
-    var irb = try Builder.init(comp, parsed_file, scope);
+    var irb = try Builder.init(comp, scope.findRoot(), scope);
     errdefer irb.abort();
 
     const entry_block = try irb.createBasicBlock(scope, c"Entry");
@@ -1818,11 +1918,12 @@ pub async fn gen(
     return irb.finish();
 }
 
-pub async fn analyze(comp: *Compilation, parsed_file: *ParsedFile, old_code: *Code, expected_type: ?*Type) !*Code {
-    var ira = try Analyze.init(comp, parsed_file, expected_type);
-    errdefer ira.abort();
-
+pub async fn analyze(comp: *Compilation, old_code: *Code, expected_type: ?*Type) !*Code {
     const old_entry_bb = old_code.basic_block_list.at(0);
+    const root_scope = old_entry_bb.scope.findRoot();
+
+    var ira = try Analyze.init(comp, root_scope, expected_type);
+    errdefer ira.abort();
 
     const new_entry_bb = try ira.getNewBasicBlock(old_entry_bb, null);
     new_entry_bb.ref();

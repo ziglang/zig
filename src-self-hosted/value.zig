@@ -39,6 +39,11 @@ pub const Value = struct {
         return base;
     }
 
+    pub fn cast(base: *Value, comptime T: type) ?*T {
+        if (base.id != @field(Id, @typeName(T))) return null;
+        return @fieldParentPtr(T, "base", base);
+    }
+
     pub fn dump(base: *const Value) void {
         std.debug.warn("{}", @tagName(base.id));
     }

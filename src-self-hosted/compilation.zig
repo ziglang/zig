@@ -21,7 +21,6 @@ const Scope = @import("scope.zig").Scope;
 const Decl = @import("decl.zig").Decl;
 const ir = @import("ir.zig");
 const Visib = @import("visib.zig").Visib;
-const ParsedFile = @import("parsed_file.zig").ParsedFile;
 const Value = @import("value.zig").Value;
 const Type = Value.Type;
 const Span = errmsg.Span;
@@ -470,6 +469,35 @@ pub const Compilation = struct {
         return comp;
     }
 
+    /// it does ref the result because it could be an arbitrary integer size
+    pub fn getPrimitiveType(comp: *Compilation, name: []const u8) !?*Type {
+        if (name.len >= 2) {
+            switch (name[0]) {
+                'i', 'u' => blk: {
+                    for (name[1..]) |byte|
+                        switch (byte) {
+                        '0'...'9' => {},
+                        else => break :blk,
+                    };
+                    const is_signed = name[0] == 'i';
+                    const bit_count = std.fmt.parseUnsigned(u32, name[1..], 10) catch |err| switch (err) {
+                        error.Overflow => return error.Overflow,
+                        error.InvalidCharacter => unreachable, // we just checked the characters above
+                    };
+                    @panic("get int type - need to make everything async");
+                },
+                else => {},
+            }
+        }
+
+        if (comp.primitive_type_table.get(name)) |entry| {
+            entry.value.base.ref();
+            return entry.value;
+        }
+
+        return null;
+    }
+
     fn initTypes(comp: *Compilation) !void {
         comp.meta_type = try comp.arena().create(Type.MetaType{
             .base = Type{
@@ -671,82 +699,81 @@ pub const Compilation = struct {
     }
 
     async fn compileAndLink(self: *Compilation) !void {
-        const root_src_path = self.root_src_path orelse @panic("TODO handle null root src path");
-        // TODO async/await os.path.real
-        const root_src_real_path = os.path.real(self.gpa(), root_src_path) catch |err| {
-            try printError("unable to get real path '{}': {}", root_src_path, err);
-            return err;
-        };
-        errdefer self.gpa().free(root_src_real_path);
+        if (self.root_src_path) |root_src_path| {
+            // TODO async/await os.path.real
+            const root_src_real_path = os.path.real(self.gpa(), root_src_path) catch |err| {
+                try printError("unable to get real path '{}': {}", root_src_path, err);
+                return err;
+            };
+            const root_scope = blk: {
+                errdefer self.gpa().free(root_src_real_path);
 
-        // TODO async/await readFileAlloc()
-        const source_code = io.readFileAlloc(self.gpa(), root_src_real_path) catch |err| {
-            try printError("unable to open '{}': {}", root_src_real_path, err);
-            return err;
-        };
-        errdefer self.gpa().free(source_code);
+                // TODO async/await readFileAlloc()
+                const source_code = io.readFileAlloc(self.gpa(), root_src_real_path) catch |err| {
+                    try printError("unable to open '{}': {}", root_src_real_path, err);
+                    return err;
+                };
+                errdefer self.gpa().free(source_code);
 
-        const parsed_file = try self.gpa().create(ParsedFile{
-            .tree = undefined,
-            .realpath = root_src_real_path,
-        });
-        errdefer self.gpa().destroy(parsed_file);
+                var tree = try std.zig.parse(self.gpa(), source_code);
+                errdefer tree.deinit();
 
-        parsed_file.tree = try std.zig.parse(self.gpa(), source_code);
-        errdefer parsed_file.tree.deinit();
+                break :blk try Scope.Root.create(self, tree, root_src_real_path);
+            };
+            defer root_scope.base.deref(self);
 
-        const tree = &parsed_file.tree;
+            const tree = &root_scope.tree;
 
-        // create empty struct for it
-        const decls = try Scope.Decls.create(self, null);
-        defer decls.base.deref(self);
+            const decls = try Scope.Decls.create(self, &root_scope.base);
+            defer decls.base.deref(self);
 
-        var decl_group = event.Group(BuildError!void).init(self.loop);
-        errdefer decl_group.cancelAll();
+            var decl_group = event.Group(BuildError!void).init(self.loop);
+            errdefer decl_group.cancelAll();
 
-        var it = tree.root_node.decls.iterator(0);
-        while (it.next()) |decl_ptr| {
-            const decl = decl_ptr.*;
-            switch (decl.id) {
-                ast.Node.Id.Comptime => {
-                    const comptime_node = @fieldParentPtr(ast.Node.Comptime, "base", decl);
+            var it = tree.root_node.decls.iterator(0);
+            while (it.next()) |decl_ptr| {
+                const decl = decl_ptr.*;
+                switch (decl.id) {
+                    ast.Node.Id.Comptime => {
+                        const comptime_node = @fieldParentPtr(ast.Node.Comptime, "base", decl);
 
-                    try decl_group.call(addCompTimeBlock, self, parsed_file, &decls.base, comptime_node);
-                },
-                ast.Node.Id.VarDecl => @panic("TODO"),
-                ast.Node.Id.FnProto => {
-                    const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
+                        try decl_group.call(addCompTimeBlock, self, &decls.base, comptime_node);
+                    },
+                    ast.Node.Id.VarDecl => @panic("TODO"),
+                    ast.Node.Id.FnProto => {
+                        const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
 
-                    const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
-                        try self.addCompileError(parsed_file, Span{
-                            .first = fn_proto.fn_token,
-                            .last = fn_proto.fn_token + 1,
-                        }, "missing function name");
-                        continue;
-                    };
+                        const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
+                            try self.addCompileError(root_scope, Span{
+                                .first = fn_proto.fn_token,
+                                .last = fn_proto.fn_token + 1,
+                            }, "missing function name");
+                            continue;
+                        };
 
-                    const fn_decl = try self.gpa().create(Decl.Fn{
-                        .base = Decl{
-                            .id = Decl.Id.Fn,
-                            .name = name,
-                            .visib = parseVisibToken(tree, fn_proto.visib_token),
-                            .resolution = event.Future(BuildError!void).init(self.loop),
-                            .resolution_in_progress = 0,
-                            .parsed_file = parsed_file,
-                            .parent_scope = &decls.base,
-                        },
-                        .value = Decl.Fn.Val{ .Unresolved = {} },
-                        .fn_proto = fn_proto,
-                    });
-                    errdefer self.gpa().destroy(fn_decl);
+                        const fn_decl = try self.gpa().create(Decl.Fn{
+                            .base = Decl{
+                                .id = Decl.Id.Fn,
+                                .name = name,
+                                .visib = parseVisibToken(tree, fn_proto.visib_token),
+                                .resolution = event.Future(BuildError!void).init(self.loop),
+                                .resolution_in_progress = 0,
+                                .parent_scope = &decls.base,
+                            },
+                            .value = Decl.Fn.Val{ .Unresolved = {} },
+                            .fn_proto = fn_proto,
+                        });
+                        errdefer self.gpa().destroy(fn_decl);
 
-                    try decl_group.call(addTopLevelDecl, self, &fn_decl.base);
-                },
-                ast.Node.Id.TestDecl => @panic("TODO"),
-                else => unreachable,
+                        try decl_group.call(addTopLevelDecl, self, &fn_decl.base);
+                    },
+                    ast.Node.Id.TestDecl => @panic("TODO"),
+                    else => unreachable,
+                }
             }
+            try await (async decl_group.wait() catch unreachable);
         }
-        try await (async decl_group.wait() catch unreachable);
+
         try await (async self.prelink_group.wait() catch unreachable);
 
         const any_prelink_errors = blk: {
@@ -764,23 +791,15 @@ pub const Compilation = struct {
     /// caller takes ownership of resulting Code
     async fn genAndAnalyzeCode(
         comp: *Compilation,
-        parsed_file: *ParsedFile,
         scope: *Scope,
         node: *ast.Node,
         expected_type: ?*Type,
-    ) !?*ir.Code {
-        const unanalyzed_code = (await (async ir.gen(
+    ) !*ir.Code {
+        const unanalyzed_code = try await (async ir.gen(
             comp,
             node,
             scope,
-            parsed_file,
-        ) catch unreachable)) catch |err| switch (err) {
-            // This poison value should not cause the errdefers to run. It simply means
-            // that self.compile_errors is populated.
-            // TODO https://github.com/ziglang/zig/issues/769
-            error.SemanticAnalysisFailed => return null,
-            else => return err,
-        };
+        ) catch unreachable);
         defer unanalyzed_code.destroy(comp.gpa());
 
         if (comp.verbose_ir) {
@@ -788,44 +807,46 @@ pub const Compilation = struct {
             unanalyzed_code.dump();
         }
 
-        const analyzed_code = (await (async ir.analyze(
+        const analyzed_code = try await (async ir.analyze(
             comp,
-            parsed_file,
             unanalyzed_code,
             expected_type,
-        ) catch unreachable)) catch |err| switch (err) {
-            // This poison value should not cause the errdefers to run. It simply means
-            // that self.compile_errors is populated.
-            // TODO https://github.com/ziglang/zig/issues/769
-            error.SemanticAnalysisFailed => return null,
-            else => return err,
-        };
+        ) catch unreachable);
         errdefer analyzed_code.destroy(comp.gpa());
+
+        if (comp.verbose_ir) {
+            std.debug.warn("analyzed:\n");
+            analyzed_code.dump();
+        }
 
         return analyzed_code;
     }
 
     async fn addCompTimeBlock(
         comp: *Compilation,
-        parsed_file: *ParsedFile,
         scope: *Scope,
         comptime_node: *ast.Node.Comptime,
     ) !void {
         const void_type = Type.Void.get(comp);
         defer void_type.base.base.deref(comp);
 
-        const analyzed_code = (try await (async genAndAnalyzeCode(
+        const analyzed_code = (await (async genAndAnalyzeCode(
             comp,
-            parsed_file,
             scope,
             comptime_node.expr,
             &void_type.base,
-        ) catch unreachable)) orelse return;
+        ) catch unreachable)) catch |err| switch (err) {
+            // This poison value should not cause the errdefers to run. It simply means
+            // that comp.compile_errors is populated.
+            error.SemanticAnalysisFailed => return {},
+            else => return err,
+        };
         analyzed_code.destroy(comp.gpa());
     }
 
     async fn addTopLevelDecl(self: *Compilation, decl: *Decl) !void {
-        const is_export = decl.isExported(&decl.parsed_file.tree);
+        const tree = &decl.findRootScope().tree;
+        const is_export = decl.isExported(tree);
 
         if (is_export) {
             try self.prelink_group.call(verifyUniqueSymbol, self, decl);
@@ -833,24 +854,24 @@ pub const Compilation = struct {
         }
     }
 
-    fn addCompileError(self: *Compilation, parsed_file: *ParsedFile, span: Span, comptime fmt: []const u8, args: ...) !void {
-        const text = try std.fmt.allocPrint(self.loop.allocator, fmt, args);
-        errdefer self.loop.allocator.free(text);
+    fn addCompileError(self: *Compilation, root: *Scope.Root, span: Span, comptime fmt: []const u8, args: ...) !void {
+        const text = try std.fmt.allocPrint(self.gpa(), fmt, args);
+        errdefer self.gpa().free(text);
 
-        try self.prelink_group.call(addCompileErrorAsync, self, parsed_file, span, text);
+        try self.prelink_group.call(addCompileErrorAsync, self, root, span, text);
     }
 
     async fn addCompileErrorAsync(
         self: *Compilation,
-        parsed_file: *ParsedFile,
+        root: *Scope.Root,
         span: Span,
         text: []u8,
     ) !void {
         const msg = try self.loop.allocator.create(errmsg.Msg{
-            .path = parsed_file.realpath,
+            .path = root.realpath,
             .text = text,
             .span = span,
-            .tree = &parsed_file.tree,
+            .tree = &root.tree,
         });
         errdefer self.loop.allocator.destroy(msg);
 
@@ -866,7 +887,7 @@ pub const Compilation = struct {
 
         if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
             try self.addCompileError(
-                decl.parsed_file,
+                decl.findRootScope(),
                 decl.getSpan(),
                 "exported symbol collision: '{}'",
                 decl.name,
@@ -988,6 +1009,24 @@ pub const Compilation = struct {
     fn registerGarbage(comp: *Compilation, comptime T: type, node: *std.atomic.Stack(*T).Node) void {
         // TODO put the garbage somewhere
     }
+
+    /// Returns a value which has been ref()'d once
+    async fn analyzeConstValue(comp: *Compilation, scope: *Scope, node: *ast.Node, expected_type: *Type) !*Value {
+        const analyzed_code = try await (async comp.genAndAnalyzeCode(scope, node, expected_type) catch unreachable);
+        defer analyzed_code.destroy(comp.gpa());
+
+        return analyzed_code.getCompTimeResult(comp);
+    }
+
+    async fn analyzeTypeExpr(comp: *Compilation, scope: *Scope, node: *ast.Node) !*Type {
+        const meta_type = &Type.MetaType.get(comp).base;
+        defer meta_type.base.deref(comp);
+
+        const result_val = try await (async comp.analyzeConstValue(scope, node, meta_type) catch unreachable);
+        errdefer result_val.base.deref(comp);
+
+        return result_val.cast(Type).?;
+    }
 };
 
 fn printError(comptime format: []const u8, args: ...) !void {
@@ -1011,7 +1050,12 @@ fn parseVisibToken(tree: *ast.Tree, optional_token_index: ?ast.TokenIndex) Visib
 pub async fn resolveDecl(comp: *Compilation, decl: *Decl) !void {
     if (await (async decl.resolution.start() catch unreachable)) |ptr| return ptr.*;
 
-    decl.resolution.data = await (async generateDecl(comp, decl) catch unreachable);
+    decl.resolution.data = (await (async generateDecl(comp, decl) catch unreachable)) catch |err| switch (err) {
+        // This poison value should not cause the errdefers to run. It simply means
+        // that comp.compile_errors is populated.
+        error.SemanticAnalysisFailed => {},
+        else => err,
+    };
     decl.resolution.resolve();
     return decl.resolution.data;
 }
@@ -1034,9 +1078,12 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const fndef_scope = try Scope.FnDef.create(comp, fn_decl.base.parent_scope);
     defer fndef_scope.base.deref(comp);
 
-    // TODO actually look at the return type of the AST
-    const return_type = &Type.Void.get(comp).base;
-    defer return_type.base.deref(comp);
+    const return_type_node = switch (fn_decl.fn_proto.return_type) {
+        ast.Node.FnProto.ReturnType.Explicit => |n| n,
+        ast.Node.FnProto.ReturnType.InferErrorSet => |n| n,
+    };
+    const return_type = try await (async comp.analyzeTypeExpr(&fndef_scope.base, return_type_node) catch unreachable);
+    return_type.base.deref(comp);
 
     const is_var_args = false;
     const params = ([*]Type.Fn.Param)(undefined)[0..0];
@@ -1050,18 +1097,12 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const fn_val = try Value.Fn.create(comp, fn_type, fndef_scope, symbol_name);
     fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
 
-    const analyzed_code = (try await (async comp.genAndAnalyzeCode(
-        fn_decl.base.parsed_file,
+    const analyzed_code = try await (async comp.genAndAnalyzeCode(
         &fndef_scope.base,
         body_node,
         return_type,
-    ) catch unreachable)) orelse return;
+    ) catch unreachable);
     errdefer analyzed_code.destroy(comp.gpa());
-
-    if (comp.verbose_ir) {
-        std.debug.warn("analyzed:\n");
-        analyzed_code.dump();
-    }
 
     // Kick off rendering to LLVM module, but it doesn't block the fn decl
     // analysis from being complete.
