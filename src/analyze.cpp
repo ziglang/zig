@@ -9,6 +9,7 @@
 #include "ast_render.hpp"
 #include "config.h"
 #include "error.hpp"
+#include "fn_abi.hpp"
 #include "ir.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
@@ -1202,6 +1203,8 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
         fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, (int)(gen_param_index + 1), 0);
     }
+
+    fn_abi_visit_fn_type(g, fn_type_id);
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
 

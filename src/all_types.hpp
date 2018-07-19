@@ -39,6 +39,7 @@ struct ZigWindowsSDK;
 struct Tld;
 struct TldExport;
 struct IrAnalyze;
+struct FnAbi;
 
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
@@ -993,6 +994,7 @@ struct FnTypeId {
     CallingConvention cc;
     uint32_t alignment;
     TypeTableEntry *async_allocator_type;
+    FnAbi *abi_data;
 };
 
 uint32_t fn_type_id_hash(FnTypeId*);

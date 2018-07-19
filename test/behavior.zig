@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 
 comptime {
+    _ = @import("cases/abi.zig");
     _ = @import("cases/align.zig");
     _ = @import("cases/alignof.zig");
     _ = @import("cases/array.zig");
