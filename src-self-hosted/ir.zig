@@ -705,7 +705,10 @@ pub const Builder = struct {
             ast.Node.Id.ErrorType => return error.Unimplemented,
             ast.Node.Id.FnProto => return error.Unimplemented,
             ast.Node.Id.PromiseType => return error.Unimplemented,
-            ast.Node.Id.IntegerLiteral => return error.Unimplemented,
+            ast.Node.Id.IntegerLiteral => {
+                const int_lit = @fieldParentPtr(ast.Node.IntegerLiteral, "base", node);
+                return irb.lvalWrap(scope, try irb.genIntLit(int_lit, scope), lval);
+            },
             ast.Node.Id.FloatLiteral => return error.Unimplemented,
             ast.Node.Id.StringLiteral => return error.Unimplemented,
             ast.Node.Id.MultilineStringLiteral => return error.Unimplemented,
@@ -764,6 +767,45 @@ pub const Builder = struct {
                 => scope = scope.parent orelse return false,
             }
         }
+    }
+
+    pub fn genIntLit(irb: *Builder, int_lit: *ast.Node.IntegerLiteral, scope: *Scope) !*Inst {
+        const int_token = irb.parsed_file.tree.tokenSlice(int_lit.token);
+
+        var base: u8 = undefined;
+        var rest: []const u8 = undefined;
+        if (int_token.len >= 3 and int_token[0] == '0') {
+            base = switch (int_token[1]) {
+                'b' => u8(2),
+                'o' => u8(8),
+                'x' => u8(16),
+                else => unreachable,
+            };
+            rest = int_token[2..];
+        } else {
+            base = 10;
+            rest = int_token;
+        }
+
+        const comptime_int_type = Type.ComptimeInt.get(irb.comp);
+        defer comptime_int_type.base.base.deref(irb.comp);
+
+        const int_val = Value.Int.createFromString(
+            irb.comp,
+            &comptime_int_type.base,
+            base,
+            rest,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidBase => unreachable,
+            error.InvalidCharForDigit => unreachable,
+            error.DigitTooLargeForBase => unreachable,
+        };
+        errdefer int_val.base.deref(irb.comp);
+
+        const inst = try irb.build(Inst.Const, scope, Span.token(int_lit.token), Inst.Const.Params{});
+        inst.val = IrVal{ .KnownValue = &int_val.base };
+        return inst;
     }
 
     pub fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Inst {
@@ -1306,7 +1348,436 @@ const Analyze = struct {
 
     fn implicitCast(self: *Analyze, target: *Inst, optional_dest_type: ?*Type) Analyze.Error!*Inst {
         const dest_type = optional_dest_type orelse return target;
-        return error.Unimplemented;
+        const from_type = target.getKnownType();
+        if (from_type == dest_type or from_type.id == Type.Id.NoReturn) return target;
+        return self.analyzeCast(target, target, dest_type);
+    }
+
+    fn analyzeCast(ira: *Analyze, source_instr: *Inst, target: *Inst, dest_type: *Type) !*Inst {
+        const from_type = target.getKnownType();
+
+        //if (type_is_invalid(wanted_type) || type_is_invalid(actual_type)) {
+        //    return ira->codegen->invalid_instruction;
+        //}
+
+        //// perfect match or non-const to const
+        //ConstCastOnly const_cast_result = types_match_const_cast_only(ira, wanted_type, actual_type,
+        //        source_node, false);
+        //if (const_cast_result.id == ConstCastResultIdOk) {
+        //    return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop, false);
+        //}
+
+        //// widening conversion
+        //if (wanted_type->id == TypeTableEntryIdInt &&
+        //    actual_type->id == TypeTableEntryIdInt &&
+        //    wanted_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
+        //    wanted_type->data.integral.bit_count >= actual_type->data.integral.bit_count)
+        //{
+        //    return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
+        //}
+
+        //// small enough unsigned ints can get casted to large enough signed ints
+        //if (wanted_type->id == TypeTableEntryIdInt && wanted_type->data.integral.is_signed &&
+        //    actual_type->id == TypeTableEntryIdInt && !actual_type->data.integral.is_signed &&
+        //    wanted_type->data.integral.bit_count > actual_type->data.integral.bit_count)
+        //{
+        //    return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
+        //}
+
+        //// float widening conversion
+        //if (wanted_type->id == TypeTableEntryIdFloat &&
+        //    actual_type->id == TypeTableEntryIdFloat &&
+        //    wanted_type->data.floating.bit_count >= actual_type->data.floating.bit_count)
+        //{
+        //    return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
+        //}
+
+        //// cast from [N]T to []const T
+        //if (is_slice(wanted_type) && actual_type->id == TypeTableEntryIdArray) {
+        //    TypeTableEntry *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        //    assert(ptr_type->id == TypeTableEntryIdPointer);
+        //    if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+        //        types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+        //            source_node, false).id == ConstCastResultIdOk)
+        //    {
+        //        return ir_analyze_array_to_slice(ira, source_instr, value, wanted_type);
+        //    }
+        //}
+
+        //// cast from *const [N]T to []const T
+        //if (is_slice(wanted_type) &&
+        //    actual_type->id == TypeTableEntryIdPointer &&
+        //    actual_type->data.pointer.is_const &&
+        //    actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)
+        //{
+        //    TypeTableEntry *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        //    assert(ptr_type->id == TypeTableEntryIdPointer);
+
+        //    TypeTableEntry *array_type = actual_type->data.pointer.child_type;
+
+        //    if ((ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
+        //        types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, array_type->data.array.child_type,
+        //            source_node, false).id == ConstCastResultIdOk)
+        //    {
+        //        return ir_analyze_array_to_slice(ira, source_instr, value, wanted_type);
+        //    }
+        //}
+
+        //// cast from [N]T to *const []const T
+        //if (wanted_type->id == TypeTableEntryIdPointer &&
+        //    wanted_type->data.pointer.is_const &&
+        //    is_slice(wanted_type->data.pointer.child_type) &&
+        //    actual_type->id == TypeTableEntryIdArray)
+        //{
+        //    TypeTableEntry *ptr_type =
+        //        wanted_type->data.pointer.child_type->data.structure.fields[slice_ptr_index].type_entry;
+        //    assert(ptr_type->id == TypeTableEntryIdPointer);
+        //    if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+        //        types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+        //            source_node, false).id == ConstCastResultIdOk)
+        //    {
+        //        IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.pointer.child_type, value);
+        //        if (type_is_invalid(cast1->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        //        if (type_is_invalid(cast2->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        return cast2;
+        //    }
+        //}
+
+        //// cast from [N]T to ?[]const T
+        //if (wanted_type->id == TypeTableEntryIdOptional &&
+        //    is_slice(wanted_type->data.maybe.child_type) &&
+        //    actual_type->id == TypeTableEntryIdArray)
+        //{
+        //    TypeTableEntry *ptr_type =
+        //        wanted_type->data.maybe.child_type->data.structure.fields[slice_ptr_index].type_entry;
+        //    assert(ptr_type->id == TypeTableEntryIdPointer);
+        //    if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+        //        types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+        //            source_node, false).id == ConstCastResultIdOk)
+        //    {
+        //        IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.maybe.child_type, value);
+        //        if (type_is_invalid(cast1->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        //        if (type_is_invalid(cast2->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        return cast2;
+        //    }
+        //}
+
+        //// *[N]T to [*]T
+        //if (wanted_type->id == TypeTableEntryIdPointer &&
+        //    wanted_type->data.pointer.ptr_len == PtrLenUnknown &&
+        //    actual_type->id == TypeTableEntryIdPointer &&
+        //    actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        //    actual_type->data.pointer.child_type->id == TypeTableEntryIdArray &&
+        //    actual_type->data.pointer.alignment >= wanted_type->data.pointer.alignment &&
+        //    types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
+        //        actual_type->data.pointer.child_type->data.array.child_type, source_node,
+        //        !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
+        //{
+        //    return ir_resolve_ptr_of_array_to_unknown_len_ptr(ira, source_instr, value, wanted_type);
+        //}
+
+        //// *[N]T to []T
+        //if (is_slice(wanted_type) &&
+        //    actual_type->id == TypeTableEntryIdPointer &&
+        //    actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        //    actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)
+        //{
+        //    TypeTableEntry *slice_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        //    assert(slice_ptr_type->id == TypeTableEntryIdPointer);
+        //    if (types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
+        //        actual_type->data.pointer.child_type->data.array.child_type, source_node,
+        //        !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
+        //    {
+        //        return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_type);
+        //    }
+        //}
+
+        //// cast from T to ?T
+        //// note that the *T to ?*T case is handled via the "ConstCastOnly" mechanism
+        //if (wanted_type->id == TypeTableEntryIdOptional) {
+        //    TypeTableEntry *wanted_child_type = wanted_type->data.maybe.child_type;
+        //    if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node,
+        //        false).id == ConstCastResultIdOk)
+        //    {
+        //        return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
+        //    } else if (actual_type->id == TypeTableEntryIdComptimeInt ||
+        //            actual_type->id == TypeTableEntryIdComptimeFloat)
+        //    {
+        //        if (ir_num_lit_fits_in_other_type(ira, value, wanted_child_type, true)) {
+        //            return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
+        //        } else {
+        //            return ira->codegen->invalid_instruction;
+        //        }
+        //    } else if (wanted_child_type->id == TypeTableEntryIdPointer &&
+        //            wanted_child_type->data.pointer.is_const &&
+        //            (actual_type->id == TypeTableEntryIdPointer || is_container(actual_type)))
+        //    {
+        //        IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_child_type, value);
+        //        if (type_is_invalid(cast1->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        //        if (type_is_invalid(cast2->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        return cast2;
+        //    }
+        //}
+
+        //// cast from null literal to maybe type
+        //if (wanted_type->id == TypeTableEntryIdOptional &&
+        //    actual_type->id == TypeTableEntryIdNull)
+        //{
+        //    return ir_analyze_null_to_maybe(ira, source_instr, value, wanted_type);
+        //}
+
+        //// cast from child type of error type to error type
+        //if (wanted_type->id == TypeTableEntryIdErrorUnion) {
+        //    if (types_match_const_cast_only(ira, wanted_type->data.error_union.payload_type, actual_type,
+        //        source_node, false).id == ConstCastResultIdOk)
+        //    {
+        //        return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
+        //    } else if (actual_type->id == TypeTableEntryIdComptimeInt ||
+        //            actual_type->id == TypeTableEntryIdComptimeFloat)
+        //    {
+        //        if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.error_union.payload_type, true)) {
+        //            return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
+        //        } else {
+        //            return ira->codegen->invalid_instruction;
+        //        }
+        //    }
+        //}
+
+        //// cast from [N]T to E![]const T
+        //if (wanted_type->id == TypeTableEntryIdErrorUnion &&
+        //    is_slice(wanted_type->data.error_union.payload_type) &&
+        //    actual_type->id == TypeTableEntryIdArray)
+        //{
+        //    TypeTableEntry *ptr_type =
+        //        wanted_type->data.error_union.payload_type->data.structure.fields[slice_ptr_index].type_entry;
+        //    assert(ptr_type->id == TypeTableEntryIdPointer);
+        //    if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+        //        types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
+        //            source_node, false).id == ConstCastResultIdOk)
+        //    {
+        //        IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.error_union.payload_type, value);
+        //        if (type_is_invalid(cast1->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        //        if (type_is_invalid(cast2->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        return cast2;
+        //    }
+        //}
+
+        //// cast from error set to error union type
+        //if (wanted_type->id == TypeTableEntryIdErrorUnion &&
+        //    actual_type->id == TypeTableEntryIdErrorSet)
+        //{
+        //    return ir_analyze_err_wrap_code(ira, source_instr, value, wanted_type);
+        //}
+
+        //// cast from T to E!?T
+        //if (wanted_type->id == TypeTableEntryIdErrorUnion &&
+        //    wanted_type->data.error_union.payload_type->id == TypeTableEntryIdOptional &&
+        //    actual_type->id != TypeTableEntryIdOptional)
+        //{
+        //    TypeTableEntry *wanted_child_type = wanted_type->data.error_union.payload_type->data.maybe.child_type;
+        //    if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node, false).id == ConstCastResultIdOk ||
+        //        actual_type->id == TypeTableEntryIdNull ||
+        //        actual_type->id == TypeTableEntryIdComptimeInt ||
+        //        actual_type->id == TypeTableEntryIdComptimeFloat)
+        //    {
+        //        IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.error_union.payload_type, value);
+        //        if (type_is_invalid(cast1->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        //        if (type_is_invalid(cast2->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        return cast2;
+        //    }
+        //}
+
+        // cast from number literal to another type
+        //// cast from number literal to *const integer
+        //if (actual_type->id == TypeTableEntryIdComptimeFloat ||
+        //    actual_type->id == TypeTableEntryIdComptimeInt)
+        //{
+        //    ensure_complete_type(ira->codegen, wanted_type);
+        //    if (type_is_invalid(wanted_type))
+        //        return ira->codegen->invalid_instruction;
+        //    if (wanted_type->id == TypeTableEntryIdEnum) {
+        //        IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.enumeration.tag_int_type, value);
+        //        if (type_is_invalid(cast1->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        //        if (type_is_invalid(cast2->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        return cast2;
+        //    } else if (wanted_type->id == TypeTableEntryIdPointer &&
+        //        wanted_type->data.pointer.is_const)
+        //    {
+        //        IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.pointer.child_type, value);
+        //        if (type_is_invalid(cast1->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        //        if (type_is_invalid(cast2->value.type))
+        //            return ira->codegen->invalid_instruction;
+
+        //        return cast2;
+        //    } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
+        //        CastOp op;
+        //        if ((actual_type->id == TypeTableEntryIdComptimeFloat &&
+        //            wanted_type->id == TypeTableEntryIdFloat) ||
+        //            (actual_type->id == TypeTableEntryIdComptimeInt &&
+        //            wanted_type->id == TypeTableEntryIdInt))
+        //        {
+        //            op = CastOpNumLitToConcrete;
+        //        } else if (wanted_type->id == TypeTableEntryIdInt) {
+        //            op = CastOpFloatToInt;
+        //        } else if (wanted_type->id == TypeTableEntryIdFloat) {
+        //            op = CastOpIntToFloat;
+        //        } else {
+        //            zig_unreachable();
+        //        }
+        //        return ir_resolve_cast(ira, source_instr, value, wanted_type, op, false);
+        //    } else {
+        //        return ira->codegen->invalid_instruction;
+        //    }
+        //}
+
+        //// cast from typed number to integer or float literal.
+        //// works when the number is known at compile time
+        //if (instr_is_comptime(value) &&
+        //    ((actual_type->id == TypeTableEntryIdInt && wanted_type->id == TypeTableEntryIdComptimeInt) ||
+        //    (actual_type->id == TypeTableEntryIdFloat && wanted_type->id == TypeTableEntryIdComptimeFloat)))
+        //{
+        //    return ir_analyze_number_to_literal(ira, source_instr, value, wanted_type);
+        //}
+
+        //// cast from union to the enum type of the union
+        //if (actual_type->id == TypeTableEntryIdUnion && wanted_type->id == TypeTableEntryIdEnum) {
+        //    type_ensure_zero_bits_known(ira->codegen, actual_type);
+        //    if (type_is_invalid(actual_type))
+        //        return ira->codegen->invalid_instruction;
+
+        //    if (actual_type->data.unionation.tag_type == wanted_type) {
+        //        return ir_analyze_union_to_tag(ira, source_instr, value, wanted_type);
+        //    }
+        //}
+
+        //// enum to union which has the enum as the tag type
+        //if (wanted_type->id == TypeTableEntryIdUnion && actual_type->id == TypeTableEntryIdEnum &&
+        //    (wanted_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+        //    wanted_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+        //{
+        //    type_ensure_zero_bits_known(ira->codegen, wanted_type);
+        //    if (wanted_type->data.unionation.tag_type == actual_type) {
+        //        return ir_analyze_enum_to_union(ira, source_instr, value, wanted_type);
+        //    }
+        //}
+
+        //// enum to &const union which has the enum as the tag type
+        //if (actual_type->id == TypeTableEntryIdEnum && wanted_type->id == TypeTableEntryIdPointer) {
+        //    TypeTableEntry *union_type = wanted_type->data.pointer.child_type;
+        //    if (union_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+        //        union_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr)
+        //    {
+        //        type_ensure_zero_bits_known(ira->codegen, union_type);
+        //        if (union_type->data.unionation.tag_type == actual_type) {
+        //            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, union_type, value);
+        //            if (type_is_invalid(cast1->value.type))
+        //                return ira->codegen->invalid_instruction;
+
+        //            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+        //            if (type_is_invalid(cast2->value.type))
+        //                return ira->codegen->invalid_instruction;
+
+        //            return cast2;
+        //        }
+        //    }
+        //}
+
+        //// cast from *T to *[1]T
+        //if (wanted_type->id == TypeTableEntryIdPointer && wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+        //    actual_type->id == TypeTableEntryIdPointer && actual_type->data.pointer.ptr_len == PtrLenSingle)
+        //{
+        //    TypeTableEntry *array_type = wanted_type->data.pointer.child_type;
+        //    if (array_type->id == TypeTableEntryIdArray && array_type->data.array.len == 1 &&
+        //        types_match_const_cast_only(ira, array_type->data.array.child_type,
+        //        actual_type->data.pointer.child_type, source_node,
+        //        !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
+        //    {
+        //        if (wanted_type->data.pointer.alignment > actual_type->data.pointer.alignment) {
+        //            ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("cast increases pointer alignment"));
+        //            add_error_note(ira->codegen, msg, value->source_node,
+        //                    buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&actual_type->name),
+        //                        actual_type->data.pointer.alignment));
+        //            add_error_note(ira->codegen, msg, source_instr->source_node,
+        //                    buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&wanted_type->name),
+        //                        wanted_type->data.pointer.alignment));
+        //            return ira->codegen->invalid_instruction;
+        //        }
+        //        return ir_analyze_ptr_to_array(ira, source_instr, value, wanted_type);
+        //    }
+        //}
+
+        //// cast from T to *T where T is zero bits
+        //if (wanted_type->id == TypeTableEntryIdPointer && wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+        //    types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
+        //        actual_type, source_node, !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
+        //{
+        //    type_ensure_zero_bits_known(ira->codegen, actual_type);
+        //    if (type_is_invalid(actual_type)) {
+        //        return ira->codegen->invalid_instruction;
+        //    }
+        //    if (!type_has_bits(actual_type)) {
+        //        return ir_get_ref(ira, source_instr, value, false, false);
+        //    }
+        //}
+
+        //// cast from undefined to anything
+        //if (actual_type->id == TypeTableEntryIdUndefined) {
+        //    return ir_analyze_undefined_to_anything(ira, source_instr, value, wanted_type);
+        //}
+
+        //// cast from something to const pointer of it
+        //if (!type_requires_comptime(actual_type)) {
+        //    TypeTableEntry *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
+        //    if (types_match_const_cast_only(ira, wanted_type, const_ptr_actual, source_node, false).id == ConstCastResultIdOk) {
+        //        return ir_analyze_cast_ref(ira, source_instr, value, wanted_type);
+        //    }
+        //}
+
+        try ira.addCompileError(
+            source_instr.span,
+            "expected type '{}', found '{}'",
+            dest_type.name,
+            from_type.name,
+        );
+        //ErrorMsg *parent_msg = ir_add_error_node(ira, source_instr->source_node,
+        //    buf_sprintf("expected type '%s', found '%s'",
+        //        buf_ptr(&wanted_type->name),
+        //        buf_ptr(&actual_type->name)));
+        //report_recursive_error(ira, source_instr->source_node, &const_cast_result, parent_msg);
+        return error.SemanticAnalysisFailed;
     }
 
     fn getCompTimeValOrNullUndefOk(self: *Analyze, target: *Inst) ?*Value {

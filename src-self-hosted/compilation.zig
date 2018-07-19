@@ -29,6 +29,7 @@ const codegen = @import("codegen.zig");
 const Package = @import("package.zig").Package;
 const link = @import("link.zig").link;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const CInt = @import("c_int.zig").CInt;
 
 /// Data that is local to the event loop.
 pub const EventLoopLocal = struct {
@@ -59,6 +60,7 @@ pub const EventLoopLocal = struct {
         };
     }
 
+    /// Must be called only after EventLoop.run completes.
     fn deinit(self: *EventLoopLocal) void {
         while (self.llvm_handle_pool.pop()) |node| {
             c.LLVMContextDispose(node.data);
@@ -184,6 +186,7 @@ pub const Compilation = struct {
     void_type: *Type.Void,
     bool_type: *Type.Bool,
     noreturn_type: *Type.NoReturn,
+    comptime_int_type: *Type.ComptimeInt,
 
     void_value: *Value.Void,
     true_value: *Value.Bool,
@@ -208,6 +211,16 @@ pub const Compilation = struct {
     destroy_handle: promise,
 
     have_err_ret_tracing: bool,
+
+    /// not locked because it is read-only
+    primitive_type_table: TypeTable,
+
+    int_type_table: event.Locked(IntTypeTable),
+
+    c_int_types: [CInt.list.len]*Type.Int,
+
+    const IntTypeTable = std.HashMap(*const Type.Int.Key, *Type.Int, Type.Int.Key.hash, Type.Int.Key.eql);
+    const TypeTable = std.HashMap([]const u8, *Type, mem.hash_slice_u8, mem.eql_slice_u8);
 
     const CompileErrList = std.ArrayList(*errmsg.Msg);
 
@@ -362,6 +375,8 @@ pub const Compilation = struct {
             .prelink_group = event.Group(BuildError!void).init(loop),
             .deinit_group = event.Group(void).init(loop),
             .compile_errors = event.Locked(CompileErrList).init(loop, CompileErrList.init(loop.allocator)),
+            .int_type_table = event.Locked(IntTypeTable).init(loop, IntTypeTable.init(loop.allocator)),
+            .c_int_types = undefined,
 
             .meta_type = undefined,
             .void_type = undefined,
@@ -371,6 +386,7 @@ pub const Compilation = struct {
             .false_value = undefined,
             .noreturn_type = undefined,
             .noreturn_value = undefined,
+            .comptime_int_type = undefined,
 
             .target_machine = undefined,
             .target_data_ref = undefined,
@@ -382,8 +398,10 @@ pub const Compilation = struct {
             .override_libc = null,
             .destroy_handle = undefined,
             .have_err_ret_tracing = false,
+            .primitive_type_table = undefined,
         });
         errdefer {
+            comp.int_type_table.private_data.deinit();
             comp.arena_allocator.deinit();
             comp.loop.allocator.destroy(comp);
         }
@@ -393,6 +411,7 @@ pub const Compilation = struct {
         comp.llvm_target = try Target.llvmTargetFromTriple(comp.llvm_triple);
         comp.link_libs_list = ArrayList(*LinkLib).init(comp.arena());
         comp.zig_std_dir = try std.os.path.join(comp.arena(), zig_lib_dir, "std");
+        comp.primitive_type_table = TypeTable.init(comp.arena());
 
         const opt_level = switch (build_mode) {
             builtin.Mode.Debug => llvm.CodeGenLevelNone,
@@ -445,7 +464,6 @@ pub const Compilation = struct {
         }
 
         try comp.initTypes();
-        errdefer comp.derefTypes();
 
         comp.destroy_handle = try async<loop.allocator> comp.internalDeinit();
 
@@ -453,8 +471,9 @@ pub const Compilation = struct {
     }
 
     fn initTypes(comp: *Compilation) !void {
-        comp.meta_type = try comp.gpa().create(Type.MetaType{
+        comp.meta_type = try comp.arena().create(Type.MetaType{
             .base = Type{
+                .name = "type",
                 .base = Value{
                     .id = Value.Id.Type,
                     .typeof = undefined,
@@ -466,10 +485,11 @@ pub const Compilation = struct {
         });
         comp.meta_type.value = &comp.meta_type.base;
         comp.meta_type.base.base.typeof = &comp.meta_type.base;
-        errdefer comp.gpa().destroy(comp.meta_type);
+        assert((try comp.primitive_type_table.put(comp.meta_type.base.name, &comp.meta_type.base)) == null);
 
-        comp.void_type = try comp.gpa().create(Type.Void{
+        comp.void_type = try comp.arena().create(Type.Void{
             .base = Type{
+                .name = "void",
                 .base = Value{
                     .id = Value.Id.Type,
                     .typeof = &Type.MetaType.get(comp).base,
@@ -478,10 +498,11 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.Void,
             },
         });
-        errdefer comp.gpa().destroy(comp.void_type);
+        assert((try comp.primitive_type_table.put(comp.void_type.base.name, &comp.void_type.base)) == null);
 
-        comp.noreturn_type = try comp.gpa().create(Type.NoReturn{
+        comp.noreturn_type = try comp.arena().create(Type.NoReturn{
             .base = Type{
+                .name = "noreturn",
                 .base = Value{
                     .id = Value.Id.Type,
                     .typeof = &Type.MetaType.get(comp).base,
@@ -490,10 +511,24 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.NoReturn,
             },
         });
-        errdefer comp.gpa().destroy(comp.noreturn_type);
+        assert((try comp.primitive_type_table.put(comp.noreturn_type.base.name, &comp.noreturn_type.base)) == null);
 
-        comp.bool_type = try comp.gpa().create(Type.Bool{
+        comp.comptime_int_type = try comp.arena().create(Type.ComptimeInt{
             .base = Type{
+                .name = "comptime_int",
+                .base = Value{
+                    .id = Value.Id.Type,
+                    .typeof = &Type.MetaType.get(comp).base,
+                    .ref_count = std.atomic.Int(usize).init(1),
+                },
+                .id = builtin.TypeId.ComptimeInt,
+            },
+        });
+        assert((try comp.primitive_type_table.put(comp.comptime_int_type.base.name, &comp.comptime_int_type.base)) == null);
+
+        comp.bool_type = try comp.arena().create(Type.Bool{
+            .base = Type{
+                .name = "bool",
                 .base = Value{
                     .id = Value.Id.Type,
                     .typeof = &Type.MetaType.get(comp).base,
@@ -502,18 +537,17 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.Bool,
             },
         });
-        errdefer comp.gpa().destroy(comp.bool_type);
+        assert((try comp.primitive_type_table.put(comp.bool_type.base.name, &comp.bool_type.base)) == null);
 
-        comp.void_value = try comp.gpa().create(Value.Void{
+        comp.void_value = try comp.arena().create(Value.Void{
             .base = Value{
                 .id = Value.Id.Void,
                 .typeof = &Type.Void.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
-        errdefer comp.gpa().destroy(comp.void_value);
 
-        comp.true_value = try comp.gpa().create(Value.Bool{
+        comp.true_value = try comp.arena().create(Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
                 .typeof = &Type.Bool.get(comp).base,
@@ -521,9 +555,8 @@ pub const Compilation = struct {
             },
             .x = true,
         });
-        errdefer comp.gpa().destroy(comp.true_value);
 
-        comp.false_value = try comp.gpa().create(Value.Bool{
+        comp.false_value = try comp.arena().create(Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
                 .typeof = &Type.Bool.get(comp).base,
@@ -531,43 +564,55 @@ pub const Compilation = struct {
             },
             .x = false,
         });
-        errdefer comp.gpa().destroy(comp.false_value);
 
-        comp.noreturn_value = try comp.gpa().create(Value.NoReturn{
+        comp.noreturn_value = try comp.arena().create(Value.NoReturn{
             .base = Value{
                 .id = Value.Id.NoReturn,
                 .typeof = &Type.NoReturn.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
-        errdefer comp.gpa().destroy(comp.noreturn_value);
+
+        for (CInt.list) |cint, i| {
+            const c_int_type = try comp.arena().create(Type.Int{
+                .base = Type{
+                    .name = cint.zig_name,
+                    .base = Value{
+                        .id = Value.Id.Type,
+                        .typeof = &Type.MetaType.get(comp).base,
+                        .ref_count = std.atomic.Int(usize).init(1),
+                    },
+                    .id = builtin.TypeId.Int,
+                },
+                .key = Type.Int.Key{
+                    .is_signed = cint.is_signed,
+                    .bit_count = comp.target.cIntTypeSizeInBits(cint.id),
+                },
+                .garbage_node = undefined,
+            });
+            comp.c_int_types[i] = c_int_type;
+            assert((try comp.primitive_type_table.put(cint.zig_name, &c_int_type.base)) == null);
+        }
     }
 
-    fn derefTypes(self: *Compilation) void {
-        self.noreturn_value.base.deref(self);
-        self.void_value.base.deref(self);
-        self.false_value.base.deref(self);
-        self.true_value.base.deref(self);
-        self.noreturn_type.base.base.deref(self);
-        self.void_type.base.base.deref(self);
-        self.meta_type.base.base.deref(self);
-    }
-
+    /// This function can safely use async/await, because it manages Compilation's lifetime,
+    /// and EventLoopLocal.deinit will not be called until the event.Loop.run() completes.
     async fn internalDeinit(self: *Compilation) void {
         suspend;
+
         await (async self.deinit_group.wait() catch unreachable);
         if (self.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
             // TODO evented I/O?
             os.deleteTree(self.arena(), tmp_dir) catch {};
         } else |_| {};
 
-        self.derefTypes();
-
         self.events.destroy();
 
         llvm.DisposeMessage(self.target_layout_str);
         llvm.DisposeTargetData(self.target_data_ref);
         llvm.DisposeTargetMachine(self.target_machine);
+
+        self.primitive_type_table.deinit();
 
         self.arena_allocator.deinit();
         self.gpa().destroy(self);
@@ -939,6 +984,10 @@ pub const Compilation = struct {
         b64_fs_encoder.encode(result[0..], rand_bytes);
         return result;
     }
+
+    fn registerGarbage(comp: *Compilation, comptime T: type, node: *std.atomic.Stack(*T).Node) void {
+        // TODO put the garbage somewhere
+    }
 };
 
 fn printError(comptime format: []const u8, args: ...) !void {
@@ -1005,7 +1054,7 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
         fn_decl.base.parsed_file,
         &fndef_scope.base,
         body_node,
-        null,
+        return_type,
     ) catch unreachable)) orelse return;
     errdefer analyzed_code.destroy(comp.gpa());
 

@@ -38,6 +38,15 @@ pub fn Group(comptime ReturnType: type) type {
             self.alloc_stack.push(node);
         }
 
+        /// Add a node to the group. Thread-safe. Cannot fail.
+        /// `node.data` should be the promise handle to add to the group.
+        /// The node's memory should be in the coroutine frame of
+        /// the handle that is in the node, or somewhere guaranteed to live
+        /// at least as long.
+        pub fn addNode(self: *Self, node: *Stack.Node) void {
+            self.coro_stack.push(node);
+        }
+
         /// This is equivalent to an async call, but the async function is added to the group, instead
         /// of returning a promise. func must be async and have return type ReturnType.
         /// Thread-safe.
@@ -98,6 +107,8 @@ pub fn Group(comptime ReturnType: type) type {
         }
 
         /// Cancel all the outstanding promises. May only be called if wait was never called.
+        /// TODO These should be `cancelasync` not `cancel`.
+        /// See https://github.com/ziglang/zig/issues/1261
         pub fn cancelAll(self: *Self) void {
             while (self.coro_stack.pop()) |node| {
                 cancel node.data;

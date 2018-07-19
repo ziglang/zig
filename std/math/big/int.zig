@@ -60,8 +60,9 @@ pub const Int = struct {
         self.limbs = try self.allocator.realloc(Limb, self.limbs, capacity);
     }
 
-    pub fn deinit(self: Int) void {
+    pub fn deinit(self: *Int) void {
         self.allocator.free(self.limbs);
+        self.* = undefined;
     }
 
     pub fn clone(other: Int) !Int {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const llvm = @import("llvm.zig");
+const CInt = @import("c_int.zig").CInt;
 
 pub const FloatAbi = enum {
     Hard,
@@ -173,7 +174,7 @@ pub const Target = union(enum) {
         return self.getArchPtrBitWidth() == 64;
     }
 
-    pub fn getArchPtrBitWidth(self: Target) u8 {
+    pub fn getArchPtrBitWidth(self: Target) u32 {
         switch (self.getArch()) {
             builtin.Arch.avr,
             builtin.Arch.msp430,
@@ -428,5 +429,101 @@ pub const Target = union(enum) {
             return error.UnsupportedTarget;
         }
         return result;
+    }
+
+    pub fn cIntTypeSizeInBits(self: Target, id: CInt.Id) u32 {
+        const arch = self.getArch();
+        switch (self.getOs()) {
+            builtin.Os.freestanding => switch (self.getArch()) {
+                builtin.Arch.msp430 => switch (id) {
+                    CInt.Id.Short,
+                    CInt.Id.UShort,
+                    CInt.Id.Int,
+                    CInt.Id.UInt,
+                    => return 16,
+                    CInt.Id.Long,
+                    CInt.Id.ULong,
+                    => return 32,
+                    CInt.Id.LongLong,
+                    CInt.Id.ULongLong,
+                    => return 64,
+                },
+                else => switch (id) {
+                    CInt.Id.Short,
+                    CInt.Id.UShort,
+                    => return 16,
+                    CInt.Id.Int,
+                    CInt.Id.UInt,
+                    => return 32,
+                    CInt.Id.Long,
+                    CInt.Id.ULong,
+                    => return self.getArchPtrBitWidth(),
+                    CInt.Id.LongLong,
+                    CInt.Id.ULongLong,
+                    => return 64,
+                },
+            },
+
+            builtin.Os.linux,
+            builtin.Os.macosx,
+            builtin.Os.openbsd,
+            builtin.Os.zen,
+            => switch (id) {
+                CInt.Id.Short,
+                CInt.Id.UShort,
+                => return 16,
+                CInt.Id.Int,
+                CInt.Id.UInt,
+                => return 32,
+                CInt.Id.Long,
+                CInt.Id.ULong,
+                => return self.getArchPtrBitWidth(),
+                CInt.Id.LongLong,
+                CInt.Id.ULongLong,
+                => return 64,
+            },
+
+            builtin.Os.windows => switch (id) {
+                CInt.Id.Short,
+                CInt.Id.UShort,
+                => return 16,
+                CInt.Id.Int,
+                CInt.Id.UInt,
+                => return 32,
+                CInt.Id.Long,
+                CInt.Id.ULong,
+                CInt.Id.LongLong,
+                CInt.Id.ULongLong,
+                => return 64,
+            },
+
+            builtin.Os.ananas,
+            builtin.Os.cloudabi,
+            builtin.Os.dragonfly,
+            builtin.Os.freebsd,
+            builtin.Os.fuchsia,
+            builtin.Os.ios,
+            builtin.Os.kfreebsd,
+            builtin.Os.lv2,
+            builtin.Os.netbsd,
+            builtin.Os.solaris,
+            builtin.Os.haiku,
+            builtin.Os.minix,
+            builtin.Os.rtems,
+            builtin.Os.nacl,
+            builtin.Os.cnk,
+            builtin.Os.aix,
+            builtin.Os.cuda,
+            builtin.Os.nvcl,
+            builtin.Os.amdhsa,
+            builtin.Os.ps4,
+            builtin.Os.elfiamcu,
+            builtin.Os.tvos,
+            builtin.Os.watchos,
+            builtin.Os.mesa3d,
+            builtin.Os.contiki,
+            builtin.Os.amdpal,
+            => @panic("TODO specify the C integer type sizes for this OS"),
+        }
     }
 };

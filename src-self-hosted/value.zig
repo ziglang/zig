@@ -29,6 +29,7 @@ pub const Value = struct {
                 Id.Bool => @fieldParentPtr(Bool, "base", base).destroy(comp),
                 Id.NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(comp),
                 Id.Ptr => @fieldParentPtr(Ptr, "base", base).destroy(comp),
+                Id.Int => @fieldParentPtr(Int, "base", base).destroy(comp),
             }
         }
     }
@@ -50,6 +51,7 @@ pub const Value = struct {
             Id.Bool => return @fieldParentPtr(Bool, "base", base).getLlvmConst(ofile),
             Id.NoReturn => unreachable,
             Id.Ptr => @panic("TODO"),
+            Id.Int => return @fieldParentPtr(Int, "base", base).getLlvmConst(ofile),
         }
     }
 
@@ -60,6 +62,7 @@ pub const Value = struct {
         Bool,
         NoReturn,
         Ptr,
+        Int,
     };
 
     pub const Type = @import("type.zig").Type;
@@ -195,6 +198,61 @@ pub const Value = struct {
         };
 
         pub fn destroy(self: *Ptr, comp: *Compilation) void {
+            comp.gpa().destroy(self);
+        }
+    };
+
+    pub const Int = struct {
+        base: Value,
+        big_int: std.math.big.Int,
+
+        pub fn createFromString(comp: *Compilation, typeof: *Type, base: u8, value: []const u8) !*Int {
+            const self = try comp.gpa().create(Value.Int{
+                .base = Value{
+                    .id = Value.Id.Int,
+                    .typeof = typeof,
+                    .ref_count = std.atomic.Int(usize).init(1),
+                },
+                .big_int = undefined,
+            });
+            typeof.base.ref();
+            errdefer comp.gpa().destroy(self);
+
+            self.big_int = try std.math.big.Int.init(comp.gpa());
+            errdefer self.big_int.deinit();
+
+            try self.big_int.setString(base, value);
+
+            return self;
+        }
+
+        pub fn getLlvmConst(self: *Int, ofile: *ObjectFile) !?llvm.ValueRef {
+            switch (self.base.typeof.id) {
+                Type.Id.Int => {
+                    const type_ref = try self.base.typeof.getLlvmType(ofile);
+                    if (self.big_int.len == 0) {
+                        return llvm.ConstNull(type_ref);
+                    }
+                    const unsigned_val = if (self.big_int.len == 1) blk: {
+                        break :blk llvm.ConstInt(type_ref, self.big_int.limbs[0], @boolToInt(false));
+                    } else if (@sizeOf(std.math.big.Limb) == @sizeOf(u64)) blk: {
+                        break :blk llvm.ConstIntOfArbitraryPrecision(
+                            type_ref,
+                            @intCast(c_uint, self.big_int.len),
+                            @ptrCast([*]u64, self.big_int.limbs.ptr),
+                        );
+                    } else {
+                        @compileError("std.math.Big.Int.Limb size does not match LLVM");
+                    };
+                    return if (self.big_int.positive) unsigned_val else llvm.ConstNeg(unsigned_val);
+                },
+                Type.Id.ComptimeInt => unreachable,
+                else => unreachable,
+            }
+        }
+
+        pub fn destroy(self: *Int, comp: *Compilation) void {
+            self.big_int.deinit();
             comp.gpa().destroy(self);
         }
     };

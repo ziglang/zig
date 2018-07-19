@@ -489,6 +489,7 @@ set(ZIG_STD_FILES
     "math/atan.zig"
     "math/atan2.zig"
     "math/atanh.zig"
+    "math/big/index.zig"
     "math/big/int.zig"
     "math/cbrt.zig"
     "math/ceil.zig"

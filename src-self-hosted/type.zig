@@ -9,6 +9,7 @@ const ObjectFile = @import("codegen.zig").ObjectFile;
 pub const Type = struct {
     base: Value,
     id: Id,
+    name: []const u8,
 
     pub const Id = builtin.TypeId;
 
@@ -151,6 +152,18 @@ pub const Type = struct {
         std.debug.warn("{}", @tagName(base.id));
     }
 
+    fn init(base: *Type, comp: *Compilation, id: Id, name: []const u8) void {
+        base.* = Type{
+            .base = Value{
+                .id = Value.Id.Type,
+                .typeof = &MetaType.get(comp).base,
+                .ref_count = std.atomic.Int(usize).init(1),
+            },
+            .id = id,
+            .name = name,
+        };
+    }
+
     pub fn getAbiAlignment(base: *Type, comp: *Compilation) u32 {
         @panic("TODO getAbiAlignment");
     }
@@ -181,19 +194,14 @@ pub const Type = struct {
 
         pub fn create(comp: *Compilation, return_type: *Type, params: []Param, is_var_args: bool) !*Fn {
             const result = try comp.gpa().create(Fn{
-                .base = Type{
-                    .base = Value{
-                        .id = Value.Id.Type,
-                        .typeof = &MetaType.get(comp).base,
-                        .ref_count = std.atomic.Int(usize).init(1),
-                    },
-                    .id = builtin.TypeId.Fn,
-                },
+                .base = undefined,
                 .return_type = return_type,
                 .params = params,
                 .is_var_args = is_var_args,
             });
             errdefer comp.gpa().destroy(result);
+
+            result.base.init(comp, Id.Fn, "TODO fn type name");
 
             result.return_type.base.ref();
             for (result.params) |param| {
@@ -293,13 +301,77 @@ pub const Type = struct {
 
     pub const Int = struct {
         base: Type,
+        key: Key,
+        garbage_node: std.atomic.Stack(*Int).Node,
+
+        pub const Key = struct {
+            bit_count: u32,
+            is_signed: bool,
+
+            pub fn hash(self: *const Key) u32 {
+                const rands = [2]u32{ 0xa4ba6498, 0x75fc5af7 };
+                return rands[@boolToInt(self.is_signed)] *% self.bit_count;
+            }
+
+            pub fn eql(self: *const Key, other: *const Key) bool {
+                return self.bit_count == other.bit_count and self.is_signed == other.is_signed;
+            }
+        };
+
+        pub async fn get(comp: *Compilation, key: Key) !*Int {
+            {
+                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                defer held.release();
+
+                if (held.value.get(&key)) |entry| {
+                    return entry.value;
+                }
+            }
+
+            const self = try comp.gpa().create(Int{
+                .base = undefined,
+                .key = key,
+                .garbage_node = undefined,
+            });
+            errdefer comp.gpa().destroy(self);
+
+            const u_or_i = "ui"[@boolToInt(key.is_signed)];
+            const name = std.fmt.allocPrint(comp.gpa(), "{c}{}", u_or_i, key.bit_count);
+            errdefer comp.gpa().free(name);
+
+            self.base.init(comp, Id.Int, name);
+
+            {
+                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                defer held.release();
+
+                held.value.put(&self.key, self);
+            }
+            return self;
+        }
 
         pub fn destroy(self: *Int, comp: *Compilation) void {
+            self.garbage_node = std.atomic.Stack(*Int).Node{
+                .data = self,
+                .next = undefined,
+            };
+            comp.registerGarbage(Int, &self.garbage_node);
+        }
+
+        pub async fn gcDestroy(self: *Int, comp: *Compilation) void {
+            {
+                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                defer held.release();
+
+                _ = held.value.remove(&self.key).?;
+            }
+            // we allocated the name
+            comp.gpa().free(self.base.name);
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Int, ofile: *ObjectFile) llvm.TypeRef {
-            @panic("TODO");
+        pub fn getLlvmType(self: *Int, ofile: *ObjectFile) !llvm.TypeRef {
+            return llvm.IntTypeInContext(ofile.context, self.key.bit_count) orelse return error.OutOfMemory;
         }
     };
 
@@ -373,6 +445,12 @@ pub const Type = struct {
 
     pub const ComptimeInt = struct {
         base: Type,
+
+        /// Adds 1 reference to the resulting type
+        pub fn get(comp: *Compilation) *ComptimeInt {
+            comp.comptime_int_type.base.base.ref();
+            return comp.comptime_int_type;
+        }
 
         pub fn destroy(self: *ComptimeInt, comp: *Compilation) void {
             comp.gpa().destroy(self);
