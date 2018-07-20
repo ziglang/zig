@@ -40,6 +40,8 @@ pub const EventLoopLocal = struct {
 
     native_libc: event.Future(LibCInstallation),
 
+    cwd: []const u8,
+
     var lazy_init_targets = std.lazyInit(void);
 
     fn init(loop: *event.Loop) !EventLoopLocal {
@@ -51,16 +53,22 @@ pub const EventLoopLocal = struct {
         var seed_bytes: [@sizeOf(u64)]u8 = undefined;
         try std.os.getRandomBytes(seed_bytes[0..]);
         const seed = std.mem.readInt(seed_bytes, u64, builtin.Endian.Big);
+
+        const cwd = try os.getCwd(loop.allocator);
+        errdefer loop.allocator.free(cwd);
+
         return EventLoopLocal{
             .loop = loop,
             .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
             .prng = event.Locked(std.rand.DefaultPrng).init(loop, std.rand.DefaultPrng.init(seed)),
             .native_libc = event.Future(LibCInstallation).init(loop),
+            .cwd = cwd,
         };
     }
 
     /// Must be called only after EventLoop.run completes.
     fn deinit(self: *EventLoopLocal) void {
+        self.loop.allocator.free(self.cwd);
         while (self.llvm_handle_pool.pop()) |node| {
             c.LLVMContextDispose(node.data);
             self.loop.allocator.destroy(node);
@@ -867,13 +875,16 @@ pub const Compilation = struct {
         span: Span,
         text: []u8,
     ) !void {
-        const msg = try self.loop.allocator.create(errmsg.Msg{
-            .path = root.realpath,
+        const relpath = try os.path.relative(self.gpa(), self.event_loop_local.cwd, root.realpath);
+        errdefer self.gpa().free(relpath);
+
+        const msg = try self.gpa().create(errmsg.Msg{
+            .path = if (relpath.len < root.realpath.len) relpath else root.realpath,
             .text = text,
             .span = span,
             .tree = &root.tree,
         });
-        errdefer self.loop.allocator.destroy(msg);
+        errdefer self.gpa().destroy(msg);
 
         const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
         defer compile_errors.release();
