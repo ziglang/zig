@@ -478,7 +478,7 @@ pub const Compilation = struct {
     }
 
     /// it does ref the result because it could be an arbitrary integer size
-    pub fn getPrimitiveType(comp: *Compilation, name: []const u8) !?*Type {
+    pub async fn getPrimitiveType(comp: *Compilation, name: []const u8) !?*Type {
         if (name.len >= 2) {
             switch (name[0]) {
                 'i', 'u' => blk: {
@@ -492,7 +492,12 @@ pub const Compilation = struct {
                         error.Overflow => return error.Overflow,
                         error.InvalidCharacter => unreachable, // we just checked the characters above
                     };
-                    @panic("get int type - need to make everything async");
+                    const int_type = try await (async Type.Int.get(comp, Type.Int.Key{
+                        .bit_count = bit_count,
+                        .is_signed = is_signed,
+                    }) catch unreachable);
+                    errdefer int_type.base.base.deref();
+                    return &int_type.base;
                 },
                 else => {},
             }

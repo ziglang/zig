@@ -708,7 +708,7 @@ pub const Builder = struct {
         self.current_basic_block = basic_block;
     }
 
-    pub fn genNode(irb: *Builder, node: *ast.Node, scope: *Scope, lval: LVal) Error!*Inst {
+    pub async fn genNode(irb: *Builder, node: *ast.Node, scope: *Scope, lval: LVal) Error!*Inst {
         switch (node.id) {
             ast.Node.Id.Root => unreachable,
             ast.Node.Id.Use => unreachable,
@@ -724,7 +724,7 @@ pub const Builder = struct {
             ast.Node.Id.If => return error.Unimplemented,
             ast.Node.Id.ControlFlowExpression => {
                 const control_flow_expr = @fieldParentPtr(ast.Node.ControlFlowExpression, "base", node);
-                return irb.genControlFlowExpr(control_flow_expr, scope, lval);
+                return await (async irb.genControlFlowExpr(control_flow_expr, scope, lval) catch unreachable);
             },
             ast.Node.Id.Suspend => return error.Unimplemented,
             ast.Node.Id.VarType => return error.Unimplemented,
@@ -746,11 +746,11 @@ pub const Builder = struct {
             ast.Node.Id.Unreachable => return error.Unimplemented,
             ast.Node.Id.Identifier => {
                 const identifier = @fieldParentPtr(ast.Node.Identifier, "base", node);
-                return irb.genIdentifier(identifier, scope, lval);
+                return await (async irb.genIdentifier(identifier, scope, lval) catch unreachable);
             },
             ast.Node.Id.GroupedExpression => {
                 const grouped_expr = @fieldParentPtr(ast.Node.GroupedExpression, "base", node);
-                return irb.genNode(grouped_expr.expr, scope, lval);
+                return await (async irb.genNode(grouped_expr.expr, scope, lval) catch unreachable);
             },
             ast.Node.Id.BuiltinCall => return error.Unimplemented,
             ast.Node.Id.ErrorSetDecl => return error.Unimplemented,
@@ -759,7 +759,8 @@ pub const Builder = struct {
             ast.Node.Id.Comptime => return error.Unimplemented,
             ast.Node.Id.Block => {
                 const block = @fieldParentPtr(ast.Node.Block, "base", node);
-                return irb.lvalWrap(scope, try irb.genBlock(block, scope), lval);
+                const inst = try await (async irb.genBlock(block, scope) catch unreachable);
+                return irb.lvalWrap(scope, inst, lval);
             },
             ast.Node.Id.DocComment => return error.Unimplemented,
             ast.Node.Id.SwitchCase => return error.Unimplemented,
@@ -838,7 +839,7 @@ pub const Builder = struct {
         return inst;
     }
 
-    pub fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Inst {
+    pub async fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Inst {
         const block_scope = try Scope.Block.create(irb.comp, parent_scope);
 
         const outer_block_scope = &block_scope.base;
@@ -886,7 +887,7 @@ pub const Builder = struct {
                 child_scope = &defer_child_scope.base;
                 continue;
             }
-            const statement_value = try irb.genNode(statement_node, child_scope, LVal.None);
+            const statement_value = try await (async irb.genNode(statement_node, child_scope, LVal.None) catch unreachable);
 
             is_continuation_unreachable = statement_value.isNoReturn();
             if (is_continuation_unreachable) {
@@ -926,7 +927,7 @@ pub const Builder = struct {
             try block_scope.incoming_values.append(
                 try irb.buildConstVoid(parent_scope, Span.token(block.rbrace), true),
             );
-            _ = try irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit);
+            _ = try await (async irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
 
             _ = try irb.buildGen(Inst.Br, parent_scope, Span.token(block.rbrace), Inst.Br.Params{
                 .dest_block = block_scope.end_block,
@@ -941,11 +942,11 @@ pub const Builder = struct {
             });
         }
 
-        _ = try irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit);
+        _ = try await (async irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
         return irb.buildConstVoid(child_scope, Span.token(block.rbrace), true);
     }
 
-    pub fn genControlFlowExpr(
+    pub async fn genControlFlowExpr(
         irb: *Builder,
         control_flow_expr: *ast.Node.ControlFlowExpression,
         scope: *Scope,
@@ -979,7 +980,7 @@ pub const Builder = struct {
 
                 const outer_scope = irb.begin_scope.?;
                 const return_value = if (control_flow_expr.rhs) |rhs| blk: {
-                    break :blk try irb.genNode(rhs, scope, LVal.None);
+                    break :blk try await (async irb.genNode(rhs, scope, LVal.None) catch unreachable);
                 } else blk: {
                     break :blk try irb.buildConstVoid(scope, src_span, true);
                 };
@@ -990,7 +991,7 @@ pub const Builder = struct {
                     const err_block = try irb.createBasicBlock(scope, c"ErrRetErr");
                     const ok_block = try irb.createBasicBlock(scope, c"ErrRetOk");
                     if (!have_err_defers) {
-                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
+                        _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
                     }
 
                     const is_err = try irb.build(
@@ -1013,7 +1014,7 @@ pub const Builder = struct {
 
                     try irb.setCursorAtEndAndAppendBlock(err_block);
                     if (have_err_defers) {
-                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ErrorExit);
+                        _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ErrorExit) catch unreachable);
                     }
                     if (irb.comp.have_err_ret_tracing and !irb.isCompTime(scope)) {
                         _ = try irb.build(Inst.SaveErrRetAddr, scope, src_span, Inst.SaveErrRetAddr.Params{});
@@ -1025,7 +1026,7 @@ pub const Builder = struct {
 
                     try irb.setCursorAtEndAndAppendBlock(ok_block);
                     if (have_err_defers) {
-                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
+                        _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
                     }
                     _ = try irb.build(Inst.Br, scope, src_span, Inst.Br.Params{
                         .dest_block = ret_stmt_block,
@@ -1035,14 +1036,14 @@ pub const Builder = struct {
                     try irb.setCursorAtEndAndAppendBlock(ret_stmt_block);
                     return irb.genAsyncReturn(scope, src_span, return_value, false);
                 } else {
-                    _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
+                    _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
                     return irb.genAsyncReturn(scope, src_span, return_value, false);
                 }
             },
         }
     }
 
-    pub fn genIdentifier(irb: *Builder, identifier: *ast.Node.Identifier, scope: *Scope, lval: LVal) !*Inst {
+    pub async fn genIdentifier(irb: *Builder, identifier: *ast.Node.Identifier, scope: *Scope, lval: LVal) !*Inst {
         const src_span = Span.token(identifier.token);
         const name = irb.root_scope.tree.tokenSlice(identifier.token);
 
@@ -1055,7 +1056,7 @@ pub const Builder = struct {
         //    return &const_instruction->base;
         //}
 
-        if (irb.comp.getPrimitiveType(name)) |result| {
+        if (await (async irb.comp.getPrimitiveType(name) catch unreachable)) |result| {
             if (result) |primitive_type| {
                 defer primitive_type.base.deref(irb.comp);
                 switch (lval) {
@@ -1068,6 +1069,7 @@ pub const Builder = struct {
                 try irb.comp.addCompileError(irb.root_scope, src_span, "integer too large");
                 return error.SemanticAnalysisFailed;
             },
+            error.OutOfMemory => return error.OutOfMemory,
         }
         //TypeTableEntry *primitive_type = get_primitive_type(irb->codegen, variable_name);
         //if (primitive_type != nullptr) {
@@ -1138,7 +1140,7 @@ pub const Builder = struct {
         return result;
     }
 
-    fn genDefersForBlock(
+    async fn genDefersForBlock(
         irb: *Builder,
         inner_scope: *Scope,
         outer_scope: *Scope,
@@ -1156,11 +1158,11 @@ pub const Builder = struct {
                     };
                     if (generate) {
                         const defer_expr_scope = defer_scope.defer_expr_scope;
-                        const instruction = try irb.genNode(
+                        const instruction = try await (async irb.genNode(
                             defer_expr_scope.expr_node,
                             &defer_expr_scope.base,
                             LVal.None,
-                        );
+                        ) catch unreachable);
                         if (instruction.isNoReturn()) {
                             is_noreturn = true;
                         } else {
@@ -1909,7 +1911,7 @@ pub async fn gen(
     entry_block.ref(); // Entry block gets a reference because we enter it to begin.
     try irb.setCursorAtEndAndAppendBlock(entry_block);
 
-    const result = try irb.genNode(body_node, scope, LVal.None);
+    const result = try await (async irb.genNode(body_node, scope, LVal.None) catch unreachable);
     if (!result.isNoReturn()) {
         // no need for save_err_ret_addr because this cannot return error
         _ = try irb.genAsyncReturn(scope, Span.token(body_node.lastToken()), result, true);

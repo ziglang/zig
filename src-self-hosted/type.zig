@@ -324,6 +324,7 @@ pub const Type = struct {
                 defer held.release();
 
                 if (held.value.get(&key)) |entry| {
+                    entry.value.base.base.ref();
                     return entry.value;
                 }
             }
@@ -336,7 +337,7 @@ pub const Type = struct {
             errdefer comp.gpa().destroy(self);
 
             const u_or_i = "ui"[@boolToInt(key.is_signed)];
-            const name = std.fmt.allocPrint(comp.gpa(), "{c}{}", u_or_i, key.bit_count);
+            const name = try std.fmt.allocPrint(comp.gpa(), "{c}{}", u_or_i, key.bit_count);
             errdefer comp.gpa().free(name);
 
             self.base.init(comp, Id.Int, name);
@@ -345,7 +346,7 @@ pub const Type = struct {
                 const held = await (async comp.int_type_table.acquire() catch unreachable);
                 defer held.release();
 
-                held.value.put(&self.key, self);
+                _ = try held.value.put(&self.key, self);
             }
             return self;
         }
