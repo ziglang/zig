@@ -139,7 +139,15 @@ pub const Inst = struct {
         }
     }
 
+    fn copyVal(base: *Inst, comp: *Compilation) !*Value {
+        if (base.parent.?.ref_count == 0) {
+            return base.val.KnownValue.derefAndCopy(comp);
+        }
+        return base.val.KnownValue.copy(comp);
+    }
+
     fn getAsParam(param: *Inst) !*Inst {
+        param.ref_count -= 1;
         const child = param.child orelse return error.SemanticAnalysisFailed;
         switch (child.val) {
             IrVal.Unknown => return error.SemanticAnalysisFailed,
@@ -1715,8 +1723,37 @@ const Analyze = struct {
         //    }
         //}
 
+        // cast from comptime-known integer to another integer where the value fits
+        if (target.isCompTime() and (from_type.id == Type.Id.Int or from_type.id == Type.Id.ComptimeInt)) cast: {
+            const target_val = target.val.KnownValue;
+            const from_int = &target_val.cast(Value.Int).?.big_int;
+            const fits = fits: {
+                if (dest_type.cast(Type.ComptimeInt)) |ctint| {
+                    break :fits true;
+                }
+                if (dest_type.cast(Type.Int)) |int| {
+                    break :fits (from_int.positive or from_int.eqZero() or int.key.is_signed) and
+                        int.key.bit_count >= from_int.bitcount();
+                }
+                break :cast;
+            };
+            if (!fits) {
+                try ira.addCompileError(
+                    source_instr.span,
+                    "integer value '{}' cannot be stored in type '{}'",
+                    from_int,
+                    dest_type.name,
+                );
+                return error.SemanticAnalysisFailed;
+            }
+
+            const new_val = try target.copyVal(ira.irb.comp);
+            new_val.setType(dest_type, ira.irb.comp);
+            return ira.irb.buildConstValue(source_instr.scope, source_instr.span, new_val);
+        }
+
         // cast from number literal to another type
-        //// cast from number literal to *const integer
+        // cast from number literal to *const integer
         //if (actual_type->id == TypeTableEntryIdComptimeFloat ||
         //    actual_type->id == TypeTableEntryIdComptimeInt)
         //{

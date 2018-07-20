@@ -21,4 +21,10 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    defer return;
         \\}
     , "1.zig", 2, 11, "cannot return from defer expression");
+
+    try ctx.testCompileError(
+        \\export fn entry() c_int {
+        \\    return 36893488147419103232;
+        \\}
+    , "1.zig", 2, 12, "integer value '36893488147419103232' cannot be stored in type 'c_int'");
 }

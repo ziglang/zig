@@ -5,6 +5,7 @@ const Compilation = @import("compilation.zig").Compilation;
 const ObjectFile = @import("codegen.zig").ObjectFile;
 const llvm = @import("llvm.zig");
 const Buffer = std.Buffer;
+const assert = std.debug.assert;
 
 /// Values are ref-counted, heap-allocated, and copy-on-write
 /// If there is only 1 ref then write need not copy
@@ -34,6 +35,12 @@ pub const Value = struct {
         }
     }
 
+    pub fn setType(base: *Value, new_type: *Type, comp: *Compilation) void {
+        base.typeof.base.deref(comp);
+        new_type.base.ref();
+        base.typeof = new_type;
+    }
+
     pub fn getRef(base: *Value) *Value {
         base.ref();
         return base;
@@ -57,6 +64,28 @@ pub const Value = struct {
             Id.NoReturn => unreachable,
             Id.Ptr => @panic("TODO"),
             Id.Int => return @fieldParentPtr(Int, "base", base).getLlvmConst(ofile),
+        }
+    }
+
+    pub fn derefAndCopy(self: *Value, comp: *Compilation) (error{OutOfMemory}!*Value) {
+        if (self.ref_count.get() == 1) {
+            // ( ͡° ͜ʖ ͡°)
+            return self;
+        }
+
+        assert(self.ref_count.decr() != 1);
+        return self.copy(comp);
+    }
+
+    pub fn copy(base: *Value, comp: *Compilation) (error{OutOfMemory}!*Value) {
+        switch (base.id) {
+            Id.Type => unreachable,
+            Id.Fn => unreachable,
+            Id.Void => unreachable,
+            Id.Bool => unreachable,
+            Id.NoReturn => unreachable,
+            Id.Ptr => unreachable,
+            Id.Int => return &(try @fieldParentPtr(Int, "base", base).copy(comp)).base,
         }
     }
 
@@ -254,6 +283,26 @@ pub const Value = struct {
                 Type.Id.ComptimeInt => unreachable,
                 else => unreachable,
             }
+        }
+
+        pub fn copy(old: *Int, comp: *Compilation) !*Int {
+            old.base.typeof.base.ref();
+            errdefer old.base.typeof.base.deref(comp);
+
+            const new = try comp.gpa().create(Value.Int{
+                .base = Value{
+                    .id = Value.Id.Int,
+                    .typeof = old.base.typeof,
+                    .ref_count = std.atomic.Int(usize).init(1),
+                },
+                .big_int = undefined,
+            });
+            errdefer comp.gpa().destroy(new);
+
+            new.big_int = try old.big_int.clone();
+            errdefer new.big_int.deinit();
+
+            return new;
         }
 
         pub fn destroy(self: *Int, comp: *Compilation) void {
