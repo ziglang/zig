@@ -242,7 +242,7 @@ pub const File = struct {
             },
             Os.windows => {
                 var pos: windows.LARGE_INTEGER = undefined;
-                if (windows.SetFilePointerEx(self.handle, 0, *pos, windows.FILE_CURRENT) == 0) {
+                if (windows.SetFilePointerEx(self.handle, 0, &pos, windows.FILE_CURRENT) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
                         windows.ERROR.INVALID_PARAMETER => error.BadFd,
@@ -251,13 +251,7 @@ pub const File = struct {
                 }
 
                 assert(pos >= 0);
-                if (@sizeOf(@typeOf(pos)) > @sizeOf(usize)) {
-                    if (pos > @maxValue(usize)) {
-                        return error.FilePosLargerThanPointerRange;
-                    }
-                }
-
-                return usize(pos);
+                return math.cast(usize, pos) catch error.FilePosLargerThanPointerRange;
             },
             else => @compileError("unsupported OS"),
         }
