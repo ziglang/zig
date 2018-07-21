@@ -105,6 +105,8 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
     dwFlags: DWORD,
 ) DWORD;
 
+pub extern "kernel32" stdcallcc fn GetModuleHandleA(lpModuleName: ?LPCSTR) HMODULE;
+
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 
 pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(*FILETIME) void;
