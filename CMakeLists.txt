@@ -426,6 +426,7 @@ set(ZIG_SOURCES
 )
 set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
+    "${CMAKE_SOURCE_DIR}/src/windows_sdk.cpp"
 )
 
 set(ZIG_STD_FILES
@@ -567,8 +568,14 @@ set(ZIG_STD_FILES
     "os/linux/x86_64.zig"
     "os/path.zig"
     "os/time.zig"
+    "os/windows/advapi32.zig"
     "os/windows/error.zig"
     "os/windows/index.zig"
+    "os/windows/kernel32.zig"
+    "os/windows/ole32.zig"
+    "os/windows/shell32.zig"
+    "os/windows/shlwapi.zig"
+    "os/windows/user32.zig"
     "os/windows/util.zig"
     "os/zen.zig"
     "rand/index.zig"

@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const event = std.event;
 const Target = @import("target.zig").Target;
+const c = @import("c.zig");
 
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
@@ -122,7 +123,7 @@ pub const LibCInstallation = struct {
             \\# Only needed when targeting Windows.
             \\kernel32_lib_dir={}
             \\
-            \\# The full path to the dynamic linker.
+            \\# The full path to the dynamic linker, on the target system.
             \\# Only needed when targeting Linux.
             \\dynamic_linker_path={}
             \\
@@ -143,10 +144,24 @@ pub const LibCInstallation = struct {
         errdefer group.cancelAll();
         switch (builtin.os) {
             builtin.Os.windows => {
-                try group.call(findNativeIncludeDirWindows, self, loop);
-                try group.call(findNativeLibDirWindows, self, loop);
-                try group.call(findNativeMsvcLibDir, self, loop);
-                try group.call(findNativeKernel32LibDir, self, loop);
+                var sdk: *c.ZigWindowsSDK = undefined;
+                switch (c.zig_find_windows_sdk(@ptrCast(?[*]?[*]c.ZigWindowsSDK, &sdk))) {
+                    c.ZigFindWindowsSdkError.None => {
+                        defer c.zig_free_windows_sdk(@ptrCast(?[*]c.ZigWindowsSDK, sdk));
+
+                        errdefer if (self.msvc_lib_dir) |s| loop.allocator.free(s);
+                        if (sdk.msvc_lib_dir_ptr) |ptr| {
+                            self.msvc_lib_dir = try std.mem.dupe(loop.allocator, u8, ptr[0..sdk.msvc_lib_dir_len]);
+                        }
+                        //try group.call(findNativeIncludeDirWindows, self, loop);
+                        //try group.call(findNativeLibDirWindows, self, loop);
+                        //try group.call(findNativeMsvcLibDir, self, loop);
+                        //try group.call(findNativeKernel32LibDir, self, loop);
+                    },
+                    c.ZigFindWindowsSdkError.OutOfMemory => return error.OutOfMemory,
+                    c.ZigFindWindowsSdkError.NotFound => return error.NotFound,
+                    c.ZigFindWindowsSdkError.PathTooLong => return error.NotFound,
+                }
             },
             builtin.Os.linux => {
                 try group.call(findNativeIncludeDirLinux, self, loop);

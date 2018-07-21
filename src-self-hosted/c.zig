@@ -4,4 +4,5 @@ pub use @cImport({
     @cInclude("inttypes.h");
     @cInclude("config.h");
     @cInclude("zig_llvm.h");
+    @cInclude("windows_sdk.h");
 });
