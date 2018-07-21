@@ -3,6 +3,7 @@ const c = std.c;
 const assert = std.debug.assert;
 
 pub use @import("darwin_errno.zig");
+pub use @import("darwin_socket.zig");
 
 pub const PATH_MAX = 1024;
 
