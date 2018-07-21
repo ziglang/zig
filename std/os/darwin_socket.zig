@@ -76,3 +76,10 @@ pub const PF_MAX: c_int =  AF_MAX;
 
 pub const SYSPROTO_EVENT: c_int = 1;
 pub const SYSPROTO_CONTROL: c_int = 2;
+
+pub const SOCK_STREAM: c_int = 1;
+pub const SOCK_DGRAM: c_int = 2;
+pub const SOCK_RAW: c_int = 3;
+pub const SOCK_RDM: c_int = 4;
+pub const SOCK_SEQPACKET: c_int = 5;
+pub const SOCK_MAXADDRLEN: c_int = 255;
