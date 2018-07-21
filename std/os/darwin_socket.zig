@@ -73,3 +73,6 @@ pub const PF_SYSTEM: c_int = AF_SYSTEM;
 pub const PF_NETBIOS: c_int = AF_NETBIOS;
 pub const PF_PPP: c_int =  AF_PPP;
 pub const PF_MAX: c_int =  AF_MAX;
+
+pub const SYSPROTO_EVENT: c_int = 1;
+pub const SYSPROTO_CONTROL: c_int = 2;
