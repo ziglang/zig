@@ -125,7 +125,7 @@ pub async fn connect(loop: *Loop, _address: *const std.net.Address) !std.os.File
 test "listen on a port, send bytes, receive bytes" {
     if (builtin.os != builtin.Os.linux) {
         // TODO build abstractions for other operating systems
-        return;
+        return error.skip;
     }
     const MyServer = struct {
         tcp_server: Server,
