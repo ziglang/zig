@@ -70,7 +70,7 @@ that counts as "freestanding" for the purposes of this table.
 
 ## Community
 
- * IRC: `#zig` on Freenode.
+ * IRC: `#zig` on Freenode ([Channel Logs](https://irclog.whitequark.org/zig/)).
  * Reddit: [/r/zig](https://www.reddit.com/r/zig)
  * Email list: [ziglang@googlegroups.com](https://groups.google.com/forum/#!forum/ziglang)
 
