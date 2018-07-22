@@ -554,7 +554,7 @@ set(ZIG_STD_FILES
     "net.zig"
     "os/child_process.zig"
     "os/darwin.zig"
-    "os/darwin_errno.zig"
+    "os/darwin/errno.zig"
     "os/epoch.zig"
     "os/file.zig"
     "os/get_app_data_dir.zig"
