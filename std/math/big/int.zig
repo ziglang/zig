@@ -150,6 +150,18 @@ pub const Int = struct {
         return bits;
     }
 
+    pub fn fits(self: Int, comptime T: type) bool {
+        if (self.eqZero()) {
+            return true;
+        }
+        if (!T.is_signed and !self.positive) {
+            return false;
+        }
+
+        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and T.is_signed);
+        return T.bit_count >= req_bits;
+    }
+
     // Returns the approximate size of the integer in the given base. Negative values accomodate for
     // the minus sign. This is used for determining the number of characters needed to print the
     // value. It is inexact and will exceed the given value by 1-2 digits.
@@ -1215,6 +1227,33 @@ test "big.int bitcount/to" {
     try a.set(-129);
     debug.assert(a.bitCountTwosComp() == 9);
     debug.assert((try a.to(i9)) == -129);
+}
+
+test "big.int fits" {
+    var a = try Int.init(al);
+
+    try a.set(0);
+    debug.assert(a.fits(u0));
+    debug.assert(a.fits(i0));
+
+    try a.set(255);
+    debug.assert(!a.fits(u0));
+    debug.assert(!a.fits(u1));
+    debug.assert(!a.fits(i8));
+    debug.assert(a.fits(u8));
+    debug.assert(a.fits(u9));
+    debug.assert(a.fits(i9));
+
+    try a.set(-128);
+    debug.assert(!a.fits(i7));
+    debug.assert(a.fits(i8));
+    debug.assert(a.fits(i9));
+    debug.assert(!a.fits(u9));
+
+    try a.set(0x1ffffffffeeeeeeee);
+    debug.assert(!a.fits(u32));
+    debug.assert(!a.fits(u64));
+    debug.assert(a.fits(u65));
 }
 
 test "big.int string set" {
