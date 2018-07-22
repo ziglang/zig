@@ -123,15 +123,9 @@ pub async fn connect(loop: *Loop, _address: *const std.net.Address) !std.os.File
 }
 
 test "listen on a port, send bytes, receive bytes" {
-    // TODO build abstractions for other operating systems
-    const skip_test: bool = switch (builtin.os) {
-        builtin.Os.linux => false,
-        //builtin.Os.macosx, builtin.Os.ios => false,
-        else => true,
-    };
-
-    if (skip_test == true) {
-        return error.skip;
+    if (builtin.os != builtin.Os.linux) {
+        // TODO build abstractions for other operating systems
+        return error.SkipZigTest;
     }
 
     const MyServer = struct {
