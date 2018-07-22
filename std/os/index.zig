@@ -11,7 +11,7 @@ const os = this;
 test "std.os" {
     _ = @import("child_process.zig");
     _ = @import("darwin.zig");
-    _ = @import("darwin_errno.zig");
+    _ = @import("darwin/errno.zig");
     _ = @import("get_user_id.zig");
     _ = @import("linux/index.zig");
     _ = @import("path.zig");
