@@ -1920,13 +1920,19 @@ pub fn openSelfExe() !os.File {
             const self_exe_path = try selfExePath(&fixed_allocator.allocator);
             return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
         },
+        Os.windows => {
+            var fixed_buffer_mem: [windows.MAX_PATH * 2]u8 = undefined;
+            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            const self_exe_path = try selfExePath(&fixed_allocator.allocator);
+            return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
+        },
         else => @compileError("Unsupported OS"),
     }
 }
 
 test "openSelfExe" {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => (try openSelfExe()).close(),
+        Os.linux, Os.macosx, Os.ios, Os.windows => (try openSelfExe()).close(),
         else => return, // Unsupported OS.
     }
 }

@@ -6,6 +6,9 @@ const os = std.os;
 const elf = std.elf;
 const DW = std.dwarf;
 const macho = std.macho;
+const coff = std.coff;
+const pdb = std.pdb;
+const windows = os.windows;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
@@ -207,7 +210,13 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_
 
 fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: usize, tty_color: bool) !void {
     switch (builtin.os) {
-        builtin.Os.windows => return error.UnsupportedDebugInfo,
+        builtin.Os.windows => {
+            const base_address = @ptrToInt(windows.GetModuleHandleA(null)); // returned HMODULE points to our executable file in memory
+            const relative_address = address - base_address;
+            std.debug.warn("{x} - {x} => {x}\n", address, base_address, relative_address);
+            try debug_info.pdb.getSourceLine(relative_address);
+            return error.UnsupportedDebugInfo;
+        },
         builtin.Os.macosx => {
             // TODO(bnoordhuis) It's theoretically possible to obtain the
             // compilation unit from the symbtab but it's not that useful
@@ -316,7 +325,38 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
             return st;
         },
         builtin.ObjectFormat.coff => {
-            return error.TodoSupportCoffDebugInfo;
+            var coff_file: coff.Coff = undefined;
+            coff_file.in_file = try os.openSelfExe();
+            coff_file.allocator = allocator;
+            defer coff_file.in_file.close();
+
+            try coff_file.loadHeader();
+
+            var path: [windows.MAX_PATH]u8 = undefined;
+            const len = try coff_file.getPdbPath(path[0..]);
+            std.debug.warn("pdb path {}\n", path[0..len]);
+
+            const st = try allocator.create(ElfStackTrace);
+            errdefer allocator.destroy(st);
+            st.* = ElfStackTrace {
+                .pdb = undefined,
+            };
+
+            try st.pdb.openFile(allocator, path[0..len]);
+
+            var pdb_stream = st.pdb.getStream(pdb.StreamType.Pdb) orelse return error.CorruptedFile;
+            std.debug.warn("pdb real filepos {}\n", pdb_stream.getFilePos());
+            const version = try pdb_stream.stream.readIntLe(u32);
+            const signature = try pdb_stream.stream.readIntLe(u32);
+            const age = try pdb_stream.stream.readIntLe(u32);
+            var guid: [16]u8 = undefined;
+            try pdb_stream.stream.readNoEof(guid[0..]);
+            if (!mem.eql(u8, coff_file.guid, guid) or coff_file.age != age)
+                return error.CorruptedFile;
+            std.debug.warn("v {} s {} a {}\n", version, signature, age);
+            // We validated the executable and pdb match.
+
+            return st;
         },
         builtin.ObjectFormat.wasm => {
             return error.TodoSupportCOFFDebugInfo;
@@ -366,6 +406,9 @@ pub const ElfStackTrace = switch (builtin.os) {
         pub fn close(self: *ElfStackTrace) void {
             self.symbol_table.deinit();
         }
+    },
+    builtin.Os.windows => struct {
+        pdb: pdb.Pdb,
     },
     else => struct {
         self_exe_file: os.File,

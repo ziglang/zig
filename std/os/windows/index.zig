@@ -109,6 +109,8 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
     dwFlags: DWORD,
 ) DWORD;
 
+pub extern "kernel32" stdcallcc fn GetModuleHandleA(lpModuleName: ?LPCSTR) HMODULE;
+
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 pub extern "kernel32" stdcallcc fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: LPDWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) BOOL;
 
