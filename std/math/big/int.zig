@@ -150,16 +150,20 @@ pub const Int = struct {
         return bits;
     }
 
-    pub fn fits(self: Int, comptime T: type) bool {
+    pub fn fitsInTwosComp(self: Int, is_signed: bool, bit_count: usize) bool {
         if (self.eqZero()) {
             return true;
         }
-        if (!T.is_signed and !self.positive) {
+        if (!is_signed and !self.positive) {
             return false;
         }
 
-        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and T.is_signed);
-        return T.bit_count >= req_bits;
+        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and is_signed);
+        return bit_count >= req_bits;
+    }
+
+    pub fn fits(self: Int, comptime T: type) bool {
+        return self.fitsInTwosComp(T.is_signed, T.bit_count);
     }
 
     // Returns the approximate size of the integer in the given base. Negative values accomodate for
