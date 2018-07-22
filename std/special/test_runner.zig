@@ -8,7 +8,13 @@ pub fn main() !void {
     for (test_fn_list) |test_fn, i| {
         warn("Test {}/{} {}...", i + 1, test_fn_list.len, test_fn.name);
 
-        try test_fn.func();
+        test_fn.func() catch |err| {
+            if (err == error.skip) {
+                warn("SKIPPED\n");
+                continue;
+            }
+            return err;
+        };
 
         warn("OK\n");
     }
