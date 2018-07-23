@@ -901,7 +901,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
                 if (strchr(buf_ptr(link_lib->name), '/') == nullptr) {
                     Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
                     lj->args.append(buf_ptr(arg));
-            } else {
+                } else {
                     lj->args.append(buf_ptr(link_lib->name));
                 }
             }

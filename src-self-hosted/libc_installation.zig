@@ -170,7 +170,7 @@ pub const LibCInstallation = struct {
                 try group.call(findNativeDynamicLinker, self, loop);
             },
             builtin.Os.macosx => {
-                try group.call(findNativeIncludeDirMacOS, self, loop);
+                self.include_dir = try std.mem.dupe(loop.allocator, u8, "/usr/include");
             },
             else => @compileError("unimplemented: find libc for this OS"),
         }
@@ -252,10 +252,6 @@ pub const LibCInstallation = struct {
         //    exit(1);
         //}
         @panic("TODO");
-    }
-
-    async fn findNativeIncludeDirMacOS(self: *LibCInstallation, loop: *event.Loop) !void {
-        self.include_dir = try std.mem.dupe(loop.allocator, u8, "/usr/include");
     }
 
     async fn findNativeLibDirWindows(self: *LibCInstallation, loop: *event.Loop) FindError!void {

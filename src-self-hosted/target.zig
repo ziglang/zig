@@ -526,4 +526,37 @@ pub const Target = union(enum) {
             => @panic("TODO specify the C integer type sizes for this OS"),
         }
     }
+
+    pub fn getDarwinArchString(self: Target) []const u8 {
+        const arch = self.getArch();
+        switch (arch) {
+            builtin.Arch.aarch64 => return "arm64",
+            builtin.Arch.thumb,
+            builtin.Arch.armv8_3a,
+            builtin.Arch.armv8_2a,
+            builtin.Arch.armv8_1a,
+            builtin.Arch.armv8,
+            builtin.Arch.armv8r,
+            builtin.Arch.armv8m_baseline,
+            builtin.Arch.armv8m_mainline,
+            builtin.Arch.armv7,
+            builtin.Arch.armv7em,
+            builtin.Arch.armv7m,
+            builtin.Arch.armv7s,
+            builtin.Arch.armv7k,
+            builtin.Arch.armv7ve,
+            builtin.Arch.armv6,
+            builtin.Arch.armv6m,
+            builtin.Arch.armv6k,
+            builtin.Arch.armv6t2,
+            builtin.Arch.armv5,
+            builtin.Arch.armv5te,
+            builtin.Arch.armv4t,
+            => return "arm",
+            builtin.Arch.powerpc => return "ppc",
+            builtin.Arch.powerpc64 => return "ppc64",
+            builtin.Arch.powerpc64le => return "ppc64le",
+            else => return @tagName(arch),
+        }
+    }
 };
