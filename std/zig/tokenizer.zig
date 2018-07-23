@@ -73,6 +73,7 @@ pub const Token = struct {
         return null;
     }
 
+    /// TODO remove this enum
     const StrLitKind = enum {
         Normal,
         C,

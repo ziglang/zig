@@ -194,6 +194,7 @@ pub const Compilation = struct {
     bool_type: *Type.Bool,
     noreturn_type: *Type.NoReturn,
     comptime_int_type: *Type.ComptimeInt,
+    u8_type: *Type.Int,
 
     void_value: *Value.Void,
     true_value: *Value.Bool,
@@ -203,6 +204,7 @@ pub const Compilation = struct {
     target_machine: llvm.TargetMachineRef,
     target_data_ref: llvm.TargetDataRef,
     target_layout_str: [*]u8,
+    target_ptr_bits: u32,
 
     /// for allocating things which have the same lifetime as this Compilation
     arena_allocator: std.heap.ArenaAllocator,
@@ -223,10 +225,14 @@ pub const Compilation = struct {
     primitive_type_table: TypeTable,
 
     int_type_table: event.Locked(IntTypeTable),
+    array_type_table: event.Locked(ArrayTypeTable),
+    ptr_type_table: event.Locked(PtrTypeTable),
 
     c_int_types: [CInt.list.len]*Type.Int,
 
     const IntTypeTable = std.HashMap(*const Type.Int.Key, *Type.Int, Type.Int.Key.hash, Type.Int.Key.eql);
+    const ArrayTypeTable = std.HashMap(*const Type.Array.Key, *Type.Array, Type.Array.Key.hash, Type.Array.Key.eql);
+    const PtrTypeTable = std.HashMap(*const Type.Pointer.Key, *Type.Pointer, Type.Pointer.Key.hash, Type.Pointer.Key.eql);
     const TypeTable = std.HashMap([]const u8, *Type, mem.hash_slice_u8, mem.eql_slice_u8);
 
     const CompileErrList = std.ArrayList(*errmsg.Msg);
@@ -383,6 +389,8 @@ pub const Compilation = struct {
             .deinit_group = event.Group(void).init(loop),
             .compile_errors = event.Locked(CompileErrList).init(loop, CompileErrList.init(loop.allocator)),
             .int_type_table = event.Locked(IntTypeTable).init(loop, IntTypeTable.init(loop.allocator)),
+            .array_type_table = event.Locked(ArrayTypeTable).init(loop, ArrayTypeTable.init(loop.allocator)),
+            .ptr_type_table = event.Locked(PtrTypeTable).init(loop, PtrTypeTable.init(loop.allocator)),
             .c_int_types = undefined,
 
             .meta_type = undefined,
@@ -394,10 +402,12 @@ pub const Compilation = struct {
             .noreturn_type = undefined,
             .noreturn_value = undefined,
             .comptime_int_type = undefined,
+            .u8_type = undefined,
 
             .target_machine = undefined,
             .target_data_ref = undefined,
             .target_layout_str = undefined,
+            .target_ptr_bits = target.getArchPtrBitWidth(),
 
             .root_package = undefined,
             .std_package = undefined,
@@ -409,6 +419,8 @@ pub const Compilation = struct {
         });
         errdefer {
             comp.int_type_table.private_data.deinit();
+            comp.array_type_table.private_data.deinit();
+            comp.ptr_type_table.private_data.deinit();
             comp.arena_allocator.deinit();
             comp.loop.allocator.destroy(comp);
         }
@@ -517,15 +529,16 @@ pub const Compilation = struct {
                 .name = "type",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = undefined,
+                    .typ = undefined,
                     .ref_count = std.atomic.Int(usize).init(3), // 3 because it references itself twice
                 },
                 .id = builtin.TypeId.Type,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
             .value = undefined,
         });
         comp.meta_type.value = &comp.meta_type.base;
-        comp.meta_type.base.base.typeof = &comp.meta_type.base;
+        comp.meta_type.base.base.typ = &comp.meta_type.base;
         assert((try comp.primitive_type_table.put(comp.meta_type.base.name, &comp.meta_type.base)) == null);
 
         comp.void_type = try comp.arena().create(Type.Void{
@@ -533,10 +546,11 @@ pub const Compilation = struct {
                 .name = "void",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(comp).base,
+                    .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Void,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
         });
         assert((try comp.primitive_type_table.put(comp.void_type.base.name, &comp.void_type.base)) == null);
@@ -546,10 +560,11 @@ pub const Compilation = struct {
                 .name = "noreturn",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(comp).base,
+                    .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.NoReturn,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
         });
         assert((try comp.primitive_type_table.put(comp.noreturn_type.base.name, &comp.noreturn_type.base)) == null);
@@ -559,10 +574,11 @@ pub const Compilation = struct {
                 .name = "comptime_int",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(comp).base,
+                    .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.ComptimeInt,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
         });
         assert((try comp.primitive_type_table.put(comp.comptime_int_type.base.name, &comp.comptime_int_type.base)) == null);
@@ -572,10 +588,11 @@ pub const Compilation = struct {
                 .name = "bool",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(comp).base,
+                    .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Bool,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
         });
         assert((try comp.primitive_type_table.put(comp.bool_type.base.name, &comp.bool_type.base)) == null);
@@ -583,7 +600,7 @@ pub const Compilation = struct {
         comp.void_value = try comp.arena().create(Value.Void{
             .base = Value{
                 .id = Value.Id.Void,
-                .typeof = &Type.Void.get(comp).base,
+                .typ = &Type.Void.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
@@ -591,7 +608,7 @@ pub const Compilation = struct {
         comp.true_value = try comp.arena().create(Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
-                .typeof = &Type.Bool.get(comp).base,
+                .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = true,
@@ -600,7 +617,7 @@ pub const Compilation = struct {
         comp.false_value = try comp.arena().create(Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
-                .typeof = &Type.Bool.get(comp).base,
+                .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = false,
@@ -609,7 +626,7 @@ pub const Compilation = struct {
         comp.noreturn_value = try comp.arena().create(Value.NoReturn{
             .base = Value{
                 .id = Value.Id.NoReturn,
-                .typeof = &Type.NoReturn.get(comp).base,
+                .typ = &Type.NoReturn.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
@@ -620,10 +637,11 @@ pub const Compilation = struct {
                     .name = cint.zig_name,
                     .base = Value{
                         .id = Value.Id.Type,
-                        .typeof = &Type.MetaType.get(comp).base,
+                        .typ = &Type.MetaType.get(comp).base,
                         .ref_count = std.atomic.Int(usize).init(1),
                     },
                     .id = builtin.TypeId.Int,
+                    .abi_alignment = Type.AbiAlignment.init(comp.loop),
                 },
                 .key = Type.Int.Key{
                     .is_signed = cint.is_signed,
@@ -634,6 +652,24 @@ pub const Compilation = struct {
             comp.c_int_types[i] = c_int_type;
             assert((try comp.primitive_type_table.put(cint.zig_name, &c_int_type.base)) == null);
         }
+        comp.u8_type = try comp.arena().create(Type.Int{
+            .base = Type{
+                .name = "u8",
+                .base = Value{
+                    .id = Value.Id.Type,
+                    .typ = &Type.MetaType.get(comp).base,
+                    .ref_count = std.atomic.Int(usize).init(1),
+                },
+                .id = builtin.TypeId.Int,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+            },
+            .key = Type.Int.Key{
+                .is_signed = false,
+                .bit_count = 8,
+            },
+            .garbage_node = undefined,
+        });
+        assert((try comp.primitive_type_table.put(comp.u8_type.base.name, &comp.u8_type.base)) == null);
     }
 
     /// This function can safely use async/await, because it manages Compilation's lifetime,
@@ -750,7 +786,7 @@ pub const Compilation = struct {
                     ast.Node.Id.Comptime => {
                         const comptime_node = @fieldParentPtr(ast.Node.Comptime, "base", decl);
 
-                        try decl_group.call(addCompTimeBlock, self, &decls.base, comptime_node);
+                        try self.prelink_group.call(addCompTimeBlock, self, &decls.base, comptime_node);
                     },
                     ast.Node.Id.VarDecl => @panic("TODO"),
                     ast.Node.Id.FnProto => {
@@ -770,7 +806,6 @@ pub const Compilation = struct {
                                 .name = name,
                                 .visib = parseVisibToken(tree, fn_proto.visib_token),
                                 .resolution = event.Future(BuildError!void).init(self.loop),
-                                .resolution_in_progress = 0,
                                 .parent_scope = &decls.base,
                             },
                             .value = Decl.Fn.Val{ .Unresolved = {} },
@@ -778,16 +813,22 @@ pub const Compilation = struct {
                         });
                         errdefer self.gpa().destroy(fn_decl);
 
-                        try decl_group.call(addTopLevelDecl, self, &fn_decl.base);
+                        try decl_group.call(addTopLevelDecl, self, decls, &fn_decl.base);
                     },
                     ast.Node.Id.TestDecl => @panic("TODO"),
                     else => unreachable,
                 }
             }
             try await (async decl_group.wait() catch unreachable);
+
+            // Now other code can rely on the decls scope having a complete list of names.
+            decls.name_future.resolve();
         }
 
-        try await (async self.prelink_group.wait() catch unreachable);
+        (await (async self.prelink_group.wait() catch unreachable)) catch |err| switch (err) {
+            error.SemanticAnalysisFailed => {},
+            else => return err,
+        };
 
         const any_prelink_errors = blk: {
             const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
@@ -857,13 +898,30 @@ pub const Compilation = struct {
         analyzed_code.destroy(comp.gpa());
     }
 
-    async fn addTopLevelDecl(self: *Compilation, decl: *Decl) !void {
+    async fn addTopLevelDecl(self: *Compilation, decls: *Scope.Decls, decl: *Decl) !void {
         const tree = &decl.findRootScope().tree;
         const is_export = decl.isExported(tree);
+
+        var add_to_table_resolved = false;
+        const add_to_table = async self.addDeclToTable(decls, decl) catch unreachable;
+        errdefer if (!add_to_table_resolved) cancel add_to_table; // TODO https://github.com/ziglang/zig/issues/1261
 
         if (is_export) {
             try self.prelink_group.call(verifyUniqueSymbol, self, decl);
             try self.prelink_group.call(resolveDecl, self, decl);
+        }
+
+        add_to_table_resolved = true;
+        try await add_to_table;
+    }
+
+    async fn addDeclToTable(self: *Compilation, decls: *Scope.Decls, decl: *Decl) !void {
+        const held = await (async decls.table.acquire() catch unreachable);
+        defer held.release();
+
+        if (try held.value.put(decl.name, decl)) |other_decl| {
+            try self.addCompileError(decls.base.findRoot(), decl.getSpan(), "redefinition of '{}'", decl.name);
+            // TODO note: other definition here
         }
     }
 
@@ -1043,6 +1101,15 @@ pub const Compilation = struct {
 
         return result_val.cast(Type).?;
     }
+
+    /// This declaration has been blessed as going into the final code generation.
+    pub async fn resolveDecl(comp: *Compilation, decl: *Decl) !void {
+        if (await (async decl.resolution.start() catch unreachable)) |ptr| return ptr.*;
+
+        decl.resolution.data = try await (async generateDecl(comp, decl) catch unreachable);
+        decl.resolution.resolve();
+        return decl.resolution.data;
+    }
 };
 
 fn printError(comptime format: []const u8, args: ...) !void {
@@ -1062,20 +1129,6 @@ fn parseVisibToken(tree: *ast.Tree, optional_token_index: ?ast.TokenIndex) Visib
     }
 }
 
-/// This declaration has been blessed as going into the final code generation.
-pub async fn resolveDecl(comp: *Compilation, decl: *Decl) !void {
-    if (await (async decl.resolution.start() catch unreachable)) |ptr| return ptr.*;
-
-    decl.resolution.data = (await (async generateDecl(comp, decl) catch unreachable)) catch |err| switch (err) {
-        // This poison value should not cause the errdefers to run. It simply means
-        // that comp.compile_errors is populated.
-        error.SemanticAnalysisFailed => {},
-        else => err,
-    };
-    decl.resolution.resolve();
-    return decl.resolution.data;
-}
-
 /// The function that actually does the generation.
 async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
     switch (decl.id) {
@@ -1089,34 +1142,27 @@ async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
 }
 
 async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
-    const body_node = fn_decl.fn_proto.body_node orelse @panic("TODO extern fn proto decl");
+    const body_node = fn_decl.fn_proto.body_node orelse return await (async generateDeclFnProto(comp, fn_decl) catch unreachable);
 
     const fndef_scope = try Scope.FnDef.create(comp, fn_decl.base.parent_scope);
     defer fndef_scope.base.deref(comp);
 
-    const return_type_node = switch (fn_decl.fn_proto.return_type) {
-        ast.Node.FnProto.ReturnType.Explicit => |n| n,
-        ast.Node.FnProto.ReturnType.InferErrorSet => |n| n,
-    };
-    const return_type = try await (async comp.analyzeTypeExpr(&fndef_scope.base, return_type_node) catch unreachable);
-    return_type.base.deref(comp);
-
-    const is_var_args = false;
-    const params = ([*]Type.Fn.Param)(undefined)[0..0];
-    const fn_type = try Type.Fn.create(comp, return_type, params, is_var_args);
+    const fn_type = try await (async analyzeFnType(comp, fn_decl.base.parent_scope, fn_decl.fn_proto) catch unreachable);
     defer fn_type.base.base.deref(comp);
 
     var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
-    errdefer symbol_name.deinit();
+    var symbol_name_consumed = false;
+    errdefer if (!symbol_name_consumed) symbol_name.deinit();
 
     // The Decl.Fn owns the initial 1 reference count
     const fn_val = try Value.Fn.create(comp, fn_type, fndef_scope, symbol_name);
-    fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
+    fn_decl.value = Decl.Fn.Val{ .Fn = fn_val };
+    symbol_name_consumed = true;
 
     const analyzed_code = try await (async comp.genAndAnalyzeCode(
         &fndef_scope.base,
         body_node,
-        return_type,
+        fn_type.return_type,
     ) catch unreachable);
     errdefer analyzed_code.destroy(comp.gpa());
 
@@ -1140,4 +1186,55 @@ async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) void {
 
 fn getZigDir(allocator: *mem.Allocator) ![]u8 {
     return os.getAppDataDir(allocator, "zig");
+}
+
+async fn analyzeFnType(comp: *Compilation, scope: *Scope, fn_proto: *ast.Node.FnProto) !*Type.Fn {
+    const return_type_node = switch (fn_proto.return_type) {
+        ast.Node.FnProto.ReturnType.Explicit => |n| n,
+        ast.Node.FnProto.ReturnType.InferErrorSet => |n| n,
+    };
+    const return_type = try await (async comp.analyzeTypeExpr(scope, return_type_node) catch unreachable);
+    return_type.base.deref(comp);
+
+    var params = ArrayList(Type.Fn.Param).init(comp.gpa());
+    var params_consumed = false;
+    defer if (params_consumed) {
+        for (params.toSliceConst()) |param| {
+            param.typ.base.deref(comp);
+        }
+        params.deinit();
+    };
+
+    const is_var_args = false;
+    {
+        var it = fn_proto.params.iterator(0);
+        while (it.next()) |param_node_ptr| {
+            const param_node = param_node_ptr.*.cast(ast.Node.ParamDecl).?;
+            const param_type = try await (async comp.analyzeTypeExpr(scope, param_node.type_node) catch unreachable);
+            errdefer param_type.base.deref(comp);
+            try params.append(Type.Fn.Param{
+                .typ = param_type,
+                .is_noalias = param_node.noalias_token != null,
+            });
+        }
+    }
+    const fn_type = try Type.Fn.create(comp, return_type, params.toOwnedSlice(), is_var_args);
+    params_consumed = true;
+    errdefer fn_type.base.base.deref(comp);
+
+    return fn_type;
+}
+
+async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
+    const fn_type = try await (async analyzeFnType(comp, fn_decl.base.parent_scope, fn_decl.fn_proto) catch unreachable);
+    defer fn_type.base.base.deref(comp);
+
+    var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
+    var symbol_name_consumed = false;
+    defer if (!symbol_name_consumed) symbol_name.deinit();
+
+    // The Decl.Fn owns the initial 1 reference count
+    const fn_proto_val = try Value.FnProto.create(comp, fn_type, symbol_name);
+    fn_decl.value = Decl.Fn.Val{ .FnProto = fn_proto_val };
+    symbol_name_consumed = true;
 }

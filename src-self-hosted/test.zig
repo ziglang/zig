@@ -14,6 +14,7 @@ test "compile errors" {
     defer ctx.deinit();
 
     try @import("../test/stage2/compile_errors.zig").addCases(&ctx);
+    //try @import("../test/stage2/compare_output.zig").addCases(&ctx);
 
     try ctx.run();
 }

@@ -11,6 +11,7 @@ const Token = std.zig.Token;
 const Span = @import("errmsg.zig").Span;
 const llvm = @import("llvm.zig");
 const ObjectFile = @import("codegen.zig").ObjectFile;
+const Decl = @import("decl.zig").Decl;
 
 pub const LVal = enum {
     None,
@@ -30,10 +31,10 @@ pub const IrVal = union(enum) {
 
     pub fn dump(self: IrVal) void {
         switch (self) {
-            IrVal.Unknown => typeof.dump(),
-            IrVal.KnownType => |typeof| {
+            IrVal.Unknown => std.debug.warn("Unknown"),
+            IrVal.KnownType => |typ| {
                 std.debug.warn("KnownType(");
-                typeof.dump();
+                typ.dump();
                 std.debug.warn(")");
             },
             IrVal.KnownValue => |value| {
@@ -108,21 +109,29 @@ pub const Inst = struct {
         unreachable;
     }
 
-    pub fn analyze(base: *Inst, ira: *Analyze) Analyze.Error!*Inst {
-        comptime var i = 0;
-        inline while (i < @memberCount(Id)) : (i += 1) {
-            if (base.id == @field(Id, @memberName(Id, i))) {
-                const T = @field(Inst, @memberName(Id, i));
-                return @fieldParentPtr(T, "base", base).analyze(ira);
-            }
+    pub async fn analyze(base: *Inst, ira: *Analyze) Analyze.Error!*Inst {
+        switch (base.id) {
+            Id.Return => return @fieldParentPtr(Return, "base", base).analyze(ira),
+            Id.Const => return @fieldParentPtr(Const, "base", base).analyze(ira),
+            Id.Call => return @fieldParentPtr(Call, "base", base).analyze(ira),
+            Id.DeclRef => return await (async @fieldParentPtr(DeclRef, "base", base).analyze(ira) catch unreachable),
+            Id.Ref => return await (async @fieldParentPtr(Ref, "base", base).analyze(ira) catch unreachable),
+            Id.DeclVar => return @fieldParentPtr(DeclVar, "base", base).analyze(ira),
+            Id.CheckVoidStmt => return @fieldParentPtr(CheckVoidStmt, "base", base).analyze(ira),
+            Id.Phi => return @fieldParentPtr(Phi, "base", base).analyze(ira),
+            Id.Br => return @fieldParentPtr(Br, "base", base).analyze(ira),
+            Id.AddImplicitReturnType => return @fieldParentPtr(AddImplicitReturnType, "base", base).analyze(ira),
+            Id.PtrType => return await (async @fieldParentPtr(PtrType, "base", base).analyze(ira) catch unreachable),
         }
-        unreachable;
     }
 
     pub fn render(base: *Inst, ofile: *ObjectFile, fn_val: *Value.Fn) (error{OutOfMemory}!?llvm.ValueRef) {
         switch (base.id) {
             Id.Return => return @fieldParentPtr(Return, "base", base).render(ofile, fn_val),
             Id.Const => return @fieldParentPtr(Const, "base", base).render(ofile, fn_val),
+            Id.Call => return @fieldParentPtr(Call, "base", base).render(ofile, fn_val),
+            Id.DeclRef => unreachable,
+            Id.PtrType => unreachable,
             Id.Ref => @panic("TODO"),
             Id.DeclVar => @panic("TODO"),
             Id.CheckVoidStmt => @panic("TODO"),
@@ -135,7 +144,7 @@ pub const Inst = struct {
     fn ref(base: *Inst, builder: *Builder) void {
         base.ref_count += 1;
         if (base.owner_bb != builder.current_basic_block and !base.isCompTime()) {
-            base.owner_bb.ref();
+            base.owner_bb.ref(builder);
         }
     }
 
@@ -155,11 +164,51 @@ pub const Inst = struct {
         }
     }
 
+    fn getConstVal(self: *Inst, ira: *Analyze) !*Value {
+        if (self.isCompTime()) {
+            return self.val.KnownValue;
+        } else {
+            try ira.addCompileError(self.span, "unable to evaluate constant expression");
+            return error.SemanticAnalysisFailed;
+        }
+    }
+
+    fn getAsConstType(param: *Inst, ira: *Analyze) !*Type {
+        const meta_type = Type.MetaType.get(ira.irb.comp);
+        meta_type.base.base.deref(ira.irb.comp);
+
+        const inst = try param.getAsParam();
+        const casted = try ira.implicitCast(inst, &meta_type.base);
+        const val = try casted.getConstVal(ira);
+        return val.cast(Value.Type).?;
+    }
+
+    fn getAsConstAlign(param: *Inst, ira: *Analyze) !u32 {
+        return error.Unimplemented;
+        //const align_type = Type.Int.get_align(ira.irb.comp);
+        //align_type.base.base.deref(ira.irb.comp);
+
+        //const inst = try param.getAsParam();
+        //const casted = try ira.implicitCast(inst, align_type);
+        //const val = try casted.getConstVal(ira);
+
+        //uint32_t align_bytes = bigint_as_unsigned(&const_val->data.x_bigint);
+        //if (align_bytes == 0) {
+        //    ir_add_error(ira, value, buf_sprintf("alignment must be >= 1"));
+        //    return false;
+        //}
+
+        //if (!is_power_of_2(align_bytes)) {
+        //    ir_add_error(ira, value, buf_sprintf("alignment value %" PRIu32 " is not a power of 2", align_bytes));
+        //    return false;
+        //}
+    }
+
     /// asserts that the type is known
     fn getKnownType(self: *Inst) *Type {
         switch (self.val) {
-            IrVal.KnownType => |typeof| return typeof,
-            IrVal.KnownValue => |value| return value.typeof,
+            IrVal.KnownType => |typ| return typ,
+            IrVal.KnownValue => |value| return value.typ,
             IrVal.Unknown => unreachable,
         }
     }
@@ -171,8 +220,8 @@ pub const Inst = struct {
     pub fn isNoReturn(base: *const Inst) bool {
         switch (base.val) {
             IrVal.Unknown => return false,
-            IrVal.KnownValue => |x| return x.typeof.id == Type.Id.NoReturn,
-            IrVal.KnownType => |typeof| return typeof.id == Type.Id.NoReturn,
+            IrVal.KnownValue => |x| return x.typ.id == Type.Id.NoReturn,
+            IrVal.KnownType => |typ| return typ.id == Type.Id.NoReturn,
         }
     }
 
@@ -196,6 +245,85 @@ pub const Inst = struct {
         Phi,
         Br,
         AddImplicitReturnType,
+        Call,
+        DeclRef,
+        PtrType,
+    };
+
+    pub const Call = struct {
+        base: Inst,
+        params: Params,
+
+        const Params = struct {
+            fn_ref: *Inst,
+            args: []*Inst,
+        };
+
+        const ir_val_init = IrVal.Init.Unknown;
+
+        pub fn dump(self: *const Call) void {
+            std.debug.warn("#{}(", self.params.fn_ref.debug_id);
+            for (self.params.args) |arg| {
+                std.debug.warn("#{},", arg.debug_id);
+            }
+            std.debug.warn(")");
+        }
+
+        pub fn hasSideEffects(self: *const Call) bool {
+            return true;
+        }
+
+        pub fn analyze(self: *const Call, ira: *Analyze) !*Inst {
+            const fn_ref = try self.params.fn_ref.getAsParam();
+            const fn_ref_type = fn_ref.getKnownType();
+            const fn_type = fn_ref_type.cast(Type.Fn) orelse {
+                try ira.addCompileError(fn_ref.span, "type '{}' not a function", fn_ref_type.name);
+                return error.SemanticAnalysisFailed;
+            };
+
+            if (fn_type.params.len != self.params.args.len) {
+                try ira.addCompileError(
+                    self.base.span,
+                    "expected {} arguments, found {}",
+                    fn_type.params.len,
+                    self.params.args.len,
+                );
+                return error.SemanticAnalysisFailed;
+            }
+
+            const args = try ira.irb.arena().alloc(*Inst, self.params.args.len);
+            for (self.params.args) |arg, i| {
+                args[i] = try arg.getAsParam();
+            }
+            const new_inst = try ira.irb.build(Call, self.base.scope, self.base.span, Params{
+                .fn_ref = fn_ref,
+                .args = args,
+            });
+            new_inst.val = IrVal{ .KnownType = fn_type.return_type };
+            return new_inst;
+        }
+
+        pub fn render(self: *Call, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
+            const fn_ref = self.params.fn_ref.llvm_value.?;
+
+            const args = try ofile.arena.alloc(llvm.ValueRef, self.params.args.len);
+            for (self.params.args) |arg, i| {
+                args[i] = arg.llvm_value.?;
+            }
+
+            const llvm_cc = llvm.CCallConv;
+            const fn_inline = llvm.FnInline.Auto;
+
+            return llvm.BuildCall(
+                ofile.builder,
+                fn_ref,
+                args.ptr,
+                @intCast(c_uint, args.len),
+                llvm_cc,
+                fn_inline,
+                c"",
+            ) orelse error.OutOfMemory;
+        }
     };
 
     pub const Const = struct {
@@ -254,14 +382,14 @@ pub const Inst = struct {
             return ira.irb.build(Return, self.base.scope, self.base.span, Params{ .return_value = casted_value });
         }
 
-        pub fn render(self: *Return, ofile: *ObjectFile, fn_val: *Value.Fn) ?llvm.ValueRef {
+        pub fn render(self: *Return, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
             const value = self.params.return_value.llvm_value;
             const return_type = self.params.return_value.getKnownType();
 
             if (return_type.handleIsPtr()) {
                 @panic("TODO");
             } else {
-                _ = llvm.BuildRet(ofile.builder, value);
+                _ = llvm.BuildRet(ofile.builder, value) orelse return error.OutOfMemory;
             }
             return null;
         }
@@ -285,7 +413,7 @@ pub const Inst = struct {
             return false;
         }
 
-        pub fn analyze(self: *const Ref, ira: *Analyze) !*Inst {
+        pub async fn analyze(self: *const Ref, ira: *Analyze) !*Inst {
             const target = try self.params.target.getAsParam();
 
             if (ira.getCompTimeValOrNullUndefOk(target)) |val| {
@@ -294,7 +422,6 @@ pub const Inst = struct {
                     Value.Ptr.Mut.CompTimeConst,
                     self.params.mut,
                     self.params.volatility,
-                    val.typeof.getAbiAlignment(ira.irb.comp),
                 );
             }
 
@@ -304,19 +431,109 @@ pub const Inst = struct {
                 .volatility = self.params.volatility,
             });
             const elem_type = target.getKnownType();
-            const ptr_type = Type.Pointer.get(
-                ira.irb.comp,
-                elem_type,
-                self.params.mut,
-                self.params.volatility,
-                Type.Pointer.Size.One,
-                elem_type.getAbiAlignment(ira.irb.comp),
-            );
+            const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+                .child_type = elem_type,
+                .mut = self.params.mut,
+                .vol = self.params.volatility,
+                .size = Type.Pointer.Size.One,
+                .alignment = Type.Pointer.Align.Abi,
+            }) catch unreachable);
             // TODO: potentially set the hint that this is a stack pointer. But it might not be - this
             // could be a ref of a global, for example
             new_inst.val = IrVal{ .KnownType = &ptr_type.base };
             // TODO potentially add an alloca entry here
             return new_inst;
+        }
+    };
+
+    pub const DeclRef = struct {
+        base: Inst,
+        params: Params,
+
+        const Params = struct {
+            decl: *Decl,
+            lval: LVal,
+        };
+
+        const ir_val_init = IrVal.Init.Unknown;
+
+        pub fn dump(inst: *const DeclRef) void {}
+
+        pub fn hasSideEffects(inst: *const DeclRef) bool {
+            return false;
+        }
+
+        pub async fn analyze(self: *const DeclRef, ira: *Analyze) !*Inst {
+            (await (async ira.irb.comp.resolveDecl(self.params.decl) catch unreachable)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return error.SemanticAnalysisFailed,
+            };
+            switch (self.params.decl.id) {
+                Decl.Id.CompTime => unreachable,
+                Decl.Id.Var => return error.Unimplemented,
+                Decl.Id.Fn => {
+                    const fn_decl = @fieldParentPtr(Decl.Fn, "base", self.params.decl);
+                    const decl_val = switch (fn_decl.value) {
+                        Decl.Fn.Val.Unresolved => unreachable,
+                        Decl.Fn.Val.Fn => |fn_val| &fn_val.base,
+                        Decl.Fn.Val.FnProto => |fn_proto| &fn_proto.base,
+                    };
+                    switch (self.params.lval) {
+                        LVal.None => {
+                            return ira.irb.buildConstValue(self.base.scope, self.base.span, decl_val);
+                        },
+                        LVal.Ptr => return error.Unimplemented,
+                    }
+                },
+            }
+        }
+    };
+
+    pub const PtrType = struct {
+        base: Inst,
+        params: Params,
+
+        const Params = struct {
+            child_type: *Inst,
+            mut: Type.Pointer.Mut,
+            vol: Type.Pointer.Vol,
+            size: Type.Pointer.Size,
+            alignment: ?*Inst,
+        };
+
+        const ir_val_init = IrVal.Init.Unknown;
+
+        pub fn dump(inst: *const PtrType) void {}
+
+        pub fn hasSideEffects(inst: *const PtrType) bool {
+            return false;
+        }
+
+        pub async fn analyze(self: *const PtrType, ira: *Analyze) !*Inst {
+            const child_type = try self.params.child_type.getAsConstType(ira);
+            // if (child_type->id == TypeTableEntryIdUnreachable) {
+            //     ir_add_error(ira, &instruction->base, buf_sprintf("pointer to noreturn not allowed"));
+            //     return ira->codegen->builtin_types.entry_invalid;
+            // } else if (child_type->id == TypeTableEntryIdOpaque && instruction->ptr_len == PtrLenUnknown) {
+            //     ir_add_error(ira, &instruction->base, buf_sprintf("unknown-length pointer to opaque"));
+            //     return ira->codegen->builtin_types.entry_invalid;
+            // }
+            const alignment = if (self.params.alignment) |align_inst| blk: {
+                const amt = try align_inst.getAsConstAlign(ira);
+                break :blk Type.Pointer.Align{ .Override = amt };
+            } else blk: {
+                break :blk Type.Pointer.Align{ .Abi = {} };
+            };
+            const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+                .child_type = child_type,
+                .mut = self.params.mut,
+                .vol = self.params.vol,
+                .size = self.params.size,
+                .alignment = alignment,
+            }) catch unreachable);
+            ptr_type.base.base.deref(ira.irb.comp);
+
+            return ira.irb.buildConstValue(self.base.scope, self.base.span, &ptr_type.base.base);
         }
     };
 
@@ -351,14 +568,21 @@ pub const Inst = struct {
 
         const ir_val_init = IrVal.Init.Unknown;
 
-        pub fn dump(inst: *const CheckVoidStmt) void {}
+        pub fn dump(self: *const CheckVoidStmt) void {
+            std.debug.warn("#{}", self.params.target.debug_id);
+        }
 
         pub fn hasSideEffects(inst: *const CheckVoidStmt) bool {
             return true;
         }
 
         pub fn analyze(self: *const CheckVoidStmt, ira: *Analyze) !*Inst {
-            return error.Unimplemented; // TODO
+            const target = try self.params.target.getAsParam();
+            if (target.getKnownType().id != Type.Id.Void) {
+                try ira.addCompileError(self.base.span, "expression value is ignored");
+                return error.SemanticAnalysisFailed;
+            }
+            return ira.irb.buildConstVoid(self.base.scope, self.base.span, true);
         }
     };
 
@@ -583,7 +807,7 @@ pub const BasicBlock = struct {
     /// the basic block that this one derives from in analysis
     parent: ?*BasicBlock,
 
-    pub fn ref(self: *BasicBlock) void {
+    pub fn ref(self: *BasicBlock, builder: *Builder) void {
         self.ref_count += 1;
     }
 
@@ -724,8 +948,42 @@ pub const Builder = struct {
             ast.Node.Id.VarDecl => return error.Unimplemented,
             ast.Node.Id.Defer => return error.Unimplemented,
             ast.Node.Id.InfixOp => return error.Unimplemented,
-            ast.Node.Id.PrefixOp => return error.Unimplemented,
-            ast.Node.Id.SuffixOp => return error.Unimplemented,
+            ast.Node.Id.PrefixOp => {
+                const prefix_op = @fieldParentPtr(ast.Node.PrefixOp, "base", node);
+                switch (prefix_op.op) {
+                    ast.Node.PrefixOp.Op.AddressOf => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.ArrayType => |n| return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.Await => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.BitNot => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.BoolNot => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.Cancel => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.OptionalType => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.Negation => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.NegationWrap => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.Resume => return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.PtrType => |ptr_info| {
+                        const inst = try await (async irb.genPtrType(prefix_op, ptr_info, scope) catch unreachable);
+                        return irb.lvalWrap(scope, inst, lval);
+                    },
+                    ast.Node.PrefixOp.Op.SliceType => |ptr_info| return error.Unimplemented,
+                    ast.Node.PrefixOp.Op.Try => return error.Unimplemented,
+                }
+            },
+            ast.Node.Id.SuffixOp => {
+                const suffix_op = @fieldParentPtr(ast.Node.SuffixOp, "base", node);
+                switch (suffix_op.op) {
+                    @TagType(ast.Node.SuffixOp.Op).Call => |*call| {
+                        const inst = try await (async irb.genCall(suffix_op, call, scope) catch unreachable);
+                        return irb.lvalWrap(scope, inst, lval);
+                    },
+                    @TagType(ast.Node.SuffixOp.Op).ArrayAccess => |n| return error.Unimplemented,
+                    @TagType(ast.Node.SuffixOp.Op).Slice => |slice| return error.Unimplemented,
+                    @TagType(ast.Node.SuffixOp.Op).ArrayInitializer => |init_list| return error.Unimplemented,
+                    @TagType(ast.Node.SuffixOp.Op).StructInitializer => |init_list| return error.Unimplemented,
+                    @TagType(ast.Node.SuffixOp.Op).Deref => return error.Unimplemented,
+                    @TagType(ast.Node.SuffixOp.Op).UnwrapOptional => return error.Unimplemented,
+                }
+            },
             ast.Node.Id.Switch => return error.Unimplemented,
             ast.Node.Id.While => return error.Unimplemented,
             ast.Node.Id.For => return error.Unimplemented,
@@ -744,7 +1002,11 @@ pub const Builder = struct {
                 return irb.lvalWrap(scope, try irb.genIntLit(int_lit, scope), lval);
             },
             ast.Node.Id.FloatLiteral => return error.Unimplemented,
-            ast.Node.Id.StringLiteral => return error.Unimplemented,
+            ast.Node.Id.StringLiteral => {
+                const str_lit = @fieldParentPtr(ast.Node.StringLiteral, "base", node);
+                const inst = try await (async irb.genStrLit(str_lit, scope) catch unreachable);
+                return irb.lvalWrap(scope, inst, lval);
+            },
             ast.Node.Id.MultilineStringLiteral => return error.Unimplemented,
             ast.Node.Id.CharLiteral => return error.Unimplemented,
             ast.Node.Id.BoolLiteral => return error.Unimplemented,
@@ -787,6 +1049,99 @@ pub const Builder = struct {
             ast.Node.Id.ParamDecl => return error.Unimplemented,
             ast.Node.Id.FieldInitializer => return error.Unimplemented,
         }
+    }
+
+    async fn genCall(irb: *Builder, suffix_op: *ast.Node.SuffixOp, call: *ast.Node.SuffixOp.Op.Call, scope: *Scope) !*Inst {
+        const fn_ref = try await (async irb.genNode(suffix_op.lhs, scope, LVal.None) catch unreachable);
+
+        const args = try irb.arena().alloc(*Inst, call.params.len);
+        var it = call.params.iterator(0);
+        var i: usize = 0;
+        while (it.next()) |arg_node_ptr| : (i += 1) {
+            args[i] = try await (async irb.genNode(arg_node_ptr.*, scope, LVal.None) catch unreachable);
+        }
+
+        //bool is_async = node->data.fn_call_expr.is_async;
+        //IrInstruction *async_allocator = nullptr;
+        //if (is_async) {
+        //    if (node->data.fn_call_expr.async_allocator) {
+        //        async_allocator = ir_gen_node(irb, node->data.fn_call_expr.async_allocator, scope);
+        //        if (async_allocator == irb->codegen->invalid_instruction)
+        //            return async_allocator;
+        //    }
+        //}
+
+        return irb.build(Inst.Call, scope, Span.token(suffix_op.rtoken), Inst.Call.Params{
+            .fn_ref = fn_ref,
+            .args = args,
+        });
+        //IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator, nullptr);
+        //return ir_lval_wrap(irb, scope, fn_call, lval);
+    }
+
+    async fn genPtrType(
+        irb: *Builder,
+        prefix_op: *ast.Node.PrefixOp,
+        ptr_info: ast.Node.PrefixOp.PtrInfo,
+        scope: *Scope,
+    ) !*Inst {
+        // TODO port more logic
+
+        //assert(node->type == NodeTypePointerType);
+        //PtrLen ptr_len = (node->data.pointer_type.star_token->id == TokenIdStar ||
+        //        node->data.pointer_type.star_token->id == TokenIdStarStar) ? PtrLenSingle : PtrLenUnknown;
+        //bool is_const = node->data.pointer_type.is_const;
+        //bool is_volatile = node->data.pointer_type.is_volatile;
+        //AstNode *expr_node = node->data.pointer_type.op_expr;
+        //AstNode *align_expr = node->data.pointer_type.align_expr;
+
+        //IrInstruction *align_value;
+        //if (align_expr != nullptr) {
+        //    align_value = ir_gen_node(irb, align_expr, scope);
+        //    if (align_value == irb->codegen->invalid_instruction)
+        //        return align_value;
+        //} else {
+        //    align_value = nullptr;
+        //}
+        const child_type = try await (async irb.genNode(prefix_op.rhs, scope, LVal.None) catch unreachable);
+
+        //uint32_t bit_offset_start = 0;
+        //if (node->data.pointer_type.bit_offset_start != nullptr) {
+        //    if (!bigint_fits_in_bits(node->data.pointer_type.bit_offset_start, 32, false)) {
+        //        Buf *val_buf = buf_alloc();
+        //        bigint_append_buf(val_buf, node->data.pointer_type.bit_offset_start, 10);
+        //        exec_add_error_node(irb->codegen, irb->exec, node,
+        //                buf_sprintf("value %s too large for u32 bit offset", buf_ptr(val_buf)));
+        //        return irb->codegen->invalid_instruction;
+        //    }
+        //    bit_offset_start = bigint_as_unsigned(node->data.pointer_type.bit_offset_start);
+        //}
+
+        //uint32_t bit_offset_end = 0;
+        //if (node->data.pointer_type.bit_offset_end != nullptr) {
+        //    if (!bigint_fits_in_bits(node->data.pointer_type.bit_offset_end, 32, false)) {
+        //        Buf *val_buf = buf_alloc();
+        //        bigint_append_buf(val_buf, node->data.pointer_type.bit_offset_end, 10);
+        //        exec_add_error_node(irb->codegen, irb->exec, node,
+        //                buf_sprintf("value %s too large for u32 bit offset", buf_ptr(val_buf)));
+        //        return irb->codegen->invalid_instruction;
+        //    }
+        //    bit_offset_end = bigint_as_unsigned(node->data.pointer_type.bit_offset_end);
+        //}
+
+        //if ((bit_offset_start != 0 || bit_offset_end != 0) && bit_offset_start >= bit_offset_end) {
+        //    exec_add_error_node(irb->codegen, irb->exec, node,
+        //            buf_sprintf("bit offset start must be less than bit offset end"));
+        //    return irb->codegen->invalid_instruction;
+        //}
+
+        return irb.build(Inst.PtrType, scope, Span.node(&prefix_op.base), Inst.PtrType.Params{
+            .child_type = child_type,
+            .mut = Type.Pointer.Mut.Mut,
+            .vol = Type.Pointer.Vol.Non,
+            .size = Type.Pointer.Size.Many,
+            .alignment = null,
+        });
     }
 
     fn isCompTime(irb: *Builder, target_scope: *Scope) bool {
@@ -845,6 +1200,56 @@ pub const Builder = struct {
         const inst = try irb.build(Inst.Const, scope, Span.token(int_lit.token), Inst.Const.Params{});
         inst.val = IrVal{ .KnownValue = &int_val.base };
         return inst;
+    }
+
+    pub async fn genStrLit(irb: *Builder, str_lit: *ast.Node.StringLiteral, scope: *Scope) !*Inst {
+        const str_token = irb.root_scope.tree.tokenSlice(str_lit.token);
+        const src_span = Span.token(str_lit.token);
+
+        var bad_index: usize = undefined;
+        var buf = std.zig.parseStringLiteral(irb.comp.gpa(), str_token, &bad_index) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidCharacter => {
+                try irb.comp.addCompileError(
+                    irb.root_scope,
+                    src_span,
+                    "invalid character in string literal: '{c}'",
+                    str_token[bad_index],
+                );
+                return error.SemanticAnalysisFailed;
+            },
+        };
+        var buf_cleaned = false;
+        errdefer if (!buf_cleaned) irb.comp.gpa().free(buf);
+
+        if (str_token[0] == 'c') {
+            // first we add a null
+            buf = try irb.comp.gpa().realloc(u8, buf, buf.len + 1);
+            buf[buf.len - 1] = 0;
+
+            // next make an array value
+            const array_val = try await (async Value.Array.createOwnedBuffer(irb.comp, buf) catch unreachable);
+            buf_cleaned = true;
+            defer array_val.base.deref(irb.comp);
+
+            // then make a pointer value pointing at the first element
+            const ptr_val = try await (async Value.Ptr.createArrayElemPtr(
+                irb.comp,
+                array_val,
+                Type.Pointer.Mut.Const,
+                Type.Pointer.Size.Many,
+                0,
+            ) catch unreachable);
+            defer ptr_val.base.deref(irb.comp);
+
+            return irb.buildConstValue(scope, src_span, &ptr_val.base);
+        } else {
+            const array_val = try await (async Value.Array.createOwnedBuffer(irb.comp, buf) catch unreachable);
+            buf_cleaned = true;
+            defer array_val.base.deref(irb.comp);
+
+            return irb.buildConstValue(scope, src_span, &array_val.base);
+        }
     }
 
     pub async fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Inst {
@@ -911,7 +1316,10 @@ pub const Builder = struct {
                 _ = irb.build(
                     Inst.CheckVoidStmt,
                     child_scope,
-                    statement_value.span,
+                    Span{
+                        .first = statement_node.firstToken(),
+                        .last = statement_node.lastToken(),
+                    },
                     Inst.CheckVoidStmt.Params{ .target = statement_value },
                 );
             }
@@ -1068,6 +1476,8 @@ pub const Builder = struct {
             if (result) |primitive_type| {
                 defer primitive_type.base.deref(irb.comp);
                 switch (lval) {
+                    //    if (lval == LValPtr) {
+                    //        return ir_build_ref(irb, scope, node, value, false, false);
                     LVal.Ptr => return error.Unimplemented,
                     LVal.None => return irb.buildConstValue(scope, src_span, &primitive_type.base),
                 }
@@ -1079,15 +1489,6 @@ pub const Builder = struct {
             },
             error.OutOfMemory => return error.OutOfMemory,
         }
-        //TypeTableEntry *primitive_type = get_primitive_type(irb->codegen, variable_name);
-        //if (primitive_type != nullptr) {
-        //    IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_type);
-        //    if (lval == LValPtr) {
-        //        return ir_build_ref(irb, scope, node, value, false, false);
-        //    } else {
-        //        return value;
-        //    }
-        //}
 
         //VariableTableEntry *var = find_variable(irb->codegen, scope, variable_name);
         //if (var) {
@@ -1098,9 +1499,12 @@ pub const Builder = struct {
         //        return ir_build_load_ptr(irb, scope, node, var_ptr);
         //}
 
-        //Tld *tld = find_decl(irb->codegen, scope, variable_name);
-        //if (tld)
-        //    return ir_build_decl_ref(irb, scope, node, tld, lval);
+        if (await (async irb.findDecl(scope, name) catch unreachable)) |decl| {
+            return irb.build(Inst.DeclRef, scope, src_span, Inst.DeclRef.Params{
+                .decl = decl,
+                .lval = lval,
+            });
+        }
 
         //if (node->owner->any_imports_failed) {
         //    // skip the error message since we had a failing import in this file
@@ -1251,8 +1655,26 @@ pub const Builder = struct {
             const FieldType = comptime @typeOf(@field(I.Params(undefined), @memberName(I.Params, i)));
             switch (FieldType) {
                 *Inst => @field(inst.params, @memberName(I.Params, i)).ref(self),
+                *BasicBlock => @field(inst.params, @memberName(I.Params, i)).ref(self),
                 ?*Inst => if (@field(inst.params, @memberName(I.Params, i))) |other| other.ref(self),
-                else => {},
+                []*Inst => {
+                    // TODO https://github.com/ziglang/zig/issues/1269
+                    for (@field(inst.params, @memberName(I.Params, i))) |other|
+                        other.ref(self);
+                },
+                []*BasicBlock => {
+                    // TODO https://github.com/ziglang/zig/issues/1269
+                    for (@field(inst.params, @memberName(I.Params, i))) |other|
+                        other.ref(self);
+                },
+                Type.Pointer.Mut,
+                Type.Pointer.Vol,
+                Type.Pointer.Size,
+                LVal,
+                *Decl,
+                => {},
+                // it's ok to add more types here, just make sure any instructions are ref'd appropriately
+                else => @compileError("unrecognized type in Params: " ++ @typeName(FieldType)),
             }
         }
 
@@ -1347,6 +1769,24 @@ pub const Builder = struct {
         //return ir_build_cond_br(irb, scope, node, is_non_null, irb->exec->coro_normal_final, irb->exec->coro_early_final,
         //        is_comptime);
         //// the above blocks are rendered by ir_gen after the rest of codegen
+    }
+
+    async fn findDecl(irb: *Builder, scope: *Scope, name: []const u8) ?*Decl {
+        var s = scope;
+        while (true) {
+            switch (s.id) {
+                Scope.Id.Decls => {
+                    const decls = @fieldParentPtr(Scope.Decls, "base", s);
+                    const table = await (async decls.getTableReadOnly() catch unreachable);
+                    if (table.get(name)) |entry| {
+                        return entry.value;
+                    }
+                },
+                Scope.Id.Root => return null,
+                else => {},
+            }
+            s = s.parent.?;
+        }
     }
 };
 
@@ -1930,7 +2370,6 @@ const Analyze = struct {
         ptr_mut: Value.Ptr.Mut,
         mut: Type.Pointer.Mut,
         volatility: Type.Pointer.Vol,
-        ptr_align: u32,
     ) Analyze.Error!*Inst {
         return error.Unimplemented;
     }
@@ -1945,7 +2384,7 @@ pub async fn gen(
     errdefer irb.abort();
 
     const entry_block = try irb.createBasicBlock(scope, c"Entry");
-    entry_block.ref(); // Entry block gets a reference because we enter it to begin.
+    entry_block.ref(&irb); // Entry block gets a reference because we enter it to begin.
     try irb.setCursorAtEndAndAppendBlock(entry_block);
 
     const result = try await (async irb.genNode(body_node, scope, LVal.None) catch unreachable);
@@ -1965,7 +2404,7 @@ pub async fn analyze(comp: *Compilation, old_code: *Code, expected_type: ?*Type)
     errdefer ira.abort();
 
     const new_entry_bb = try ira.getNewBasicBlock(old_entry_bb, null);
-    new_entry_bb.ref();
+    new_entry_bb.ref(&ira.irb);
 
     ira.irb.current_basic_block = new_entry_bb;
 
@@ -1979,7 +2418,8 @@ pub async fn analyze(comp: *Compilation, old_code: *Code, expected_type: ?*Type)
             continue;
         }
 
-        const return_inst = try old_instruction.analyze(&ira);
+        const return_inst = try await (async old_instruction.analyze(&ira) catch unreachable);
+        assert(return_inst.val != IrVal.Unknown); // at least the type should be known at this point
         return_inst.linkToParent(old_instruction);
         // Note: if we ever modify the above to handle error.CompileError by continuing analysis,
         // then here we want to check if ira.isCompTime() and return early if true

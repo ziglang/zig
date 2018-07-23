@@ -16,9 +16,16 @@ pub const Span = struct {
     last: ast.TokenIndex,
 
     pub fn token(i: TokenIndex) Span {
-        return Span {
+        return Span{
             .first = i,
             .last = i,
+        };
+    }
+
+    pub fn node(n: *ast.Node) Span {
+        return Span{
+            .first = n.firstToken(),
+            .last = n.lastToken(),
         };
     }
 };

@@ -76,6 +76,7 @@ pub fn Group(comptime ReturnType: type) type {
 
         /// Wait for all the calls and promises of the group to complete.
         /// Thread-safe.
+        /// Safe to call any number of times.
         pub async fn wait(self: *Self) ReturnType {
             // TODO catch unreachable because the allocation can be grouped with
             // the coro frame allocation

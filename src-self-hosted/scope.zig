@@ -9,6 +9,7 @@ const Value = @import("value.zig").Value;
 const ir = @import("ir.zig");
 const Span = @import("errmsg.zig").Span;
 const assert = std.debug.assert;
+const event = std.event;
 
 pub const Scope = struct {
     id: Id,
@@ -123,7 +124,15 @@ pub const Scope = struct {
 
     pub const Decls = struct {
         base: Scope,
-        table: Decl.Table,
+
+        /// The lock must be respected for writing. However once name_future resolves,
+        /// readers can freely access it.
+        table: event.Locked(Decl.Table),
+
+        /// Once this future is resolved, the table is complete and available for unlocked
+        /// read-only access. It does not mean all the decls are resolved; it means only that
+        /// the table has all the names. Each decl in the table has its own resolution state.
+        name_future: event.Future(void),
 
         /// Creates a Decls scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope) !*Decls {
@@ -133,21 +142,21 @@ pub const Scope = struct {
                     .parent = parent,
                     .ref_count = 1,
                 },
-                .table = undefined,
+                .table = event.Locked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
+                .name_future = event.Future(void).init(comp.loop),
             });
-            errdefer comp.gpa().destroy(self);
-
-            self.table = Decl.Table.init(comp.gpa());
-            errdefer self.table.deinit();
-
             parent.ref();
-
             return self;
         }
 
         pub fn destroy(self: *Decls, comp: *Compilation) void {
             self.table.deinit();
             comp.gpa().destroy(self);
+        }
+
+        pub async fn getTableReadOnly(self: *Decls) *Decl.Table {
+            _ = await (async self.name_future.get() catch unreachable);
+            return &self.table.private_data;
         }
     };
 
