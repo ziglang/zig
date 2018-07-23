@@ -2172,8 +2172,7 @@ const Analyze = struct {
                     break :fits true;
                 }
                 if (dest_type.cast(Type.Int)) |int| {
-                    break :fits (from_int.positive or from_int.eqZero() or int.key.is_signed) and
-                        int.key.bit_count >= from_int.bitcount();
+                    break :fits from_int.fitsInTwosComp(int.key.is_signed, int.key.bit_count);
                 }
                 break :cast;
             };

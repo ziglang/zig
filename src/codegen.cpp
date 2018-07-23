@@ -60,6 +60,33 @@ PackageTableEntry *new_anonymous_package(void) {
     return new_package("", "");
 }
 
+static const char *symbols_that_llvm_depends_on[] = {
+    "memcpy",
+    "memset",
+    "sqrt",
+    "powi",
+    "sin",
+    "cos",
+    "pow",
+    "exp",
+    "exp2",
+    "log",
+    "log10",
+    "log2",
+    "fma",
+    "fabs",
+    "minnum",
+    "maxnum",
+    "copysign",
+    "floor",
+    "ceil",
+    "trunc",
+    "rint",
+    "nearbyint",
+    "round",
+    // TODO probably all of compiler-rt needs to go here
+};
+
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
     Buf *zig_lib_dir)
 {
@@ -93,6 +120,10 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->is_test_build = false;
     g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
     buf_resize(&g->global_asm, 0);
+
+    for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
+        g->external_prototypes.put(buf_create_from_str(symbols_that_llvm_depends_on[i]), nullptr);
+    }
 
     if (root_src_path) {
         Buf *src_basename = buf_alloc();

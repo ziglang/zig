@@ -2961,16 +2961,34 @@ static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_sco
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
 
-    while (inner_scope != outer_scope) {
-        assert(inner_scope);
-        if (inner_scope->id == ScopeIdDefer) {
-            AstNode *defer_node = inner_scope->source_node;
-            assert(defer_node->type == NodeTypeDefer);
-            ReturnKind defer_kind = defer_node->data.defer.kind;
-            results[defer_kind] += 1;
+    Scope *scope = inner_scope;
 
+    while (scope != outer_scope) {
+        assert(scope);
+        switch (scope->id) {
+            case ScopeIdDefer: {
+                AstNode *defer_node = scope->source_node;
+                assert(defer_node->type == NodeTypeDefer);
+                ReturnKind defer_kind = defer_node->data.defer.kind;
+                results[defer_kind] += 1;
+                scope = scope->parent;
+                continue;
+            }
+            case ScopeIdDecls:
+            case ScopeIdFnDef:
+                return;
+            case ScopeIdBlock:
+            case ScopeIdVarDecl:
+            case ScopeIdLoop:
+            case ScopeIdSuspend:
+            case ScopeIdCompTime:
+                scope = scope->parent;
+                continue;
+            case ScopeIdDeferExpr:
+            case ScopeIdCImport:
+            case ScopeIdCoroPrelude:
+                zig_unreachable();
         }
-        inner_scope = inner_scope->parent;
     }
 }
 
@@ -2986,27 +3004,43 @@ static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
         if (!scope)
             return is_noreturn;
 
-        if (scope->id == ScopeIdDefer) {
-            AstNode *defer_node = scope->source_node;
-            assert(defer_node->type == NodeTypeDefer);
-            ReturnKind defer_kind = defer_node->data.defer.kind;
-            if (defer_kind == ReturnKindUnconditional ||
-                (gen_error_defers && defer_kind == ReturnKindError))
-            {
-                AstNode *defer_expr_node = defer_node->data.defer.expr;
-                Scope *defer_expr_scope = defer_node->data.defer.expr_scope;
-                IrInstruction *defer_expr_value = ir_gen_node(irb, defer_expr_node, defer_expr_scope);
-                if (defer_expr_value != irb->codegen->invalid_instruction) {
-                    if (defer_expr_value->value.type != nullptr && defer_expr_value->value.type->id == TypeTableEntryIdUnreachable) {
-                        is_noreturn = true;
-                    } else {
-                        ir_mark_gen(ir_build_check_statement_is_void(irb, defer_expr_scope, defer_expr_node, defer_expr_value));
+        switch (scope->id) {
+            case ScopeIdDefer: {
+                AstNode *defer_node = scope->source_node;
+                assert(defer_node->type == NodeTypeDefer);
+                ReturnKind defer_kind = defer_node->data.defer.kind;
+                if (defer_kind == ReturnKindUnconditional ||
+                    (gen_error_defers && defer_kind == ReturnKindError))
+                {
+                    AstNode *defer_expr_node = defer_node->data.defer.expr;
+                    Scope *defer_expr_scope = defer_node->data.defer.expr_scope;
+                    IrInstruction *defer_expr_value = ir_gen_node(irb, defer_expr_node, defer_expr_scope);
+                    if (defer_expr_value != irb->codegen->invalid_instruction) {
+                        if (defer_expr_value->value.type != nullptr && defer_expr_value->value.type->id == TypeTableEntryIdUnreachable) {
+                            is_noreturn = true;
+                        } else {
+                            ir_mark_gen(ir_build_check_statement_is_void(irb, defer_expr_scope, defer_expr_node, defer_expr_value));
+                        }
                     }
                 }
+                scope = scope->parent;
+                continue;
             }
-
+            case ScopeIdDecls:
+            case ScopeIdFnDef:
+                return is_noreturn;
+            case ScopeIdBlock:
+            case ScopeIdVarDecl:
+            case ScopeIdLoop:
+            case ScopeIdSuspend:
+            case ScopeIdCompTime:
+                scope = scope->parent;
+                continue;
+            case ScopeIdDeferExpr:
+            case ScopeIdCImport:
+            case ScopeIdCoroPrelude:
+                zig_unreachable();
         }
-        scope = scope->parent;
     }
     return is_noreturn;
 }

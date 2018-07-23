@@ -15,7 +15,7 @@ pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
 
-    const OpenError = os.WindowsOpenError || os.PosixOpenError;
+    pub const OpenError = os.WindowsOpenError || os.PosixOpenError;
 
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
@@ -239,7 +239,7 @@ pub const File = struct {
             },
             Os.windows => {
                 var pos: windows.LARGE_INTEGER = undefined;
-                if (windows.SetFilePointerEx(self.handle, 0, *pos, windows.FILE_CURRENT) == 0) {
+                if (windows.SetFilePointerEx(self.handle, 0, &pos, windows.FILE_CURRENT) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
                         windows.ERROR.INVALID_PARAMETER => error.BadFd,
@@ -248,13 +248,7 @@ pub const File = struct {
                 }
 
                 assert(pos >= 0);
-                if (@sizeOf(@typeOf(pos)) > @sizeOf(usize)) {
-                    if (pos > @maxValue(usize)) {
-                        return error.FilePosLargerThanPointerRange;
-                    }
-                }
-
-                return usize(pos);
+                return math.cast(usize, pos) catch error.FilePosLargerThanPointerRange;
             },
             else => @compileError("unsupported OS"),
         }
@@ -286,7 +280,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    fn mode(self: *File) ModeError!os.FileMode {
+    pub fn mode(self: *File) ModeError!os.FileMode {
         if (is_posix) {
             var stat: posix.Stat = undefined;
             const err = posix.getErrno(posix.fstat(self.handle, &stat));
@@ -361,7 +355,7 @@ pub const File = struct {
 
     pub const WriteError = os.WindowsWriteError || os.PosixWriteError;
 
-    fn write(self: *File, bytes: []const u8) WriteError!void {
+    pub fn write(self: *File, bytes: []const u8) WriteError!void {
         if (is_posix) {
             try os.posixWrite(self.handle, bytes);
         } else if (is_windows) {
