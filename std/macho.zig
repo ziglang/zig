@@ -141,7 +141,7 @@ pub fn loadSymbols(allocator: *mem.Allocator, in: *io.FileInStream) !SymbolTable
     }
 
     // Effectively a no-op, lld emits symbols in ascending order.
-    std.sort.insertionSort(Symbol, symbols[0..nsyms], Symbol.addressLessThan);
+    std.sort.sort(Symbol, symbols[0..nsyms], Symbol.addressLessThan);
 
     // Insert the sentinel.  Since we don't know where the last function ends,
     // we arbitrarily limit it to the start address + 4 KB.
