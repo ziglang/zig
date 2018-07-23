@@ -485,7 +485,8 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
         },
         Compilation.Event.Fail => |msgs| {
             for (msgs) |msg| {
-                errmsg.printToFile(&stderr_file, msg, color) catch os.exit(1);
+                defer msg.destroy();
+                msg.printToFile(&stderr_file, color) catch os.exit(1);
             }
         },
     }
@@ -646,10 +647,10 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
         var error_it = tree.errors.iterator(0);
         while (error_it.next()) |parse_error| {
-            const msg = try errmsg.createFromParseError(allocator, parse_error, &tree, "<stdin>");
-            defer allocator.destroy(msg);
+            const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, &tree, "<stdin>");
+            defer msg.destroy();
 
-            try errmsg.printToFile(&stderr_file, msg, color);
+            try msg.printToFile(&stderr_file, color);
         }
         if (tree.errors.len != 0) {
             os.exit(1);
@@ -702,10 +703,10 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
         var error_it = tree.errors.iterator(0);
         while (error_it.next()) |parse_error| {
-            const msg = try errmsg.createFromParseError(allocator, parse_error, &tree, file_path);
-            defer allocator.destroy(msg);
+            const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, &tree, file_path);
+            defer msg.destroy();
 
-            try errmsg.printToFile(&stderr_file, msg, color);
+            try msg.printToFile(&stderr_file, color);
         }
         if (tree.errors.len != 0) {
             fmt.any_error = true;

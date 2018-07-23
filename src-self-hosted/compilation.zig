@@ -24,6 +24,7 @@ const Visib = @import("visib.zig").Visib;
 const Value = @import("value.zig").Value;
 const Type = Value.Type;
 const Span = errmsg.Span;
+const Msg = errmsg.Msg;
 const codegen = @import("codegen.zig");
 const Package = @import("package.zig").Package;
 const link = @import("link.zig").link;
@@ -40,8 +41,6 @@ pub const EventLoopLocal = struct {
 
     native_libc: event.Future(LibCInstallation),
 
-    cwd: []const u8,
-
     var lazy_init_targets = std.lazyInit(void);
 
     fn init(loop: *event.Loop) !EventLoopLocal {
@@ -54,21 +53,16 @@ pub const EventLoopLocal = struct {
         try std.os.getRandomBytes(seed_bytes[0..]);
         const seed = std.mem.readInt(seed_bytes, u64, builtin.Endian.Big);
 
-        const cwd = try os.getCwd(loop.allocator);
-        errdefer loop.allocator.free(cwd);
-
         return EventLoopLocal{
             .loop = loop,
             .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
             .prng = event.Locked(std.rand.DefaultPrng).init(loop, std.rand.DefaultPrng.init(seed)),
             .native_libc = event.Future(LibCInstallation).init(loop),
-            .cwd = cwd,
         };
     }
 
     /// Must be called only after EventLoop.run completes.
     fn deinit(self: *EventLoopLocal) void {
-        self.loop.allocator.free(self.cwd);
         while (self.llvm_handle_pool.pop()) |node| {
             c.LLVMContextDispose(node.data);
             self.loop.allocator.destroy(node);
@@ -234,7 +228,7 @@ pub const Compilation = struct {
     const PtrTypeTable = std.HashMap(*const Type.Pointer.Key, *Type.Pointer, Type.Pointer.Key.hash, Type.Pointer.Key.eql);
     const TypeTable = std.HashMap([]const u8, *Type, mem.hash_slice_u8, mem.eql_slice_u8);
 
-    const CompileErrList = std.ArrayList(*errmsg.Msg);
+    const CompileErrList = std.ArrayList(*Msg);
 
     // TODO handle some of these earlier and report them in a way other than error codes
     pub const BuildError = error{
@@ -286,7 +280,7 @@ pub const Compilation = struct {
     pub const Event = union(enum) {
         Ok,
         Error: BuildError,
-        Fail: []*errmsg.Msg,
+        Fail: []*Msg,
     };
 
     pub const DarwinVersionMin = union(enum) {
@@ -761,21 +755,35 @@ pub const Compilation = struct {
                 };
                 errdefer self.gpa().free(source_code);
 
-                var tree = try std.zig.parse(self.gpa(), source_code);
-                errdefer tree.deinit();
+                const tree = try self.gpa().createOne(ast.Tree);
+                tree.* = try std.zig.parse(self.gpa(), source_code);
+                errdefer {
+                    tree.deinit();
+                    self.gpa().destroy(tree);
+                }
 
                 break :blk try Scope.Root.create(self, tree, root_src_real_path);
             };
             defer root_scope.base.deref(self);
+            const tree = root_scope.tree;
 
-            const tree = &root_scope.tree;
+            var error_it = tree.errors.iterator(0);
+            while (error_it.next()) |parse_error| {
+                const msg = try Msg.createFromParseErrorAndScope(self, root_scope, parse_error);
+                errdefer msg.destroy();
+
+                try await (async self.addCompileErrorAsync(msg) catch unreachable);
+            }
+            if (tree.errors.len != 0) {
+                return;
+            }
 
             const decls = try Scope.Decls.create(self, &root_scope.base);
             defer decls.base.deref(self);
 
             var decl_group = event.Group(BuildError!void).init(self.loop);
-            // TODO https://github.com/ziglang/zig/issues/1261
-            //errdefer decl_group.cancelAll();
+            var decl_group_consumed = false;
+            errdefer if (!decl_group_consumed) decl_group.cancelAll();
 
             var it = tree.root_node.decls.iterator(0);
             while (it.next()) |decl_ptr| {
@@ -817,6 +825,7 @@ pub const Compilation = struct {
                     else => unreachable,
                 }
             }
+            decl_group_consumed = true;
             try await (async decl_group.wait() catch unreachable);
 
             // Now other code can rely on the decls scope having a complete list of names.
@@ -897,7 +906,7 @@ pub const Compilation = struct {
     }
 
     async fn addTopLevelDecl(self: *Compilation, decls: *Scope.Decls, decl: *Decl) !void {
-        const tree = &decl.findRootScope().tree;
+        const tree = decl.findRootScope().tree;
         const is_export = decl.isExported(tree);
 
         var add_to_table_resolved = false;
@@ -927,25 +936,17 @@ pub const Compilation = struct {
         const text = try std.fmt.allocPrint(self.gpa(), fmt, args);
         errdefer self.gpa().free(text);
 
-        try self.prelink_group.call(addCompileErrorAsync, self, root, span, text);
+        const msg = try Msg.createFromScope(self, root, span, text);
+        errdefer msg.destroy();
+
+        try self.prelink_group.call(addCompileErrorAsync, self, msg);
     }
 
     async fn addCompileErrorAsync(
         self: *Compilation,
-        root: *Scope.Root,
-        span: Span,
-        text: []u8,
+        msg: *Msg,
     ) !void {
-        const relpath = try os.path.relative(self.gpa(), self.event_loop_local.cwd, root.realpath);
-        errdefer self.gpa().free(relpath);
-
-        const msg = try self.gpa().create(errmsg.Msg{
-            .path = if (relpath.len < root.realpath.len) relpath else root.realpath,
-            .text = text,
-            .span = span,
-            .tree = &root.tree,
-        });
-        errdefer self.gpa().destroy(msg);
+        errdefer msg.destroy();
 
         const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
         defer compile_errors.release();

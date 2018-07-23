@@ -93,13 +93,13 @@ pub const Scope = struct {
 
     pub const Root = struct {
         base: Scope,
-        tree: ast.Tree,
+        tree: *ast.Tree,
         realpath: []const u8,
 
         /// Creates a Root scope with 1 reference
         /// Takes ownership of realpath
-        /// Caller must set tree
-        pub fn create(comp: *Compilation, tree: ast.Tree, realpath: []u8) !*Root {
+        /// Takes ownership of tree, will deinit and destroy when done.
+        pub fn create(comp: *Compilation, tree: *ast.Tree, realpath: []u8) !*Root {
             const self = try comp.gpa().create(Root{
                 .base = Scope{
                     .id = Id.Root,
@@ -117,6 +117,7 @@ pub const Scope = struct {
         pub fn destroy(self: *Root, comp: *Compilation) void {
             comp.gpa().free(self.tree.source);
             self.tree.deinit();
+            comp.gpa().destroy(self.tree);
             comp.gpa().free(self.realpath);
             comp.gpa().destroy(self);
         }

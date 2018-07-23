@@ -184,7 +184,8 @@ pub const TestContext = struct {
                 var stderr = try std.io.getStdErr();
                 try stderr.write("build incorrectly failed:\n");
                 for (msgs) |msg| {
-                    try errmsg.printToFile(&stderr, msg, errmsg.Color.Auto);
+                    defer msg.destroy();
+                    try msg.printToFile(&stderr, errmsg.Color.Auto);
                 }
             },
         }
@@ -211,10 +212,10 @@ pub const TestContext = struct {
             Compilation.Event.Fail => |msgs| {
                 assertOrPanic(msgs.len != 0);
                 for (msgs) |msg| {
-                    if (mem.endsWith(u8, msg.path, path) and mem.eql(u8, msg.text, text)) {
-                        const first_token = msg.tree.tokens.at(msg.span.first);
-                        const last_token = msg.tree.tokens.at(msg.span.first);
-                        const start_loc = msg.tree.tokenLocationPtr(0, first_token);
+                    if (mem.endsWith(u8, msg.getRealPath(), path) and mem.eql(u8, msg.text, text)) {
+                        const first_token = msg.getTree().tokens.at(msg.span.first);
+                        const last_token = msg.getTree().tokens.at(msg.span.first);
+                        const start_loc = msg.getTree().tokenLocationPtr(0, first_token);
                         if (start_loc.line + 1 == line and start_loc.column + 1 == column) {
                             return;
                         }
@@ -231,7 +232,8 @@ pub const TestContext = struct {
                 std.debug.warn("\n====found:========\n");
                 var stderr = try std.io.getStdErr();
                 for (msgs) |msg| {
-                    try errmsg.printToFile(&stderr, msg, errmsg.Color.Auto);
+                    defer msg.destroy();
+                    try msg.printToFile(&stderr, errmsg.Color.Auto);
                 }
                 std.debug.warn("============\n");
                 return error.TestFailed;
