@@ -14,6 +14,8 @@
 #define ZIG_EXTERN_C
 #endif
 
+#include <stddef.h>
+
 struct ZigWindowsSDK {
     const char *path10_ptr;
     size_t path10_len;

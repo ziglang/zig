@@ -138,7 +138,6 @@ const usage_build_generic =
     \\Compile Options:
     \\  --libc [file]                Provide a file which specifies libc paths
     \\  --assembly [source]          Add assembly file to build
-    \\  --cache-dir [path]           Override the cache directory
     \\  --emit [filetype]            Emit a specific file format as compilation output
     \\  --enable-timing-info         Print timing diagnostics
     \\  --name [name]                Override output name
@@ -204,7 +203,6 @@ const args_build_generic = []Flag{
     }),
 
     Flag.ArgMergeN("--assembly", 1),
-    Flag.Arg1("--cache-dir"),
     Flag.Option("--emit", []const []const u8{
         "asm",
         "bin",
@@ -373,13 +371,6 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         os.exit(1);
     }
 
-    const rel_cache_dir = flags.single("cache-dir") orelse "zig-cache"[0..];
-    const full_cache_dir = os.path.resolve(allocator, ".", rel_cache_dir) catch {
-        try stderr.print("invalid cache dir: {}\n", rel_cache_dir);
-        os.exit(1);
-    };
-    defer allocator.free(full_cache_dir);
-
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
     defer allocator.free(zig_lib_dir);
 
@@ -401,7 +392,6 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         build_mode,
         is_static,
         zig_lib_dir,
-        full_cache_dir,
     );
     defer comp.destroy();
 
@@ -472,7 +462,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
     comp.emit_file_type = emit_type;
     comp.assembly_files = assembly_files;
-    comp.link_out_file = flags.single("out-file");
+    comp.link_out_file = flags.single("output");
     comp.link_objects = link_objects;
 
     try comp.build();

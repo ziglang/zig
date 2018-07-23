@@ -128,7 +128,6 @@ pub const Compilation = struct {
     version_patch: u32,
 
     linker_script: ?[]const u8,
-    cache_dir: []const u8,
     out_h_path: ?[]const u8,
 
     is_test: bool,
@@ -326,7 +325,6 @@ pub const Compilation = struct {
         build_mode: builtin.Mode,
         is_static: bool,
         zig_lib_dir: []const u8,
-        cache_dir: []const u8,
     ) !*Compilation {
         const loop = event_loop_local.loop;
         const comp = try event_loop_local.loop.allocator.create(Compilation{
@@ -341,7 +339,6 @@ pub const Compilation = struct {
             .build_mode = build_mode,
             .zig_lib_dir = zig_lib_dir,
             .zig_std_dir = undefined,
-            .cache_dir = cache_dir,
             .tmp_dir = event.Future(BuildError![]u8).init(loop),
 
             .name = undefined,
@@ -777,7 +774,8 @@ pub const Compilation = struct {
             defer decls.base.deref(self);
 
             var decl_group = event.Group(BuildError!void).init(self.loop);
-            errdefer decl_group.cancelAll();
+            // TODO https://github.com/ziglang/zig/issues/1261
+            //errdefer decl_group.cancelAll();
 
             var it = tree.root_node.decls.iterator(0);
             while (it.next()) |decl_ptr| {

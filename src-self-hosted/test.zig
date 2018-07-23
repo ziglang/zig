@@ -8,13 +8,14 @@ const assertOrPanic = std.debug.assertOrPanic;
 const errmsg = @import("errmsg.zig");
 const EventLoopLocal = @import("compilation.zig").EventLoopLocal;
 
-test "compile errors" {
-    var ctx: TestContext = undefined;
+var ctx: TestContext = undefined;
+
+test "stage2" {
     try ctx.init();
     defer ctx.deinit();
 
     try @import("../test/stage2/compile_errors.zig").addCases(&ctx);
-    //try @import("../test/stage2/compare_output.zig").addCases(&ctx);
+    try @import("../test/stage2/compare_output.zig").addCases(&ctx);
 
     try ctx.run();
 }
@@ -26,7 +27,6 @@ pub const TestContext = struct {
     loop: std.event.Loop,
     event_loop_local: EventLoopLocal,
     zig_lib_dir: []u8,
-    zig_cache_dir: []u8,
     file_index: std.atomic.Int(usize),
     group: std.event.Group(error!void),
     any_err: error!void,
@@ -39,7 +39,6 @@ pub const TestContext = struct {
             .loop = undefined,
             .event_loop_local = undefined,
             .zig_lib_dir = undefined,
-            .zig_cache_dir = undefined,
             .group = undefined,
             .file_index = std.atomic.Int(usize).init(0),
         };
@@ -56,16 +55,12 @@ pub const TestContext = struct {
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         errdefer allocator.free(self.zig_lib_dir);
 
-        self.zig_cache_dir = try introspect.resolveZigCacheDir(allocator);
-        errdefer allocator.free(self.zig_cache_dir);
-
         try std.os.makePath(allocator, tmp_dir_name);
         errdefer std.os.deleteTree(allocator, tmp_dir_name) catch {};
     }
 
     fn deinit(self: *TestContext) void {
         std.os.deleteTree(allocator, tmp_dir_name) catch {};
-        allocator.free(self.zig_cache_dir);
         allocator.free(self.zig_lib_dir);
         self.event_loop_local.deinit();
         self.loop.deinit();
@@ -110,13 +105,89 @@ pub const TestContext = struct {
             builtin.Mode.Debug,
             true, // is_static
             self.zig_lib_dir,
-            self.zig_cache_dir,
         );
         errdefer comp.destroy();
 
         try comp.build();
 
         try self.group.call(getModuleEvent, comp, source, path, line, column, msg);
+    }
+
+    fn testCompareOutputLibC(
+        self: *TestContext,
+        source: []const u8,
+        expected_output: []const u8,
+    ) !void {
+        var file_index_buf: [20]u8 = undefined;
+        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
+        const file1_path = try std.os.path.join(allocator, tmp_dir_name, file_index, file1);
+
+        const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, Target(Target.Native).exeFileExt());
+        if (std.os.path.dirname(file1_path)) |dirname| {
+            try std.os.makePath(allocator, dirname);
+        }
+
+        // TODO async I/O
+        try std.io.writeFile(allocator, file1_path, source);
+
+        var comp = try Compilation.create(
+            &self.event_loop_local,
+            "test",
+            file1_path,
+            Target.Native,
+            Compilation.Kind.Exe,
+            builtin.Mode.Debug,
+            false,
+            self.zig_lib_dir,
+        );
+        errdefer comp.destroy();
+
+        _ = try comp.addLinkLib("c", true);
+        comp.link_out_file = output_file;
+        try comp.build();
+
+        try self.group.call(getModuleEventSuccess, comp, output_file, expected_output);
+    }
+
+    async fn getModuleEventSuccess(
+        comp: *Compilation,
+        exe_file: []const u8,
+        expected_output: []const u8,
+    ) !void {
+        // TODO this should not be necessary
+        const exe_file_2 = try std.mem.dupe(allocator, u8, exe_file);
+
+        defer comp.destroy();
+        const build_event = await (async comp.events.get() catch unreachable);
+
+        switch (build_event) {
+            Compilation.Event.Ok => {
+                const argv = []const []const u8{exe_file_2};
+                // TODO use event loop
+                const child = try std.os.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
+                switch (child.term) {
+                    std.os.ChildProcess.Term.Exited => |code| {
+                        if (code != 0) {
+                            return error.BadReturnCode;
+                        }
+                    },
+                    else => {
+                        return error.Crashed;
+                    },
+                }
+                if (!mem.eql(u8, child.stdout, expected_output)) {
+                    return error.OutputMismatch;
+                }
+            },
+            Compilation.Event.Error => |err| return err,
+            Compilation.Event.Fail => |msgs| {
+                var stderr = try std.io.getStdErr();
+                try stderr.write("build incorrectly failed:\n");
+                for (msgs) |msg| {
+                    try errmsg.printToFile(&stderr, msg, errmsg.Color.Auto);
+                }
+            },
+        }
     }
 
     async fn getModuleEvent(
