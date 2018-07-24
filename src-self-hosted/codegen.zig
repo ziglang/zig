@@ -15,7 +15,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     defer fn_val.base.deref(comp);
     defer code.destroy(comp.gpa());
 
-    var output_path = try await (async comp.createRandomOutputPath(comp.target.oFileExt()) catch unreachable);
+    var output_path = try await (async comp.createRandomOutputPath(comp.target.objFileExt()) catch unreachable);
     errdefer output_path.deinit();
 
     const llvm_handle = try comp.event_loop_local.getAnyLlvmContext();
@@ -78,6 +78,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         .dibuilder = dibuilder,
         .context = context,
         .lock = event.Lock.init(comp.loop),
+        .arena = &code.arena.allocator,
     };
 
     try renderToLlvmModule(&ofile, fn_val, code);
@@ -139,6 +140,7 @@ pub const ObjectFile = struct {
     dibuilder: *llvm.DIBuilder,
     context: llvm.ContextRef,
     lock: event.Lock,
+    arena: *std.mem.Allocator,
 
     fn gpa(self: *ObjectFile) *std.mem.Allocator {
         return self.comp.gpa();
@@ -147,7 +149,7 @@ pub const ObjectFile = struct {
 
 pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code) !void {
     // TODO audit more of codegen.cpp:fn_llvm_value and port more logic
-    const llvm_fn_type = try fn_val.base.typeof.getLlvmType(ofile);
+    const llvm_fn_type = try fn_val.base.typ.getLlvmType(ofile.arena, ofile.context);
     const llvm_fn = llvm.AddFunction(
         ofile.module,
         fn_val.symbol_name.ptr(),
@@ -165,7 +167,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     //    try addLLVMFnAttrInt(ofile, llvm_fn, "alignstack", align_stack);
     //}
 
-    const fn_type = fn_val.base.typeof.cast(Type.Fn).?;
+    const fn_type = fn_val.base.typ.cast(Type.Fn).?;
 
     try addLLVMFnAttr(ofile, llvm_fn, "nounwind");
     //add_uwtable_attr(g, fn_table_entry->llvm_value);

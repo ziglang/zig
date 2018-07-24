@@ -35,6 +35,7 @@ pub const Allocator = struct {
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
     /// Call `destroy` with the result
+    /// TODO this is deprecated. use createOne instead
     pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
         if (@sizeOf(T) == 0) return &(T{});
@@ -42,6 +43,14 @@ pub const Allocator = struct {
         const ptr = &slice[0];
         ptr.* = init;
         return ptr;
+    }
+
+    /// Call `destroy` with the result.
+    /// Returns undefined memory.
+    pub fn createOne(self: *Allocator, comptime T: type) Error!*T {
+        if (@sizeOf(T) == 0) return &(T{});
+        const slice = try self.alloc(T, 1);
+        return &slice[0];
     }
 
     /// `ptr` should be the return value of `create`
@@ -149,12 +158,11 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     @setRuntimeSafety(false);
     assert(dest.len >= source.len);
     var i = source.len;
-    while(i > 0){
+    while (i > 0) {
         i -= 1;
         dest[i] = source[i];
     }
 }
-
 
 pub fn set(comptime T: type, dest: []T, value: T) void {
     for (dest) |*d|

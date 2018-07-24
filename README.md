@@ -21,19 +21,19 @@ clarity.
  * Compatible with C libraries with no wrapper necessary. Directly include
    C .h files and get access to the functions and symbols therein.
  * Provides standard library which competes with the C standard library and is
-   always compiled against statically in source form. Compile units do not
+   always compiled against statically in source form. Zig binaries do not
    depend on libc unless explicitly linked.
- * Nullable type instead of null pointers.
+ * Optional type instead of null pointers.
  * Safe unions, tagged unions, and C ABI compatible unions.
  * Generics so that one can write efficient data structures that work for any
    data type.
  * No header files required. Top level declarations are entirely
    order-independent.
  * Compile-time code execution. Compile-time reflection.
- * Partial compile-time function evaluation with eliminates the need for
+ * Partial compile-time function evaluation which eliminates the need for
    a preprocessor or macros.
  * The binaries produced by Zig have complete debugging information so you can,
-   for example, use GDB or MSVC to debug your software.
+   for example, use GDB, MSVC, or LLDB to debug your software.
  * Built-in unit tests with `zig test`.
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are

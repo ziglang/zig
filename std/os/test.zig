@@ -23,14 +23,14 @@ test "makePath, put some files in it, deleteTree" {
 
 test "access file" {
     try os.makePath(a, "os_test_tmp");
-    if (os.File.access(a, "os_test_tmp/file.txt", os.default_file_mode)) |ok| {
-        unreachable;
+    if (os.File.access(a, "os_test_tmp/file.txt")) |ok| {
+        @panic("expected error");
     } else |err| {
         assert(err == error.NotFound);
     }
 
     try io.writeFile(a, "os_test_tmp/file.txt", "");
-    assert((try os.File.access(a, "os_test_tmp/file.txt", os.default_file_mode)) == true);
+    try os.File.access(a, "os_test_tmp/file.txt");
     try os.deleteTree(a, "os_test_tmp");
 }
 

@@ -109,43 +109,42 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn access(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) AccessError!bool {
+    pub fn access(allocator: *mem.Allocator, path: []const u8) AccessError!void {
         const path_with_null = try std.cstr.addNullByte(allocator, path);
         defer allocator.free(path_with_null);
 
         if (is_posix) {
-            // mode is ignored and is always F_OK for now
             const result = posix.access(path_with_null.ptr, posix.F_OK);
             const err = posix.getErrno(result);
-            if (err > 0) {
-                return switch (err) {
-                    posix.EACCES => error.PermissionDenied,
-                    posix.EROFS => error.PermissionDenied,
-                    posix.ELOOP => error.PermissionDenied,
-                    posix.ETXTBSY => error.PermissionDenied,
-                    posix.ENOTDIR => error.NotFound,
-                    posix.ENOENT => error.NotFound,
+            switch (err) {
+                0 => return,
+                posix.EACCES => return error.PermissionDenied,
+                posix.EROFS => return error.PermissionDenied,
+                posix.ELOOP => return error.PermissionDenied,
+                posix.ETXTBSY => return error.PermissionDenied,
+                posix.ENOTDIR => return error.NotFound,
+                posix.ENOENT => return error.NotFound,
 
-                    posix.ENAMETOOLONG => error.NameTooLong,
-                    posix.EINVAL => error.BadMode,
-                    posix.EFAULT => error.BadPathName,
-                    posix.EIO => error.Io,
-                    posix.ENOMEM => error.SystemResources,
-                    else => os.unexpectedErrorPosix(err),
-                };
+                posix.ENAMETOOLONG => return error.NameTooLong,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => return error.BadPathName,
+                posix.EIO => return error.Io,
+                posix.ENOMEM => return error.SystemResources,
+                else => return os.unexpectedErrorPosix(err),
             }
-            return true;
         } else if (is_windows) {
             if (os.windows.GetFileAttributesA(path_with_null.ptr) != os.windows.INVALID_FILE_ATTRIBUTES) {
-                return true;
+                return;
             }
 
             const err = windows.GetLastError();
-            return switch (err) {
-                windows.ERROR.FILE_NOT_FOUND => error.NotFound,
-                windows.ERROR.ACCESS_DENIED => error.PermissionDenied,
-                else => os.unexpectedErrorWindows(err),
-            };
+            switch (err) {
+                windows.ERROR.FILE_NOT_FOUND,
+                windows.ERROR.PATH_NOT_FOUND,
+                => return error.NotFound,
+                windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
+                else => return os.unexpectedErrorWindows(err),
+            }
         } else {
             @compileError("TODO implement access for this OS");
         }

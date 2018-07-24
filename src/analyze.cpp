@@ -4379,7 +4379,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 
 static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
     if (g->win_sdk == nullptr) {
-        if (os_find_windows_sdk(&g->win_sdk)) {
+        if (zig_find_windows_sdk(&g->win_sdk)) {
             fprintf(stderr, "unable to determine windows sdk path\n");
             exit(1);
         }
@@ -4499,12 +4499,11 @@ void find_libc_lib_path(CodeGen *g) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
 
             if (g->msvc_lib_dir == nullptr) {
-                Buf* vc_lib_dir = buf_alloc();
-                if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
+                if (sdk->msvc_lib_dir_ptr == nullptr) {
                     fprintf(stderr, "Unable to determine vcruntime path. --msvc-lib-dir");
                     exit(1);
                 }
-                g->msvc_lib_dir = vc_lib_dir;
+                g->msvc_lib_dir = buf_create_from_mem(sdk->msvc_lib_dir_ptr, sdk->msvc_lib_dir_len);
             }
 
             if (g->libc_lib_dir == nullptr) {

@@ -23,13 +23,20 @@ pub const TargetMachineRef = removeNullability(c.LLVMTargetMachineRef);
 pub const TargetDataRef = removeNullability(c.LLVMTargetDataRef);
 pub const DIBuilder = c.ZigLLVMDIBuilder;
 
+pub const ABIAlignmentOfType = c.LLVMABIAlignmentOfType;
 pub const AddAttributeAtIndex = c.LLVMAddAttributeAtIndex;
 pub const AddFunction = c.LLVMAddFunction;
+pub const AddGlobal = c.LLVMAddGlobal;
 pub const AddModuleCodeViewFlag = c.ZigLLVMAddModuleCodeViewFlag;
 pub const AddModuleDebugInfoFlag = c.ZigLLVMAddModuleDebugInfoFlag;
+pub const ArrayType = c.LLVMArrayType;
 pub const ClearCurrentDebugLocation = c.ZigLLVMClearCurrentDebugLocation;
 pub const ConstAllOnes = c.LLVMConstAllOnes;
+pub const ConstArray = c.LLVMConstArray;
+pub const ConstBitCast = c.LLVMConstBitCast;
 pub const ConstInt = c.LLVMConstInt;
+pub const ConstIntOfArbitraryPrecision = c.LLVMConstIntOfArbitraryPrecision;
+pub const ConstNeg = c.LLVMConstNeg;
 pub const ConstNull = c.LLVMConstNull;
 pub const ConstStringInContext = c.LLVMConstStringInContext;
 pub const ConstStructInContext = c.LLVMConstStructInContext;
@@ -57,6 +64,7 @@ pub const GetEnumAttributeKindForName = c.LLVMGetEnumAttributeKindForName;
 pub const GetHostCPUName = c.ZigLLVMGetHostCPUName;
 pub const GetMDKindIDInContext = c.LLVMGetMDKindIDInContext;
 pub const GetNativeFeatures = c.ZigLLVMGetNativeFeatures;
+pub const GetUndef = c.LLVMGetUndef;
 pub const HalfTypeInContext = c.LLVMHalfTypeInContext;
 pub const InitializeAllAsmParsers = c.LLVMInitializeAllAsmParsers;
 pub const InitializeAllAsmPrinters = c.LLVMInitializeAllAsmPrinters;
@@ -79,13 +87,23 @@ pub const MDStringInContext = c.LLVMMDStringInContext;
 pub const MetadataTypeInContext = c.LLVMMetadataTypeInContext;
 pub const ModuleCreateWithNameInContext = c.LLVMModuleCreateWithNameInContext;
 pub const PPCFP128TypeInContext = c.LLVMPPCFP128TypeInContext;
+pub const PointerType = c.LLVMPointerType;
+pub const SetAlignment = c.LLVMSetAlignment;
 pub const SetDataLayout = c.LLVMSetDataLayout;
+pub const SetGlobalConstant = c.LLVMSetGlobalConstant;
+pub const SetInitializer = c.LLVMSetInitializer;
+pub const SetLinkage = c.LLVMSetLinkage;
 pub const SetTarget = c.LLVMSetTarget;
+pub const SetUnnamedAddr = c.LLVMSetUnnamedAddr;
 pub const StructTypeInContext = c.LLVMStructTypeInContext;
 pub const TokenTypeInContext = c.LLVMTokenTypeInContext;
+pub const TypeOf = c.LLVMTypeOf;
 pub const VoidTypeInContext = c.LLVMVoidTypeInContext;
 pub const X86FP80TypeInContext = c.LLVMX86FP80TypeInContext;
 pub const X86MMXTypeInContext = c.LLVMX86MMXTypeInContext;
+
+pub const ConstInBoundsGEP = LLVMConstInBoundsGEP;
+pub extern fn LLVMConstInBoundsGEP(ConstantVal: ValueRef, ConstantIndices: [*]ValueRef, NumIndices: c_uint) ?ValueRef;
 
 pub const GetTargetFromTriple = LLVMGetTargetFromTriple;
 extern fn LLVMGetTargetFromTriple(Triple: [*]const u8, T: *TargetRef, ErrorMessage: ?*[*]u8) Bool;
@@ -143,13 +161,28 @@ pub const EmitBinary = EmitOutputType.ZigLLVM_EmitBinary;
 pub const EmitLLVMIr = EmitOutputType.ZigLLVM_EmitLLVMIr;
 pub const EmitOutputType = c.ZigLLVM_EmitOutputType;
 
+pub const CCallConv = c.LLVMCCallConv;
+pub const FastCallConv = c.LLVMFastCallConv;
+pub const ColdCallConv = c.LLVMColdCallConv;
+pub const WebKitJSCallConv = c.LLVMWebKitJSCallConv;
+pub const AnyRegCallConv = c.LLVMAnyRegCallConv;
+pub const X86StdcallCallConv = c.LLVMX86StdcallCallConv;
+pub const X86FastcallCallConv = c.LLVMX86FastcallCallConv;
+pub const CallConv = c.LLVMCallConv;
+
+pub const FnInline = extern enum {
+    Auto,
+    Always,
+    Never,
+};
+
 fn removeNullability(comptime T: type) type {
     comptime assert(@typeId(T) == builtin.TypeId.Optional);
     return T.Child;
 }
 
 pub const BuildRet = LLVMBuildRet;
-extern fn LLVMBuildRet(arg0: BuilderRef, V: ?ValueRef) ValueRef;
+extern fn LLVMBuildRet(arg0: BuilderRef, V: ?ValueRef) ?ValueRef;
 
 pub const TargetMachineEmitToFile = ZigLLVMTargetMachineEmitToFile;
 extern fn ZigLLVMTargetMachineEmitToFile(
@@ -161,3 +194,8 @@ extern fn ZigLLVMTargetMachineEmitToFile(
     is_debug: bool,
     is_small: bool,
 ) bool;
+
+pub const BuildCall = ZigLLVMBuildCall;
+extern fn ZigLLVMBuildCall(B: BuilderRef, Fn: ValueRef, Args: [*]ValueRef, NumArgs: c_uint, CC: c_uint, fn_inline: FnInline, Name: [*]const u8) ?ValueRef;
+
+pub const PrivateLinkage = c.LLVMLinkage.LLVMPrivateLinkage;

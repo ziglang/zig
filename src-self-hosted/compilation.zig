@@ -21,13 +21,15 @@ const Scope = @import("scope.zig").Scope;
 const Decl = @import("decl.zig").Decl;
 const ir = @import("ir.zig");
 const Visib = @import("visib.zig").Visib;
-const ParsedFile = @import("parsed_file.zig").ParsedFile;
 const Value = @import("value.zig").Value;
 const Type = Value.Type;
 const Span = errmsg.Span;
+const Msg = errmsg.Msg;
 const codegen = @import("codegen.zig");
 const Package = @import("package.zig").Package;
 const link = @import("link.zig").link;
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const CInt = @import("c_int.zig").CInt;
 
 /// Data that is local to the event loop.
 pub const EventLoopLocal = struct {
@@ -36,6 +38,8 @@ pub const EventLoopLocal = struct {
 
     /// TODO pool these so that it doesn't have to lock
     prng: event.Locked(std.rand.DefaultPrng),
+
+    native_libc: event.Future(LibCInstallation),
 
     var lazy_init_targets = std.lazyInit(void);
 
@@ -48,13 +52,16 @@ pub const EventLoopLocal = struct {
         var seed_bytes: [@sizeOf(u64)]u8 = undefined;
         try std.os.getRandomBytes(seed_bytes[0..]);
         const seed = std.mem.readInt(seed_bytes, u64, builtin.Endian.Big);
+
         return EventLoopLocal{
             .loop = loop,
             .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
             .prng = event.Locked(std.rand.DefaultPrng).init(loop, std.rand.DefaultPrng.init(seed)),
+            .native_libc = event.Future(LibCInstallation).init(loop),
         };
     }
 
+    /// Must be called only after EventLoop.run completes.
     fn deinit(self: *EventLoopLocal) void {
         while (self.llvm_handle_pool.pop()) |node| {
             c.LLVMContextDispose(node.data);
@@ -77,6 +84,13 @@ pub const EventLoopLocal = struct {
         errdefer self.loop.allocator.destroy(node);
 
         return LlvmHandle{ .node = node };
+    }
+
+    pub async fn getNativeLibC(self: *EventLoopLocal) !*LibCInstallation {
+        if (await (async self.native_libc.start() catch unreachable)) |ptr| return ptr;
+        try await (async self.native_libc.data.findNative(self.loop) catch unreachable);
+        self.native_libc.resolve();
+        return &self.native_libc.data;
     }
 };
 
@@ -108,13 +122,6 @@ pub const Compilation = struct {
     version_patch: u32,
 
     linker_script: ?[]const u8,
-    cache_dir: []const u8,
-    libc_lib_dir: ?[]const u8,
-    libc_static_lib_dir: ?[]const u8,
-    libc_include_dir: ?[]const u8,
-    msvc_lib_dir: ?[]const u8,
-    kernel32_lib_dir: ?[]const u8,
-    dynamic_linker: ?[]const u8,
     out_h_path: ?[]const u8,
 
     is_test: bool,
@@ -179,6 +186,8 @@ pub const Compilation = struct {
     void_type: *Type.Void,
     bool_type: *Type.Bool,
     noreturn_type: *Type.NoReturn,
+    comptime_int_type: *Type.ComptimeInt,
+    u8_type: *Type.Int,
 
     void_value: *Value.Void,
     true_value: *Value.Bool,
@@ -188,6 +197,7 @@ pub const Compilation = struct {
     target_machine: llvm.TargetMachineRef,
     target_data_ref: llvm.TargetDataRef,
     target_layout_str: [*]u8,
+    target_ptr_bits: u32,
 
     /// for allocating things which have the same lifetime as this Compilation
     arena_allocator: std.heap.ArenaAllocator,
@@ -195,7 +205,30 @@ pub const Compilation = struct {
     root_package: *Package,
     std_package: *Package,
 
-    const CompileErrList = std.ArrayList(*errmsg.Msg);
+    override_libc: ?*LibCInstallation,
+
+    /// need to wait on this group before deinitializing
+    deinit_group: event.Group(void),
+
+    destroy_handle: promise,
+
+    have_err_ret_tracing: bool,
+
+    /// not locked because it is read-only
+    primitive_type_table: TypeTable,
+
+    int_type_table: event.Locked(IntTypeTable),
+    array_type_table: event.Locked(ArrayTypeTable),
+    ptr_type_table: event.Locked(PtrTypeTable),
+
+    c_int_types: [CInt.list.len]*Type.Int,
+
+    const IntTypeTable = std.HashMap(*const Type.Int.Key, *Type.Int, Type.Int.Key.hash, Type.Int.Key.eql);
+    const ArrayTypeTable = std.HashMap(*const Type.Array.Key, *Type.Array, Type.Array.Key.hash, Type.Array.Key.eql);
+    const PtrTypeTable = std.HashMap(*const Type.Pointer.Key, *Type.Pointer, Type.Pointer.Key.hash, Type.Pointer.Key.eql);
+    const TypeTable = std.HashMap([]const u8, *Type, mem.hash_slice_u8, mem.eql_slice_u8);
+
+    const CompileErrList = std.ArrayList(*Msg);
 
     // TODO handle some of these earlier and report them in a way other than error codes
     pub const BuildError = error{
@@ -240,12 +273,16 @@ pub const Compilation = struct {
         EnvironmentVariableNotFound,
         AppDataDirUnavailable,
         LinkFailed,
+        LibCRequiredButNotProvidedOrFound,
+        LibCMissingDynamicLinker,
+        InvalidDarwinVersionString,
+        UnsupportedLinkArchitecture,
     };
 
     pub const Event = union(enum) {
         Ok,
         Error: BuildError,
-        Fail: []*errmsg.Msg,
+        Fail: []*Msg,
     };
 
     pub const DarwinVersionMin = union(enum) {
@@ -284,7 +321,6 @@ pub const Compilation = struct {
         build_mode: builtin.Mode,
         is_static: bool,
         zig_lib_dir: []const u8,
-        cache_dir: []const u8,
     ) !*Compilation {
         const loop = event_loop_local.loop;
         const comp = try event_loop_local.loop.allocator.create(Compilation{
@@ -299,7 +335,6 @@ pub const Compilation = struct {
             .build_mode = build_mode,
             .zig_lib_dir = zig_lib_dir,
             .zig_std_dir = undefined,
-            .cache_dir = cache_dir,
             .tmp_dir = event.Future(BuildError![]u8).init(loop),
 
             .name = undefined,
@@ -318,12 +353,6 @@ pub const Compilation = struct {
             .verbose_link = false,
 
             .linker_script = null,
-            .libc_lib_dir = null,
-            .libc_static_lib_dir = null,
-            .libc_include_dir = null,
-            .msvc_lib_dir = null,
-            .kernel32_lib_dir = null,
-            .dynamic_linker = null,
             .out_h_path = null,
             .is_test = false,
             .each_lib_rpath = false,
@@ -350,7 +379,12 @@ pub const Compilation = struct {
             .link_out_file = null,
             .exported_symbol_names = event.Locked(Decl.Table).init(loop, Decl.Table.init(loop.allocator)),
             .prelink_group = event.Group(BuildError!void).init(loop),
+            .deinit_group = event.Group(void).init(loop),
             .compile_errors = event.Locked(CompileErrList).init(loop, CompileErrList.init(loop.allocator)),
+            .int_type_table = event.Locked(IntTypeTable).init(loop, IntTypeTable.init(loop.allocator)),
+            .array_type_table = event.Locked(ArrayTypeTable).init(loop, ArrayTypeTable.init(loop.allocator)),
+            .ptr_type_table = event.Locked(PtrTypeTable).init(loop, PtrTypeTable.init(loop.allocator)),
+            .c_int_types = undefined,
 
             .meta_type = undefined,
             .void_type = undefined,
@@ -360,15 +394,26 @@ pub const Compilation = struct {
             .false_value = undefined,
             .noreturn_type = undefined,
             .noreturn_value = undefined,
+            .comptime_int_type = undefined,
+            .u8_type = undefined,
 
             .target_machine = undefined,
             .target_data_ref = undefined,
             .target_layout_str = undefined,
+            .target_ptr_bits = target.getArchPtrBitWidth(),
 
             .root_package = undefined,
             .std_package = undefined,
+
+            .override_libc = null,
+            .destroy_handle = undefined,
+            .have_err_ret_tracing = false,
+            .primitive_type_table = undefined,
         });
         errdefer {
+            comp.int_type_table.private_data.deinit();
+            comp.array_type_table.private_data.deinit();
+            comp.ptr_type_table.private_data.deinit();
             comp.arena_allocator.deinit();
             comp.loop.allocator.destroy(comp);
         }
@@ -378,6 +423,7 @@ pub const Compilation = struct {
         comp.llvm_target = try Target.llvmTargetFromTriple(comp.llvm_triple);
         comp.link_libs_list = ArrayList(*LinkLib).init(comp.arena());
         comp.zig_std_dir = try std.os.path.join(comp.arena(), zig_lib_dir, "std");
+        comp.primitive_type_table = TypeTable.init(comp.arena());
 
         const opt_level = switch (build_mode) {
             builtin.Mode.Debug => llvm.CodeGenLevelNone,
@@ -431,112 +477,204 @@ pub const Compilation = struct {
 
         try comp.initTypes();
 
+        comp.destroy_handle = try async<loop.allocator> comp.internalDeinit();
+
         return comp;
     }
 
+    /// it does ref the result because it could be an arbitrary integer size
+    pub async fn getPrimitiveType(comp: *Compilation, name: []const u8) !?*Type {
+        if (name.len >= 2) {
+            switch (name[0]) {
+                'i', 'u' => blk: {
+                    for (name[1..]) |byte|
+                        switch (byte) {
+                        '0'...'9' => {},
+                        else => break :blk,
+                    };
+                    const is_signed = name[0] == 'i';
+                    const bit_count = std.fmt.parseUnsigned(u32, name[1..], 10) catch |err| switch (err) {
+                        error.Overflow => return error.Overflow,
+                        error.InvalidCharacter => unreachable, // we just checked the characters above
+                    };
+                    const int_type = try await (async Type.Int.get(comp, Type.Int.Key{
+                        .bit_count = bit_count,
+                        .is_signed = is_signed,
+                    }) catch unreachable);
+                    errdefer int_type.base.base.deref();
+                    return &int_type.base;
+                },
+                else => {},
+            }
+        }
+
+        if (comp.primitive_type_table.get(name)) |entry| {
+            entry.value.base.ref();
+            return entry.value;
+        }
+
+        return null;
+    }
+
     fn initTypes(comp: *Compilation) !void {
-        comp.meta_type = try comp.gpa().create(Type.MetaType{
+        comp.meta_type = try comp.arena().create(Type.MetaType{
             .base = Type{
+                .name = "type",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = undefined,
+                    .typ = undefined,
                     .ref_count = std.atomic.Int(usize).init(3), // 3 because it references itself twice
                 },
                 .id = builtin.TypeId.Type,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
             .value = undefined,
         });
         comp.meta_type.value = &comp.meta_type.base;
-        comp.meta_type.base.base.typeof = &comp.meta_type.base;
-        errdefer comp.gpa().destroy(comp.meta_type);
+        comp.meta_type.base.base.typ = &comp.meta_type.base;
+        assert((try comp.primitive_type_table.put(comp.meta_type.base.name, &comp.meta_type.base)) == null);
 
-        comp.void_type = try comp.gpa().create(Type.Void{
+        comp.void_type = try comp.arena().create(Type.Void{
             .base = Type{
+                .name = "void",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(comp).base,
+                    .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Void,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
         });
-        errdefer comp.gpa().destroy(comp.void_type);
+        assert((try comp.primitive_type_table.put(comp.void_type.base.name, &comp.void_type.base)) == null);
 
-        comp.noreturn_type = try comp.gpa().create(Type.NoReturn{
+        comp.noreturn_type = try comp.arena().create(Type.NoReturn{
             .base = Type{
+                .name = "noreturn",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(comp).base,
+                    .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.NoReturn,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
         });
-        errdefer comp.gpa().destroy(comp.noreturn_type);
+        assert((try comp.primitive_type_table.put(comp.noreturn_type.base.name, &comp.noreturn_type.base)) == null);
 
-        comp.bool_type = try comp.gpa().create(Type.Bool{
+        comp.comptime_int_type = try comp.arena().create(Type.ComptimeInt{
             .base = Type{
+                .name = "comptime_int",
                 .base = Value{
                     .id = Value.Id.Type,
-                    .typeof = &Type.MetaType.get(comp).base,
+                    .typ = &Type.MetaType.get(comp).base,
+                    .ref_count = std.atomic.Int(usize).init(1),
+                },
+                .id = builtin.TypeId.ComptimeInt,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+            },
+        });
+        assert((try comp.primitive_type_table.put(comp.comptime_int_type.base.name, &comp.comptime_int_type.base)) == null);
+
+        comp.bool_type = try comp.arena().create(Type.Bool{
+            .base = Type{
+                .name = "bool",
+                .base = Value{
+                    .id = Value.Id.Type,
+                    .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Bool,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
         });
-        errdefer comp.gpa().destroy(comp.bool_type);
+        assert((try comp.primitive_type_table.put(comp.bool_type.base.name, &comp.bool_type.base)) == null);
 
-        comp.void_value = try comp.gpa().create(Value.Void{
+        comp.void_value = try comp.arena().create(Value.Void{
             .base = Value{
                 .id = Value.Id.Void,
-                .typeof = &Type.Void.get(comp).base,
+                .typ = &Type.Void.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
-        errdefer comp.gpa().destroy(comp.void_value);
 
-        comp.true_value = try comp.gpa().create(Value.Bool{
+        comp.true_value = try comp.arena().create(Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
-                .typeof = &Type.Bool.get(comp).base,
+                .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = true,
         });
-        errdefer comp.gpa().destroy(comp.true_value);
 
-        comp.false_value = try comp.gpa().create(Value.Bool{
+        comp.false_value = try comp.arena().create(Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
-                .typeof = &Type.Bool.get(comp).base,
+                .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = false,
         });
-        errdefer comp.gpa().destroy(comp.false_value);
 
-        comp.noreturn_value = try comp.gpa().create(Value.NoReturn{
+        comp.noreturn_value = try comp.arena().create(Value.NoReturn{
             .base = Value{
                 .id = Value.Id.NoReturn,
-                .typeof = &Type.NoReturn.get(comp).base,
+                .typ = &Type.NoReturn.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
-        errdefer comp.gpa().destroy(comp.noreturn_value);
+
+        for (CInt.list) |cint, i| {
+            const c_int_type = try comp.arena().create(Type.Int{
+                .base = Type{
+                    .name = cint.zig_name,
+                    .base = Value{
+                        .id = Value.Id.Type,
+                        .typ = &Type.MetaType.get(comp).base,
+                        .ref_count = std.atomic.Int(usize).init(1),
+                    },
+                    .id = builtin.TypeId.Int,
+                    .abi_alignment = Type.AbiAlignment.init(comp.loop),
+                },
+                .key = Type.Int.Key{
+                    .is_signed = cint.is_signed,
+                    .bit_count = comp.target.cIntTypeSizeInBits(cint.id),
+                },
+                .garbage_node = undefined,
+            });
+            comp.c_int_types[i] = c_int_type;
+            assert((try comp.primitive_type_table.put(cint.zig_name, &c_int_type.base)) == null);
+        }
+        comp.u8_type = try comp.arena().create(Type.Int{
+            .base = Type{
+                .name = "u8",
+                .base = Value{
+                    .id = Value.Id.Type,
+                    .typ = &Type.MetaType.get(comp).base,
+                    .ref_count = std.atomic.Int(usize).init(1),
+                },
+                .id = builtin.TypeId.Int,
+                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+            },
+            .key = Type.Int.Key{
+                .is_signed = false,
+                .bit_count = 8,
+            },
+            .garbage_node = undefined,
+        });
+        assert((try comp.primitive_type_table.put(comp.u8_type.base.name, &comp.u8_type.base)) == null);
     }
 
-    pub fn destroy(self: *Compilation) void {
+    /// This function can safely use async/await, because it manages Compilation's lifetime,
+    /// and EventLoopLocal.deinit will not be called until the event.Loop.run() completes.
+    async fn internalDeinit(self: *Compilation) void {
+        suspend;
+
+        await (async self.deinit_group.wait() catch unreachable);
         if (self.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
+            // TODO evented I/O?
             os.deleteTree(self.arena(), tmp_dir) catch {};
         } else |_| {};
-
-        self.noreturn_value.base.deref(self);
-        self.void_value.base.deref(self);
-        self.false_value.base.deref(self);
-        self.true_value.base.deref(self);
-        self.noreturn_type.base.base.deref(self);
-        self.void_type.base.base.deref(self);
-        self.meta_type.base.base.deref(self);
 
         self.events.destroy();
 
@@ -544,8 +682,14 @@ pub const Compilation = struct {
         llvm.DisposeTargetData(self.target_data_ref);
         llvm.DisposeTargetMachine(self.target_machine);
 
+        self.primitive_type_table.deinit();
+
         self.arena_allocator.deinit();
         self.gpa().destroy(self);
+    }
+
+    pub fn destroy(self: *Compilation) void {
+        resume self.destroy_handle;
     }
 
     pub fn build(self: *Compilation) !void {
@@ -597,79 +741,103 @@ pub const Compilation = struct {
     }
 
     async fn compileAndLink(self: *Compilation) !void {
-        const root_src_path = self.root_src_path orelse @panic("TODO handle null root src path");
-        // TODO async/await os.path.real
-        const root_src_real_path = os.path.real(self.gpa(), root_src_path) catch |err| {
-            try printError("unable to get real path '{}': {}", root_src_path, err);
-            return err;
-        };
-        errdefer self.gpa().free(root_src_real_path);
+        if (self.root_src_path) |root_src_path| {
+            // TODO async/await os.path.real
+            const root_src_real_path = os.path.real(self.gpa(), root_src_path) catch |err| {
+                try printError("unable to get real path '{}': {}", root_src_path, err);
+                return err;
+            };
+            const root_scope = blk: {
+                errdefer self.gpa().free(root_src_real_path);
 
-        // TODO async/await readFileAlloc()
-        const source_code = io.readFileAlloc(self.gpa(), root_src_real_path) catch |err| {
-            try printError("unable to open '{}': {}", root_src_real_path, err);
-            return err;
-        };
-        errdefer self.gpa().free(source_code);
+                // TODO async/await readFileAlloc()
+                const source_code = io.readFileAlloc(self.gpa(), root_src_real_path) catch |err| {
+                    try printError("unable to open '{}': {}", root_src_real_path, err);
+                    return err;
+                };
+                errdefer self.gpa().free(source_code);
 
-        const parsed_file = try self.gpa().create(ParsedFile{
-            .tree = undefined,
-            .realpath = root_src_real_path,
-        });
-        errdefer self.gpa().destroy(parsed_file);
+                const tree = try self.gpa().createOne(ast.Tree);
+                tree.* = try std.zig.parse(self.gpa(), source_code);
+                errdefer {
+                    tree.deinit();
+                    self.gpa().destroy(tree);
+                }
 
-        parsed_file.tree = try std.zig.parse(self.gpa(), source_code);
-        errdefer parsed_file.tree.deinit();
+                break :blk try Scope.Root.create(self, tree, root_src_real_path);
+            };
+            defer root_scope.base.deref(self);
+            const tree = root_scope.tree;
 
-        const tree = &parsed_file.tree;
+            var error_it = tree.errors.iterator(0);
+            while (error_it.next()) |parse_error| {
+                const msg = try Msg.createFromParseErrorAndScope(self, root_scope, parse_error);
+                errdefer msg.destroy();
 
-        // create empty struct for it
-        const decls = try Scope.Decls.create(self, null);
-        defer decls.base.deref(self);
-
-        var decl_group = event.Group(BuildError!void).init(self.loop);
-        errdefer decl_group.cancelAll();
-
-        var it = tree.root_node.decls.iterator(0);
-        while (it.next()) |decl_ptr| {
-            const decl = decl_ptr.*;
-            switch (decl.id) {
-                ast.Node.Id.Comptime => @panic("TODO"),
-                ast.Node.Id.VarDecl => @panic("TODO"),
-                ast.Node.Id.FnProto => {
-                    const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
-
-                    const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
-                        try self.addCompileError(parsed_file, Span{
-                            .first = fn_proto.fn_token,
-                            .last = fn_proto.fn_token + 1,
-                        }, "missing function name");
-                        continue;
-                    };
-
-                    const fn_decl = try self.gpa().create(Decl.Fn{
-                        .base = Decl{
-                            .id = Decl.Id.Fn,
-                            .name = name,
-                            .visib = parseVisibToken(tree, fn_proto.visib_token),
-                            .resolution = event.Future(BuildError!void).init(self.loop),
-                            .resolution_in_progress = 0,
-                            .parsed_file = parsed_file,
-                            .parent_scope = &decls.base,
-                        },
-                        .value = Decl.Fn.Val{ .Unresolved = {} },
-                        .fn_proto = fn_proto,
-                    });
-                    errdefer self.gpa().destroy(fn_decl);
-
-                    try decl_group.call(addTopLevelDecl, self, &fn_decl.base);
-                },
-                ast.Node.Id.TestDecl => @panic("TODO"),
-                else => unreachable,
+                try await (async self.addCompileErrorAsync(msg) catch unreachable);
             }
+            if (tree.errors.len != 0) {
+                return;
+            }
+
+            const decls = try Scope.Decls.create(self, &root_scope.base);
+            defer decls.base.deref(self);
+
+            var decl_group = event.Group(BuildError!void).init(self.loop);
+            var decl_group_consumed = false;
+            errdefer if (!decl_group_consumed) decl_group.cancelAll();
+
+            var it = tree.root_node.decls.iterator(0);
+            while (it.next()) |decl_ptr| {
+                const decl = decl_ptr.*;
+                switch (decl.id) {
+                    ast.Node.Id.Comptime => {
+                        const comptime_node = @fieldParentPtr(ast.Node.Comptime, "base", decl);
+
+                        try self.prelink_group.call(addCompTimeBlock, self, &decls.base, comptime_node);
+                    },
+                    ast.Node.Id.VarDecl => @panic("TODO"),
+                    ast.Node.Id.FnProto => {
+                        const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
+
+                        const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
+                            try self.addCompileError(root_scope, Span{
+                                .first = fn_proto.fn_token,
+                                .last = fn_proto.fn_token + 1,
+                            }, "missing function name");
+                            continue;
+                        };
+
+                        const fn_decl = try self.gpa().create(Decl.Fn{
+                            .base = Decl{
+                                .id = Decl.Id.Fn,
+                                .name = name,
+                                .visib = parseVisibToken(tree, fn_proto.visib_token),
+                                .resolution = event.Future(BuildError!void).init(self.loop),
+                                .parent_scope = &decls.base,
+                            },
+                            .value = Decl.Fn.Val{ .Unresolved = {} },
+                            .fn_proto = fn_proto,
+                        });
+                        errdefer self.gpa().destroy(fn_decl);
+
+                        try decl_group.call(addTopLevelDecl, self, decls, &fn_decl.base);
+                    },
+                    ast.Node.Id.TestDecl => @panic("TODO"),
+                    else => unreachable,
+                }
+            }
+            decl_group_consumed = true;
+            try await (async decl_group.wait() catch unreachable);
+
+            // Now other code can rely on the decls scope having a complete list of names.
+            decls.name_future.resolve();
         }
-        try await (async decl_group.wait() catch unreachable);
-        try await (async self.prelink_group.wait() catch unreachable);
+
+        (await (async self.prelink_group.wait() catch unreachable)) catch |err| switch (err) {
+            error.SemanticAnalysisFailed => {},
+            else => return err,
+        };
 
         const any_prelink_errors = blk: {
             const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
@@ -679,39 +847,108 @@ pub const Compilation = struct {
         };
 
         if (!any_prelink_errors) {
-            try link(self);
+            try await (async link(self) catch unreachable);
         }
     }
 
-    async fn addTopLevelDecl(self: *Compilation, decl: *Decl) !void {
-        const is_export = decl.isExported(&decl.parsed_file.tree);
+    /// caller takes ownership of resulting Code
+    async fn genAndAnalyzeCode(
+        comp: *Compilation,
+        scope: *Scope,
+        node: *ast.Node,
+        expected_type: ?*Type,
+    ) !*ir.Code {
+        const unanalyzed_code = try await (async ir.gen(
+            comp,
+            node,
+            scope,
+        ) catch unreachable);
+        defer unanalyzed_code.destroy(comp.gpa());
+
+        if (comp.verbose_ir) {
+            std.debug.warn("unanalyzed:\n");
+            unanalyzed_code.dump();
+        }
+
+        const analyzed_code = try await (async ir.analyze(
+            comp,
+            unanalyzed_code,
+            expected_type,
+        ) catch unreachable);
+        errdefer analyzed_code.destroy(comp.gpa());
+
+        if (comp.verbose_ir) {
+            std.debug.warn("analyzed:\n");
+            analyzed_code.dump();
+        }
+
+        return analyzed_code;
+    }
+
+    async fn addCompTimeBlock(
+        comp: *Compilation,
+        scope: *Scope,
+        comptime_node: *ast.Node.Comptime,
+    ) !void {
+        const void_type = Type.Void.get(comp);
+        defer void_type.base.base.deref(comp);
+
+        const analyzed_code = (await (async genAndAnalyzeCode(
+            comp,
+            scope,
+            comptime_node.expr,
+            &void_type.base,
+        ) catch unreachable)) catch |err| switch (err) {
+            // This poison value should not cause the errdefers to run. It simply means
+            // that comp.compile_errors is populated.
+            error.SemanticAnalysisFailed => return {},
+            else => return err,
+        };
+        analyzed_code.destroy(comp.gpa());
+    }
+
+    async fn addTopLevelDecl(self: *Compilation, decls: *Scope.Decls, decl: *Decl) !void {
+        const tree = decl.findRootScope().tree;
+        const is_export = decl.isExported(tree);
+
+        var add_to_table_resolved = false;
+        const add_to_table = async self.addDeclToTable(decls, decl) catch unreachable;
+        errdefer if (!add_to_table_resolved) cancel add_to_table; // TODO https://github.com/ziglang/zig/issues/1261
 
         if (is_export) {
             try self.prelink_group.call(verifyUniqueSymbol, self, decl);
             try self.prelink_group.call(resolveDecl, self, decl);
         }
+
+        add_to_table_resolved = true;
+        try await add_to_table;
     }
 
-    fn addCompileError(self: *Compilation, parsed_file: *ParsedFile, span: Span, comptime fmt: []const u8, args: ...) !void {
-        const text = try std.fmt.allocPrint(self.loop.allocator, fmt, args);
-        errdefer self.loop.allocator.free(text);
+    async fn addDeclToTable(self: *Compilation, decls: *Scope.Decls, decl: *Decl) !void {
+        const held = await (async decls.table.acquire() catch unreachable);
+        defer held.release();
 
-        try self.prelink_group.call(addCompileErrorAsync, self, parsed_file, span, text);
+        if (try held.value.put(decl.name, decl)) |other_decl| {
+            try self.addCompileError(decls.base.findRoot(), decl.getSpan(), "redefinition of '{}'", decl.name);
+            // TODO note: other definition here
+        }
+    }
+
+    fn addCompileError(self: *Compilation, root: *Scope.Root, span: Span, comptime fmt: []const u8, args: ...) !void {
+        const text = try std.fmt.allocPrint(self.gpa(), fmt, args);
+        errdefer self.gpa().free(text);
+
+        const msg = try Msg.createFromScope(self, root, span, text);
+        errdefer msg.destroy();
+
+        try self.prelink_group.call(addCompileErrorAsync, self, msg);
     }
 
     async fn addCompileErrorAsync(
         self: *Compilation,
-        parsed_file: *ParsedFile,
-        span: Span,
-        text: []u8,
+        msg: *Msg,
     ) !void {
-        const msg = try self.loop.allocator.create(errmsg.Msg{
-            .path = parsed_file.realpath,
-            .text = text,
-            .span = span,
-            .tree = &parsed_file.tree,
-        });
-        errdefer self.loop.allocator.destroy(msg);
+        errdefer msg.destroy();
 
         const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
         defer compile_errors.release();
@@ -725,7 +962,7 @@ pub const Compilation = struct {
 
         if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
             try self.addCompileError(
-                decl.parsed_file,
+                decl.findRootScope(),
                 decl.getSpan(),
                 "exported symbol collision: '{}'",
                 decl.name,
@@ -762,8 +999,20 @@ pub const Compilation = struct {
         try self.link_libs_list.append(link_lib);
         if (is_libc) {
             self.libc_link_lib = link_lib;
+
+            // get a head start on looking for the native libc
+            if (self.target == Target.Native and self.override_libc == null) {
+                try self.deinit_group.call(startFindingNativeLibC, self);
+            }
         }
         return link_lib;
+    }
+
+    /// cancels itself so no need to await or cancel the promise.
+    async fn startFindingNativeLibC(self: *Compilation) void {
+        await (async self.loop.yield() catch unreachable);
+        // we don't care if it fails, we're just trying to kick off the future resolution
+        _ = (await (async self.event_loop_local.getNativeLibC() catch unreachable)) catch return;
     }
 
     /// General Purpose Allocator. Must free when done.
@@ -831,6 +1080,37 @@ pub const Compilation = struct {
         b64_fs_encoder.encode(result[0..], rand_bytes);
         return result;
     }
+
+    fn registerGarbage(comp: *Compilation, comptime T: type, node: *std.atomic.Stack(*T).Node) void {
+        // TODO put the garbage somewhere
+    }
+
+    /// Returns a value which has been ref()'d once
+    async fn analyzeConstValue(comp: *Compilation, scope: *Scope, node: *ast.Node, expected_type: *Type) !*Value {
+        const analyzed_code = try await (async comp.genAndAnalyzeCode(scope, node, expected_type) catch unreachable);
+        defer analyzed_code.destroy(comp.gpa());
+
+        return analyzed_code.getCompTimeResult(comp);
+    }
+
+    async fn analyzeTypeExpr(comp: *Compilation, scope: *Scope, node: *ast.Node) !*Type {
+        const meta_type = &Type.MetaType.get(comp).base;
+        defer meta_type.base.deref(comp);
+
+        const result_val = try await (async comp.analyzeConstValue(scope, node, meta_type) catch unreachable);
+        errdefer result_val.base.deref(comp);
+
+        return result_val.cast(Type).?;
+    }
+
+    /// This declaration has been blessed as going into the final code generation.
+    pub async fn resolveDecl(comp: *Compilation, decl: *Decl) !void {
+        if (await (async decl.resolution.start() catch unreachable)) |ptr| return ptr.*;
+
+        decl.resolution.data = try await (async generateDecl(comp, decl) catch unreachable);
+        decl.resolution.resolve();
+        return decl.resolution.data;
+    }
 };
 
 fn printError(comptime format: []const u8, args: ...) !void {
@@ -850,15 +1130,6 @@ fn parseVisibToken(tree: *ast.Tree, optional_token_index: ?ast.TokenIndex) Visib
     }
 }
 
-/// This declaration has been blessed as going into the final code generation.
-pub async fn resolveDecl(comp: *Compilation, decl: *Decl) !void {
-    if (await (async decl.resolution.start() catch unreachable)) |ptr| return ptr.*;
-
-    decl.resolution.data = await (async generateDecl(comp, decl) catch unreachable);
-    decl.resolution.resolve();
-    return decl.resolution.data;
-}
-
 /// The function that actually does the generation.
 async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
     switch (decl.id) {
@@ -872,65 +1143,29 @@ async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
 }
 
 async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
-    const body_node = fn_decl.fn_proto.body_node orelse @panic("TODO extern fn proto decl");
+    const body_node = fn_decl.fn_proto.body_node orelse return await (async generateDeclFnProto(comp, fn_decl) catch unreachable);
 
     const fndef_scope = try Scope.FnDef.create(comp, fn_decl.base.parent_scope);
     defer fndef_scope.base.deref(comp);
 
-    // TODO actually look at the return type of the AST
-    const return_type = &Type.Void.get(comp).base;
-    defer return_type.base.deref(comp);
-
-    const is_var_args = false;
-    const params = ([*]Type.Fn.Param)(undefined)[0..0];
-    const fn_type = try Type.Fn.create(comp, return_type, params, is_var_args);
+    const fn_type = try await (async analyzeFnType(comp, fn_decl.base.parent_scope, fn_decl.fn_proto) catch unreachable);
     defer fn_type.base.base.deref(comp);
 
     var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
-    errdefer symbol_name.deinit();
+    var symbol_name_consumed = false;
+    errdefer if (!symbol_name_consumed) symbol_name.deinit();
 
     // The Decl.Fn owns the initial 1 reference count
     const fn_val = try Value.Fn.create(comp, fn_type, fndef_scope, symbol_name);
-    fn_decl.value = Decl.Fn.Val{ .Ok = fn_val };
+    fn_decl.value = Decl.Fn.Val{ .Fn = fn_val };
+    symbol_name_consumed = true;
 
-    const unanalyzed_code = (await (async ir.gen(
-        comp,
-        body_node,
+    const analyzed_code = try await (async comp.genAndAnalyzeCode(
         &fndef_scope.base,
-        Span.token(body_node.lastToken()),
-        fn_decl.base.parsed_file,
-    ) catch unreachable)) catch |err| switch (err) {
-        // This poison value should not cause the errdefers to run. It simply means
-        // that self.compile_errors is populated.
-        // TODO https://github.com/ziglang/zig/issues/769
-        error.SemanticAnalysisFailed => return {},
-        else => return err,
-    };
-    defer unanalyzed_code.destroy(comp.gpa());
-
-    if (comp.verbose_ir) {
-        std.debug.warn("unanalyzed:\n");
-        unanalyzed_code.dump();
-    }
-
-    const analyzed_code = (await (async ir.analyze(
-        comp,
-        fn_decl.base.parsed_file,
-        unanalyzed_code,
-        null,
-    ) catch unreachable)) catch |err| switch (err) {
-        // This poison value should not cause the errdefers to run. It simply means
-        // that self.compile_errors is populated.
-        // TODO https://github.com/ziglang/zig/issues/769
-        error.SemanticAnalysisFailed => return {},
-        else => return err,
-    };
+        body_node,
+        fn_type.return_type,
+    ) catch unreachable);
     errdefer analyzed_code.destroy(comp.gpa());
-
-    if (comp.verbose_ir) {
-        std.debug.warn("analyzed:\n");
-        analyzed_code.dump();
-    }
 
     // Kick off rendering to LLVM module, but it doesn't block the fn decl
     // analysis from being complete.
@@ -952,4 +1187,55 @@ async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) void {
 
 fn getZigDir(allocator: *mem.Allocator) ![]u8 {
     return os.getAppDataDir(allocator, "zig");
+}
+
+async fn analyzeFnType(comp: *Compilation, scope: *Scope, fn_proto: *ast.Node.FnProto) !*Type.Fn {
+    const return_type_node = switch (fn_proto.return_type) {
+        ast.Node.FnProto.ReturnType.Explicit => |n| n,
+        ast.Node.FnProto.ReturnType.InferErrorSet => |n| n,
+    };
+    const return_type = try await (async comp.analyzeTypeExpr(scope, return_type_node) catch unreachable);
+    return_type.base.deref(comp);
+
+    var params = ArrayList(Type.Fn.Param).init(comp.gpa());
+    var params_consumed = false;
+    defer if (params_consumed) {
+        for (params.toSliceConst()) |param| {
+            param.typ.base.deref(comp);
+        }
+        params.deinit();
+    };
+
+    const is_var_args = false;
+    {
+        var it = fn_proto.params.iterator(0);
+        while (it.next()) |param_node_ptr| {
+            const param_node = param_node_ptr.*.cast(ast.Node.ParamDecl).?;
+            const param_type = try await (async comp.analyzeTypeExpr(scope, param_node.type_node) catch unreachable);
+            errdefer param_type.base.deref(comp);
+            try params.append(Type.Fn.Param{
+                .typ = param_type,
+                .is_noalias = param_node.noalias_token != null,
+            });
+        }
+    }
+    const fn_type = try Type.Fn.create(comp, return_type, params.toOwnedSlice(), is_var_args);
+    params_consumed = true;
+    errdefer fn_type.base.base.deref(comp);
+
+    return fn_type;
+}
+
+async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
+    const fn_type = try await (async analyzeFnType(comp, fn_decl.base.parent_scope, fn_decl.fn_proto) catch unreachable);
+    defer fn_type.base.base.deref(comp);
+
+    var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
+    var symbol_name_consumed = false;
+    defer if (!symbol_name_consumed) symbol_name.deinit();
+
+    // The Decl.Fn owns the initial 1 reference count
+    const fn_proto_val = try Value.FnProto.create(comp, fn_type, symbol_name);
+    fn_decl.value = Decl.Fn.Val{ .FnProto = fn_proto_val };
+    symbol_name_consumed = true;
 }

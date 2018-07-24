@@ -444,7 +444,7 @@ pub const Loop = struct {
                 .next = undefined,
                 .data = p,
             };
-            loop.onNextTick(&my_tick_node);
+            self.onNextTick(&my_tick_node);
         }
     }
 

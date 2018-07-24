@@ -18,6 +18,7 @@ const EventLoopLocal = @import("compilation.zig").EventLoopLocal;
 const Compilation = @import("compilation.zig").Compilation;
 const Target = @import("target.zig").Target;
 const errmsg = @import("errmsg.zig");
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: os.File = undefined;
 var stderr: *io.OutStream(io.FileOutStream.Error) = undefined;
@@ -28,13 +29,14 @@ const usage =
     \\
     \\Commands:
     \\
-    \\  build-exe   [source]         Create executable from source or object files
-    \\  build-lib   [source]         Create library from source or object files
-    \\  build-obj   [source]         Create object from source or assembly
-    \\  fmt         [source]         Parse file and render in canonical zig format
-    \\  targets                      List available compilation targets
-    \\  version                      Print version number and exit
-    \\  zen                          Print zen of zig and exit
+    \\  build-exe  [source]      Create executable from source or object files
+    \\  build-lib  [source]      Create library from source or object files
+    \\  build-obj  [source]      Create object from source or assembly
+    \\  fmt        [source]      Parse file and render in canonical zig format
+    \\  libc       [paths_file]  Display native libc paths file or validate one
+    \\  targets                  List available compilation targets
+    \\  version                  Print version number and exit
+    \\  zen                      Print zen of zig and exit
     \\
     \\
 ;
@@ -86,6 +88,10 @@ pub fn main() !void {
             .exec = cmdFmt,
         },
         Command{
+            .name = "libc",
+            .exec = cmdLibC,
+        },
+        Command{
             .name = "targets",
             .exec = cmdTargets,
         },
@@ -130,11 +136,10 @@ const usage_build_generic =
     \\  --color [auto|off|on]        Enable or disable colored error messages
     \\
     \\Compile Options:
+    \\  --libc [file]                Provide a file which specifies libc paths
     \\  --assembly [source]          Add assembly file to build
-    \\  --cache-dir [path]           Override the cache directory
     \\  --emit [filetype]            Emit a specific file format as compilation output
     \\  --enable-timing-info         Print timing diagnostics
-    \\  --libc-include-dir [path]    Directory where libc stdlib.h resides
     \\  --name [name]                Override output name
     \\  --output [file]              Override destination path
     \\  --output-h [file]            Override generated header file path
@@ -163,12 +168,7 @@ const usage_build_generic =
     \\
     \\Link Options:
     \\  --ar-path [path]             Set the path to ar
-    \\  --dynamic-linker [path]      Set the path to ld.so
     \\  --each-lib-rpath             Add rpath for each used dynamic library
-    \\  --libc-lib-dir [path]        Directory where libc crt1.o resides
-    \\  --libc-static-lib-dir [path] Directory where libc crtbegin.o resides
-    \\  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides
-    \\  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides
     \\  --library [lib]              Link against lib
     \\  --forbid-library [lib]       Make it an error to link against lib
     \\  --library-path [dir]         Add a directory to the library search path
@@ -203,14 +203,13 @@ const args_build_generic = []Flag{
     }),
 
     Flag.ArgMergeN("--assembly", 1),
-    Flag.Arg1("--cache-dir"),
     Flag.Option("--emit", []const []const u8{
         "asm",
         "bin",
         "llvm-ir",
     }),
     Flag.Bool("--enable-timing-info"),
-    Flag.Arg1("--libc-include-dir"),
+    Flag.Arg1("--libc"),
     Flag.Arg1("--name"),
     Flag.Arg1("--output"),
     Flag.Arg1("--output-h"),
@@ -234,12 +233,7 @@ const args_build_generic = []Flag{
     Flag.Arg1("-mllvm"),
 
     Flag.Arg1("--ar-path"),
-    Flag.Arg1("--dynamic-linker"),
     Flag.Bool("--each-lib-rpath"),
-    Flag.Arg1("--libc-lib-dir"),
-    Flag.Arg1("--libc-static-lib-dir"),
-    Flag.Arg1("--msvc-lib-dir"),
-    Flag.Arg1("--kernel32-lib-dir"),
     Flag.ArgMergeN("--library", 1),
     Flag.ArgMergeN("--forbid-library", 1),
     Flag.ArgMergeN("--library-path", 1),
@@ -377,15 +371,10 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         os.exit(1);
     }
 
-    const rel_cache_dir = flags.single("cache-dir") orelse "zig-cache"[0..];
-    const full_cache_dir = os.path.resolve(allocator, ".", rel_cache_dir) catch {
-        try stderr.print("invalid cache dir: {}\n", rel_cache_dir);
-        os.exit(1);
-    };
-    defer allocator.free(full_cache_dir);
-
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
     defer allocator.free(zig_lib_dir);
+
+    var override_libc: LibCInstallation = undefined;
 
     var loop: event.Loop = undefined;
     try loop.initMultiThreaded(allocator);
@@ -403,9 +392,17 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         build_mode,
         is_static,
         zig_lib_dir,
-        full_cache_dir,
     );
     defer comp.destroy();
+
+    if (flags.single("libc")) |libc_path| {
+        parseLibcPaths(loop.allocator, &override_libc, libc_path);
+        comp.override_libc = &override_libc;
+    }
+
+    for (flags.many("library")) |lib| {
+        _ = try comp.addLinkLib(lib, true);
+    }
 
     comp.version_major = try std.fmt.parseUnsigned(u32, flags.single("ver-major") orelse "0", 10);
     comp.version_minor = try std.fmt.parseUnsigned(u32, flags.single("ver-minor") orelse "0", 10);
@@ -429,25 +426,6 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.clang_argv = clang_argv_buf.toSliceConst();
 
     comp.strip = flags.present("strip");
-
-    if (flags.single("libc-lib-dir")) |libc_lib_dir| {
-        comp.libc_lib_dir = libc_lib_dir;
-    }
-    if (flags.single("libc-static-lib-dir")) |libc_static_lib_dir| {
-        comp.libc_static_lib_dir = libc_static_lib_dir;
-    }
-    if (flags.single("libc-include-dir")) |libc_include_dir| {
-        comp.libc_include_dir = libc_include_dir;
-    }
-    if (flags.single("msvc-lib-dir")) |msvc_lib_dir| {
-        comp.msvc_lib_dir = msvc_lib_dir;
-    }
-    if (flags.single("kernel32-lib-dir")) |kernel32_lib_dir| {
-        comp.kernel32_lib_dir = kernel32_lib_dir;
-    }
-    if (flags.single("dynamic-linker")) |dynamic_linker| {
-        comp.dynamic_linker = dynamic_linker;
-    }
 
     comp.verbose_tokenize = flags.present("verbose-tokenize");
     comp.verbose_ast_tree = flags.present("verbose-ast-tree");
@@ -484,7 +462,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
     comp.emit_file_type = emit_type;
     comp.assembly_files = assembly_files;
-    comp.link_out_file = flags.single("out-file");
+    comp.link_out_file = flags.single("output");
     comp.link_objects = link_objects;
 
     try comp.build();
@@ -499,7 +477,6 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
 
     switch (build_event) {
         Compilation.Event.Ok => {
-            std.debug.warn("Build succeeded\n");
             return;
         },
         Compilation.Event.Error => |err| {
@@ -508,7 +485,8 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
         },
         Compilation.Event.Fail => |msgs| {
             for (msgs) |msg| {
-                errmsg.printToFile(&stderr_file, msg, color) catch os.exit(1);
+                defer msg.destroy();
+                msg.printToFile(&stderr_file, color) catch os.exit(1);
             }
         },
     }
@@ -579,6 +557,53 @@ const Fmt = struct {
     }
 };
 
+fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {
+    libc.parse(allocator, libc_paths_file, stderr) catch |err| {
+        stderr.print(
+            "Unable to parse libc path file '{}': {}.\n" ++
+                "Try running `zig libc` to see an example for the native target.\n",
+            libc_paths_file,
+            @errorName(err),
+        ) catch os.exit(1);
+        os.exit(1);
+    };
+}
+
+fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
+    switch (args.len) {
+        0 => {},
+        1 => {
+            var libc_installation: LibCInstallation = undefined;
+            parseLibcPaths(allocator, &libc_installation, args[0]);
+            return;
+        },
+        else => {
+            try stderr.print("unexpected extra parameter: {}\n", args[1]);
+            os.exit(1);
+        },
+    }
+
+    var loop: event.Loop = undefined;
+    try loop.initMultiThreaded(allocator);
+    defer loop.deinit();
+
+    var event_loop_local = try EventLoopLocal.init(&loop);
+    defer event_loop_local.deinit();
+
+    const handle = try async<loop.allocator> findLibCAsync(&event_loop_local);
+    defer cancel handle;
+
+    loop.run();
+}
+
+async fn findLibCAsync(event_loop_local: *EventLoopLocal) void {
+    const libc = (await (async event_loop_local.getNativeLibC() catch unreachable)) catch |err| {
+        stderr.print("unable to find libc: {}\n", @errorName(err)) catch os.exit(1);
+        os.exit(1);
+    };
+    libc.render(stdout) catch os.exit(1);
+}
+
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);
     defer flags.deinit();
@@ -622,10 +647,10 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
         var error_it = tree.errors.iterator(0);
         while (error_it.next()) |parse_error| {
-            const msg = try errmsg.createFromParseError(allocator, parse_error, &tree, "<stdin>");
-            defer allocator.destroy(msg);
+            const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, &tree, "<stdin>");
+            defer msg.destroy();
 
-            try errmsg.printToFile(&stderr_file, msg, color);
+            try msg.printToFile(&stderr_file, color);
         }
         if (tree.errors.len != 0) {
             os.exit(1);
@@ -678,10 +703,10 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
         var error_it = tree.errors.iterator(0);
         while (error_it.next()) |parse_error| {
-            const msg = try errmsg.createFromParseError(allocator, parse_error, &tree, file_path);
-            defer allocator.destroy(msg);
+            const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, &tree, file_path);
+            defer msg.destroy();
 
-            try errmsg.printToFile(&stderr_file, msg, color);
+            try msg.printToFile(&stderr_file, color);
         }
         if (tree.errors.len != 0) {
             fmt.any_error = true;

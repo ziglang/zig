@@ -60,8 +60,9 @@ pub const Int = struct {
         self.limbs = try self.allocator.realloc(Limb, self.limbs, capacity);
     }
 
-    pub fn deinit(self: Int) void {
+    pub fn deinit(self: *Int) void {
         self.allocator.free(self.limbs);
+        self.* = undefined;
     }
 
     pub fn clone(other: Int) !Int {
@@ -332,6 +333,7 @@ pub const Int = struct {
         self.positive = positive;
     }
 
+    /// TODO make this call format instead of the other way around
     pub fn toString(self: Int, allocator: *Allocator, base: u8) ![]const u8 {
         if (base < 2 or base > 16) {
             return error.InvalidBase;
@@ -412,6 +414,21 @@ pub const Int = struct {
         var s = digits.toOwnedSlice();
         mem.reverse(u8, s);
         return s;
+    }
+
+    /// for the std lib format function
+    /// TODO make this non-allocating
+    pub fn format(
+        self: Int,
+        comptime fmt: []const u8,
+        context: var,
+        comptime FmtError: type,
+        output: fn (@typeOf(context), []const u8) FmtError!void,
+    ) FmtError!void {
+        // TODO look at fmt and support other bases
+        const str = self.toString(self.allocator, 10) catch @panic("TODO make this non allocating");
+        defer self.allocator.free(str);
+        return output(context, str);
     }
 
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
