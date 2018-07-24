@@ -2,6 +2,17 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "generic fn as parameter without comptime keyword",
+        \\fn f(_: fn (var) void) void {}
+        \\fn g(_: var) void {}
+        \\export fn entry() void {
+        \\    f(g);
+        \\}
+    ,
+        ".tmp_source.zig:1:9: error: parameter of type 'fn(var)var' must be declared comptime",
+    );
+
+    cases.add(
         "optional pointer to void in extern struct",
         \\comptime {
         \\    _ = @IntType(false, @maxValue(u32) + 1);

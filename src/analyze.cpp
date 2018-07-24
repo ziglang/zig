@@ -1585,10 +1585,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdBlock:
             case TypeTableEntryIdBoundFn:
             case TypeTableEntryIdMetaType:
-                add_node_error(g, param_node->data.param_decl.type,
-                    buf_sprintf("parameter of type '%s' must be declared comptime",
-                    buf_ptr(&type_entry->name)));
-                return g->builtin_types.entry_invalid;
             case TypeTableEntryIdVoid:
             case TypeTableEntryIdBool:
             case TypeTableEntryIdInt:
@@ -1603,6 +1599,13 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
             case TypeTableEntryIdPromise:
+                type_ensure_zero_bits_known(g, type_entry);
+                if (type_requires_comptime(type_entry)) {
+                    add_node_error(g, param_node->data.param_decl.type,
+                        buf_sprintf("parameter of type '%s' must be declared comptime",
+                        buf_ptr(&type_entry->name)));
+                    return g->builtin_types.entry_invalid;
+                }
                 break;
         }
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
@@ -5019,9 +5022,10 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
             } else {
                 return type_requires_comptime(type_entry->data.pointer.child_type);
             }
+        case TypeTableEntryIdFn:
+            return type_entry->data.fn.is_generic;
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdErrorSet:
-        case TypeTableEntryIdFn:
         case TypeTableEntryIdBool:
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
