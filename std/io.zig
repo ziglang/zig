@@ -331,6 +331,104 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
     };
 }
 
+/// Creates a stream which supports 'un-reading' data, so that it can be read again.
+/// This makes look-ahead style parsing much easier.
+pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) type {
+    return struct {
+        const Self = this;
+        pub const Error = InStreamError;
+        pub const Stream = InStream(Error);
+
+        pub stream: Stream,
+        base: *Stream,
+
+        // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
+        // is not too difficult to derive from this.
+        buffer: [buffer_size]u8,
+        index: usize,
+        at_end: bool,
+
+        pub fn init(base: *Stream) Self {
+            return Self{
+                .base = base,
+                .buffer = undefined,
+                .index = 0,
+                .at_end = false,
+                .stream = Stream{ .readFn = readFn },
+            };
+        }
+
+        pub fn putBackByte(self: *Self, byte: u8) void {
+            self.buffer[self.index] = byte;
+            self.index += 1;
+        }
+
+        pub fn putBack(self: *Self, bytes: []const u8) void {
+            var pos = bytes.len;
+            while (pos != 0) {
+                pos -= 1;
+                self.putBackByte(bytes[pos]);
+            }
+        }
+
+        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
+            const self = @fieldParentPtr(Self, "stream", in_stream);
+
+            // copy over anything putBack()'d
+            var pos: usize = 0;
+            while (pos < dest.len and self.index != 0) {
+                dest[pos] = self.buffer[self.index - 1];
+                self.index -= 1;
+                pos += 1;
+            }
+
+            if (pos == dest.len or self.at_end) {
+                return pos;
+            }
+
+            // ask the backing stream for more
+            const left = dest.len - pos;
+            const read = try self.base.read(dest[pos..]);
+            assert(read <= left);
+
+            self.at_end = (read < left);
+            return pos + read;
+        }
+
+    };
+}
+
+pub const SliceStream = struct {
+    const Self = this;
+    pub const Error = error { };
+    pub const Stream = InStream(Error);
+
+    pub stream: Stream,
+
+    pos: usize,
+    slice: []const u8,
+
+    pub fn init(slice: []const u8) Self {
+        return Self{
+            .slice = slice,
+            .pos = 0,
+            .stream = Stream{ .readFn = readFn },
+        };
+    }
+
+    fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
+        const self = @fieldParentPtr(Self, "stream", in_stream);
+        const size = math.min(dest.len, self.slice.len - self.pos);
+        const end = self.pos + size;
+
+        mem.copy(u8, dest[0..size], self.slice[self.pos..end]);
+        self.pos = end;
+
+        return size;
+    }
+
+};
+
 pub fn BufferedOutStream(comptime Error: type) type {
     return BufferedOutStreamCustom(os.page_size, Error);
 }

@@ -60,3 +60,54 @@ test "BufferOutStream" {
 
     assert(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
 }
+
+test "SliceStream" {
+    const bytes = []const u8 { 1, 2, 3, 4, 5, 6, 7 };
+    var ss = io.SliceStream.init(bytes);
+
+    var dest: [4]u8 = undefined;
+
+    var read = try ss.stream.read(dest[0..4]);
+    assert(read == 4);
+    assert(mem.eql(u8, dest[0..4], bytes[0..4]));
+
+    read = try ss.stream.read(dest[0..4]);
+    assert(read == 3);
+    assert(mem.eql(u8, dest[0..3], bytes[4..7]));
+
+    read = try ss.stream.read(dest[0..4]);
+    assert(read == 0);
+}
+
+test "PeekStream" {
+    const bytes = []const u8 { 1, 2, 3, 4, 5, 6, 7, 8 };
+    var ss = io.SliceStream.init(bytes);
+    var ps = io.PeekStream(2, io.SliceStream.Error).init(&ss.stream);
+
+    var dest: [4]u8 = undefined;
+
+    ps.putBackByte(9);
+    ps.putBackByte(10);
+
+    var read = try ps.stream.read(dest[0..4]);
+    assert(read == 4);
+    assert(dest[0] == 10);
+    assert(dest[1] == 9);
+    assert(mem.eql(u8, dest[2..4], bytes[0..2]));
+
+    read = try ps.stream.read(dest[0..4]);
+    assert(read == 4);
+    assert(mem.eql(u8, dest[0..4], bytes[2..6]));
+
+    read = try ps.stream.read(dest[0..4]);
+    assert(read == 2);
+    assert(mem.eql(u8, dest[0..2], bytes[6..8]));
+
+    ps.putBackByte(11);
+    ps.putBackByte(12);
+
+    read = try ps.stream.read(dest[0..4]);
+    assert(read == 2);
+    assert(dest[0] == 12);
+    assert(dest[1] == 11);
+}
