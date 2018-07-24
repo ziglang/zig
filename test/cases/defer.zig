@@ -61,3 +61,18 @@ test "defer and labeled break" {
 
     assert(i == 1);
 }
+
+test "errdefer does not apply to fn inside fn" {
+    if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| assert(e == error.Bad);
+}
+
+fn testNestedFnErrDefer() error!void {
+    var a: i32 = 0;
+    errdefer a += 1;
+    const S = struct {
+        fn baz() error {
+            return error.Bad;
+        }
+    };
+    return S.baz();
+}

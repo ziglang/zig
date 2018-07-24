@@ -3,7 +3,6 @@ const Allocator = mem.Allocator;
 const mem = std.mem;
 const ast = std.zig.ast;
 const Visib = @import("visib.zig").Visib;
-const ParsedFile = @import("parsed_file.zig").ParsedFile;
 const event = std.event;
 const Value = @import("value.zig").Value;
 const Token = std.zig.Token;
@@ -16,8 +15,6 @@ pub const Decl = struct {
     name: []const u8,
     visib: Visib,
     resolution: event.Future(Compilation.BuildError!void),
-    resolution_in_progress: u8,
-    parsed_file: *ParsedFile,
     parent_scope: *Scope,
 
     pub const Table = std.HashMap([]const u8, *Decl, mem.hash_slice_u8, mem.eql_slice_u8);
@@ -48,6 +45,10 @@ pub const Decl = struct {
         }
     }
 
+    pub fn findRootScope(base: *const Decl) *Scope.Root {
+        return base.parent_scope.findRoot();
+    }
+
     pub const Id = enum {
         Var,
         Fn,
@@ -61,12 +62,13 @@ pub const Decl = struct {
     pub const Fn = struct {
         base: Decl,
         value: Val,
-        fn_proto: *const ast.Node.FnProto,
+        fn_proto: *ast.Node.FnProto,
 
         // TODO https://github.com/ziglang/zig/issues/683 and then make this anonymous
-        pub const Val = union {
+        pub const Val = union(enum) {
             Unresolved: void,
-            Ok: *Value.Fn,
+            Fn: *Value.Fn,
+            FnProto: *Value.FnProto,
         };
 
         pub fn externLibName(self: Fn, tree: *ast.Tree) ?[]const u8 {

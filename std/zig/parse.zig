@@ -2356,7 +2356,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token = nextToken(&tok_it, &tree);
                 switch (token.ptr.id) {
                     Token.Id.IntegerLiteral => {
-                        _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.StringLiteral, token.index);
+                        _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.IntegerLiteral, token.index);
                         continue;
                     },
                     Token.Id.FloatLiteral => {

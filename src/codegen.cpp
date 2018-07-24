@@ -60,6 +60,33 @@ PackageTableEntry *new_anonymous_package(void) {
     return new_package("", "");
 }
 
+static const char *symbols_that_llvm_depends_on[] = {
+    "memcpy",
+    "memset",
+    "sqrt",
+    "powi",
+    "sin",
+    "cos",
+    "pow",
+    "exp",
+    "exp2",
+    "log",
+    "log10",
+    "log2",
+    "fma",
+    "fabs",
+    "minnum",
+    "maxnum",
+    "copysign",
+    "floor",
+    "ceil",
+    "trunc",
+    "rint",
+    "nearbyint",
+    "round",
+    // TODO probably all of compiler-rt needs to go here
+};
+
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
     Buf *zig_lib_dir)
 {
@@ -93,6 +120,10 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->is_test_build = false;
     g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
     buf_resize(&g->global_asm, 0);
+
+    for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
+        g->external_prototypes.put(buf_create_from_str(symbols_that_llvm_depends_on[i]), nullptr);
+    }
 
     if (root_src_path) {
         Buf *src_basename = buf_alloc();
@@ -7419,51 +7450,60 @@ static void gen_h_file(CodeGen *g) {
             case TypeTableEntryIdPromise:
                 zig_unreachable();
             case TypeTableEntryIdEnum:
-                assert(type_entry->data.enumeration.layout == ContainerLayoutExtern);
-                fprintf(out_h, "enum %s {\n", buf_ptr(&type_entry->name));
-                for (uint32_t field_i = 0; field_i < type_entry->data.enumeration.src_field_count; field_i += 1) {
-                    TypeEnumField *enum_field = &type_entry->data.enumeration.fields[field_i];
-                    Buf *value_buf = buf_alloc();
-                    bigint_append_buf(value_buf, &enum_field->value, 10);
-                    fprintf(out_h, "    %s = %s", buf_ptr(enum_field->name), buf_ptr(value_buf));
-                    if (field_i != type_entry->data.enumeration.src_field_count - 1) {
-                        fprintf(out_h, ",");
+                if (type_entry->data.enumeration.layout == ContainerLayoutExtern) {
+                    fprintf(out_h, "enum %s {\n", buf_ptr(&type_entry->name));
+                    for (uint32_t field_i = 0; field_i < type_entry->data.enumeration.src_field_count; field_i += 1) {
+                        TypeEnumField *enum_field = &type_entry->data.enumeration.fields[field_i];
+                        Buf *value_buf = buf_alloc();
+                        bigint_append_buf(value_buf, &enum_field->value, 10);
+                        fprintf(out_h, "    %s = %s", buf_ptr(enum_field->name), buf_ptr(value_buf));
+                        if (field_i != type_entry->data.enumeration.src_field_count - 1) {
+                            fprintf(out_h, ",");
+                        }
+                        fprintf(out_h, "\n");
                     }
-                    fprintf(out_h, "\n");
+                    fprintf(out_h, "};\n\n");
+                } else {
+                    fprintf(out_h, "enum %s;\n", buf_ptr(&type_entry->name));
                 }
-                fprintf(out_h, "};\n\n");
                 break;
             case TypeTableEntryIdStruct:
-                assert(type_entry->data.structure.layout == ContainerLayoutExtern);
-                fprintf(out_h, "struct %s {\n", buf_ptr(&type_entry->name));
-                for (uint32_t field_i = 0; field_i < type_entry->data.structure.src_field_count; field_i += 1) {
-                    TypeStructField *struct_field = &type_entry->data.structure.fields[field_i];
+                if (type_entry->data.structure.layout == ContainerLayoutExtern) {
+                    fprintf(out_h, "struct %s {\n", buf_ptr(&type_entry->name));
+                    for (uint32_t field_i = 0; field_i < type_entry->data.structure.src_field_count; field_i += 1) {
+                        TypeStructField *struct_field = &type_entry->data.structure.fields[field_i];
 
-                    Buf *type_name_buf = buf_alloc();
-                    get_c_type(g, gen_h, struct_field->type_entry, type_name_buf);
+                        Buf *type_name_buf = buf_alloc();
+                        get_c_type(g, gen_h, struct_field->type_entry, type_name_buf);
 
-                    if (struct_field->type_entry->id == TypeTableEntryIdArray) {
-                        fprintf(out_h, "    %s %s[%" ZIG_PRI_u64 "];\n", buf_ptr(type_name_buf),
-                                buf_ptr(struct_field->name),
-                                struct_field->type_entry->data.array.len);
-                    } else {
-                        fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(struct_field->name));
+                        if (struct_field->type_entry->id == TypeTableEntryIdArray) {
+                            fprintf(out_h, "    %s %s[%" ZIG_PRI_u64 "];\n", buf_ptr(type_name_buf),
+                                    buf_ptr(struct_field->name),
+                                    struct_field->type_entry->data.array.len);
+                        } else {
+                            fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(struct_field->name));
+                        }
+
                     }
-
+                    fprintf(out_h, "};\n\n");
+                } else {
+                    fprintf(out_h, "struct %s;\n", buf_ptr(&type_entry->name));
                 }
-                fprintf(out_h, "};\n\n");
                 break;
             case TypeTableEntryIdUnion:
-                assert(type_entry->data.unionation.layout == ContainerLayoutExtern);
-                fprintf(out_h, "union %s {\n", buf_ptr(&type_entry->name));
-                for (uint32_t field_i = 0; field_i < type_entry->data.unionation.src_field_count; field_i += 1) {
-                    TypeUnionField *union_field = &type_entry->data.unionation.fields[field_i];
+                if (type_entry->data.unionation.layout == ContainerLayoutExtern) {
+                    fprintf(out_h, "union %s {\n", buf_ptr(&type_entry->name));
+                    for (uint32_t field_i = 0; field_i < type_entry->data.unionation.src_field_count; field_i += 1) {
+                        TypeUnionField *union_field = &type_entry->data.unionation.fields[field_i];
 
-                    Buf *type_name_buf = buf_alloc();
-                    get_c_type(g, gen_h, union_field->type_entry, type_name_buf);
-                    fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(union_field->name));
+                        Buf *type_name_buf = buf_alloc();
+                        get_c_type(g, gen_h, union_field->type_entry, type_name_buf);
+                        fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(union_field->name));
+                    }
+                    fprintf(out_h, "};\n\n");
+                } else {
+                    fprintf(out_h, "union %s;\n", buf_ptr(&type_entry->name));
                 }
-                fprintf(out_h, "};\n\n");
                 break;
             case TypeTableEntryIdOpaque:
                 fprintf(out_h, "struct %s;\n\n", buf_ptr(&type_entry->name));

@@ -8,6 +8,8 @@ const ast = std.zig.ast;
 const Value = @import("value.zig").Value;
 const ir = @import("ir.zig");
 const Span = @import("errmsg.zig").Span;
+const assert = std.debug.assert;
+const event = std.event;
 
 pub const Scope = struct {
     id: Id,
@@ -23,7 +25,8 @@ pub const Scope = struct {
         if (base.ref_count == 0) {
             if (base.parent) |parent| parent.deref(comp);
             switch (base.id) {
-                Id.Decls => @fieldParentPtr(Decls, "base", base).destroy(),
+                Id.Root => @fieldParentPtr(Root, "base", base).destroy(comp),
+                Id.Decls => @fieldParentPtr(Decls, "base", base).destroy(comp),
                 Id.Block => @fieldParentPtr(Block, "base", base).destroy(comp),
                 Id.FnDef => @fieldParentPtr(FnDef, "base", base).destroy(comp),
                 Id.CompTime => @fieldParentPtr(CompTime, "base", base).destroy(comp),
@@ -31,6 +34,15 @@ pub const Scope = struct {
                 Id.DeferExpr => @fieldParentPtr(DeferExpr, "base", base).destroy(comp),
             }
         }
+    }
+
+    pub fn findRoot(base: *Scope) *Root {
+        var scope = base;
+        while (scope.parent) |parent| {
+            scope = parent;
+        }
+        assert(scope.id == Id.Root);
+        return @fieldParentPtr(Root, "base", scope);
     }
 
     pub fn findFnDef(base: *Scope) ?*FnDef {
@@ -44,12 +56,33 @@ pub const Scope = struct {
                 Id.Defer,
                 Id.DeferExpr,
                 Id.CompTime,
+                Id.Root,
+                => scope = scope.parent orelse return null,
+            }
+        }
+    }
+
+    pub fn findDeferExpr(base: *Scope) ?*DeferExpr {
+        var scope = base;
+        while (true) {
+            switch (scope.id) {
+                Id.DeferExpr => return @fieldParentPtr(DeferExpr, "base", base),
+
+                Id.FnDef,
+                Id.Decls,
+                => return null,
+
+                Id.Block,
+                Id.Defer,
+                Id.CompTime,
+                Id.Root,
                 => scope = scope.parent orelse return null,
             }
         }
     }
 
     pub const Id = enum {
+        Root,
         Decls,
         Block,
         FnDef,
@@ -58,42 +91,82 @@ pub const Scope = struct {
         DeferExpr,
     };
 
+    pub const Root = struct {
+        base: Scope,
+        tree: *ast.Tree,
+        realpath: []const u8,
+
+        /// Creates a Root scope with 1 reference
+        /// Takes ownership of realpath
+        /// Takes ownership of tree, will deinit and destroy when done.
+        pub fn create(comp: *Compilation, tree: *ast.Tree, realpath: []u8) !*Root {
+            const self = try comp.gpa().create(Root{
+                .base = Scope{
+                    .id = Id.Root,
+                    .parent = null,
+                    .ref_count = 1,
+                },
+                .tree = tree,
+                .realpath = realpath,
+            });
+            errdefer comp.gpa().destroy(self);
+
+            return self;
+        }
+
+        pub fn destroy(self: *Root, comp: *Compilation) void {
+            comp.gpa().free(self.tree.source);
+            self.tree.deinit();
+            comp.gpa().destroy(self.tree);
+            comp.gpa().free(self.realpath);
+            comp.gpa().destroy(self);
+        }
+    };
+
     pub const Decls = struct {
         base: Scope,
-        table: Decl.Table,
+
+        /// The lock must be respected for writing. However once name_future resolves,
+        /// readers can freely access it.
+        table: event.Locked(Decl.Table),
+
+        /// Once this future is resolved, the table is complete and available for unlocked
+        /// read-only access. It does not mean all the decls are resolved; it means only that
+        /// the table has all the names. Each decl in the table has its own resolution state.
+        name_future: event.Future(void),
 
         /// Creates a Decls scope with 1 reference
-        pub fn create(comp: *Compilation, parent: ?*Scope) !*Decls {
-            const self = try comp.a().create(Decls{
+        pub fn create(comp: *Compilation, parent: *Scope) !*Decls {
+            const self = try comp.gpa().create(Decls{
                 .base = Scope{
                     .id = Id.Decls,
                     .parent = parent,
                     .ref_count = 1,
                 },
-                .table = undefined,
+                .table = event.Locked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
+                .name_future = event.Future(void).init(comp.loop),
             });
-            errdefer comp.a().destroy(self);
-
-            self.table = Decl.Table.init(comp.a());
-            errdefer self.table.deinit();
-
-            if (parent) |p| p.ref();
-
+            parent.ref();
             return self;
         }
 
-        pub fn destroy(self: *Decls) void {
+        pub fn destroy(self: *Decls, comp: *Compilation) void {
             self.table.deinit();
-            self.table.allocator.destroy(self);
+            comp.gpa().destroy(self);
+        }
+
+        pub async fn getTableReadOnly(self: *Decls) *Decl.Table {
+            _ = await (async self.name_future.get() catch unreachable);
+            return &self.table.private_data;
         }
     };
 
     pub const Block = struct {
         base: Scope,
-        incoming_values: std.ArrayList(*ir.Instruction),
+        incoming_values: std.ArrayList(*ir.Inst),
         incoming_blocks: std.ArrayList(*ir.BasicBlock),
         end_block: *ir.BasicBlock,
-        is_comptime: *ir.Instruction,
+        is_comptime: *ir.Inst,
 
         safety: Safety,
 
@@ -125,8 +198,8 @@ pub const Scope = struct {
         };
 
         /// Creates a Block scope with 1 reference
-        pub fn create(comp: *Compilation, parent: ?*Scope) !*Block {
-            const self = try comp.a().create(Block{
+        pub fn create(comp: *Compilation, parent: *Scope) !*Block {
+            const self = try comp.gpa().create(Block{
                 .base = Scope{
                     .id = Id.Block,
                     .parent = parent,
@@ -138,14 +211,14 @@ pub const Scope = struct {
                 .is_comptime = undefined,
                 .safety = Safety.Auto,
             });
-            errdefer comp.a().destroy(self);
+            errdefer comp.gpa().destroy(self);
 
-            if (parent) |p| p.ref();
+            parent.ref();
             return self;
         }
 
         pub fn destroy(self: *Block, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -157,8 +230,8 @@ pub const Scope = struct {
 
         /// Creates a FnDef scope with 1 reference
         /// Must set the fn_val later
-        pub fn create(comp: *Compilation, parent: ?*Scope) !*FnDef {
-            const self = try comp.a().create(FnDef{
+        pub fn create(comp: *Compilation, parent: *Scope) !*FnDef {
+            const self = try comp.gpa().create(FnDef{
                 .base = Scope{
                     .id = Id.FnDef,
                     .parent = parent,
@@ -167,13 +240,13 @@ pub const Scope = struct {
                 .fn_val = undefined,
             });
 
-            if (parent) |p| p.ref();
+            parent.ref();
 
             return self;
         }
 
         pub fn destroy(self: *FnDef, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -181,8 +254,8 @@ pub const Scope = struct {
         base: Scope,
 
         /// Creates a CompTime scope with 1 reference
-        pub fn create(comp: *Compilation, parent: ?*Scope) !*CompTime {
-            const self = try comp.a().create(CompTime{
+        pub fn create(comp: *Compilation, parent: *Scope) !*CompTime {
+            const self = try comp.gpa().create(CompTime{
                 .base = Scope{
                     .id = Id.CompTime,
                     .parent = parent,
@@ -190,12 +263,12 @@ pub const Scope = struct {
                 },
             });
 
-            if (parent) |p| p.ref();
+            parent.ref();
             return self;
         }
 
         pub fn destroy(self: *CompTime, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
@@ -212,11 +285,11 @@ pub const Scope = struct {
         /// Creates a Defer scope with 1 reference
         pub fn create(
             comp: *Compilation,
-            parent: ?*Scope,
+            parent: *Scope,
             kind: Kind,
             defer_expr_scope: *DeferExpr,
         ) !*Defer {
-            const self = try comp.a().create(Defer{
+            const self = try comp.gpa().create(Defer{
                 .base = Scope{
                     .id = Id.Defer,
                     .parent = parent,
@@ -225,42 +298,44 @@ pub const Scope = struct {
                 .defer_expr_scope = defer_expr_scope,
                 .kind = kind,
             });
-            errdefer comp.a().destroy(self);
+            errdefer comp.gpa().destroy(self);
 
             defer_expr_scope.base.ref();
 
-            if (parent) |p| p.ref();
+            parent.ref();
             return self;
         }
 
         pub fn destroy(self: *Defer, comp: *Compilation) void {
             self.defer_expr_scope.base.deref(comp);
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 
     pub const DeferExpr = struct {
         base: Scope,
         expr_node: *ast.Node,
+        reported_err: bool,
 
         /// Creates a DeferExpr scope with 1 reference
-        pub fn create(comp: *Compilation, parent: ?*Scope, expr_node: *ast.Node) !*DeferExpr {
-            const self = try comp.a().create(DeferExpr{
+        pub fn create(comp: *Compilation, parent: *Scope, expr_node: *ast.Node) !*DeferExpr {
+            const self = try comp.gpa().create(DeferExpr{
                 .base = Scope{
                     .id = Id.DeferExpr,
                     .parent = parent,
                     .ref_count = 1,
                 },
                 .expr_node = expr_node,
+                .reported_err = false,
             });
-            errdefer comp.a().destroy(self);
+            errdefer comp.gpa().destroy(self);
 
-            if (parent) |p| p.ref();
+            parent.ref();
             return self;
         }
 
         pub fn destroy(self: *DeferExpr, comp: *Compilation) void {
-            comp.a().destroy(self);
+            comp.gpa().destroy(self);
         }
     };
 };

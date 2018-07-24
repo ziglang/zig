@@ -642,3 +642,13 @@ test "@tagName of @typeId" {
     const str = @tagName(@typeId(u8));
     assert(std.mem.eql(u8, str, "Int"));
 }
+
+test "setting backward branch quota just before a generic fn call" {
+    @setEvalBranchQuota(1001);
+    loopNTimes(1001);
+}
+
+fn loopNTimes(comptime n: usize) void {
+    comptime var i = 0;
+    inline while (i < n) : (i += 1) {}
+}

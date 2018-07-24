@@ -113,13 +113,12 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return old_item;
         }
 
-        pub fn removeOrError(self: *Self, n: usize) !T {
-            if (n >= self.len) return error.OutOfBounds;
-            if (self.len - 1 == n) return self.pop();
-
-            var old_item = self.at(n);
-            try self.setOrError(n, self.pop());
-            return old_item;
+        /// Removes the element at the specified index and returns it
+        /// or an error.OutOfBounds is returned. If no error then
+        /// the empty slot is filled from the end of the list.
+        pub fn swapRemoveOrError(self: *Self, i: usize) !T {
+            if (i >= self.len) return error.OutOfBounds;
+            return self.swapRemove(i);
         }
 
         pub fn appendSlice(self: *Self, items: []align(A) const T) !void {
@@ -192,7 +191,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
     };
 }
 
-test "basic ArrayList test" {
+test "std.ArrayList.basic" {
     var bytes: [1024]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
 
@@ -279,7 +278,35 @@ test "std.ArrayList.swapRemove" {
     assert(list.len == 4);
 }
 
-test "iterator ArrayList test" {
+test "std.ArrayList.swapRemoveOrError" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    // Test just after initialization
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test after adding one item and remote it
+    try list.append(1);
+    assert((try list.swapRemoveOrError(0)) == 1);
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test after adding two items and remote both
+    try list.append(1);
+    try list.append(2);
+    assert((try list.swapRemoveOrError(1)) == 2);
+    assert((try list.swapRemoveOrError(0)) == 1);
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test out of bounds with one item
+    try list.append(1);
+    assertError(list.swapRemoveOrError(1), error.OutOfBounds);
+
+    // Test out of bounds with two items
+    try list.append(2);
+    assertError(list.swapRemoveOrError(2), error.OutOfBounds);
+}
+
+test "std.ArrayList.iterator" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
@@ -308,7 +335,7 @@ test "iterator ArrayList test" {
     assert(it.next().? == 1);
 }
 
-test "insert ArrayList test" {
+test "std.ArrayList.insert" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
@@ -322,7 +349,7 @@ test "insert ArrayList test" {
     assert(list.items[3] == 3);
 }
 
-test "insertSlice ArrayList test" {
+test "std.ArrayList.insertSlice" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 

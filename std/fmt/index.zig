@@ -785,11 +785,15 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) ![]u8 {
     return buf[0 .. buf.len - context.remaining.len];
 }
 
-pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: ...) ![]u8 {
+pub const AllocPrintError = error{OutOfMemory};
+
+pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: ...) AllocPrintError![]u8 {
     var size: usize = 0;
     format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
     const buf = try allocator.alloc(u8, size);
-    return bufPrint(buf, fmt, args);
+    return bufPrint(buf, fmt, args) catch |err| switch (err) {
+        error.BufferTooSmall => unreachable, // we just counted the size above
+    };
 }
 
 fn countSize(size: *usize, bytes: []const u8) (error{}!void) {

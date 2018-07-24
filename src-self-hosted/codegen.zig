@@ -1,19 +1,22 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Compilation = @import("compilation.zig").Compilation;
-// we go through llvm instead of c for 2 reasons:
-// 1. to avoid accidentally calling the non-thread-safe functions
-// 2. patch up some of the types to remove nullability
 const llvm = @import("llvm.zig");
+const c = @import("c.zig");
 const ir = @import("ir.zig");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const event = std.event;
 const assert = std.debug.assert;
+const DW = std.dwarf;
 
 pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code) !void {
     fn_val.base.ref();
     defer fn_val.base.deref(comp);
-    defer code.destroy(comp.a());
+    defer code.destroy(comp.gpa());
+
+    var output_path = try await (async comp.createRandomOutputPath(comp.target.objFileExt()) catch unreachable);
+    errdefer output_path.deinit();
 
     const llvm_handle = try comp.event_loop_local.getAnyLlvmContext();
     defer llvm_handle.release(comp.event_loop_local);
@@ -23,15 +26,59 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     const module = llvm.ModuleCreateWithNameInContext(comp.name.ptr(), context) orelse return error.OutOfMemory;
     defer llvm.DisposeModule(module);
 
+    llvm.SetTarget(module, comp.llvm_triple.ptr());
+    llvm.SetDataLayout(module, comp.target_layout_str);
+
+    if (comp.target.getObjectFormat() == builtin.ObjectFormat.coff) {
+        llvm.AddModuleCodeViewFlag(module);
+    } else {
+        llvm.AddModuleDebugInfoFlag(module);
+    }
+
     const builder = llvm.CreateBuilderInContext(context) orelse return error.OutOfMemory;
     defer llvm.DisposeBuilder(builder);
+
+    const dibuilder = llvm.CreateDIBuilder(module, true) orelse return error.OutOfMemory;
+    defer llvm.DisposeDIBuilder(dibuilder);
+
+    // Don't use ZIG_VERSION_STRING here. LLVM misparses it when it includes
+    // the git revision.
+    const producer = try std.Buffer.allocPrint(
+        &code.arena.allocator,
+        "zig {}.{}.{}",
+        u32(c.ZIG_VERSION_MAJOR),
+        u32(c.ZIG_VERSION_MINOR),
+        u32(c.ZIG_VERSION_PATCH),
+    );
+    const flags = c"";
+    const runtime_version = 0;
+    const compile_unit_file = llvm.CreateFile(
+        dibuilder,
+        comp.name.ptr(),
+        comp.root_package.root_src_dir.ptr(),
+    ) orelse return error.OutOfMemory;
+    const is_optimized = comp.build_mode != builtin.Mode.Debug;
+    const compile_unit = llvm.CreateCompileUnit(
+        dibuilder,
+        DW.LANG_C99,
+        compile_unit_file,
+        producer.ptr(),
+        is_optimized,
+        flags,
+        runtime_version,
+        c"",
+        0,
+        !comp.strip,
+    ) orelse return error.OutOfMemory;
 
     var ofile = ObjectFile{
         .comp = comp,
         .module = module,
         .builder = builder,
+        .dibuilder = dibuilder,
         .context = context,
         .lock = event.Lock.init(comp.loop),
+        .arena = &code.arena.allocator,
     };
 
     try renderToLlvmModule(&ofile, fn_val, code);
@@ -41,10 +88,10 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     //    LLVMSetModuleInlineAsm(g->module, buf_ptr(&g->global_asm));
     //}
 
-    // TODO
-    //ZigLLVMDIBuilderFinalize(g->dbuilder);
+    llvm.DIBuilderFinalize(dibuilder);
 
     if (comp.verbose_llvm_ir) {
+        std.debug.warn("raw module:\n");
         llvm.DumpModule(ofile.module);
     }
 
@@ -53,23 +100,56 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         var error_ptr: ?[*]u8 = null;
         _ = llvm.VerifyModule(ofile.module, llvm.AbortProcessAction, &error_ptr);
     }
+
+    assert(comp.emit_file_type == Compilation.Emit.Binary); // TODO support other types
+
+    const is_small = comp.build_mode == builtin.Mode.ReleaseSmall;
+    const is_debug = comp.build_mode == builtin.Mode.Debug;
+
+    var err_msg: [*]u8 = undefined;
+    // TODO integrate this with evented I/O
+    if (llvm.TargetMachineEmitToFile(
+        comp.target_machine,
+        module,
+        output_path.ptr(),
+        llvm.EmitBinary,
+        &err_msg,
+        is_debug,
+        is_small,
+    )) {
+        if (std.debug.runtime_safety) {
+            std.debug.panic("unable to write object file {}: {s}\n", output_path.toSliceConst(), err_msg);
+        }
+        return error.WritingObjectFileFailed;
+    }
+    //validate_inline_fns(g); TODO
+    fn_val.containing_object = output_path;
+    if (comp.verbose_llvm_ir) {
+        std.debug.warn("optimized module:\n");
+        llvm.DumpModule(ofile.module);
+    }
+    if (comp.verbose_link) {
+        std.debug.warn("created {}\n", output_path.toSliceConst());
+    }
 }
 
 pub const ObjectFile = struct {
     comp: *Compilation,
     module: llvm.ModuleRef,
     builder: llvm.BuilderRef,
+    dibuilder: *llvm.DIBuilder,
     context: llvm.ContextRef,
     lock: event.Lock,
+    arena: *std.mem.Allocator,
 
-    fn a(self: *ObjectFile) *std.mem.Allocator {
-        return self.comp.a();
+    fn gpa(self: *ObjectFile) *std.mem.Allocator {
+        return self.comp.gpa();
     }
 };
 
 pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code) !void {
     // TODO audit more of codegen.cpp:fn_llvm_value and port more logic
-    const llvm_fn_type = try fn_val.base.typeof.getLlvmType(ofile);
+    const llvm_fn_type = try fn_val.base.typ.getLlvmType(ofile.arena, ofile.context);
     const llvm_fn = llvm.AddFunction(
         ofile.module,
         fn_val.symbol_name.ptr(),
@@ -87,7 +167,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     //    try addLLVMFnAttrInt(ofile, llvm_fn, "alignstack", align_stack);
     //}
 
-    const fn_type = fn_val.base.typeof.cast(Type.Fn).?;
+    const fn_type = fn_val.base.typ.cast(Type.Fn).?;
 
     try addLLVMFnAttr(ofile, llvm_fn, "nounwind");
     //add_uwtable_attr(g, fn_table_entry->llvm_value);

@@ -455,6 +455,11 @@ ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unreso
     return reinterpret_cast<ZigLLVMDIBuilder *>(di_builder);
 }
 
+void ZigLLVMDisposeDIBuilder(ZigLLVMDIBuilder *dbuilder) {
+    DIBuilder *di_builder = reinterpret_cast<DIBuilder *>(dbuilder);
+    delete di_builder;
+}
+
 void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope) {
     unwrap(builder)->SetCurrentDebugLocation(DebugLoc::get(
                 line, column, reinterpret_cast<DIScope*>(scope)));

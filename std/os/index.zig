@@ -11,13 +11,14 @@ const os = this;
 test "std.os" {
     _ = @import("child_process.zig");
     _ = @import("darwin.zig");
-    _ = @import("darwin_errno.zig");
+    _ = @import("darwin/errno.zig");
     _ = @import("get_user_id.zig");
     _ = @import("linux/index.zig");
     _ = @import("path.zig");
     _ = @import("test.zig");
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
+    _ = @import("get_app_data_dir.zig");
 }
 
 pub const windows = @import("windows/index.zig");
@@ -75,6 +76,9 @@ pub const WindowsOpenError = windows_util.OpenError;
 pub const WindowsWriteError = windows_util.WriteError;
 
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
+
+pub const getAppDataDir = @import("get_app_data_dir.zig").getAppDataDir;
+pub const GetAppDataDirError = @import("get_app_data_dir.zig").GetAppDataDirError;
 
 const debug = std.debug;
 const assert = debug.assert;
@@ -494,6 +498,7 @@ pub var linux_aux_raw = []usize{0} ** 38;
 pub var posix_environ_raw: [][*]u8 = undefined;
 
 /// Caller must free result when done.
+/// TODO make this go through libc when we have it
 pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
@@ -537,6 +542,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     }
 }
 
+/// TODO make this go through libc when we have it
 pub fn getEnvPosix(key: []const u8) ?[]const u8 {
     for (posix_environ_raw) |ptr| {
         var line_i: usize = 0;
@@ -559,6 +565,7 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
+/// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
         const key_with_null = try cstr.addNullByte(allocator, key);

@@ -468,3 +468,20 @@ test "@intCast i32 to u7" {
     var z = x >> @intCast(u7, y);
     assert(z == 0xff);
 }
+
+test "implicit cast undefined to optional" {
+    assert(MakeType(void).getNull() == null);
+    assert(MakeType(void).getNonNull() != null);
+}
+
+fn MakeType(comptime T: type) type {
+    return struct {
+        fn getNull() ?T {
+            return null;
+        }
+
+        fn getNonNull() ?T {
+            return T(undefined);
+        }
+    };
+}

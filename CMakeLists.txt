@@ -426,6 +426,7 @@ set(ZIG_SOURCES
 )
 set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
+    "${CMAKE_SOURCE_DIR}/src/windows_sdk.cpp"
 )
 
 set(ZIG_STD_FILES
@@ -479,6 +480,7 @@ set(ZIG_STD_FILES
     "index.zig"
     "io.zig"
     "json.zig"
+    "lazy_init.zig"
     "linked_list.zig"
     "macho.zig"
     "math/acos.zig"
@@ -488,6 +490,7 @@ set(ZIG_STD_FILES
     "math/atan.zig"
     "math/atan2.zig"
     "math/atanh.zig"
+    "math/big/index.zig"
     "math/big/int.zig"
     "math/cbrt.zig"
     "math/ceil.zig"
@@ -553,9 +556,10 @@ set(ZIG_STD_FILES
     "net.zig"
     "os/child_process.zig"
     "os/darwin.zig"
-    "os/darwin_errno.zig"
+    "os/darwin/errno.zig"
     "os/epoch.zig"
     "os/file.zig"
+    "os/get_app_data_dir.zig"
     "os/get_user_id.zig"
     "os/index.zig"
     "os/linux/errno.zig"
@@ -564,8 +568,14 @@ set(ZIG_STD_FILES
     "os/linux/x86_64.zig"
     "os/path.zig"
     "os/time.zig"
+    "os/windows/advapi32.zig"
     "os/windows/error.zig"
     "os/windows/index.zig"
+    "os/windows/kernel32.zig"
+    "os/windows/ole32.zig"
+    "os/windows/shell32.zig"
+    "os/windows/shlwapi.zig"
+    "os/windows/user32.zig"
     "os/windows/util.zig"
     "os/zen.zig"
     "rand/index.zig"
@@ -614,6 +624,7 @@ set(ZIG_STD_FILES
     "zig/ast.zig"
     "zig/index.zig"
     "zig/parse.zig"
+    "zig/parse_string_literal.zig"
     "zig/render.zig"
     "zig/tokenizer.zig"
 )

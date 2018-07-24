@@ -460,16 +460,21 @@ static const char* get_escape_shorthand(uint8_t c) {
 static void invalid_char_error(Tokenize *t, uint8_t c) {
     if (c == '\r') {
         tokenize_error(t, "invalid carriage return, only '\\n' line endings are supported");
-    } else if (isprint(c)) {
-        tokenize_error(t, "invalid character: '%c'", c);
-    } else {
-        const char *sh = get_escape_shorthand(c);
-        if (sh) {
-            tokenize_error(t, "invalid character: '%s'", sh);
-        } else {
-            tokenize_error(t, "invalid character: '\\x%x'", c);
-        }
+        return;
     }
+
+    const char *sh = get_escape_shorthand(c);
+    if (sh) {
+        tokenize_error(t, "invalid character: '%s'", sh);
+        return;
+    }
+
+    if (isprint(c)) {
+        tokenize_error(t, "invalid character: '%c'", c);
+        return;
+    }
+
+    tokenize_error(t, "invalid character: '\\x%02x'", c);
 }
 
 void tokenize(Buf *buf, Tokenization *out) {

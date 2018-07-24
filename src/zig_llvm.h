@@ -22,6 +22,9 @@
 #define ZIG_EXTERN_C
 #endif
 
+// ATTENTION: If you modify this file, be sure to update the corresponding
+// extern function declarations in the self-hosted compiler.
+
 struct ZigLLVMDIType;
 struct ZigLLVMDIBuilder;
 struct ZigLLVMDICompileUnit;
@@ -39,7 +42,7 @@ struct ZigLLVMInsertionPoint;
 ZIG_EXTERN_C void ZigLLVMInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
 ZIG_EXTERN_C void ZigLLVMInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
 
-/// Caller must free memory.
+/// Caller must free memory with LLVMDisposeMessage
 ZIG_EXTERN_C char *ZigLLVMGetHostCPUName(void);
 ZIG_EXTERN_C char *ZigLLVMGetNativeFeatures(void);
 
@@ -145,6 +148,7 @@ ZIG_EXTERN_C unsigned ZigLLVMTag_DW_enumeration_type(void);
 ZIG_EXTERN_C unsigned ZigLLVMTag_DW_union_type(void);
 
 ZIG_EXTERN_C struct ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
+ZIG_EXTERN_C void ZigLLVMDisposeDIBuilder(struct ZigLLVMDIBuilder *dbuilder);
 ZIG_EXTERN_C void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module);
 
