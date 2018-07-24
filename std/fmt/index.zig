@@ -6,6 +6,8 @@ const mem = std.mem;
 const builtin = @import("builtin");
 const errol = @import("errol/index.zig");
 const lossyCast = std.math.lossyCast;
+const TypeInfo = @import("builtin").TypeInfo;
+const TypeId = @import("builtin").TypeId;
 
 const max_int_digits = 65;
 
@@ -152,7 +154,8 @@ pub fn formatType(
                     if (info.child == u8) {
                         return formatText(value, fmt, context, Errors, output);
                     }
-                    return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+                    // Print a pointer Path1, convert {} to {*}
+                    return format(context, Errors, output, "{*}", value);
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
                     const has_cust_fmt = comptime cf: {
@@ -173,9 +176,12 @@ pub fn formatType(
                     };
 
                     if (has_cust_fmt) return value.format(fmt, context, Errors, output);
-                    return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+                    @compileError("Unexpected Path2 for possibly printing a pointer");
                 },
-                else => return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value)),
+                else => {
+                    // Print a pointer Path3, convert {} to {*}
+                    return format(context, Errors, output, "{*}", value);
+                },
             },
             builtin.TypeInfo.Pointer.Size.Many => {
                 if (ptr_info.child == u8) {
@@ -184,7 +190,7 @@ pub fn formatType(
                         return formatText(value[0..len], fmt, context, Errors, output);
                     }
                 }
-                return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+                @compileError("Unexpected Path4 for possibly printing a pointer");
             },
             builtin.TypeInfo.Pointer.Size.Slice => {
                 const casted_value = ([]const u8)(value);
@@ -195,7 +201,7 @@ pub fn formatType(
             if (info.child == u8) {
                 return formatText(value, fmt, context, Errors, output);
             }
-            return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(&value));
+            @compileError("Unexpected Path5 for possibly printing a pointer");
         },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
@@ -731,7 +737,7 @@ pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
     }
 }
 
-test "fmt.parseInt" {
+test "std.fmt.parseInt" {
     assert((parseInt(i32, "-10", 10) catch unreachable) == -10);
     assert((parseInt(i32, "+10", 10) catch unreachable) == 10);
     assert(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidCharacter);
@@ -813,7 +819,7 @@ fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
     size.* += bytes.len;
 }
 
-test "buf print int" {
+test "std.fmt.formatIntBuf" {
     var buffer: [max_int_digits]u8 = undefined;
     const buf = buffer[0..];
     assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
@@ -835,7 +841,7 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: u
     return buf[0..formatIntBuf(buf, value, base, uppercase, width)];
 }
 
-test "parse u64 digit too big" {
+test "std.fmt.parseUnsigned u64 digit too big" {
     _ = parseUnsigned(u64, "123a", 10) catch |err| {
         if (err == error.InvalidCharacter) return;
         unreachable;
@@ -843,13 +849,13 @@ test "parse u64 digit too big" {
     unreachable;
 }
 
-test "parse unsigned comptime" {
+test "std.fmt.parseUnsigned comptime" {
     comptime {
         assert((try parseUnsigned(usize, "2", 10)) == 2);
     }
 }
 
-test "fmt.format" {
+test "std.fmt.format" {
     {
         const value: ?i32 = 1234;
         try testFmt("optional: 1234\n", "optional: {}\n", value);
@@ -892,8 +898,154 @@ test "fmt.format" {
     }
     {
         const value = @intToPtr(*i32, 0xdeadbeef);
+        // Print Pointer Path3
         try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", value);
         try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", value);
+    }
+    {
+        var value = "abc";
+        try testFmt("var []u8: abc\n", "var []u8: {}\n", value);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        const value = "abc";
+
+        const expected = try bufPrint(buf2[0..], "&value: [3]u8@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf1[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value: u1 = 1;
+
+        const expected = try bufPrint(buf1[0..], "&value: u1@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value: u8 = 8;
+
+        const expected = try bufPrint(buf1[0..], "&value: u8@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value: u127 = 127;
+
+        const expected = try bufPrint(buf1[0..], "&value: u127@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value: u128 = 128;
+
+        const expected = try bufPrint(buf1[0..], "&value: u128@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value: i2 = -1;
+
+        const expected = try bufPrint(buf1[0..], "&value: i2@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value: i8 = -8;
+
+        const expected = try bufPrint(buf1[0..], "&value: i8@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value: i127 = -127;
+
+        const expected = try bufPrint(buf1[0..], "&value: i127@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value: i128 = -128;
+
+        const expected = try bufPrint(buf1[0..], "&value: i128@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value = []u64 { 123 };
+
+        // Print Pointer Path1
+        const expected = try bufPrint(buf1[0..], "&value: [1]u64@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value = []u64 { 123 };
+
+        // Before support for address printing using {*} this exercised Print Pointer Path1
+        const expected = try bufPrint(buf1[0..], "&value: [1]u64@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "&value: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        const value = ([][*]const u8){
+            c"one",
+            c"two",
+            c"three",
+        };
+
+        // Validate value[0] is a Pointer and Pointer.Size.Many so we use expected Path
+        const u32_ptr_info = @typeInfo(@typeOf(value[0]));
+        assert(TypeId(u32_ptr_info) == TypeId.Pointer);
+        assert(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+
+        // Before support for address printing using {*} this exercised Print Pointer Path4
+        const expected = try bufPrint(buf1[0..], "value[0]: u8@{x}", @ptrToInt(value[0]));
+        const actual = try bufPrint(buf2[0..], "value[0]: {*}", value[0]);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value = []u16{1, 2};
+
+        // Before support for address printing using {*} this exercised Print Pointer Path5
+        const expected = try bufPrint(buf1[0..], "value[0]: [2]u16@{x}", @ptrToInt(&value[0]));
+        const actual = try bufPrint(buf2[0..], "value[0]: {*}", &value);
+        try testExpectedActual(expected, actual);
+    }
+    {
+        // Slice
+        var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
+        var value = []u16{1, 2};
+
+        // Print Pointer Path4
+        var expected = try bufPrint(buf1[0..], "value: u16@{x}", @ptrToInt(&value[0]));
+        var actual = try bufPrint(buf2[0..], "value: {*}", value[0..].ptr);
+        try testExpectedActual(expected, actual);
     }
     try testFmt("buf: Test \n", "buf: {s5}\n", "Test");
     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", "Test");
@@ -907,9 +1059,13 @@ test "fmt.format" {
             unused: u8,
         };
         var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
         const value = Struct{ .unused = 42 };
-        const result = try bufPrint(buf1[0..], "pointer: {}\n", &value);
-        assert(mem.startsWith(u8, result, "pointer: Struct@"));
+
+        // Before support for address printing using {*} this exercised Print Pointer Path2
+        const expected = try bufPrint(buf1[0..], "pointer: Struct@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "pointer: {*}", &value);
+        try testExpectedActual(expected, actual);
     }
     {
         var buf1: [32]u8 = undefined;
@@ -1145,26 +1301,34 @@ test "fmt.format" {
         };
 
         var buf1: [32]u8 = undefined;
+        var buf2: [32]u8 = undefined;
         var value = Vec2{
             .x = 10.2,
             .y = 2.22,
         };
         try testFmt("point: (10.200,2.220)\n", "point: {}\n", &value);
         try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", &value);
+        const expected = try bufPrint(buf1[0..], "point addr: Vec2@{x}", @ptrToInt(&value));
+        const actual = try bufPrint(buf2[0..], "point addr: {*}", &value);
+        try testExpectedActual(expected, actual);
     }
+}
+
+pub fn testExpectedActual(expected: []const u8, actual: []const u8) !void {
+    if (mem.eql(u8, expected, actual)) return;
+
+    std.debug.warn("\n====== expected this output: =========\n");
+    std.debug.warn("{}", expected);
+    std.debug.warn("\n======== instead found this: =========\n");
+    std.debug.warn("{}", actual);
+    std.debug.warn("\n======================================\n");
+    return error.TestFailed;
 }
 
 fn testFmt(expected: []const u8, comptime template: []const u8, args: ...) !void {
     var buf: [100]u8 = undefined;
     const result = try bufPrint(buf[0..], template, args);
-    if (mem.eql(u8, result, expected)) return;
-
-    std.debug.warn("\n====== expected this output: =========\n");
-    std.debug.warn("{}", expected);
-    std.debug.warn("\n======== instead found this: =========\n");
-    std.debug.warn("{}", result);
-    std.debug.warn("\n======================================\n");
-    return error.TestFailed;
+    return testExpectedActual(expected, result);
 }
 
 pub fn trim(buf: []const u8) []const u8 {
@@ -1185,7 +1349,7 @@ pub fn trim(buf: []const u8) []const u8 {
     return buf[start..end];
 }
 
-test "fmt.trim" {
+test "std.fmt.trim" {
     assert(mem.eql(u8, "abc", trim("\n  abc  \t")));
     assert(mem.eql(u8, "", trim("   ")));
     assert(mem.eql(u8, "", trim("")));
