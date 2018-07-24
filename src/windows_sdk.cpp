@@ -287,7 +287,10 @@ ZigFindWindowsSdkError zig_find_windows_sdk(struct ZigWindowsSDK **out_sdk) {
         }
         rc = RegQueryValueEx(key, "KitsRoot10", NULL, NULL, (LPBYTE)priv->base.path10_ptr, &tmp_buf_len);
         if (rc == ERROR_SUCCESS) {
-            priv->base.path10_len = tmp_buf_len;
+            priv->base.path10_len = tmp_buf_len - 1;
+            if (priv->base.path10_ptr[priv->base.path10_len - 1] == '\\') {
+                priv->base.path10_len -= 1;
+            }
         } else {
             free((void*)priv->base.path10_ptr);
             priv->base.path10_ptr = nullptr;
@@ -302,7 +305,10 @@ ZigFindWindowsSdkError zig_find_windows_sdk(struct ZigWindowsSDK **out_sdk) {
         }
         rc = RegQueryValueEx(key, "KitsRoot81", NULL, NULL, (LPBYTE)priv->base.path81_ptr, &tmp_buf_len);
         if (rc == ERROR_SUCCESS) {
-            priv->base.path81_len = tmp_buf_len;
+            priv->base.path81_len = tmp_buf_len - 1;
+            if (priv->base.path81_ptr[priv->base.path81_len - 1] == '\\') {
+                priv->base.path81_len -= 1;
+            }
         } else {
             free((void*)priv->base.path81_ptr);
             priv->base.path81_ptr = nullptr;

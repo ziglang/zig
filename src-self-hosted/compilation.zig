@@ -276,6 +276,7 @@ pub const Compilation = struct {
         LibCRequiredButNotProvidedOrFound,
         LibCMissingDynamicLinker,
         InvalidDarwinVersionString,
+        UnsupportedLinkArchitecture,
     };
 
     pub const Event = union(enum) {

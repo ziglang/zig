@@ -139,7 +139,9 @@ pub const File = struct {
 
             const err = windows.GetLastError();
             switch (err) {
-                windows.ERROR.FILE_NOT_FOUND => return error.NotFound,
+                windows.ERROR.FILE_NOT_FOUND,
+                windows.ERROR.PATH_NOT_FOUND,
+                => return error.NotFound,
                 windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
                 else => return os.unexpectedErrorWindows(err),
             }

@@ -20,8 +20,10 @@ pub const LibCInstallation = struct {
         CCompilerExitCode,
         CCompilerCrashed,
         CCompilerCannotFindHeaders,
-        CCompilerCannotFindCRuntime,
+        LibCRuntimeNotFound,
         LibCStdLibHeaderNotFound,
+        LibCKernel32LibNotFound,
+        UnsupportedArchitecture,
     };
 
     pub fn parse(
@@ -111,7 +113,7 @@ pub const LibCInstallation = struct {
             \\lib_dir={}
             \\
             \\# The directory that contains `crtbegin.o`.
-            \\# On Linux, can be found with `cc -print-file-name=crt1.o`.
+            \\# On Linux, can be found with `cc -print-file-name=crtbegin.o`.
             \\# Not needed when targeting MacOS or Windows.
             \\static_lib_dir={}
             \\
@@ -142,21 +144,22 @@ pub const LibCInstallation = struct {
         self.initEmpty();
         var group = event.Group(FindError!void).init(loop);
         errdefer group.cancelAll();
+        var windows_sdk: ?*c.ZigWindowsSDK = null;
+        errdefer if (windows_sdk) |sdk| c.zig_free_windows_sdk(@ptrCast(?[*]c.ZigWindowsSDK, sdk));
+
         switch (builtin.os) {
             builtin.Os.windows => {
                 var sdk: *c.ZigWindowsSDK = undefined;
                 switch (c.zig_find_windows_sdk(@ptrCast(?[*]?[*]c.ZigWindowsSDK, &sdk))) {
                     c.ZigFindWindowsSdkError.None => {
-                        defer c.zig_free_windows_sdk(@ptrCast(?[*]c.ZigWindowsSDK, sdk));
+                        windows_sdk = sdk;
 
-                        errdefer if (self.msvc_lib_dir) |s| loop.allocator.free(s);
                         if (sdk.msvc_lib_dir_ptr) |ptr| {
                             self.msvc_lib_dir = try std.mem.dupe(loop.allocator, u8, ptr[0..sdk.msvc_lib_dir_len]);
                         }
-                        //try group.call(findNativeIncludeDirWindows, self, loop);
-                        //try group.call(findNativeLibDirWindows, self, loop);
-                        //try group.call(findNativeMsvcLibDir, self, loop);
-                        //try group.call(findNativeKernel32LibDir, self, loop);
+                        try group.call(findNativeKernel32LibDir, self, loop, sdk);
+                        try group.call(findNativeIncludeDirWindows, self, loop, sdk);
+                        try group.call(findNativeLibDirWindows, self, loop, sdk);
                     },
                     c.ZigFindWindowsSdkError.OutOfMemory => return error.OutOfMemory,
                     c.ZigFindWindowsSdkError.NotFound => return error.NotFound,
@@ -230,61 +233,64 @@ pub const LibCInstallation = struct {
             const stdlib_path = try std.os.path.join(loop.allocator, search_path, "stdlib.h");
             defer loop.allocator.free(stdlib_path);
 
-            if (std.os.File.access(loop.allocator, stdlib_path)) |_| {
+            if (try fileExists(loop.allocator, stdlib_path)) {
                 self.include_dir = try std.mem.dupe(loop.allocator, u8, search_path);
                 return;
-            } else |err| switch (err) {
-                error.NotFound, error.PermissionDenied => continue,
-                error.OutOfMemory => return error.OutOfMemory,
-                else => return error.FileSystem,
             }
         }
 
         return error.LibCStdLibHeaderNotFound;
     }
 
-    async fn findNativeIncludeDirWindows(self: *LibCInstallation, loop: *event.Loop) !void {
-        // TODO
-        //ZigWindowsSDK *sdk = get_windows_sdk(g);
-        //g->libc_include_dir = buf_alloc();
-        //if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
-        //    fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
-        //    exit(1);
-        //}
-        @panic("TODO");
+    async fn findNativeIncludeDirWindows(self: *LibCInstallation, loop: *event.Loop, sdk: *c.ZigWindowsSDK) !void {
+        var search_buf: [2]Search = undefined;
+        const searches = fillSearch(&search_buf, sdk);
+
+        var result_buf = try std.Buffer.initSize(loop.allocator, 0);
+        defer result_buf.deinit();
+
+        for (searches) |search| {
+            result_buf.shrink(0);
+            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            try stream.print("{}\\Include\\{}\\ucrt", search.path, search.version);
+
+            const stdlib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "stdlib.h");
+            defer loop.allocator.free(stdlib_path);
+
+            if (try fileExists(loop.allocator, stdlib_path)) {
+                self.include_dir = result_buf.toOwnedSlice();
+                return;
+            }
+        }
+
+        return error.LibCStdLibHeaderNotFound;
     }
 
-    async fn findNativeLibDirWindows(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        // TODO
-        //ZigWindowsSDK *sdk = get_windows_sdk(g);
+    async fn findNativeLibDirWindows(self: *LibCInstallation, loop: *event.Loop, sdk: *c.ZigWindowsSDK) FindError!void {
+        var search_buf: [2]Search = undefined;
+        const searches = fillSearch(&search_buf, sdk);
 
-        //if (g->msvc_lib_dir == nullptr) {
-        //    Buf* vc_lib_dir = buf_alloc();
-        //    if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
-        //        fprintf(stderr, "Unable to determine vcruntime path. --msvc-lib-dir");
-        //        exit(1);
-        //    }
-        //    g->msvc_lib_dir = vc_lib_dir;
-        //}
+        var result_buf = try std.Buffer.initSize(loop.allocator, 0);
+        defer result_buf.deinit();
 
-        //if (g->libc_lib_dir == nullptr) {
-        //    Buf* ucrt_lib_path = buf_alloc();
-        //    if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
-        //        fprintf(stderr, "Unable to determine ucrt path. --libc-lib-dir");
-        //        exit(1);
-        //    }
-        //    g->libc_lib_dir = ucrt_lib_path;
-        //}
-
-        //if (g->kernel32_lib_dir == nullptr) {
-        //    Buf* kern_lib_path = buf_alloc();
-        //    if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
-        //        fprintf(stderr, "Unable to determine kernel32 path. --kernel32-lib-dir");
-        //        exit(1);
-        //    }
-        //    g->kernel32_lib_dir = kern_lib_path;
-        //}
-        @panic("TODO");
+        for (searches) |search| {
+            result_buf.shrink(0);
+            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            try stream.print("{}\\Lib\\{}\\ucrt\\", search.path, search.version);
+            switch (builtin.arch) {
+                builtin.Arch.i386 => try stream.write("x86"),
+                builtin.Arch.x86_64 => try stream.write("x64"),
+                builtin.Arch.aarch64 => try stream.write("arm"),
+                else => return error.UnsupportedArchitecture,
+            }
+            const ucrt_lib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "ucrt.lib");
+            defer loop.allocator.free(ucrt_lib_path);
+            if (try fileExists(loop.allocator, ucrt_lib_path)) {
+                self.lib_dir = result_buf.toOwnedSlice();
+                return;
+            }
+        }
+        return error.LibCRuntimeNotFound;
     }
 
     async fn findNativeLibDirLinux(self: *LibCInstallation, loop: *event.Loop) FindError!void {
@@ -330,17 +336,37 @@ pub const LibCInstallation = struct {
             dyn_test.result = result;
             return;
         } else |err| switch (err) {
-            error.CCompilerCannotFindCRuntime => return,
+            error.LibCRuntimeNotFound => return,
             else => return err,
         }
     }
 
-    async fn findNativeMsvcLibDir(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        @panic("TODO");
-    }
 
-    async fn findNativeKernel32LibDir(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        @panic("TODO");
+    async fn findNativeKernel32LibDir(self: *LibCInstallation, loop: *event.Loop, sdk: *c.ZigWindowsSDK) FindError!void {
+        var search_buf: [2]Search = undefined;
+        const searches = fillSearch(&search_buf, sdk);
+
+        var result_buf = try std.Buffer.initSize(loop.allocator, 0);
+        defer result_buf.deinit();
+
+        for (searches) |search| {
+            result_buf.shrink(0);
+            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            try stream.print("{}\\Lib\\{}\\um\\", search.path, search.version);
+            switch (builtin.arch) {
+                builtin.Arch.i386 => try stream.write("x86\\"),
+                builtin.Arch.x86_64 => try stream.write("x64\\"),
+                builtin.Arch.aarch64 => try stream.write("arm\\"),
+                else => return error.UnsupportedArchitecture,
+            }
+            const kernel32_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "kernel32.lib");
+            defer loop.allocator.free(kernel32_path);
+            if (try fileExists(loop.allocator, kernel32_path)) {
+                self.kernel32_lib_dir = result_buf.toOwnedSlice();
+                return;
+            }
+        }
+        return error.LibCKernel32LibNotFound;
     }
 
     fn initEmpty(self: *LibCInstallation) void {
@@ -386,12 +412,51 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
         },
     }
     var it = std.mem.split(exec_result.stdout, "\n\r");
-    const line = it.next() orelse return error.CCompilerCannotFindCRuntime;
-    const dirname = std.os.path.dirname(line) orelse return error.CCompilerCannotFindCRuntime;
+    const line = it.next() orelse return error.LibCRuntimeNotFound;
+    const dirname = std.os.path.dirname(line) orelse return error.LibCRuntimeNotFound;
 
     if (want_dirname) {
         return std.mem.dupe(loop.allocator, u8, dirname);
     } else {
         return std.mem.dupe(loop.allocator, u8, line);
+    }
+}
+
+const Search = struct {
+    path: []const u8,
+    version: []const u8,
+};
+
+fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
+    var search_end: usize = 0;
+    if (sdk.path10_ptr) |path10_ptr| {
+        if (sdk.version10_ptr) |ver10_ptr| {
+            search_buf[search_end] = Search{
+                .path = path10_ptr[0..sdk.path10_len],
+                .version = ver10_ptr[0..sdk.version10_len],
+            };
+            search_end += 1;
+        }
+    }
+    if (sdk.path81_ptr) |path81_ptr| {
+        if (sdk.version81_ptr) |ver81_ptr| {
+            search_buf[search_end] = Search{
+                .path = path81_ptr[0..sdk.path81_len],
+                .version = ver81_ptr[0..sdk.version81_len],
+            };
+            search_end += 1;
+        }
+    }
+    return search_buf[0..search_end];
+}
+
+
+fn fileExists(allocator: *std.mem.Allocator, path: []const u8) !bool {
+    if (std.os.File.access(allocator, path)) |_| {
+        return true;
+    } else |err| switch (err) {
+        error.NotFound, error.PermissionDenied => return false,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.FileSystem,
     }
 }
