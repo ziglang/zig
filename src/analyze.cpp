@@ -3941,7 +3941,7 @@ AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
         return nullptr;
 }
 
-static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars) {
+static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry) {
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -3978,10 +3978,6 @@ static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entr
 
         if (fn_type->data.fn.gen_param_info) {
             var->gen_arg_index = fn_type->data.fn.gen_param_info[i].gen_index;
-        }
-
-        if (arg_vars) {
-            arg_vars[i] = var;
         }
     }
 }
@@ -4082,7 +4078,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (!fn_table_entry->child_scope)
         fn_table_entry->child_scope = &fn_table_entry->fndef_scope->base;
 
-    define_local_param_variables(g, fn_table_entry, nullptr);
+    define_local_param_variables(g, fn_table_entry);
 
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);

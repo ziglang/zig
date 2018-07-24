@@ -281,11 +281,13 @@ pub const Inst = struct {
                 return error.SemanticAnalysisFailed;
             };
 
-            if (fn_type.params.len != self.params.args.len) {
+            const fn_type_param_count = fn_type.paramCount();
+
+            if (fn_type_param_count != self.params.args.len) {
                 try ira.addCompileError(
                     self.base.span,
                     "expected {} arguments, found {}",
-                    fn_type.params.len,
+                    fn_type_param_count,
                     self.params.args.len,
                 );
                 return error.SemanticAnalysisFailed;
@@ -299,7 +301,7 @@ pub const Inst = struct {
                 .fn_ref = fn_ref,
                 .args = args,
             });
-            new_inst.val = IrVal{ .KnownType = fn_type.return_type };
+            new_inst.val = IrVal{ .KnownType = fn_type.key.data.Normal.return_type };
             return new_inst;
         }
 

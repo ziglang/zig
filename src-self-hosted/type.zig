@@ -221,57 +221,267 @@ pub const Type = struct {
 
     pub const Fn = struct {
         base: Type,
-        return_type: *Type,
-        params: []Param,
-        is_var_args: bool,
+        key: Key,
+        garbage_node: std.atomic.Stack(*Fn).Node,
+
+        pub const Key = struct {
+            data: Data,
+            alignment: ?u32,
+
+            pub const Data = union(enum) {
+                Generic: Generic,
+                Normal: Normal,
+            };
+
+            pub fn hash(self: *const Key) u32 {
+                var result: u32 = 0;
+                result +%= hashAny(self.alignment, 0);
+                switch (self.data) {
+                    Data.Generic => |generic| {
+                        result +%= hashAny(generic.param_count, 1);
+                        switch (generic.cc) {
+                            CallingConvention.Async => |allocator_type| result +%= hashAny(allocator_type, 2),
+                            else => result +%= hashAny(CallingConvention(generic.cc), 3),
+                        }
+                    },
+                    Data.Normal => |normal| {
+                        result +%= hashAny(normal.return_type, 4);
+                        result +%= hashAny(normal.is_var_args, 5);
+                        result +%= hashAny(normal.cc, 6);
+                        for (normal.params) |param| {
+                            result +%= hashAny(param.is_noalias, 7);
+                            result +%= hashAny(param.typ, 8);
+                        }
+                    },
+                }
+                return result;
+            }
+
+            pub fn eql(self: *const Key, other: *const Key) bool {
+                if ((self.alignment == null) != (other.alignment == null)) return false;
+                if (self.alignment) |self_align| {
+                    if (self_align != other.alignment.?) return false;
+                }
+                if (@TagType(Data)(self.data) != @TagType(Data)(other.data)) return false;
+                switch (self.data) {
+                    Data.Generic => |*self_generic| {
+                        const other_generic = &other.data.Generic;
+                        if (self_generic.param_count != other_generic.param_count) return false;
+                        if (CallingConvention(self_generic.cc) != CallingConvention(other_generic.cc)) return false;
+                        switch (self_generic.cc) {
+                            CallingConvention.Async => |self_allocator_type| {
+                                const other_allocator_type = other_generic.cc.Async;
+                                if (self_allocator_type != other_allocator_type) return false;
+                            },
+                            else => {},
+                        }
+                    },
+                    Data.Normal => |*self_normal| {
+                        const other_normal = &other.data.Normal;
+                        if (self_normal.cc != other_normal.cc) return false;
+                        if (self_normal.is_var_args != other_normal.is_var_args) return false;
+                        if (self_normal.return_type != other_normal.return_type) return false;
+                        for (self_normal.params) |*self_param, i| {
+                            const other_param = &other_normal.params[i];
+                            if (self_param.is_noalias != other_param.is_noalias) return false;
+                            if (self_param.typ != other_param.typ) return false;
+                        }
+                    },
+                }
+                return true;
+            }
+
+            pub fn deref(key: Key, comp: *Compilation) void {
+                switch (key.data) {
+                    Key.Data.Generic => |generic| {
+                        switch (generic.cc) {
+                            CallingConvention.Async => |allocator_type| allocator_type.base.deref(comp),
+                            else => {},
+                        }
+                    },
+                    Key.Data.Normal => |normal| {
+                        normal.return_type.base.deref(comp);
+                        for (normal.params) |param| {
+                            param.typ.base.deref(comp);
+                        }
+                    },
+                }
+            }
+
+            pub fn ref(key: Key) void {
+                switch (key.data) {
+                    Key.Data.Generic => |generic| {
+                        switch (generic.cc) {
+                            CallingConvention.Async => |allocator_type| allocator_type.base.ref(),
+                            else => {},
+                        }
+                    },
+                    Key.Data.Normal => |normal| {
+                        normal.return_type.base.ref();
+                        for (normal.params) |param| {
+                            param.typ.base.ref();
+                        }
+                    },
+                }
+            }
+        };
+
+        pub const Normal = struct {
+            params: []Param,
+            return_type: *Type,
+            is_var_args: bool,
+            cc: CallingConvention,
+        };
+
+        pub const Generic = struct {
+            param_count: usize,
+            cc: CC,
+
+            pub const CC = union(CallingConvention) {
+                Auto,
+                C,
+                Cold,
+                Naked,
+                Stdcall,
+                Async: *Type, // allocator type
+            };
+        };
+
+        pub const CallingConvention = enum {
+            Auto,
+            C,
+            Cold,
+            Naked,
+            Stdcall,
+            Async,
+        };
 
         pub const Param = struct {
             is_noalias: bool,
             typ: *Type,
         };
 
-        pub fn create(comp: *Compilation, return_type: *Type, params: []Param, is_var_args: bool) !*Fn {
-            const result = try comp.gpa().create(Fn{
-                .base = undefined,
-                .return_type = return_type,
-                .params = params,
-                .is_var_args = is_var_args,
-            });
-            errdefer comp.gpa().destroy(result);
+        fn ccFnTypeStr(cc: CallingConvention) []const u8 {
+            return switch (cc) {
+                CallingConvention.Auto => "",
+                CallingConvention.C => "extern ",
+                CallingConvention.Cold => "coldcc ",
+                CallingConvention.Naked => "nakedcc ",
+                CallingConvention.Stdcall => "stdcallcc ",
+                CallingConvention.Async => unreachable,
+            };
+        }
 
-            result.base.init(comp, Id.Fn, "TODO fn type name");
+        pub fn paramCount(self: *Fn) usize {
+            return switch (self.key.data) {
+                Key.Data.Generic => |generic| generic.param_count,
+                Key.Data.Normal => |normal| normal.params.len,
+            };
+        }
 
-            result.return_type.base.ref();
-            for (result.params) |param| {
-                param.typ.base.ref();
+        /// takes ownership of key.Normal.params on success
+        pub async fn get(comp: *Compilation, key: Key) !*Fn {
+            {
+                const held = await (async comp.fn_type_table.acquire() catch unreachable);
+                defer held.release();
+
+                if (held.value.get(&key)) |entry| {
+                    entry.value.base.base.ref();
+                    return entry.value;
+                }
             }
-            return result;
+
+            key.ref();
+            errdefer key.deref(comp);
+
+            const self = try comp.gpa().create(Fn{
+                .base = undefined,
+                .key = key,
+                .garbage_node = undefined,
+            });
+            errdefer comp.gpa().destroy(self);
+
+            var name_buf = try std.Buffer.initSize(comp.gpa(), 0);
+            defer name_buf.deinit();
+
+            const name_stream = &std.io.BufferOutStream.init(&name_buf).stream;
+
+            switch (key.data) {
+                Key.Data.Generic => |generic| {
+                    switch (generic.cc) {
+                        CallingConvention.Async => |async_allocator_type| {
+                            try name_stream.print("async<{}> ", async_allocator_type.name);
+                        },
+                        else => {
+                            const cc_str = ccFnTypeStr(generic.cc);
+                            try name_stream.write(cc_str);
+                        },
+                    }
+                    try name_stream.write("fn(");
+                    var param_i: usize = 0;
+                    while (param_i < generic.param_count) : (param_i += 1) {
+                        const arg = if (param_i == 0) "var" else ", var";
+                        try name_stream.write(arg);
+                    }
+                    try name_stream.write(")");
+                    if (key.alignment) |alignment| {
+                        try name_stream.print(" align<{}>", alignment);
+                    }
+                    try name_stream.write(" var");
+                },
+                Key.Data.Normal => |normal| {
+                    const cc_str = ccFnTypeStr(normal.cc);
+                    try name_stream.print("{}fn(", cc_str);
+                    for (normal.params) |param, i| {
+                        if (i != 0) try name_stream.write(", ");
+                        if (param.is_noalias) try name_stream.write("noalias ");
+                        try name_stream.write(param.typ.name);
+                    }
+                    if (normal.is_var_args) {
+                        if (normal.params.len != 0) try name_stream.write(", ");
+                        try name_stream.write("...");
+                    }
+                    try name_stream.write(")");
+                    if (key.alignment) |alignment| {
+                        try name_stream.print(" align<{}>", alignment);
+                    }
+                    try name_stream.print(" {}", normal.return_type.name);
+                },
+            }
+
+            self.base.init(comp, Id.Fn, name_buf.toOwnedSlice());
+
+            {
+                const held = await (async comp.fn_type_table.acquire() catch unreachable);
+                defer held.release();
+
+                _ = try held.value.put(&self.key, self);
+            }
+            return self;
         }
 
         pub fn destroy(self: *Fn, comp: *Compilation) void {
-            self.return_type.base.deref(comp);
-            for (self.params) |param| {
-                param.typ.base.deref(comp);
-            }
+            self.key.deref(comp);
             comp.gpa().destroy(self);
         }
 
         pub fn getLlvmType(self: *Fn, allocator: *Allocator, llvm_context: llvm.ContextRef) !llvm.TypeRef {
-            const llvm_return_type = switch (self.return_type.id) {
+            const normal = &self.key.data.Normal;
+            const llvm_return_type = switch (normal.return_type.id) {
                 Type.Id.Void => llvm.VoidTypeInContext(llvm_context) orelse return error.OutOfMemory,
-                else => try self.return_type.getLlvmType(allocator, llvm_context),
+                else => try normal.return_type.getLlvmType(allocator, llvm_context),
             };
-            const llvm_param_types = try allocator.alloc(llvm.TypeRef, self.params.len);
+            const llvm_param_types = try allocator.alloc(llvm.TypeRef, normal.params.len);
             defer allocator.free(llvm_param_types);
             for (llvm_param_types) |*llvm_param_type, i| {
-                llvm_param_type.* = try self.params[i].typ.getLlvmType(allocator, llvm_context);
+                llvm_param_type.* = try normal.params[i].typ.getLlvmType(allocator, llvm_context);
             }
 
             return llvm.FunctionType(
                 llvm_return_type,
                 llvm_param_types.ptr,
                 @intCast(c_uint, llvm_param_types.len),
-                @boolToInt(self.is_var_args),
+                @boolToInt(normal.is_var_args),
             ) orelse error.OutOfMemory;
         }
     };
@@ -347,8 +557,10 @@ pub const Type = struct {
             is_signed: bool,
 
             pub fn hash(self: *const Key) u32 {
-                const rands = [2]u32{ 0xa4ba6498, 0x75fc5af7 };
-                return rands[@boolToInt(self.is_signed)] *% self.bit_count;
+                var result: u32 = 0;
+                result +%= hashAny(self.is_signed, 0);
+                result +%= hashAny(self.bit_count, 1);
+                return result;
             }
 
             pub fn eql(self: *const Key, other: *const Key) bool {
@@ -443,15 +655,16 @@ pub const Type = struct {
             alignment: Align,
 
             pub fn hash(self: *const Key) u32 {
-                const align_hash = switch (self.alignment) {
+                var result: u32 = 0;
+                result +%= switch (self.alignment) {
                     Align.Abi => 0xf201c090,
-                    Align.Override => |x| x,
+                    Align.Override => |x| hashAny(x, 0),
                 };
-                return hash_usize(@ptrToInt(self.child_type)) *%
-                    hash_enum(self.mut) *%
-                    hash_enum(self.vol) *%
-                    hash_enum(self.size) *%
-                    align_hash;
+                result +%= hashAny(self.child_type, 1);
+                result +%= hashAny(self.mut, 2);
+                result +%= hashAny(self.vol, 3);
+                result +%= hashAny(self.size, 4);
+                return result;
             }
 
             pub fn eql(self: *const Key, other: *const Key) bool {
@@ -605,7 +818,10 @@ pub const Type = struct {
             len: usize,
 
             pub fn hash(self: *const Key) u32 {
-                return hash_usize(@ptrToInt(self.elem_type)) *% hash_usize(self.len);
+                var result: u32 = 0;
+                result +%= hashAny(self.elem_type, 0);
+                result +%= hashAny(self.len, 1);
+                return result;
             }
 
             pub fn eql(self: *const Key, other: *const Key) bool {
@@ -818,27 +1034,37 @@ pub const Type = struct {
     };
 };
 
-fn hash_usize(x: usize) u32 {
-    return switch (@sizeOf(usize)) {
-        4 => x,
-        8 => @truncate(u32, x *% 0xad44ee2d8e3fc13d),
-        else => @compileError("implement this hash function"),
-    };
-}
-
-fn hash_enum(x: var) u32 {
-    const rands = []u32{
-        0x85ebf64f,
-        0x3fcb3211,
-        0x240a4e8e,
-        0x40bb0e3c,
-        0x78be45af,
-        0x1ca98e37,
-        0xec56053a,
-        0x906adc48,
-        0xd4fe9763,
-        0x54c80dac,
-    };
-    comptime assert(@memberCount(@typeOf(x)) < rands.len);
-    return rands[@enumToInt(x)];
+fn hashAny(x: var, comptime seed: u64) u32 {
+    switch (@typeInfo(@typeOf(x))) {
+        builtin.TypeId.Int => |info| {
+            comptime var rng = comptime std.rand.DefaultPrng.init(seed);
+            const unsigned_x = @bitCast(@IntType(false, info.bits), x);
+            if (info.bits <= 32) {
+                return u32(unsigned_x) *% comptime rng.random.scalar(u32);
+            } else {
+                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@typeOf(unsigned_x)));
+            }
+        },
+        builtin.TypeId.Pointer => |info| {
+            switch (info.size) {
+                builtin.TypeInfo.Pointer.Size.One => return hashAny(@ptrToInt(x), seed),
+                builtin.TypeInfo.Pointer.Size.Many => @compileError("implement hash function"),
+                builtin.TypeInfo.Pointer.Size.Slice => @compileError("implement hash function"),
+            }
+        },
+        builtin.TypeId.Enum => return hashAny(@enumToInt(x), seed),
+        builtin.TypeId.Bool => {
+            comptime var rng = comptime std.rand.DefaultPrng.init(seed);
+            const vals = comptime [2]u32{ rng.random.scalar(u32), rng.random.scalar(u32) };
+            return vals[@boolToInt(x)];
+        },
+        builtin.TypeId.Optional => {
+            if (x) |non_opt| {
+                return hashAny(non_opt, seed);
+            } else {
+                return hashAny(u32(1), seed);
+            }
+        },
+        else => @compileError("implement hash function for " ++ @typeName(@typeOf(x))),
+    }
 }

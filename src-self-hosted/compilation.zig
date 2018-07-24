@@ -220,12 +220,14 @@ pub const Compilation = struct {
     int_type_table: event.Locked(IntTypeTable),
     array_type_table: event.Locked(ArrayTypeTable),
     ptr_type_table: event.Locked(PtrTypeTable),
+    fn_type_table: event.Locked(FnTypeTable),
 
     c_int_types: [CInt.list.len]*Type.Int,
 
     const IntTypeTable = std.HashMap(*const Type.Int.Key, *Type.Int, Type.Int.Key.hash, Type.Int.Key.eql);
     const ArrayTypeTable = std.HashMap(*const Type.Array.Key, *Type.Array, Type.Array.Key.hash, Type.Array.Key.eql);
     const PtrTypeTable = std.HashMap(*const Type.Pointer.Key, *Type.Pointer, Type.Pointer.Key.hash, Type.Pointer.Key.eql);
+    const FnTypeTable = std.HashMap(*const Type.Fn.Key, *Type.Fn, Type.Fn.Key.hash, Type.Fn.Key.eql);
     const TypeTable = std.HashMap([]const u8, *Type, mem.hash_slice_u8, mem.eql_slice_u8);
 
     const CompileErrList = std.ArrayList(*Msg);
@@ -384,6 +386,7 @@ pub const Compilation = struct {
             .int_type_table = event.Locked(IntTypeTable).init(loop, IntTypeTable.init(loop.allocator)),
             .array_type_table = event.Locked(ArrayTypeTable).init(loop, ArrayTypeTable.init(loop.allocator)),
             .ptr_type_table = event.Locked(PtrTypeTable).init(loop, PtrTypeTable.init(loop.allocator)),
+            .fn_type_table = event.Locked(FnTypeTable).init(loop, FnTypeTable.init(loop.allocator)),
             .c_int_types = undefined,
 
             .meta_type = undefined,
@@ -414,6 +417,7 @@ pub const Compilation = struct {
             comp.int_type_table.private_data.deinit();
             comp.array_type_table.private_data.deinit();
             comp.ptr_type_table.private_data.deinit();
+            comp.fn_type_table.private_data.deinit();
             comp.arena_allocator.deinit();
             comp.loop.allocator.destroy(comp);
         }
@@ -1160,10 +1164,47 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     fn_decl.value = Decl.Fn.Val{ .Fn = fn_val };
     symbol_name_consumed = true;
 
+    // Define local parameter variables
+    //for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
+    //    FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
+    //    AstNode *param_decl_node = get_param_decl_node(fn_table_entry, i);
+    //    Buf *param_name;
+    //    bool is_var_args = param_decl_node && param_decl_node->data.param_decl.is_var_args;
+    //    if (param_decl_node && !is_var_args) {
+    //        param_name = param_decl_node->data.param_decl.name;
+    //    } else {
+    //        param_name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
+    //    }
+    //    if (param_name == nullptr) {
+    //        continue;
+    //    }
+
+    //    TypeTableEntry *param_type = param_info->type;
+    //    bool is_noalias = param_info->is_noalias;
+
+    //    if (is_noalias && get_codegen_ptr_type(param_type) == nullptr) {
+    //        add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
+    //    }
+
+    //    VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
+    //            param_name, true, create_const_runtime(param_type), nullptr);
+    //    var->src_arg_index = i;
+    //    fn_table_entry->child_scope = var->child_scope;
+    //    var->shadowable = var->shadowable || is_var_args;
+
+    //    if (type_has_bits(param_type)) {
+    //        fn_table_entry->variable_list.append(var);
+    //    }
+
+    //    if (fn_type->data.fn.gen_param_info) {
+    //        var->gen_arg_index = fn_type->data.fn.gen_param_info[i].gen_index;
+    //    }
+    //}
+
     const analyzed_code = try await (async comp.genAndAnalyzeCode(
         &fndef_scope.base,
         body_node,
-        fn_type.return_type,
+        fn_type.key.data.Normal.return_type,
     ) catch unreachable);
     errdefer analyzed_code.destroy(comp.gpa());
 
@@ -1199,14 +1240,13 @@ async fn analyzeFnType(comp: *Compilation, scope: *Scope, fn_proto: *ast.Node.Fn
 
     var params = ArrayList(Type.Fn.Param).init(comp.gpa());
     var params_consumed = false;
-    defer if (params_consumed) {
+    defer if (!params_consumed) {
         for (params.toSliceConst()) |param| {
             param.typ.base.deref(comp);
         }
         params.deinit();
     };
 
-    const is_var_args = false;
     {
         var it = fn_proto.params.iterator(0);
         while (it.next()) |param_node_ptr| {
@@ -1219,8 +1259,29 @@ async fn analyzeFnType(comp: *Compilation, scope: *Scope, fn_proto: *ast.Node.Fn
             });
         }
     }
-    const fn_type = try Type.Fn.create(comp, return_type, params.toOwnedSlice(), is_var_args);
+
+    const key = Type.Fn.Key{
+        .alignment = null,
+        .data = Type.Fn.Key.Data{
+            .Normal = Type.Fn.Normal{
+                .return_type = return_type,
+                .params = params.toOwnedSlice(),
+                .is_var_args = false, // TODO
+                .cc = Type.Fn.CallingConvention.Auto, // TODO
+            },
+        },
+    };
     params_consumed = true;
+    var key_consumed = false;
+    defer if (!key_consumed) {
+        for (key.data.Normal.params) |param| {
+            param.typ.base.deref(comp);
+        }
+        comp.gpa().free(key.data.Normal.params);
+    };
+
+    const fn_type = try await (async Type.Fn.get(comp, key) catch unreachable);
+    key_consumed = true;
     errdefer fn_type.base.base.deref(comp);
 
     return fn_type;

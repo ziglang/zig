@@ -168,6 +168,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     //}
 
     const fn_type = fn_val.base.typ.cast(Type.Fn).?;
+    const fn_type_normal = &fn_type.key.data.Normal;
 
     try addLLVMFnAttr(ofile, llvm_fn, "nounwind");
     //add_uwtable_attr(g, fn_table_entry->llvm_value);
@@ -209,7 +210,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     //    addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)err_ret_trace_arg_index, "nonnull");
     //}
 
-    const cur_ret_ptr = if (fn_type.return_type.handleIsPtr()) llvm.GetParam(llvm_fn, 0) else null;
+    const cur_ret_ptr = if (fn_type_normal.return_type.handleIsPtr()) llvm.GetParam(llvm_fn, 0) else null;
 
     // build all basic blocks
     for (code.basic_block_list.toSlice()) |bb| {
