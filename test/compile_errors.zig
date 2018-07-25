@@ -2,6 +2,20 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "non-inline for loop on a type that requires comptime",
+        \\const Foo = struct {
+        \\    name: []const u8,
+        \\    T: type,
+        \\};
+        \\export fn entry() void {
+        \\    const xx: [2]Foo = undefined;
+        \\    for (xx) |f| {}
+        \\}
+    ,
+        ".tmp_source.zig:7:15: error: variable of type 'Foo' must be const or comptime",
+    );
+
+    cases.add(
         "generic fn as parameter without comptime keyword",
         \\fn f(_: fn (var) void) void {}
         \\fn g(_: var) void {}

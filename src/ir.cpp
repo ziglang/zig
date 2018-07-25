@@ -12142,7 +12142,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             result_type = ira->codegen->builtin_types.entry_invalid;
         } else if (type_requires_comptime(result_type)) {
             var_class_requires_const = true;
-            if (!var->src_is_const && !is_comptime_var) {
+            if (!var->gen_is_const && !is_comptime_var) {
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("variable of type '%s' must be const or comptime",
                         buf_ptr(&result_type->name)));
