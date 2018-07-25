@@ -18991,6 +18991,9 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     } else if (type_entry->id == TypeTableEntryIdErrorUnion) {
         TypeTableEntry *payload_type = type_entry->data.error_union.payload_type;
+        if (type_is_invalid(payload_type)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
         TypeTableEntry *result_type = get_pointer_to_type_extra(ira->codegen, payload_type,
                 ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
                 PtrLenSingle,
