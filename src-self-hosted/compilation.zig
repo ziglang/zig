@@ -1165,48 +1165,46 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     symbol_name_consumed = true;
 
     // Define local parameter variables
-    //for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
-    //    FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
-    //    AstNode *param_decl_node = get_param_decl_node(fn_table_entry, i);
-    //    Buf *param_name;
-    //    bool is_var_args = param_decl_node && param_decl_node->data.param_decl.is_var_args;
-    //    if (param_decl_node && !is_var_args) {
-    //        param_name = param_decl_node->data.param_decl.name;
-    //    } else {
-    //        param_name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
-    //    }
-    //    if (param_name == nullptr) {
-    //        continue;
-    //    }
+    const root_scope = fn_decl.base.findRootScope();
+    for (fn_type.key.data.Normal.params) |param, i| {
+        //AstNode *param_decl_node = get_param_decl_node(fn_table_entry, i);
+        const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", fn_decl.fn_proto.params.at(i).*);
+        const name_token = param_decl.name_token orelse {
+            try comp.addCompileError(root_scope, Span{
+                .first = param_decl.firstToken(),
+                .last = param_decl.type_node.firstToken(),
+            }, "missing parameter name");
+            return error.SemanticAnalysisFailed;
+        };
+        const param_name = root_scope.tree.tokenSlice(name_token);
 
-    //    TypeTableEntry *param_type = param_info->type;
-    //    bool is_noalias = param_info->is_noalias;
+        // if (is_noalias && get_codegen_ptr_type(param_type) == nullptr) {
+        //     add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
+        // }
 
-    //    if (is_noalias && get_codegen_ptr_type(param_type) == nullptr) {
-    //        add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
-    //    }
+        // TODO check for shadowing
 
-    //    VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
-    //            param_name, true, create_const_runtime(param_type), nullptr);
-    //    var->src_arg_index = i;
-    //    fn_table_entry->child_scope = var->child_scope;
-    //    var->shadowable = var->shadowable || is_var_args;
+        const var_scope = try Scope.Var.createParam(
+            comp,
+            fn_val.child_scope,
+            param_name,
+            &param_decl.base,
+            i,
+            param.typ,
+        );
+        fn_val.child_scope = &var_scope.base;
 
-    //    if (type_has_bits(param_type)) {
-    //        fn_table_entry->variable_list.append(var);
-    //    }
-
-    //    if (fn_type->data.fn.gen_param_info) {
-    //        var->gen_arg_index = fn_type->data.fn.gen_param_info[i].gen_index;
-    //    }
-    //}
+        try fn_type.non_key.Normal.variable_list.append(var_scope);
+    }
 
     const analyzed_code = try await (async comp.genAndAnalyzeCode(
-        &fndef_scope.base,
+        fn_val.child_scope,
         body_node,
         fn_type.key.data.Normal.return_type,
     ) catch unreachable);
     errdefer analyzed_code.destroy(comp.gpa());
+
+    assert(fn_val.block_scope != null);
 
     // Kick off rendering to LLVM module, but it doesn't block the fn decl
     // analysis from being complete.
@@ -1263,7 +1261,7 @@ async fn analyzeFnType(comp: *Compilation, scope: *Scope, fn_proto: *ast.Node.Fn
     const key = Type.Fn.Key{
         .alignment = null,
         .data = Type.Fn.Key.Data{
-            .Normal = Type.Fn.Normal{
+            .Normal = Type.Fn.Key.Normal{
                 .return_type = return_type,
                 .params = params.toOwnedSlice(),
                 .is_var_args = false, // TODO

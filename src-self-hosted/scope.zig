@@ -6,23 +6,26 @@ const Compilation = @import("compilation.zig").Compilation;
 const mem = std.mem;
 const ast = std.zig.ast;
 const Value = @import("value.zig").Value;
+const Type = @import("type.zig").Type;
 const ir = @import("ir.zig");
 const Span = @import("errmsg.zig").Span;
 const assert = std.debug.assert;
 const event = std.event;
+const llvm = @import("llvm.zig");
 
 pub const Scope = struct {
     id: Id,
     parent: ?*Scope,
-    ref_count: usize,
+    ref_count: std.atomic.Int(usize),
 
+    /// Thread-safe
     pub fn ref(base: *Scope) void {
-        base.ref_count += 1;
+        _ = base.ref_count.incr();
     }
 
+    /// Thread-safe
     pub fn deref(base: *Scope, comp: *Compilation) void {
-        base.ref_count -= 1;
-        if (base.ref_count == 0) {
+        if (base.ref_count.decr() == 1) {
             if (base.parent) |parent| parent.deref(comp);
             switch (base.id) {
                 Id.Root => @fieldParentPtr(Root, "base", base).destroy(comp),
@@ -32,6 +35,7 @@ pub const Scope = struct {
                 Id.CompTime => @fieldParentPtr(CompTime, "base", base).destroy(comp),
                 Id.Defer => @fieldParentPtr(Defer, "base", base).destroy(comp),
                 Id.DeferExpr => @fieldParentPtr(DeferExpr, "base", base).destroy(comp),
+                Id.Var => @fieldParentPtr(Var, "base", base).destroy(comp),
             }
         }
     }
@@ -49,15 +53,15 @@ pub const Scope = struct {
         var scope = base;
         while (true) {
             switch (scope.id) {
-                Id.FnDef => return @fieldParentPtr(FnDef, "base", base),
-                Id.Decls => return null,
+                Id.FnDef => return @fieldParentPtr(FnDef, "base", scope),
+                Id.Root, Id.Decls => return null,
 
                 Id.Block,
                 Id.Defer,
                 Id.DeferExpr,
                 Id.CompTime,
-                Id.Root,
-                => scope = scope.parent orelse return null,
+                Id.Var,
+                => scope = scope.parent.?,
             }
         }
     }
@@ -66,7 +70,7 @@ pub const Scope = struct {
         var scope = base;
         while (true) {
             switch (scope.id) {
-                Id.DeferExpr => return @fieldParentPtr(DeferExpr, "base", base),
+                Id.DeferExpr => return @fieldParentPtr(DeferExpr, "base", scope),
 
                 Id.FnDef,
                 Id.Decls,
@@ -76,9 +80,19 @@ pub const Scope = struct {
                 Id.Defer,
                 Id.CompTime,
                 Id.Root,
+                Id.Var,
                 => scope = scope.parent orelse return null,
             }
         }
+    }
+
+    fn init(base: *Scope, id: Id, parent: *Scope) void {
+        base.* = Scope{
+            .id = id,
+            .parent = parent,
+            .ref_count = std.atomic.Int(usize).init(1),
+        };
+        parent.ref();
     }
 
     pub const Id = enum {
@@ -89,6 +103,7 @@ pub const Scope = struct {
         CompTime,
         Defer,
         DeferExpr,
+        Var,
     };
 
     pub const Root = struct {
@@ -100,16 +115,16 @@ pub const Scope = struct {
         /// Takes ownership of realpath
         /// Takes ownership of tree, will deinit and destroy when done.
         pub fn create(comp: *Compilation, tree: *ast.Tree, realpath: []u8) !*Root {
-            const self = try comp.gpa().create(Root{
+            const self = try comp.gpa().createOne(Root);
+            self.* = Root{
                 .base = Scope{
                     .id = Id.Root,
                     .parent = null,
-                    .ref_count = 1,
+                    .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .tree = tree,
                 .realpath = realpath,
-            });
-            errdefer comp.gpa().destroy(self);
+            };
 
             return self;
         }
@@ -137,16 +152,13 @@ pub const Scope = struct {
 
         /// Creates a Decls scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope) !*Decls {
-            const self = try comp.gpa().create(Decls{
-                .base = Scope{
-                    .id = Id.Decls,
-                    .parent = parent,
-                    .ref_count = 1,
-                },
+            const self = try comp.gpa().createOne(Decls);
+            self.* = Decls{
+                .base = undefined,
                 .table = event.Locked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
                 .name_future = event.Future(void).init(comp.loop),
-            });
-            parent.ref();
+            };
+            self.base.init(Id.Decls, parent);
             return self;
         }
 
@@ -199,21 +211,16 @@ pub const Scope = struct {
 
         /// Creates a Block scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope) !*Block {
-            const self = try comp.gpa().create(Block{
-                .base = Scope{
-                    .id = Id.Block,
-                    .parent = parent,
-                    .ref_count = 1,
-                },
+            const self = try comp.gpa().createOne(Block);
+            self.* = Block{
+                .base = undefined,
                 .incoming_values = undefined,
                 .incoming_blocks = undefined,
                 .end_block = undefined,
                 .is_comptime = undefined,
                 .safety = Safety.Auto,
-            });
-            errdefer comp.gpa().destroy(self);
-
-            parent.ref();
+            };
+            self.base.init(Id.Block, parent);
             return self;
         }
 
@@ -226,22 +233,17 @@ pub const Scope = struct {
         base: Scope,
 
         /// This reference is not counted so that the scope can get destroyed with the function
-        fn_val: *Value.Fn,
+        fn_val: ?*Value.Fn,
 
         /// Creates a FnDef scope with 1 reference
         /// Must set the fn_val later
         pub fn create(comp: *Compilation, parent: *Scope) !*FnDef {
-            const self = try comp.gpa().create(FnDef{
-                .base = Scope{
-                    .id = Id.FnDef,
-                    .parent = parent,
-                    .ref_count = 1,
-                },
-                .fn_val = undefined,
-            });
-
-            parent.ref();
-
+            const self = try comp.gpa().createOne(FnDef);
+            self.* = FnDef{
+                .base = undefined,
+                .fn_val = null,
+            };
+            self.base.init(Id.FnDef, parent);
             return self;
         }
 
@@ -255,15 +257,9 @@ pub const Scope = struct {
 
         /// Creates a CompTime scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope) !*CompTime {
-            const self = try comp.gpa().create(CompTime{
-                .base = Scope{
-                    .id = Id.CompTime,
-                    .parent = parent,
-                    .ref_count = 1,
-                },
-            });
-
-            parent.ref();
+            const self = try comp.gpa().createOne(CompTime);
+            self.* = CompTime{ .base = undefined };
+            self.base.init(Id.CompTime, parent);
             return self;
         }
 
@@ -289,20 +285,14 @@ pub const Scope = struct {
             kind: Kind,
             defer_expr_scope: *DeferExpr,
         ) !*Defer {
-            const self = try comp.gpa().create(Defer{
-                .base = Scope{
-                    .id = Id.Defer,
-                    .parent = parent,
-                    .ref_count = 1,
-                },
+            const self = try comp.gpa().createOne(Defer);
+            self.* = Defer{
+                .base = undefined,
                 .defer_expr_scope = defer_expr_scope,
                 .kind = kind,
-            });
-            errdefer comp.gpa().destroy(self);
-
+            };
+            self.base.init(Id.Defer, parent);
             defer_expr_scope.base.ref();
-
-            parent.ref();
             return self;
         }
 
@@ -319,22 +309,87 @@ pub const Scope = struct {
 
         /// Creates a DeferExpr scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope, expr_node: *ast.Node) !*DeferExpr {
-            const self = try comp.gpa().create(DeferExpr{
-                .base = Scope{
-                    .id = Id.DeferExpr,
-                    .parent = parent,
-                    .ref_count = 1,
-                },
+            const self = try comp.gpa().createOne(DeferExpr);
+            self.* = DeferExpr{
+                .base = undefined,
                 .expr_node = expr_node,
                 .reported_err = false,
-            });
-            errdefer comp.gpa().destroy(self);
-
-            parent.ref();
+            };
+            self.base.init(Id.DeferExpr, parent);
             return self;
         }
 
         pub fn destroy(self: *DeferExpr, comp: *Compilation) void {
+            comp.gpa().destroy(self);
+        }
+    };
+
+    pub const Var = struct {
+        base: Scope,
+        name: []const u8,
+        src_node: *ast.Node,
+        data: Data,
+
+        pub const Data = union(enum) {
+            Param: Param,
+            Const: *Value,
+        };
+
+        pub const Param = struct {
+            index: usize,
+            typ: *Type,
+            llvm_value: llvm.ValueRef,
+        };
+
+        pub fn createParam(
+            comp: *Compilation,
+            parent: *Scope,
+            name: []const u8,
+            src_node: *ast.Node,
+            param_index: usize,
+            param_type: *Type,
+        ) !*Var {
+            const self = try create(comp, parent, name, src_node);
+            self.data = Data{
+                .Param = Param{
+                    .index = param_index,
+                    .typ = param_type,
+                    .llvm_value = undefined,
+                },
+            };
+            return self;
+        }
+
+        pub fn createConst(
+            comp: *Compilation,
+            parent: *Scope,
+            name: []const u8,
+            src_node: *ast.Node,
+            value: *Value,
+        ) !*Var {
+            const self = try create(comp, parent, name, src_node);
+            self.data = Data{ .Const = value };
+            value.ref();
+            return self;
+        }
+
+        fn create(comp: *Compilation, parent: *Scope, name: []const u8, src_node: *ast.Node) !*Var {
+            const self = try comp.gpa().createOne(Var);
+            self.* = Var{
+                .base = undefined,
+                .name = name,
+                .src_node = src_node,
+                .data = undefined,
+            };
+            self.base.init(Id.Var, parent);
+            return self;
+        }
+
+        pub fn destroy(self: *Var, comp: *Compilation) void {
+            switch (self.data) {
+                Data.Param => {},
+                Data.Const => |value| value.deref(comp),
+            }
             comp.gpa().destroy(self);
         }
     };

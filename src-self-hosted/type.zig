@@ -141,9 +141,13 @@ pub const Type = struct {
             Id.Promise,
             => return true,
 
+            Id.Pointer => {
+                const ptr_type = @fieldParentPtr(Pointer, "base", base);
+                return ptr_type.key.child_type.hasBits();
+            },
+
             Id.ErrorSet => @panic("TODO"),
             Id.Enum => @panic("TODO"),
-            Id.Pointer => @panic("TODO"),
             Id.Struct => @panic("TODO"),
             Id.Array => @panic("TODO"),
             Id.Optional => @panic("TODO"),
@@ -222,29 +226,65 @@ pub const Type = struct {
     pub const Fn = struct {
         base: Type,
         key: Key,
+        non_key: NonKey,
         garbage_node: std.atomic.Stack(*Fn).Node,
+
+        pub const Kind = enum {
+            Normal,
+            Generic,
+        };
+
+        pub const NonKey = union {
+            Normal: Normal,
+            Generic: void,
+
+            pub const Normal = struct {
+                variable_list: std.ArrayList(*Scope.Var),
+            };
+        };
 
         pub const Key = struct {
             data: Data,
             alignment: ?u32,
 
-            pub const Data = union(enum) {
+            pub const Data = union(Kind) {
                 Generic: Generic,
                 Normal: Normal,
+            };
+
+            pub const Normal = struct {
+                params: []Param,
+                return_type: *Type,
+                is_var_args: bool,
+                cc: CallingConvention,
+            };
+
+            pub const Generic = struct {
+                param_count: usize,
+                cc: CC,
+
+                pub const CC = union(CallingConvention) {
+                    Auto,
+                    C,
+                    Cold,
+                    Naked,
+                    Stdcall,
+                    Async: *Type, // allocator type
+                };
             };
 
             pub fn hash(self: *const Key) u32 {
                 var result: u32 = 0;
                 result +%= hashAny(self.alignment, 0);
                 switch (self.data) {
-                    Data.Generic => |generic| {
+                    Kind.Generic => |generic| {
                         result +%= hashAny(generic.param_count, 1);
                         switch (generic.cc) {
                             CallingConvention.Async => |allocator_type| result +%= hashAny(allocator_type, 2),
                             else => result +%= hashAny(CallingConvention(generic.cc), 3),
                         }
                     },
-                    Data.Normal => |normal| {
+                    Kind.Normal => |normal| {
                         result +%= hashAny(normal.return_type, 4);
                         result +%= hashAny(normal.is_var_args, 5);
                         result +%= hashAny(normal.cc, 6);
@@ -264,7 +304,7 @@ pub const Type = struct {
                 }
                 if (@TagType(Data)(self.data) != @TagType(Data)(other.data)) return false;
                 switch (self.data) {
-                    Data.Generic => |*self_generic| {
+                    Kind.Generic => |*self_generic| {
                         const other_generic = &other.data.Generic;
                         if (self_generic.param_count != other_generic.param_count) return false;
                         if (CallingConvention(self_generic.cc) != CallingConvention(other_generic.cc)) return false;
@@ -276,7 +316,7 @@ pub const Type = struct {
                             else => {},
                         }
                     },
-                    Data.Normal => |*self_normal| {
+                    Kind.Normal => |*self_normal| {
                         const other_normal = &other.data.Normal;
                         if (self_normal.cc != other_normal.cc) return false;
                         if (self_normal.is_var_args != other_normal.is_var_args) return false;
@@ -293,13 +333,13 @@ pub const Type = struct {
 
             pub fn deref(key: Key, comp: *Compilation) void {
                 switch (key.data) {
-                    Key.Data.Generic => |generic| {
+                    Kind.Generic => |generic| {
                         switch (generic.cc) {
                             CallingConvention.Async => |allocator_type| allocator_type.base.deref(comp),
                             else => {},
                         }
                     },
-                    Key.Data.Normal => |normal| {
+                    Kind.Normal => |normal| {
                         normal.return_type.base.deref(comp);
                         for (normal.params) |param| {
                             param.typ.base.deref(comp);
@@ -310,13 +350,13 @@ pub const Type = struct {
 
             pub fn ref(key: Key) void {
                 switch (key.data) {
-                    Key.Data.Generic => |generic| {
+                    Kind.Generic => |generic| {
                         switch (generic.cc) {
                             CallingConvention.Async => |allocator_type| allocator_type.base.ref(),
                             else => {},
                         }
                     },
-                    Key.Data.Normal => |normal| {
+                    Kind.Normal => |normal| {
                         normal.return_type.base.ref();
                         for (normal.params) |param| {
                             param.typ.base.ref();
@@ -324,27 +364,6 @@ pub const Type = struct {
                     },
                 }
             }
-        };
-
-        pub const Normal = struct {
-            params: []Param,
-            return_type: *Type,
-            is_var_args: bool,
-            cc: CallingConvention,
-        };
-
-        pub const Generic = struct {
-            param_count: usize,
-            cc: CC,
-
-            pub const CC = union(CallingConvention) {
-                Auto,
-                C,
-                Cold,
-                Naked,
-                Stdcall,
-                Async: *Type, // allocator type
-            };
         };
 
         pub const CallingConvention = enum {
@@ -374,8 +393,8 @@ pub const Type = struct {
 
         pub fn paramCount(self: *Fn) usize {
             return switch (self.key.data) {
-                Key.Data.Generic => |generic| generic.param_count,
-                Key.Data.Normal => |normal| normal.params.len,
+                Kind.Generic => |generic| generic.param_count,
+                Kind.Normal => |normal| normal.params.len,
             };
         }
 
@@ -394,11 +413,13 @@ pub const Type = struct {
             key.ref();
             errdefer key.deref(comp);
 
-            const self = try comp.gpa().create(Fn{
+            const self = try comp.gpa().createOne(Fn);
+            self.* = Fn{
                 .base = undefined,
                 .key = key,
+                .non_key = undefined,
                 .garbage_node = undefined,
-            });
+            };
             errdefer comp.gpa().destroy(self);
 
             var name_buf = try std.Buffer.initSize(comp.gpa(), 0);
@@ -407,7 +428,8 @@ pub const Type = struct {
             const name_stream = &std.io.BufferOutStream.init(&name_buf).stream;
 
             switch (key.data) {
-                Key.Data.Generic => |generic| {
+                Kind.Generic => |generic| {
+                    self.non_key = NonKey{ .Generic = {} };
                     switch (generic.cc) {
                         CallingConvention.Async => |async_allocator_type| {
                             try name_stream.print("async<{}> ", async_allocator_type.name);
@@ -429,7 +451,10 @@ pub const Type = struct {
                     }
                     try name_stream.write(" var");
                 },
-                Key.Data.Normal => |normal| {
+                Kind.Normal => |normal| {
+                    self.non_key = NonKey{
+                        .Normal = NonKey.Normal{ .variable_list = std.ArrayList(*Scope.Var).init(comp.gpa()) },
+                    };
                     const cc_str = ccFnTypeStr(normal.cc);
                     try name_stream.print("{}fn(", cc_str);
                     for (normal.params) |param, i| {
@@ -462,6 +487,12 @@ pub const Type = struct {
 
         pub fn destroy(self: *Fn, comp: *Compilation) void {
             self.key.deref(comp);
+            switch (self.key.data) {
+                Kind.Generic => {},
+                Kind.Normal => {
+                    self.non_key.Normal.variable_list.deinit();
+                },
+            }
             comp.gpa().destroy(self);
         }
 

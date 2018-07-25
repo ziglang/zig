@@ -30,6 +30,7 @@ pub const AddGlobal = c.LLVMAddGlobal;
 pub const AddModuleCodeViewFlag = c.ZigLLVMAddModuleCodeViewFlag;
 pub const AddModuleDebugInfoFlag = c.ZigLLVMAddModuleDebugInfoFlag;
 pub const ArrayType = c.LLVMArrayType;
+pub const BuildLoad = c.LLVMBuildLoad;
 pub const ClearCurrentDebugLocation = c.ZigLLVMClearCurrentDebugLocation;
 pub const ConstAllOnes = c.LLVMConstAllOnes;
 pub const ConstArray = c.LLVMConstArray;
@@ -95,12 +96,24 @@ pub const SetInitializer = c.LLVMSetInitializer;
 pub const SetLinkage = c.LLVMSetLinkage;
 pub const SetTarget = c.LLVMSetTarget;
 pub const SetUnnamedAddr = c.LLVMSetUnnamedAddr;
+pub const SetVolatile = c.LLVMSetVolatile;
 pub const StructTypeInContext = c.LLVMStructTypeInContext;
 pub const TokenTypeInContext = c.LLVMTokenTypeInContext;
-pub const TypeOf = c.LLVMTypeOf;
 pub const VoidTypeInContext = c.LLVMVoidTypeInContext;
 pub const X86FP80TypeInContext = c.LLVMX86FP80TypeInContext;
 pub const X86MMXTypeInContext = c.LLVMX86MMXTypeInContext;
+
+pub const GetElementType = LLVMGetElementType;
+extern fn LLVMGetElementType(Ty: TypeRef) TypeRef;
+
+pub const TypeOf = LLVMTypeOf;
+extern fn LLVMTypeOf(Val: ValueRef) TypeRef;
+
+pub const BuildStore = LLVMBuildStore;
+extern fn LLVMBuildStore(arg0: BuilderRef, Val: ValueRef, Ptr: ValueRef) ?ValueRef;
+
+pub const BuildAlloca = LLVMBuildAlloca;
+extern fn LLVMBuildAlloca(arg0: BuilderRef, Ty: TypeRef, Name: ?[*]const u8) ?ValueRef;
 
 pub const ConstInBoundsGEP = LLVMConstInBoundsGEP;
 pub extern fn LLVMConstInBoundsGEP(ConstantVal: ValueRef, ConstantIndices: [*]ValueRef, NumIndices: c_uint) ?ValueRef;
