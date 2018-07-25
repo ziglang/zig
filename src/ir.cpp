@@ -12591,6 +12591,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     }
 
     Buf *param_name = param_decl_node->data.param_decl.name;
+    if (!param_name) return false;
     if (!is_var_args) {
         VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
             *child_scope, param_name, true, arg_val, nullptr);

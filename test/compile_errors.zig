@@ -2,6 +2,17 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "missing parameter name of generic function",
+        \\fn dump(var) void {}
+        \\export fn entry() void {
+        \\    var a: u8 = 9;
+        \\    dump(a);
+        \\}
+    ,
+        ".tmp_source.zig:1:9: error: missing parameter name",
+    );
+
+    cases.add(
         "non-inline for loop on a type that requires comptime",
         \\const Foo = struct {
         \\    name: []const u8,
