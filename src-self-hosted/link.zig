@@ -80,15 +80,22 @@ pub async fn link(comp: *Compilation) !void {
 
     const extern_ofmt = toExternObjectFormatType(comp.target.getObjectFormat());
     const args_slice = ctx.args.toSlice();
-    // Not evented I/O. LLD does its own multithreading internally.
-    if (!ZigLLDLink(extern_ofmt, args_slice.ptr, args_slice.len, linkDiagCallback, @ptrCast(*c_void, &ctx))) {
-        if (!ctx.link_msg.isNull()) {
-            // TODO capture these messages and pass them through the system, reporting them through the
-            // event system instead of printing them directly here.
-            // perhaps try to parse and understand them.
-            std.debug.warn("{}\n", ctx.link_msg.toSliceConst());
+
+    {
+        // LLD is not thread-safe, so we grab a global lock.
+        const held = await (async comp.event_loop_local.lld_lock.acquire() catch unreachable);
+        defer held.release();
+
+        // Not evented I/O. LLD does its own multithreading internally.
+        if (!ZigLLDLink(extern_ofmt, args_slice.ptr, args_slice.len, linkDiagCallback, @ptrCast(*c_void, &ctx))) {
+            if (!ctx.link_msg.isNull()) {
+                // TODO capture these messages and pass them through the system, reporting them through the
+                // event system instead of printing them directly here.
+                // perhaps try to parse and understand them.
+                std.debug.warn("{}\n", ctx.link_msg.toSliceConst());
+            }
+            return error.LinkFailed;
         }
-        return error.LinkFailed;
     }
 }
 
@@ -672,7 +679,13 @@ const DarwinPlatform = struct {
         };
 
         var had_extra: bool = undefined;
-        try darwinGetReleaseVersion(ver_str, &result.major, &result.minor, &result.micro, &had_extra,);
+        try darwinGetReleaseVersion(
+            ver_str,
+            &result.major,
+            &result.minor,
+            &result.micro,
+            &had_extra,
+        );
         if (had_extra or result.major != 10 or result.minor >= 100 or result.micro >= 100) {
             return error.InvalidDarwinVersionString;
         }
@@ -713,7 +726,7 @@ fn darwinGetReleaseVersion(str: []const u8, major: *u32, minor: *u32, micro: *u3
         return error.InvalidDarwinVersionString;
 
     var start_pos: usize = 0;
-    for ([]*u32{major, minor, micro}) |v| {
+    for ([]*u32{ major, minor, micro }) |v| {
         const dot_pos = mem.indexOfScalarPos(u8, str, start_pos, '.');
         const end_pos = dot_pos orelse str.len;
         v.* = std.fmt.parseUnsigned(u32, str[start_pos..end_pos], 10) catch return error.InvalidDarwinVersionString;

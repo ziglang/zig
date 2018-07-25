@@ -71,11 +71,6 @@ pub fn Channel(comptime T: type) type {
         /// puts a data item in the channel. The promise completes when the value has been added to the
         /// buffer, or in the case of a zero size buffer, when the item has been retrieved by a getter.
         pub async fn put(self: *SelfChannel, data: T) void {
-            // TODO should be able to group memory allocation failure before first suspend point
-            // so that the async invocation catches it
-            var dispatch_tick_node_ptr: *Loop.NextTickNode = undefined;
-            _ = async self.dispatch(&dispatch_tick_node_ptr) catch unreachable;
-
             suspend |handle| {
                 var my_tick_node = Loop.NextTickNode{
                     .next = undefined,
@@ -91,18 +86,13 @@ pub fn Channel(comptime T: type) type {
                 self.putters.put(&queue_node);
                 _ = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
 
-                self.loop.onNextTick(dispatch_tick_node_ptr);
+                self.dispatch();
             }
         }
 
         /// await this function to get an item from the channel. If the buffer is empty, the promise will
         /// complete when the next item is put in the channel.
         pub async fn get(self: *SelfChannel) T {
-            // TODO should be able to group memory allocation failure before first suspend point
-            // so that the async invocation catches it
-            var dispatch_tick_node_ptr: *Loop.NextTickNode = undefined;
-            _ = async self.dispatch(&dispatch_tick_node_ptr) catch unreachable;
-
             // TODO integrate this function with named return values
             // so we can get rid of this extra result copy
             var result: T = undefined;
@@ -121,21 +111,12 @@ pub fn Channel(comptime T: type) type {
                 self.getters.put(&queue_node);
                 _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
 
-                self.loop.onNextTick(dispatch_tick_node_ptr);
+                self.dispatch();
             }
             return result;
         }
 
-        async fn dispatch(self: *SelfChannel, tick_node_ptr: **Loop.NextTickNode) void {
-            // resumed by onNextTick
-            suspend |handle| {
-                var tick_node = Loop.NextTickNode{
-                    .data = handle,
-                    .next = undefined,
-                };
-                tick_node_ptr.* = &tick_node;
-            }
-
+        fn dispatch(self: *SelfChannel) void {
             // set the "need dispatch" flag
             _ = @atomicRmw(u8, &self.need_dispatch, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
 

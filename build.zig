@@ -45,6 +45,7 @@ pub fn build(b: *Builder) !void {
         .c_header_files = nextValue(&index, build_info),
         .dia_guids_lib = nextValue(&index, build_info),
         .llvm = undefined,
+        .no_rosegment = b.option(bool, "no-rosegment", "Workaround to enable valgrind builds") orelse false,
     };
     ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
@@ -228,6 +229,8 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     // TODO turn this into -Dextra-lib-path=/lib option
     exe.addLibPath("/lib");
 
+    exe.setNoRoSegment(ctx.no_rosegment);
+
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
     addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
@@ -286,4 +289,5 @@ const Context = struct {
     c_header_files: []const u8,
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
+    no_rosegment: bool,
 };

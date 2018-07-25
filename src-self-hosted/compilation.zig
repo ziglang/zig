@@ -35,6 +35,7 @@ const CInt = @import("c_int.zig").CInt;
 pub const EventLoopLocal = struct {
     loop: *event.Loop,
     llvm_handle_pool: std.atomic.Stack(llvm.ContextRef),
+    lld_lock: event.Lock,
 
     /// TODO pool these so that it doesn't have to lock
     prng: event.Locked(std.rand.DefaultPrng),
@@ -55,6 +56,7 @@ pub const EventLoopLocal = struct {
 
         return EventLoopLocal{
             .loop = loop,
+            .lld_lock = event.Lock.init(loop),
             .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
             .prng = event.Locked(std.rand.DefaultPrng).init(loop, std.rand.DefaultPrng.init(seed)),
             .native_libc = event.Future(LibCInstallation).init(loop),
@@ -63,6 +65,7 @@ pub const EventLoopLocal = struct {
 
     /// Must be called only after EventLoop.run completes.
     fn deinit(self: *EventLoopLocal) void {
+        self.lld_lock.deinit();
         while (self.llvm_handle_pool.pop()) |node| {
             c.LLVMContextDispose(node.data);
             self.loop.allocator.destroy(node);
