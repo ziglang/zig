@@ -273,6 +273,7 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
 
 /// The promise resumes when the last data has been confirmed written, but before the file handle
 /// is closed.
+/// Caller owns returned memory.
 pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize) ![]u8 {
     var close_op = try CloseOperation.create(loop);
     defer close_op.deinit();
@@ -292,6 +293,9 @@ pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize)
         const buf_array = [][]u8{buf};
         const amt = try await (async preadv(loop, fd, list.len, buf_array) catch unreachable);
         list.len += amt;
+        if (list.len > max_size) {
+            return error.FileTooBig;
+        }
         if (amt < buf.len) {
             return list.toOwnedSlice();
         }

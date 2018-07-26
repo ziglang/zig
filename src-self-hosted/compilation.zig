@@ -30,6 +30,9 @@ const Package = @import("package.zig").Package;
 const link = @import("link.zig").link;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const CInt = @import("c_int.zig").CInt;
+const fs = event.fs;
+
+const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 /// Data that is local to the event loop.
 pub const EventLoopLocal = struct {
@@ -757,8 +760,11 @@ pub const Compilation = struct {
             const root_scope = blk: {
                 errdefer self.gpa().free(root_src_real_path);
 
-                // TODO async/await readFileAlloc()
-                const source_code = io.readFileAlloc(self.gpa(), root_src_real_path) catch |err| {
+                const source_code = (await (async fs.readFile(
+                    self.loop,
+                    root_src_real_path,
+                    max_src_size,
+                ) catch unreachable)) catch |err| {
                     try printError("unable to open '{}': {}", root_src_real_path, err);
                     return err;
                 };
