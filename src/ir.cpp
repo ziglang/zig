@@ -5251,8 +5251,10 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         if (body_result == irb->codegen->invalid_instruction)
             return body_result;
 
-        if (!instr_is_unreachable(body_result))
+        if (!instr_is_unreachable(body_result)) {
+            ir_mark_gen(ir_build_check_statement_is_void(irb, payload_scope, node->data.while_expr.body, body_result));
             ir_mark_gen(ir_build_br(irb, payload_scope, node, continue_block, is_comptime));
+        }
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(irb, continue_block);
@@ -5331,8 +5333,10 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         if (body_result == irb->codegen->invalid_instruction)
             return body_result;
 
-        if (!instr_is_unreachable(body_result))
+        if (!instr_is_unreachable(body_result)) {
+            ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.while_expr.body, body_result));
             ir_mark_gen(ir_build_br(irb, child_scope, node, continue_block, is_comptime));
+        }
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(irb, continue_block);
@@ -5392,8 +5396,10 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         if (body_result == irb->codegen->invalid_instruction)
             return body_result;
 
-        if (!instr_is_unreachable(body_result))
+        if (!instr_is_unreachable(body_result)) {
+            ir_mark_gen(ir_build_check_statement_is_void(irb, scope, node->data.while_expr.body, body_result));
             ir_mark_gen(ir_build_br(irb, scope, node, continue_block, is_comptime));
+        }
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(irb, continue_block);

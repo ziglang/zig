@@ -2,6 +2,28 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "while loop body expression ignored",
+        \\fn returns() usize {
+        \\    return 2;
+        \\}
+        \\export fn f1() void {
+        \\    while (true) returns();
+        \\}
+        \\export fn f2() void {
+        \\    var x: ?i32 = null;
+        \\    while (x) |_| returns();
+        \\}
+        \\export fn f3() void {
+        \\    var x: error!i32 = error.Bad;
+        \\    while (x) |_| returns() else |_| unreachable;
+        \\}
+    ,
+        ".tmp_source.zig:5:25: error: expression value is ignored",
+        ".tmp_source.zig:9:26: error: expression value is ignored",
+        ".tmp_source.zig:13:26: error: expression value is ignored",
+    );
+
+    cases.add(
         "missing parameter name of generic function",
         \\fn dump(var) void {}
         \\export fn entry() void {
