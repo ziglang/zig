@@ -603,10 +603,10 @@ pub const Builder = struct {
     }
 
     fn copyFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
-        return self.copyFileMode(source_path, dest_path, os.default_file_mode);
+        return self.copyFileMode(source_path, dest_path, os.File.default_mode);
     }
 
-    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.FileMode) !void {
+    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.File.Mode) !void {
         if (self.verbose) {
             warn("cp {} {}\n", source_path, dest_path);
         }

@@ -38,16 +38,6 @@ pub const path = @import("path.zig");
 pub const File = @import("file.zig").File;
 pub const time = @import("time.zig");
 
-pub const FileMode = switch (builtin.os) {
-    Os.windows => void,
-    else => u32,
-};
-
-pub const default_file_mode = switch (builtin.os) {
-    Os.windows => {},
-    else => 0o666,
-};
-
 pub const page_size = 4 * 1024;
 
 pub const UserInfo = @import("get_user_id.zig").UserInfo;
@@ -253,6 +243,26 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
             };
         }
         index += rc;
+    }
+}
+
+pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u64) !usize {
+    while (true) {
+        const rc = posix.preadv(fd, iov, count, offset);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return rc,
+            posix.EINTR => continue,
+            posix.EINVAL => unreachable,
+            posix.EFAULT => unreachable,
+            posix.EAGAIN => return error.WouldBlock,
+            posix.EBADF => return error.FileClosed,
+            posix.EIO => return error.InputOutput,
+            posix.EISDIR => return error.IsDir,
+            posix.ENOBUFS => return error.SystemResources,
+            posix.ENOMEM => return error.SystemResources,
+            else => return unexpectedErrorPosix(err),
+        }
     }
 }
 
@@ -853,7 +863,7 @@ pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []con
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
-pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: FileMode) !void {
+pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
     var in_file = try os.File.openRead(allocator, source_path);
     defer in_file.close();
 
@@ -879,7 +889,7 @@ pub const AtomicFile = struct {
 
     /// dest_path must remain valid for the lifetime of AtomicFile
     /// call finish to atomically replace dest_path with contents
-    pub fn init(allocator: *Allocator, dest_path: []const u8, mode: FileMode) !AtomicFile {
+    pub fn init(allocator: *Allocator, dest_path: []const u8, mode: File.Mode) !AtomicFile {
         const dirname = os.path.dirname(dest_path);
 
         var rand_buf: [12]u8 = undefined;

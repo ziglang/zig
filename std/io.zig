@@ -415,13 +415,12 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
             self.at_end = (read < left);
             return pos + read;
         }
-
     };
 }
 
 pub const SliceInStream = struct {
     const Self = this;
-    pub const Error = error { };
+    pub const Error = error{};
     pub const Stream = InStream(Error);
 
     pub stream: Stream,
@@ -481,13 +480,12 @@ pub const SliceOutStream = struct {
 
         assert(self.pos <= self.slice.len);
 
-        const n =
-            if (self.pos + bytes.len <= self.slice.len)
-                bytes.len
-            else
-                self.slice.len - self.pos;
+        const n = if (self.pos + bytes.len <= self.slice.len)
+            bytes.len
+        else
+            self.slice.len - self.pos;
 
-        std.mem.copy(u8, self.slice[self.pos..self.pos + n], bytes[0..n]);
+        std.mem.copy(u8, self.slice[self.pos .. self.pos + n], bytes[0..n]);
         self.pos += n;
 
         if (n < bytes.len) {
@@ -586,7 +584,7 @@ pub const BufferedAtomicFile = struct {
         });
         errdefer allocator.destroy(self);
 
-        self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.default_file_mode);
+        self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.File.default_mode);
         errdefer self.atomic_file.deinit();
 
         self.file_stream = FileOutStream.init(&self.atomic_file.file);

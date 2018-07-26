@@ -692,6 +692,10 @@ pub fn futex_wait(uaddr: usize, futex_op: u32, val: i32, timeout: ?*timespec) us
     return syscall4(SYS_futex, uaddr, futex_op, @bitCast(u32, val), @ptrToInt(timeout));
 }
 
+pub fn futex_wake(uaddr: usize, futex_op: u32, val: i32) usize {
+    return syscall3(SYS_futex, uaddr, futex_op, @bitCast(u32, val));
+}
+
 pub fn getcwd(buf: [*]u8, size: usize) usize {
     return syscall2(SYS_getcwd, @ptrToInt(buf), size);
 }
@@ -740,6 +744,10 @@ pub fn munmap(address: usize, length: usize) usize {
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
     return syscall3(SYS_read, @intCast(usize, fd), @ptrToInt(buf), count);
+}
+
+pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
+    return syscall4(SYS_preadv, @intCast(usize, fd), @ptrToInt(iov), count, offset);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265

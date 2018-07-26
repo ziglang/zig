@@ -672,14 +672,10 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, comptime T: type
 
 const ParseFormValueError = error{
     EndOfStream,
-    Io,
-    BadFd,
-    Unexpected,
     InvalidDebugInfo,
     EndOfFile,
-    IsDir,
     OutOfMemory,
-};
+} || std.os.File.ReadError;
 
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) ParseFormValueError!FormValue {
     return switch (form_id) {

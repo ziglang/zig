@@ -15,10 +15,21 @@ pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
 
+    pub const Mode = switch (builtin.os) {
+        Os.windows => void,
+        else => u32,
+    };
+
+    pub const default_mode = switch (builtin.os) {
+        Os.windows => {},
+        else => 0o666,
+    };
+
     pub const OpenError = os.WindowsOpenError || os.PosixOpenError;
 
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
+    /// TODO deprecated, just use open
     pub fn openRead(allocator: *mem.Allocator, path: []const u8) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_RDONLY;
@@ -39,16 +50,18 @@ pub const File = struct {
         }
     }
 
-    /// Calls `openWriteMode` with os.default_file_mode for the mode.
+    /// Calls `openWriteMode` with os.File.default_mode for the mode.
+    /// TODO deprecated, just use open
     pub fn openWrite(allocator: *mem.Allocator, path: []const u8) OpenError!File {
-        return openWriteMode(allocator, path, os.default_file_mode);
+        return openWriteMode(allocator, path, os.File.default_mode);
     }
 
     /// If the path does not exist it will be created.
     /// If a file already exists in the destination it will be truncated.
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openWriteMode(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) OpenError!File {
+    /// TODO deprecated, just use open
+    pub fn openWriteMode(allocator: *mem.Allocator, path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
             const fd = try os.posixOpen(allocator, path, flags, file_mode);
@@ -72,7 +85,8 @@ pub const File = struct {
     /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openWriteNoClobber(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) OpenError!File {
+    /// TODO deprecated, just use open
+    pub fn openWriteNoClobber(allocator: *mem.Allocator, path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
             const fd = try os.posixOpen(allocator, path, flags, file_mode);
@@ -282,7 +296,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn mode(self: *File) ModeError!os.FileMode {
+    pub fn mode(self: *File) ModeError!Mode {
         if (is_posix) {
             var stat: posix.Stat = undefined;
             const err = posix.getErrno(posix.fstat(self.handle, &stat));
@@ -296,7 +310,7 @@ pub const File = struct {
 
             // TODO: we should be able to cast u16 to ModeError!u32, making this
             // explicit cast not necessary
-            return os.FileMode(stat.mode);
+            return Mode(stat.mode);
         } else if (is_windows) {
             return {};
         } else {
@@ -305,9 +319,11 @@ pub const File = struct {
     }
 
     pub const ReadError = error{
-        BadFd,
-        Io,
+        FileClosed,
+        InputOutput,
         IsDir,
+        WouldBlock,
+        SystemResources,
 
         Unexpected,
     };
@@ -323,9 +339,12 @@ pub const File = struct {
                         posix.EINTR => continue,
                         posix.EINVAL => unreachable,
                         posix.EFAULT => unreachable,
-                        posix.EBADF => return error.BadFd,
-                        posix.EIO => return error.Io,
+                        posix.EAGAIN => return error.WouldBlock,
+                        posix.EBADF => return error.FileClosed,
+                        posix.EIO => return error.InputOutput,
                         posix.EISDIR => return error.IsDir,
+                        posix.ENOBUFS => return error.SystemResources,
+                        posix.ENOMEM => return error.SystemResources,
                         else => return os.unexpectedErrorPosix(read_err),
                     }
                 }
