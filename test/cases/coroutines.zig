@@ -66,6 +66,11 @@ async fn testSuspendBlock() void {
         comptime assert(@typeOf(p) == promise->void);
         a_promise = p;
     }
+
+    //Test to make sure that @handle() works as advertised (issue #1296)
+    //var our_handle: promise = @handle();
+    assert( a_promise == @handle() );
+
     result = true;
 }
 
