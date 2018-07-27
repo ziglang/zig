@@ -6874,9 +6874,26 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
 
     IrBasicBlock *cleanup_block = ir_create_basic_block(irb, parent_scope, "SuspendCleanup");
     IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
+    IrBasicBlock *suspended_block = ir_create_basic_block(irb, parent_scope, "AlreadySuspended");
+    IrBasicBlock *not_suspended_block = ir_create_basic_block(irb, parent_scope, "NotAlreadySuspended");
 
-    IrInstruction *suspend_code;
     IrInstruction *const_bool_false = ir_build_const_bool(irb, parent_scope, node, false);
+    IrInstruction *usize_type_val = ir_build_const_type(irb, parent_scope, node, irb->codegen->builtin_types.entry_usize);
+    IrInstruction *is_suspended_mask = ir_build_const_usize(irb, parent_scope, node, 0x2); // 0b010
+    IrInstruction *zero = ir_build_const_usize(irb, parent_scope, node, 0);
+
+    IrInstruction *prev_atomic_value = ir_build_atomic_rmw(irb, parent_scope, node,
+            usize_type_val, irb->exec->atomic_state_field_ptr, nullptr, is_suspended_mask, nullptr,
+            AtomicRmwOp_or, AtomicOrderSeqCst);
+    IrInstruction *is_suspended_value = ir_build_bin_op(irb, parent_scope, node, IrBinOpBinAnd, prev_atomic_value, is_suspended_mask, false);
+    IrInstruction *is_suspended_bool = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpNotEq, is_suspended_value, zero, false);
+    ir_build_cond_br(irb, parent_scope, node, is_suspended_bool, suspended_block, not_suspended_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, suspended_block);
+    ir_build_unreachable(irb, parent_scope, node);
+
+    ir_set_cursor_at_end_and_append_block(irb, not_suspended_block);
+    IrInstruction *suspend_code;
     if (node->data.suspend.block == nullptr) {
         suspend_code = ir_build_coro_suspend(irb, parent_scope, node, nullptr, const_bool_false);
     } else {
