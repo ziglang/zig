@@ -6663,14 +6663,45 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
             async_allocator_type_value, is_var_args);
 }
 
-static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeCancel);
 
-    IrInstruction *target_inst = ir_gen_node(irb, node->data.cancel_expr.expr, parent_scope);
+    IrInstruction *target_inst = ir_gen_node(irb, node->data.cancel_expr.expr, scope);
     if (target_inst == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    return ir_build_cancel(irb, parent_scope, node, target_inst);
+    IrBasicBlock *done_block = ir_create_basic_block(irb, scope, "CancelDone");
+    IrBasicBlock *not_canceled_block = ir_create_basic_block(irb, scope, "NotCanceled");
+
+    IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
+    IrInstruction *usize_type_val = ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_usize);
+    IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, false);
+    IrInstruction *is_canceled_mask = ir_build_const_usize(irb, scope, node, 0x1); // 0b001
+    IrInstruction *promise_T_type_val = ir_build_const_type(irb, scope, node,
+            get_promise_type(irb->codegen, irb->codegen->builtin_types.entry_void));
+
+    // TODO relies on Zig not re-ordering fields
+    IrInstruction *casted_target_inst = ir_build_ptr_cast(irb, scope, node, promise_T_type_val, target_inst);
+    IrInstruction *coro_promise_ptr = ir_build_coro_promise(irb, scope, node, casted_target_inst);
+    Buf *atomic_state_field_name = buf_create_from_str(ATOMIC_STATE_FIELD_NAME);
+    IrInstruction *atomic_state_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
+            atomic_state_field_name);
+
+    // set the is_canceled bit
+    IrInstruction *prev_atomic_value = ir_build_atomic_rmw(irb, scope, node, 
+            usize_type_val, atomic_state_ptr, nullptr, is_canceled_mask, nullptr,
+            AtomicRmwOp_and, AtomicOrderSeqCst);
+
+    IrInstruction *is_canceled_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_canceled_mask, false);
+    IrInstruction *is_canceled_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_canceled_value, zero, false);
+    ir_build_cond_br(irb, scope, node, is_canceled_bool, done_block, not_canceled_block, is_comptime);
+
+    ir_set_cursor_at_end_and_append_block(irb, not_canceled_block);
+    ir_build_cancel(irb, scope, node, target_inst);
+    ir_build_br(irb, scope, node, done_block, is_comptime);
+
+    ir_set_cursor_at_end_and_append_block(irb, done_block);
+    return ir_build_const_void(irb, scope, node);
 }
 
 static IrInstruction *ir_gen_resume(IrBuilder *irb, Scope *scope, AstNode *node) {
