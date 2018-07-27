@@ -3245,7 +3245,7 @@ static const size_t stack_trace_ptr_count = 30;
 #define RESULT_FIELD_NAME "result"
 #define ASYNC_ALLOC_FIELD_NAME "allocFn"
 #define ASYNC_FREE_FIELD_NAME "freeFn"
-#define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
+#define ATOMIC_STATE_FIELD_NAME "atomic_state"
 // these point to data belonging to the awaiter
 #define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 #define RESULT_PTR_FIELD_NAME "result_ptr"
