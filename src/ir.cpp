@@ -6907,16 +6907,24 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     IrBasicBlock *cleanup_block = ir_create_basic_block(irb, parent_scope, "SuspendCleanup");
     IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
     IrBasicBlock *suspended_block = ir_create_basic_block(irb, parent_scope, "AlreadySuspended");
+    IrBasicBlock *not_canceled_block = ir_create_basic_block(irb, parent_scope, "NotCanceled");
     IrBasicBlock *not_suspended_block = ir_create_basic_block(irb, parent_scope, "NotAlreadySuspended");
 
     IrInstruction *const_bool_false = ir_build_const_bool(irb, parent_scope, node, false);
     IrInstruction *usize_type_val = ir_build_const_type(irb, parent_scope, node, irb->codegen->builtin_types.entry_usize);
+    IrInstruction *is_canceled_mask = ir_build_const_usize(irb, parent_scope, node, 0x1); // 0b001
     IrInstruction *is_suspended_mask = ir_build_const_usize(irb, parent_scope, node, 0x2); // 0b010
     IrInstruction *zero = ir_build_const_usize(irb, parent_scope, node, 0);
 
     IrInstruction *prev_atomic_value = ir_build_atomic_rmw(irb, parent_scope, node,
             usize_type_val, irb->exec->atomic_state_field_ptr, nullptr, is_suspended_mask, nullptr,
             AtomicRmwOp_or, AtomicOrderSeqCst);
+
+    IrInstruction *is_canceled_value = ir_build_bin_op(irb, parent_scope, node, IrBinOpBinAnd, prev_atomic_value, is_canceled_mask, false);
+    IrInstruction *is_canceled_bool = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpNotEq, is_canceled_value, zero, false);
+    ir_build_cond_br(irb, parent_scope, node, is_canceled_bool, cleanup_block, not_canceled_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, not_canceled_block);
     IrInstruction *is_suspended_value = ir_build_bin_op(irb, parent_scope, node, IrBinOpBinAnd, prev_atomic_value, is_suspended_mask, false);
     IrInstruction *is_suspended_bool = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpNotEq, is_suspended_value, zero, false);
     ir_build_cond_br(irb, parent_scope, node, is_suspended_bool, suspended_block, not_suspended_block, const_bool_false);
