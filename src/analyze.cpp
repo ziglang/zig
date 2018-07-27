@@ -161,7 +161,6 @@ ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
     ScopeSuspend *scope = allocate<ScopeSuspend>(1);
     init_scope(&scope->base, ScopeIdSuspend, node, parent);
-    scope->name = node->data.suspend.name;
     return scope;
 }
 

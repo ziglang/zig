@@ -898,7 +898,6 @@ struct AstNodeAwaitExpr {
 };
 
 struct AstNodeSuspend {
-    Buf *name;
     AstNode *block;
     AstNode *promise_symbol;
 };
@@ -1929,7 +1928,6 @@ struct ScopeLoop {
 struct ScopeSuspend {
     Scope base;
 
-    Buf *name;
     IrBasicBlock *resume_block;
     bool reported_err;
 };

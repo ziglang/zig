@@ -6186,15 +6186,6 @@ static IrInstruction *ir_gen_return_from_block(IrBuilder *irb, Scope *break_scop
     return ir_build_br(irb, break_scope, node, dest_block, is_comptime);
 }
 
-static IrInstruction *ir_gen_break_from_suspend(IrBuilder *irb, Scope *break_scope, AstNode *node, ScopeSuspend *suspend_scope) {
-    IrInstruction *is_comptime = ir_build_const_bool(irb, break_scope, node, false);
-
-    IrBasicBlock *dest_block = suspend_scope->resume_block;
-    ir_gen_defers_for_block(irb, break_scope, dest_block->scope, false);
-
-    return ir_build_br(irb, break_scope, node, dest_block, is_comptime);
-}
-
 static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *node) {
     assert(node->type == NodeTypeBreak);
 
@@ -6235,12 +6226,8 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *
                 return ir_gen_return_from_block(irb, break_scope, node, this_block_scope);
             }
         } else if (search_scope->id == ScopeIdSuspend) {
-            ScopeSuspend *this_suspend_scope = (ScopeSuspend *)search_scope;
-            if (node->data.break_expr.name != nullptr &&
-                (this_suspend_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_suspend_scope->name)))
-            {
-                return ir_gen_break_from_suspend(irb, break_scope, node, this_suspend_scope);
-            }
+            add_node_error(irb->codegen, node, buf_sprintf("cannot break out of suspend block"));
+            return irb->codegen->invalid_instruction;
         }
         search_scope = search_scope->parent;
     }

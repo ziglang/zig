@@ -7336,7 +7336,7 @@ Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-SuspendExpression(body) = option(Symbol ":") "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
 
 IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
