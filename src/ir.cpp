@@ -580,6 +580,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameAddress *) 
     return IrInstructionIdFrameAddress;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionHandle *) {
+    return IrInstructionIdHandle;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignOf *) {
     return IrInstructionIdAlignOf;
 }
@@ -2236,6 +2240,17 @@ static IrInstruction *ir_build_frame_address(IrBuilder *irb, Scope *scope, AstNo
 
 static IrInstruction *ir_build_frame_address_from(IrBuilder *irb, IrInstruction *old_instruction) {
     IrInstruction *new_instruction = ir_build_frame_address(irb, old_instruction->scope, old_instruction->source_node);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
+static IrInstruction *ir_build_handle(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionHandle *instruction = ir_build_instruction<IrInstructionHandle>(irb, scope, source_node);
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_handle_from(IrBuilder *irb, IrInstruction *old_instruction) {
+    IrInstruction *new_instruction = ir_build_handle(irb, old_instruction->scope, old_instruction->source_node);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -4475,6 +4490,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             return ir_lval_wrap(irb, scope, ir_build_return_address(irb, scope, node), lval);
         case BuiltinFnIdFrameAddress:
             return ir_lval_wrap(irb, scope, ir_build_frame_address(irb, scope, node), lval);
+        case BuiltinFnIdHandle:
+            return ir_lval_wrap(irb, scope, ir_build_handle(irb, scope, node), lval);
         case BuiltinFnIdAlignOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -19007,6 +19024,13 @@ static TypeTableEntry *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrIn
     return u8_ptr_const;
 }
 
+static TypeTableEntry *ir_analyze_instruction_handle(IrAnalyze *ira, IrInstructionHandle *instruction) {
+    ir_build_handle_from(&ira->new_irb, &instruction->base);
+
+    TypeTableEntry *promise_type = get_promise_type(ira->codegen, nullptr);
+    return promise_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
     if (type_is_invalid(type_value->value.type))
@@ -20982,6 +21006,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_return_address(ira, (IrInstructionReturnAddress *)instruction);
         case IrInstructionIdFrameAddress:
             return ir_analyze_instruction_frame_address(ira, (IrInstructionFrameAddress *)instruction);
+        case IrInstructionIdHandle:
+            return ir_analyze_instruction_handle(ira, (IrInstructionHandle *)instruction);
         case IrInstructionIdAlignOf:
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
         case IrInstructionIdOverflowOp:
@@ -21274,6 +21300,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAlignOf:
         case IrInstructionIdReturnAddress:
         case IrInstructionIdFrameAddress:
+        case IrInstructionIdHandle:
         case IrInstructionIdTestErr:
         case IrInstructionIdUnwrapErrCode:
         case IrInstructionIdOptionalWrap:
