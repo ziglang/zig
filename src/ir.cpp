@@ -6796,6 +6796,9 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ir_build_store_ptr(irb, scope, node, err_ret_trace_ptr_field_ptr, err_ret_trace_ptr);
     }
 
+    IrBasicBlock *already_awaited_block = ir_create_basic_block(irb, scope, "AlreadyAwaited");
+    IrBasicBlock *not_awaited_block = ir_create_basic_block(irb, scope, "NotAwaited");
+
     Buf *atomic_state_field_name = buf_create_from_str(ATOMIC_STATE_FIELD_NAME);
     IrInstruction *atomic_state_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
             atomic_state_field_name);
@@ -6823,6 +6826,15 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrInstruction *prev_atomic_value = ir_build_atomic_rmw(irb, scope, node, 
             usize_type_val, atomic_state_ptr, nullptr, mask_bits, nullptr,
             AtomicRmwOp_or, AtomicOrderSeqCst);
+
+    IrInstruction *is_awaited_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, await_mask, false);
+    IrInstruction *is_awaited_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_awaited_value, zero, false);
+    ir_build_cond_br(irb, scope, node, is_awaited_bool, already_awaited_block, not_awaited_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, already_awaited_block);
+    ir_build_unreachable(irb, scope, node);
+
+    ir_set_cursor_at_end_and_append_block(irb, not_awaited_block);
     IrInstruction *await_handle_addr = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, ptr_mask, false);
     IrInstruction *is_non_null = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, await_handle_addr, zero, false);
     IrBasicBlock *yes_suspend_block = ir_create_basic_block(irb, scope, "YesSuspend");
