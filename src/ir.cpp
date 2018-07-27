@@ -6791,9 +6791,15 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
             atomic_state_field_name);
 
     IrInstruction *const_bool_false = ir_build_const_bool(irb, scope, node, false);
+    IrInstruction *undefined_value = ir_build_const_undefined(irb, scope, node);
+    IrInstruction *usize_type_val = ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_usize);
+    IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
+    IrInstruction *inverted_ptr_mask = ir_build_const_usize(irb, scope, node, 0x7); // 0b111
+    IrInstruction *ptr_mask = ir_build_un_op(irb, scope, node, IrUnOpBinNot, inverted_ptr_mask); // 0b111...000
+    IrInstruction *await_mask = ir_build_const_usize(irb, scope, node, 0x4); // 0b100
+
     VariableTableEntry *result_var = ir_create_var(irb, node, scope, nullptr,
             false, false, true, const_bool_false);
-    IrInstruction *undefined_value = ir_build_const_undefined(irb, scope, node);
     IrInstruction *target_promise_type = ir_build_typeof(irb, scope, node, target_inst);
     IrInstruction *promise_result_type = ir_build_promise_result_type(irb, scope, node, target_promise_type);
     ir_build_await_bookkeeping(irb, scope, node, promise_result_type);
@@ -6801,14 +6807,12 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrInstruction *my_result_var_ptr = ir_build_var_ptr(irb, scope, node, result_var);
     ir_build_store_ptr(irb, scope, node, result_ptr_field_ptr, my_result_var_ptr);
     IrInstruction *save_token = ir_build_coro_save(irb, scope, node, irb->exec->coro_handle);
-    IrInstruction *usize_type_val = ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_usize);
+
     IrInstruction *coro_handle_addr = ir_build_ptr_to_int(irb, scope, node, irb->exec->coro_handle);
+    IrInstruction *mask_bits = ir_build_bin_op(irb, scope, node, IrBinOpBinOr, coro_handle_addr, await_mask, false);
     IrInstruction *prev_atomic_value = ir_build_atomic_rmw(irb, scope, node, 
-            usize_type_val, atomic_state_ptr, nullptr, coro_handle_addr, nullptr,
+            usize_type_val, atomic_state_ptr, nullptr, mask_bits, nullptr,
             AtomicRmwOp_or, AtomicOrderSeqCst);
-    IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
-    IrInstruction *inverted_ptr_mask = ir_build_const_usize(irb, scope, node, 0x7); // 0b111
-    IrInstruction *ptr_mask = ir_build_un_op(irb, scope, node, IrUnOpBinNot, inverted_ptr_mask); // 0b111...000
     IrInstruction *await_handle_addr = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, ptr_mask, false);
     IrInstruction *is_non_null = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, await_handle_addr, zero, false);
     IrBasicBlock *yes_suspend_block = ir_create_basic_block(irb, scope, "YesSuspend");
