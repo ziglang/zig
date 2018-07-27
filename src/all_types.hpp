@@ -60,7 +60,7 @@ struct IrExecutable {
     ZigList<Tld *> tld_list;
 
     IrInstruction *coro_handle;
-    IrInstruction *coro_awaiter_field_ptr; // this one is shared and in the promise
+    IrInstruction *atomic_state_field_ptr; // this one is shared and in the promise
     IrInstruction *coro_result_ptr_field_ptr;
     IrInstruction *coro_result_field_ptr;
     IrInstruction *await_handle_var_ptr; // this one is where we put the one we extracted from the promise
