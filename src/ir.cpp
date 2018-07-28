@@ -6672,6 +6672,7 @@ static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *scope, AstNode *node)
 
     IrBasicBlock *done_block = ir_create_basic_block(irb, scope, "CancelDone");
     IrBasicBlock *not_canceled_block = ir_create_basic_block(irb, scope, "NotCanceled");
+    IrBasicBlock *pre_return_block = ir_create_basic_block(irb, scope, "PreReturn");
     IrBasicBlock *post_return_block = ir_create_basic_block(irb, scope, "PostReturn");
     IrBasicBlock *do_cancel_block = ir_create_basic_block(irb, scope, "DoCancel");
 
@@ -6684,6 +6685,7 @@ static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *scope, AstNode *node)
     IrInstruction *inverted_ptr_mask = ir_build_const_usize(irb, scope, node, 0x7); // 0b111
     IrInstruction *ptr_mask = ir_build_un_op(irb, scope, node, IrUnOpBinNot, inverted_ptr_mask); // 0b111...000
     IrInstruction *await_mask = ir_build_const_usize(irb, scope, node, 0x4); // 0b100
+    IrInstruction *is_suspended_mask = ir_build_const_usize(irb, scope, node, 0x2); // 0b010
 
     // TODO relies on Zig not re-ordering fields
     IrInstruction *casted_target_inst = ir_build_ptr_cast(irb, scope, node, promise_T_type_val, target_inst);
@@ -6704,12 +6706,17 @@ static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *scope, AstNode *node)
     ir_set_cursor_at_end_and_append_block(irb, not_canceled_block);
     IrInstruction *awaiter_addr = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, ptr_mask, false);
     IrInstruction *is_returned_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpEq, awaiter_addr, ptr_mask, false);
-    ir_build_cond_br(irb, scope, node, is_returned_bool, post_return_block, do_cancel_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_returned_bool, post_return_block, pre_return_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, post_return_block);
     IrInstruction *is_awaited_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, await_mask, false);
     IrInstruction *is_awaited_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_awaited_value, zero, false);
     ir_build_cond_br(irb, scope, node, is_awaited_bool, done_block, do_cancel_block, is_comptime);
+
+    ir_set_cursor_at_end_and_append_block(irb, pre_return_block);
+    IrInstruction *is_suspended_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_suspended_mask, false);
+    IrInstruction *is_suspended_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_suspended_value, zero, false);
+    ir_build_cond_br(irb, scope, node, is_suspended_bool, do_cancel_block, done_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, do_cancel_block);
     ir_build_cancel(irb, scope, node, target_inst);
