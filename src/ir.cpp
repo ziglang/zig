@@ -6831,6 +6831,8 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrBasicBlock *cleanup_block = ir_create_basic_block(irb, scope, "SuspendCleanup");
     IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "SuspendResume");
     IrBasicBlock *cancel_target_block = ir_create_basic_block(irb, scope, "CancelTarget");
+    IrBasicBlock *do_cancel_block = ir_create_basic_block(irb, scope, "DoCancel");
+    IrBasicBlock *do_defers_block = ir_create_basic_block(irb, scope, "DoDefers");
 
     Buf *atomic_state_field_name = buf_create_from_str(ATOMIC_STATE_FIELD_NAME);
     IrInstruction *atomic_state_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
@@ -6912,6 +6914,20 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     ir_mark_gen(ir_build_br(irb, scope, node, cleanup_block, const_bool_false));
 
     ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
+    IrInstruction *my_mask_bits = ir_build_bin_op(irb, scope, node, IrBinOpBinOr, ptr_mask, is_canceled_mask, false);
+    IrInstruction *my_prev_atomic_value = ir_build_atomic_rmw(irb, scope, node, 
+            usize_type_val, irb->exec->atomic_state_field_ptr, nullptr, my_mask_bits, nullptr,
+            AtomicRmwOp_or, AtomicOrderSeqCst);
+    IrInstruction *my_await_handle_addr = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, my_prev_atomic_value, ptr_mask, false);
+    IrInstruction *have_my_await_handle = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, my_await_handle_addr, zero, false);
+    ir_build_cond_br(irb, scope, node, have_my_await_handle, do_cancel_block, do_defers_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, do_cancel_block);
+    IrInstruction *my_await_handle = ir_build_int_to_ptr(irb, scope, node, promise_type_val, my_await_handle_addr);
+    ir_gen_cancel_target(irb, scope, node, my_await_handle);
+    ir_mark_gen(ir_build_br(irb, scope, node, do_defers_block, const_bool_false));
+
+    ir_set_cursor_at_end_and_append_block(irb, do_defers_block);
     ir_gen_defers_for_block(irb, scope, outer_scope, true);
     ir_mark_gen(ir_build_br(irb, scope, node, irb->exec->coro_final_cleanup_block, const_bool_false));
 
