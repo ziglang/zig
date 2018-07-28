@@ -4154,6 +4154,7 @@ static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable,
         executable->fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
 
     if (!is_async || !executable->coro_handle) {
+      add_node_error(g, instruction->base.source_node, buf_sprintf("@handle() in non-async function"));
       return LLVMConstNull(g->builtin_types.entry_promise->type_ref);
     }
 
@@ -6022,7 +6023,8 @@ static void do_code_gen(CodeGen *g) {
         ir_render(g, fn_table_entry);
 
     }
-    assert(!g->errors.length);
+    
+    //assert(!g->errors.length);
 
     if (buf_len(&g->global_asm) != 0) {
         LLVMSetModuleInlineAsm(g->module, buf_ptr(&g->global_asm));
