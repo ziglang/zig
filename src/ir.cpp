@@ -3858,6 +3858,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         return irb->codegen->invalid_instruction;
     }
 
+    bool is_async = exec_is_async(irb->exec);
+
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
             zig_unreachable();
@@ -4491,6 +4493,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdFrameAddress:
             return ir_lval_wrap(irb, scope, ir_build_frame_address(irb, scope, node), lval);
         case BuiltinFnIdHandle:
+            if (!is_async) {
+                add_node_error(irb->codegen, node, buf_sprintf("@handle() in non-async function"));
+                return irb->codegen->invalid_instruction;
+            }
             return ir_lval_wrap(irb, scope, ir_build_handle(irb, scope, node), lval);
         case BuiltinFnIdAlignOf:
             {
