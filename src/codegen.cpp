@@ -6014,7 +6014,7 @@ static void do_code_gen(CodeGen *g) {
 
     }
     
-    //assert(!g->errors.length);
+    assert(!g->errors.length);
 
     if (buf_len(&g->global_asm) != 0) {
         LLVMSetModuleInlineAsm(g->module, buf_ptr(&g->global_asm));
