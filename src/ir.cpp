@@ -4493,6 +4493,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdFrameAddress:
             return ir_lval_wrap(irb, scope, ir_build_frame_address(irb, scope, node), lval);
         case BuiltinFnIdHandle:
+            if (!irb->exec->fn_entry) {
+                add_node_error(irb->codegen, node, buf_sprintf("@handle() called outside of function definition"));
+                return irb->codegen->invalid_instruction;
+            }
             if (!is_async) {
                 add_node_error(irb->codegen, node, buf_sprintf("@handle() in non-async function"));
                 return irb->codegen->invalid_instruction;
