@@ -4149,9 +4149,15 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable
 static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable,
         IrInstructionHandle *instruction)
 {
-    // @andrewrk, not sure what to place here ?
-    // `get_promise_frame_type` ?
-    LLVMValueRef handle = LLVMConstNull(g->builtin_types.entry_promise->type_ref);
+
+    bool is_async = executable->fn_entry != nullptr && 
+        executable->fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+
+    if (!is_async || !executable->coro_handle) {
+      return LLVMConstNull(g->builtin_types.entry_promise->type_ref);
+    }
+
+    LLVMValueRef handle = ir_llvm_value(g, executable->coro_handle);
     return LLVMBuildRet(g->builder, handle);
 }
 
