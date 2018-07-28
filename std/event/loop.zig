@@ -55,7 +55,7 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
-    fn initSingleThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn initSingleThreaded(self: *Loop, allocator: *mem.Allocator) !void {
         return self.initInternal(allocator, 1);
     }
 
@@ -64,7 +64,7 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
-    fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
         const core_count = try std.os.cpuCount(allocator);
         return self.initInternal(allocator, core_count);
     }
