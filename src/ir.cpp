@@ -6830,11 +6830,13 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrBasicBlock *merge_block = ir_create_basic_block(irb, scope, "MergeSuspend");
     IrBasicBlock *cleanup_block = ir_create_basic_block(irb, scope, "SuspendCleanup");
     IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "SuspendResume");
+    IrBasicBlock *cancel_target_block = ir_create_basic_block(irb, scope, "CancelTarget");
 
     Buf *atomic_state_field_name = buf_create_from_str(ATOMIC_STATE_FIELD_NAME);
     IrInstruction *atomic_state_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
             atomic_state_field_name);
 
+    IrInstruction *promise_type_val = ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_promise);
     IrInstruction *const_bool_false = ir_build_const_bool(irb, scope, node, false);
     IrInstruction *undefined_value = ir_build_const_undefined(irb, scope, node);
     IrInstruction *usize_type_val = ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_usize);
@@ -6900,9 +6902,14 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     cases[0].value = ir_build_const_u8(irb, scope, node, 0);
     cases[0].block = resume_block;
     cases[1].value = ir_build_const_u8(irb, scope, node, 1);
-    cases[1].block = cleanup_block;
+    cases[1].block = cancel_target_block;
     ir_build_switch_br(irb, scope, node, suspend_code, irb->exec->coro_suspend_block,
             2, cases, const_bool_false, nullptr);
+
+    ir_set_cursor_at_end_and_append_block(irb, cancel_target_block);
+    IrInstruction *await_handle = ir_build_int_to_ptr(irb, scope, node, promise_type_val, await_handle_addr);
+    ir_gen_cancel_target(irb, scope, node, await_handle);
+    ir_mark_gen(ir_build_br(irb, scope, node, cleanup_block, const_bool_false));
 
     ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
     ir_gen_defers_for_block(irb, scope, outer_scope, true);
