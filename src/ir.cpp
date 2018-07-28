@@ -19033,8 +19033,9 @@ static TypeTableEntry *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrIn
 static TypeTableEntry *ir_analyze_instruction_handle(IrAnalyze *ira, IrInstructionHandle *instruction) {
     ir_build_handle_from(&ira->new_irb, &instruction->base);
 
-    TypeTableEntry *promise_type = get_promise_type(ira->codegen, nullptr);
-    return promise_type;
+    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    assert(fn_entry != nullptr);
+    return get_promise_type(ira->codegen, fn_entry->type_entry->data.fn.fn_type_id.return_type);
 }
 
 static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
