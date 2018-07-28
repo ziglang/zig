@@ -4149,17 +4149,7 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable
 static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable,
         IrInstructionHandle *instruction)
 {
-
-    bool is_async = executable->fn_entry != nullptr && 
-        executable->fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
-
-    if (!is_async || !executable->coro_handle) {
-      add_node_error(g, instruction->base.source_node, buf_sprintf("@handle() in non-async function"));
-      return LLVMConstNull(g->builtin_types.entry_promise->type_ref);
-    }
-
-    LLVMValueRef handle = ir_llvm_value(g, executable->coro_handle);
-    return LLVMBuildRet(g->builder, handle);
+    return LLVMConstNull(g->builtin_types.entry_promise->type_ref);
 }
 
 static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {

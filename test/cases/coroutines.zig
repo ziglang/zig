@@ -57,6 +57,9 @@ test "coroutine suspend with block" {
     resume a_promise;
     std.debug.assert(result);
     cancel p;
+
+    assert( @handle() );
+
 }
 
 var a_promise: promise = undefined;
