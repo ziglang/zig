@@ -4738,4 +4738,20 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
     );
+
+    cases.add(
+        "@handle() called outside of function definition",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\
+        \\var handle_undef: promise = undefined;
+        \\var handle_dummy: promise = @handle();
+        \\
+        \\pub fn main() void {
+        \\    if (handle_undef == handle_dummy) return 0;
+        \\}
+    ,
+        ".tmp_source.zig:6:29: error: @handle() called outside of function definition",
+    );
 }
