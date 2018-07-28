@@ -4754,4 +4754,18 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:6:29: error: @handle() called outside of function definition",
     );
+
+    cases.add(
+        "@handle() in non-async function",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    var handle_undef: promise = undefined;
+        \\    if (handle_undef == @handle()) return 0;
+        \\}
+    ,
+        ".tmp_source.zig:7:25: error: @handle() in non-async function",
+    );
 }
