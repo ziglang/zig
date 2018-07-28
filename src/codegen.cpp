@@ -4149,7 +4149,8 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable
 static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable,
         IrInstructionHandle *instruction)
 {
-    return LLVMConstNull(g->builtin_types.entry_promise->type_ref);
+    LLVMValueRef ptr = ir_llvm_value(g, executable->fn_entry->ir_executable.coro_handle->other);
+    return LLVMBuildBitCast(g->builder, ptr, g->builtin_types.entry_promise->type_ref, "");
 }
 
 static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
