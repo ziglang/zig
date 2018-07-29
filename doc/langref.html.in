@@ -4690,9 +4690,9 @@ test "coroutine suspend with block" {
 var a_promise: promise = undefined;
 var result = false;
 async fn testSuspendBlock() void {
-    suspend |p| {
-        comptime assert(@typeOf(p) == promise->void);
-        a_promise = p;
+    suspend {
+        comptime assert(@typeOf(@handle()) == promise->void);
+        a_promise = @handle();
     }
     result = true;
 }
@@ -4791,9 +4791,9 @@ async fn amain() void {
 }
 async fn another() i32 {
     seq('c');
-    suspend |p| {
+    suspend {
         seq('d');
-        a_promise = p;
+        a_promise = @handle();
     }
     seq('g');
     return 1234;
@@ -7388,7 +7388,7 @@ Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = "suspend" option( body )
 
 IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
