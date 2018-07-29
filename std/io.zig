@@ -419,7 +419,7 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
     };
 }
 
-pub const SliceStream = struct {
+pub const SliceInStream = struct {
     const Self = this;
     pub const Error = error { };
     pub const Stream = InStream(Error);
@@ -447,7 +447,53 @@ pub const SliceStream = struct {
 
         return size;
     }
+};
 
+/// This is a simple OutStream that writes to a slice, and returns an error
+/// when it runs out of space.
+pub const SliceOutStream = struct {
+    pub const Error = error{OutOfSpace};
+    pub const Stream = OutStream(Error);
+
+    pub stream: Stream,
+
+    pos: usize,
+    slice: []u8,
+
+    pub fn init(slice: []u8) SliceOutStream {
+        return SliceOutStream{
+            .slice = slice,
+            .pos = 0,
+            .stream = Stream{ .writeFn = writeFn },
+        };
+    }
+
+    pub fn getWritten(self: *const SliceOutStream) []const u8 {
+        return self.slice[0..self.pos];
+    }
+
+    pub fn reset(self: *SliceOutStream) void {
+        self.pos = 0;
+    }
+
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+        const self = @fieldParentPtr(SliceOutStream, "stream", out_stream);
+
+        assert(self.pos <= self.slice.len);
+
+        const n =
+            if (self.pos + bytes.len <= self.slice.len)
+                bytes.len
+            else
+                self.slice.len - self.pos;
+
+        std.mem.copy(u8, self.slice[self.pos..self.pos + n], bytes[0..n]);
+        self.pos += n;
+
+        if (n < bytes.len) {
+            return Error.OutOfSpace;
+        }
+    }
 };
 
 pub fn BufferedOutStream(comptime Error: type) type {

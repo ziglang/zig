@@ -2,6 +2,7 @@ const std = @import("index.zig");
 const io = std.io;
 const DefaultPrng = std.rand.DefaultPrng;
 const assert = std.debug.assert;
+const assertError = std.debug.assertError;
 const mem = std.mem;
 const os = std.os;
 const builtin = @import("builtin");
@@ -61,9 +62,9 @@ test "BufferOutStream" {
     assert(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
 }
 
-test "SliceStream" {
+test "SliceInStream" {
     const bytes = []const u8 { 1, 2, 3, 4, 5, 6, 7 };
-    var ss = io.SliceStream.init(bytes);
+    var ss = io.SliceInStream.init(bytes);
 
     var dest: [4]u8 = undefined;
 
@@ -81,8 +82,8 @@ test "SliceStream" {
 
 test "PeekStream" {
     const bytes = []const u8 { 1, 2, 3, 4, 5, 6, 7, 8 };
-    var ss = io.SliceStream.init(bytes);
-    var ps = io.PeekStream(2, io.SliceStream.Error).init(&ss.stream);
+    var ss = io.SliceInStream.init(bytes);
+    var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
 
     var dest: [4]u8 = undefined;
 
@@ -110,4 +111,24 @@ test "PeekStream" {
     assert(read == 2);
     assert(dest[0] == 12);
     assert(dest[1] == 11);
+}
+
+test "SliceOutStream" {
+    var buffer: [10]u8 = undefined;
+    var ss = io.SliceOutStream.init(buffer[0..]);
+
+    try ss.stream.write("Hello");
+    assert(mem.eql(u8, ss.getWritten(), "Hello"));
+
+    try ss.stream.write("world");
+    assert(mem.eql(u8, ss.getWritten(), "Helloworld"));
+
+    assertError(ss.stream.write("!"), error.OutOfSpace);
+    assert(mem.eql(u8, ss.getWritten(), "Helloworld"));
+
+    ss.reset();
+    assert(ss.getWritten().len == 0);
+
+    assertError(ss.stream.write("Hello world!"), error.OutOfSpace);
+    assert(mem.eql(u8, ss.getWritten(), "Hello worl"));
 }
