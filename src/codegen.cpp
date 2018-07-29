@@ -4146,11 +4146,24 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable
     return LLVMBuildCall(g->builder, get_frame_address_fn_val(g), &zero, 1, "");
 }
 
+static LLVMValueRef get_handle_fn_val(CodeGen *g) {
+    if (g->coro_frame_fn_val)
+        return g->coro_frame_fn_val;
+
+    LLVMTypeRef fn_type = LLVMFunctionType( LLVMPointerType(LLVMInt8Type(), 0)
+                                          , nullptr, 0, false);
+    Buf *name = buf_sprintf("llvm.coro.frame");
+    g->coro_frame_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_frame_fn_val));
+
+    return g->coro_frame_fn_val;
+}
+
 static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable,
         IrInstructionHandle *instruction)
 {
-    LLVMValueRef ptr = ir_llvm_value(g, executable->fn_entry->ir_executable.coro_handle->other);
-    return LLVMBuildBitCast(g->builder, ptr, g->builtin_types.entry_promise->type_ref, "");
+    LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_promise->type_ref);
+    return LLVMBuildCall(g->builder, get_handle_fn_val(g), &zero, 0, "");
 }
 
 static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
