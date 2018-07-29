@@ -1784,7 +1784,7 @@ test "zig fmt: coroutines" {
         \\    x += 1;
         \\    suspend;
         \\    x += 1;
-        \\    suspend |p| {}
+        \\    suspend;
         \\    const p: promise->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
