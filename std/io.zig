@@ -230,6 +230,20 @@ pub fn OutStream(comptime WriteError: type) type {
                 try self.writeFn(self, slice);
             }
         }
+
+        pub fn writeIntLe(self: *Self, comptime T: type, value: T) !void {
+            return self.writeInt(builtin.Endian.Little, T, value);
+        }
+
+        pub fn writeIntBe(self: *Self, comptime T: type, value: T) !void {
+            return self.writeInt(builtin.Endian.Big, T, value);
+        }
+
+        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) !void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeInt(bytes[0..], value, endian);
+            return self.writeFn(self, bytes);
+        }
     };
 }
 
