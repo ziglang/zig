@@ -200,6 +200,13 @@ pub fn InStream(comptime ReadError: type) type {
             try self.readNoEof(input_slice);
             return mem.readInt(input_slice, T, endian);
         }
+
+        pub fn skipBytes(self: *Self, num_bytes: usize) !void {
+            var i: usize = 0;
+            while (i < num_bytes) : (i += 1) {
+                _ = try self.readByte();
+            }
+        }
     };
 }
 
@@ -229,6 +236,20 @@ pub fn OutStream(comptime WriteError: type) type {
             while (i < n) : (i += 1) {
                 try self.writeFn(self, slice);
             }
+        }
+
+        pub fn writeIntLe(self: *Self, comptime T: type, value: T) !void {
+            return self.writeInt(builtin.Endian.Little, T, value);
+        }
+
+        pub fn writeIntBe(self: *Self, comptime T: type, value: T) !void {
+            return self.writeInt(builtin.Endian.Big, T, value);
+        }
+
+        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) !void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeInt(bytes[0..], value, endian);
+            return self.writeFn(self, bytes);
         }
     };
 }
