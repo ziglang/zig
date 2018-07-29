@@ -7096,19 +7096,8 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     if (node->data.suspend.block == nullptr) {
         suspend_code = ir_build_coro_suspend(irb, parent_scope, node, nullptr, const_bool_false);
     } else {
-        assert(node->data.suspend.promise_symbol != nullptr);
-        assert(node->data.suspend.promise_symbol->type == NodeTypeSymbol);
-        Buf *promise_symbol_name = node->data.suspend.promise_symbol->data.symbol_expr.symbol;
         Scope *child_scope;
-        if (!buf_eql_str(promise_symbol_name, "_")) {
-            VariableTableEntry *promise_var = ir_create_var(irb, node, parent_scope, promise_symbol_name,
-                    true, true, false, const_bool_false);
-            ir_build_var_decl(irb, parent_scope, node, promise_var, nullptr, nullptr, irb->exec->coro_handle);
-            child_scope = promise_var->child_scope;
-        } else {
-            child_scope = parent_scope;
-        }
-        ScopeSuspend *suspend_scope = create_suspend_scope(node, child_scope);
+        ScopeSuspend *suspend_scope = create_suspend_scope(node, parent_scope);
         suspend_scope->resume_block = resume_block;
         child_scope = &suspend_scope->base;
         IrInstruction *save_token = ir_build_coro_save(irb, child_scope, node, irb->exec->coro_handle);
