@@ -200,6 +200,13 @@ pub fn InStream(comptime ReadError: type) type {
             try self.readNoEof(input_slice);
             return mem.readInt(input_slice, T, endian);
         }
+
+        pub fn skipBytes(self: *Self, num_bytes: usize) !void {
+            var i: usize = 0;
+            while (i < num_bytes) : (i += 1) {
+                _ = try self.readByte();
+            }
+        }
     };
 }
 
