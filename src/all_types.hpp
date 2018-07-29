@@ -899,7 +899,6 @@ struct AstNodeAwaitExpr {
 
 struct AstNodeSuspend {
     AstNode *block;
-    AstNode *promise_symbol;
 };
 
 struct AstNodePromiseType {
