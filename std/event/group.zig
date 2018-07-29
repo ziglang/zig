@@ -54,10 +54,11 @@ pub fn Group(comptime ReturnType: type) type {
             const S = struct {
                 async fn asyncFunc(node: **Stack.Node, args2: ...) ReturnType {
                     // TODO this is a hack to make the memory following be inside the coro frame
-                    suspend |p| {
+                    suspend {
                         var my_node: Stack.Node = undefined;
                         node.* = &my_node;
-                        resume p;
+                        var h: promise = @handle();
+                        resume h;
                     }
 
                     // TODO this allocation elision should be guaranteed because we await it in
