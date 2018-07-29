@@ -367,8 +367,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\
         \\async fn foo() void {
-        \\    suspend |p| {
-        \\        suspend |p1| {
+        \\    suspend {
+        \\        suspend {
         \\        }
         \\    }
         \\}
