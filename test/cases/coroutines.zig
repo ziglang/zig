@@ -256,3 +256,19 @@ async fn testBreakFromSuspend(my_result: *i32) void {
     suspend;
     my_result.* += 1;
 }
+
+test "suspend resume @handle()" {
+    var buf: [500]u8 = undefined;
+    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    var my_result: i32 = 1;
+    const p = try async<a> testBreakFromSuspend(&my_result);
+    std.debug.assert(my_result == 2);
+}
+async fn testSuspendResumeAtHandle() void {
+    suspend {
+        resume @handle();
+    }
+    my_result.* += 1;
+    suspend;
+    my_result.* += 1;
+}
