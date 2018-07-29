@@ -88,8 +88,8 @@ pub const Server = struct {
                 },
                 error.ProcessFdQuotaExceeded => {
                     errdefer std.os.emfile_promise_queue.remove(&self.waiting_for_emfile_node);
-                    suspend |p| {
-                        self.waiting_for_emfile_node = PromiseNode.init(p);
+                    suspend {
+                        self.waiting_for_emfile_node = PromiseNode.init( @handle() );
                         std.os.emfile_promise_queue.append(&self.waiting_for_emfile_node);
                     }
                     continue;
@@ -141,8 +141,9 @@ test "listen on a port, send bytes, receive bytes" {
             (await next_handler) catch |err| {
                 std.debug.panic("unable to handle connection: {}\n", err);
             };
-            suspend |p| {
-                cancel p;
+            suspend {
+                var h: promise = @handle();
+                cancel h;
             }
         }
         async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: *const std.os.File) !void {
