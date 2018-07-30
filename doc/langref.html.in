@@ -4665,24 +4665,24 @@ async fn testSuspendBlock() void {
       block, while the old thread continued executing the suspend block.
       </p>
       <p>
-      However, if you use labeled <code>break</code> on the suspend block, the coroutine
+      However, the coroutine can be directly resumed from the suspend block, in which case it
       never returns to its resumer and continues executing.
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "break from suspend" {
+test "resume from suspend" {
     var buf: [500]u8 = undefined;
     var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
     var my_result: i32 = 1;
-    const p = try async<a> testBreakFromSuspend(&my_result);
+    const p = try async<a> testResumeFromSuspend(&my_result);
     cancel p;
     std.debug.assert(my_result == 2);
 }
-async fn testBreakFromSuspend(my_result: *i32) void {
-    s: suspend |p| {
-        break :s;
+async fn testResumeFromSuspend(my_result: *i32) void {
+    suspend |p| {
+        resume p;
     }
     my_result.* += 1;
     suspend;
