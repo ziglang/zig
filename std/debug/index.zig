@@ -27,7 +27,7 @@ pub fn warn(comptime fmt: []const u8, args: ...) void {
     const stderr = getStderrStream() catch return;
     stderr.print(fmt, args) catch return;
 }
-fn getStderrStream() !*io.OutStream(io.FileOutStream.Error) {
+pub fn getStderrStream() !*io.OutStream(io.FileOutStream.Error) {
     if (stderr_stream) |st| {
         return st;
     } else {
@@ -172,6 +172,16 @@ pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, 
     }
 }
 
+pub inline fn getReturnAddress(frame_count: usize) usize {
+    var fp = @ptrToInt(@frameAddress());
+    var i: usize = 0;
+    while (fp != 0 and i < frame_count) {
+        fp = @intToPtr(*const usize, fp).*;
+        i += 1;
+    }
+    return @intToPtr(*const usize, fp + @sizeOf(usize)).*;
+}
+
 pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_info: *ElfStackTrace, tty_color: bool, start_addr: ?usize) !void {
     const AddressState = union(enum) {
         NotLookingForStartAddress,
@@ -205,7 +215,7 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_
     }
 }
 
-fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: usize, tty_color: bool) !void {
+pub fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: usize, tty_color: bool) !void {
     switch (builtin.os) {
         builtin.Os.windows => return error.UnsupportedDebugInfo,
         builtin.Os.macosx => {

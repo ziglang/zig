@@ -161,7 +161,6 @@ ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
     ScopeSuspend *scope = allocate<ScopeSuspend>(1);
     init_scope(&scope->base, ScopeIdSuspend, node, parent);
-    scope->name = node->data.suspend.name;
     return scope;
 }
 
@@ -519,11 +518,11 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
         return return_type->promise_frame_parent;
     }
 
-    TypeTableEntry *awaiter_handle_type = get_optional_type(g, g->builtin_types.entry_promise);
+    TypeTableEntry *atomic_state_type = g->builtin_types.entry_usize;
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
 
     ZigList<const char *> field_names = {};
-    field_names.append(AWAITER_HANDLE_FIELD_NAME);
+    field_names.append(ATOMIC_STATE_FIELD_NAME);
     field_names.append(RESULT_FIELD_NAME);
     field_names.append(RESULT_PTR_FIELD_NAME);
     if (g->have_err_ret_tracing) {
@@ -533,7 +532,7 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     }
 
     ZigList<TypeTableEntry *> field_types = {};
-    field_types.append(awaiter_handle_type);
+    field_types.append(atomic_state_type);
     field_types.append(return_type);
     field_types.append(result_ptr_type);
     if (g->have_err_ret_tracing) {
@@ -6228,7 +6227,12 @@ uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry) {
     } else if (type_entry->id == TypeTableEntryIdOpaque) {
         return 1;
     } else {
-        return LLVMABIAlignmentOfType(g->target_data_ref, type_entry->type_ref);
+        uint32_t llvm_alignment = LLVMABIAlignmentOfType(g->target_data_ref, type_entry->type_ref);
+        // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
+        if (type_entry->id == TypeTableEntryIdPromise && llvm_alignment < 8) {
+            return 8;
+        }
+        return llvm_alignment;
     }
 }
 

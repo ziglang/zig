@@ -60,7 +60,7 @@ struct IrExecutable {
     ZigList<Tld *> tld_list;
 
     IrInstruction *coro_handle;
-    IrInstruction *coro_awaiter_field_ptr; // this one is shared and in the promise
+    IrInstruction *atomic_state_field_ptr; // this one is shared and in the promise
     IrInstruction *coro_result_ptr_field_ptr;
     IrInstruction *coro_result_field_ptr;
     IrInstruction *await_handle_var_ptr; // this one is where we put the one we extracted from the promise
@@ -898,7 +898,6 @@ struct AstNodeAwaitExpr {
 };
 
 struct AstNodeSuspend {
-    Buf *name;
     AstNode *block;
     AstNode *promise_symbol;
 };
@@ -1929,7 +1928,6 @@ struct ScopeLoop {
 struct ScopeSuspend {
     Scope base;
 
-    Buf *name;
     IrBasicBlock *resume_block;
     bool reported_err;
 };
@@ -3245,7 +3243,7 @@ static const size_t stack_trace_ptr_count = 30;
 #define RESULT_FIELD_NAME "result"
 #define ASYNC_ALLOC_FIELD_NAME "allocFn"
 #define ASYNC_FREE_FIELD_NAME "freeFn"
-#define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
+#define ATOMIC_STATE_FIELD_NAME "atomic_state"
 // these point to data belonging to the awaiter
 #define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 #define RESULT_PTR_FIELD_NAME "result_ptr"

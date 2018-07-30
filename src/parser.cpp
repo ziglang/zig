@@ -648,30 +648,12 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
-SuspendExpression(body) = option(Symbol ":") "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
 */
 static AstNode *ast_parse_suspend_block(ParseContext *pc, size_t *token_index, bool mandatory) {
     size_t orig_token_index = *token_index;
 
-    Token *name_token = nullptr;
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdSymbol) {
-        *token_index += 1;
-        Token *colon_token = &pc->tokens->at(*token_index);
-        if (colon_token->id == TokenIdColon) {
-            *token_index += 1;
-            name_token = token;
-            token = &pc->tokens->at(*token_index);
-        } else if (mandatory) {
-            ast_expect_token(pc, colon_token, TokenIdColon);
-            zig_unreachable();
-        } else {
-            *token_index = orig_token_index;
-            return nullptr;
-        }
-    }
-
-    Token *suspend_token = token;
+    Token *suspend_token = &pc->tokens->at(*token_index);
     if (suspend_token->id == TokenIdKeywordSuspend) {
         *token_index += 1;
     } else if (mandatory) {
@@ -693,9 +675,6 @@ static AstNode *ast_parse_suspend_block(ParseContext *pc, size_t *token_index, b
     }
 
     AstNode *node = ast_create_node(pc, NodeTypeSuspend, suspend_token);
-    if (name_token != nullptr) {
-        node->data.suspend.name = token_buf(name_token);
-    }
     node->data.suspend.promise_symbol = ast_parse_symbol(pc, token_index);
     ast_eat_token(pc, token_index, TokenIdBinOr);
     node->data.suspend.block = ast_parse_block(pc, token_index, true);
