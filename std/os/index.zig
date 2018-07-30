@@ -310,6 +310,29 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
     }
 }
 
+pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, offset: u64) PosixWriteError!void {
+    while (true) {
+        const rc = posix.pwritev(fd, iov, count, offset);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return,
+            posix.EINTR => continue,
+            posix.EINVAL => unreachable,
+            posix.EFAULT => unreachable,
+            posix.EAGAIN => return PosixWriteError.WouldBlock,
+            posix.EBADF => return PosixWriteError.FileClosed,
+            posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+            posix.EDQUOT => return PosixWriteError.DiskQuota,
+            posix.EFBIG => return PosixWriteError.FileTooBig,
+            posix.EIO => return PosixWriteError.InputOutput,
+            posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+            posix.EPERM => return PosixWriteError.AccessDenied,
+            posix.EPIPE => return PosixWriteError.BrokenPipe,
+            else => return unexpectedErrorPosix(err),
+        }
+    }
+}
+
 pub const PosixOpenError = error{
     OutOfMemory,
     AccessDenied,
@@ -2911,5 +2934,46 @@ pub fn bsdKEvent(
             posix.ESRCH => return BsdKEventError.ProcessNotFound,
             else => unreachable,
         }
+    }
+}
+
+pub fn linuxINotifyInit1(flags: u32) !i32 {
+    const rc = linux.inotify_init1(flags);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        posix.EINVAL => unreachable,
+        posix.EMFILE => return error.ProcessFdQuotaExceeded,
+        posix.ENFILE => return error.SystemFdQuotaExceeded,
+        posix.ENOMEM => return error.SystemResources,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub fn linuxINotifyAddWatchC(inotify_fd: i32, pathname: [*]const u8, mask: u32) !i32 {
+    const rc = linux.inotify_add_watch(inotify_fd, pathname, mask);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        posix.EACCES => return error.AccessDenied,
+        posix.EBADF => unreachable,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOSPC => return error.UserResourceLimitReached,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub fn linuxINotifyRmWatch(inotify_fd: i32, wd: i32) !void {
+    const rc = linux.inotify_rm_watch(inotify_fd, wd);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return rc,
+        posix.EBADF => unreachable,
+        posix.EINVAL => unreachable,
+        else => unreachable,
     }
 }

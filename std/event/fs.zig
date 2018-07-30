@@ -20,17 +20,18 @@ pub const Request = struct {
         PWriteV: PWriteV,
         PReadV: PReadV,
         OpenRead: OpenRead,
+        OpenRW: OpenRW,
         Close: Close,
         WriteFile: WriteFile,
         End, // special - means the fs thread should exit
 
         pub const PWriteV = struct {
             fd: os.FileHandle,
-            data: []const []const u8,
+            iov: []os.linux.iovec_const,
             offset: usize,
             result: Error!void,
 
-            pub const Error = error{};
+            pub const Error = os.File.WriteError;
         };
 
         pub const PReadV = struct {
@@ -46,6 +47,15 @@ pub const Request = struct {
             /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
             path: []const u8,
             result: Error!os.FileHandle,
+
+            pub const Error = os.File.OpenError;
+        };
+
+        pub const OpenRW = struct {
+            /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
+            path: []const u8,
+            result: Error!os.FileHandle,
+            mode: os.File.Mode,
 
             pub const Error = os.File.OpenError;
         };
@@ -66,7 +76,7 @@ pub const Request = struct {
     };
 };
 
-/// data - both the outer and inner references - must live until pwritev promise completes.
+/// data - just the inner references - must live until pwritev promise completes.
 pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: []const []const u8) !void {
     //const data_dupe = try mem.dupe(loop.allocator, []const u8, data);
     //defer loop.allocator.free(data_dupe);
@@ -78,13 +88,23 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
         resume p;
     }
 
+    const iovecs = try loop.allocator.alloc(os.linux.iovec_const, data.len);
+    defer loop.allocator.free(iovecs);
+
+    for (data) |buf, i| {
+        iovecs[i] = os.linux.iovec_const{
+            .iov_base = buf.ptr,
+            .iov_len = buf.len,
+        };
+    }
+
     var req_node = RequestNode{
         .next = undefined,
         .data = Request{
             .msg = Request.Msg{
                 .PWriteV = Request.Msg.PWriteV{
                     .fd = fd,
-                    .data = data,
+                    .iov = iovecs,
                     .offset = offset,
                     .result = undefined,
                 },
@@ -162,12 +182,15 @@ pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.
         resume p;
     }
 
+    const path_with_null = try std.cstr.addNullByte(loop.allocator, path);
+    defer loop.allocator.free(path_with_null);
+
     var req_node = RequestNode{
         .next = undefined,
         .data = Request{
             .msg = Request.Msg{
                 .OpenRead = Request.Msg.OpenRead{
-                    .path = path,
+                    .path = path_with_null[0..path.len],
                     .result = undefined,
                 },
             },
@@ -185,6 +208,48 @@ pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.
     }
 
     return req_node.data.msg.OpenRead.result;
+}
+
+/// Creates if does not exist. Does not truncate.
+pub async fn openReadWrite(
+    loop: *event.Loop,
+    path: []const u8,
+    mode: os.File.Mode,
+) os.File.OpenError!os.FileHandle {
+    // workaround for https://github.com/ziglang/zig/issues/1194
+    var my_handle: promise = undefined;
+    suspend |p| {
+        my_handle = p;
+        resume p;
+    }
+
+    const path_with_null = try std.cstr.addNullByte(loop.allocator, path);
+    defer loop.allocator.free(path_with_null);
+
+    var req_node = RequestNode{
+        .next = undefined,
+        .data = Request{
+            .msg = Request.Msg{
+                .OpenRW = Request.Msg.OpenRW{
+                    .path = path_with_null[0..path.len],
+                    .mode = mode,
+                    .result = undefined,
+                },
+            },
+            .finish = Request.Finish{
+                .TickNode = event.Loop.NextTickNode{
+                    .next = undefined,
+                    .data = my_handle,
+                },
+            },
+        },
+    };
+
+    suspend |_| {
+        loop.linuxFsRequest(&req_node);
+    }
+
+    return req_node.data.msg.OpenRW.result;
 }
 
 /// This abstraction helps to close file handles in defer expressions
@@ -302,6 +367,113 @@ pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize)
     }
 }
 
+pub const Watch = struct {
+    channel: *event.Channel(Event),
+    putter: promise,
+
+    pub const Event = union(enum) {
+        CloseWrite,
+        Err: Error,
+    };
+
+    pub const Error = error{
+        UserResourceLimitReached,
+        SystemResources,
+    };
+
+    pub fn destroy(self: *Watch) void {
+        // TODO https://github.com/ziglang/zig/issues/1261
+        cancel self.putter;
+    }
+};
+
+pub fn watchFile(loop: *event.Loop, file_path: []const u8) !*Watch {
+    const path_with_null = try std.cstr.addNullByte(loop.allocator, file_path);
+    defer loop.allocator.free(path_with_null);
+
+    const inotify_fd = try os.linuxINotifyInit1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
+    errdefer os.close(inotify_fd);
+
+    const wd = try os.linuxINotifyAddWatchC(inotify_fd, path_with_null.ptr, os.linux.IN_CLOSE_WRITE);
+    errdefer os.close(wd);
+
+    const channel = try event.Channel(Watch.Event).create(loop, 0);
+    errdefer channel.destroy();
+
+    var result: *Watch = undefined;
+    _ = try async<loop.allocator> watchEventPutter(inotify_fd, wd, channel, &result);
+    return result;
+}
+
+async fn watchEventPutter(inotify_fd: i32, wd: i32, channel: *event.Channel(Watch.Event), out_watch: **Watch) void {
+    // TODO https://github.com/ziglang/zig/issues/1194
+    var my_handle: promise = undefined;
+    suspend |p| {
+        my_handle = p;
+        resume p;
+    }
+
+    var watch = Watch{
+        .putter = my_handle,
+        .channel = channel,
+    };
+    out_watch.* = &watch;
+
+    const loop = channel.loop;
+    loop.beginOneEvent();
+
+    defer {
+        channel.destroy();
+        os.close(wd);
+        os.close(inotify_fd);
+        loop.finishOneEvent();
+    }
+
+    var event_buf: [4096]u8 align(@alignOf(os.linux.inotify_event)) = undefined;
+
+    while (true) {
+        const rc = os.linux.read(inotify_fd, &event_buf, event_buf.len);
+        const errno = os.linux.getErrno(rc);
+        switch (errno) {
+            0 => {
+                // can't use @bytesToSlice because of the special variable length name field
+                var ptr = event_buf[0..].ptr;
+                const end_ptr = ptr + event_buf.len;
+                var ev: *os.linux.inotify_event = undefined;
+                while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) : (ptr += @sizeOf(os.linux.inotify_event) + ev.len) {
+                    ev = @ptrCast(*os.linux.inotify_event, ptr);
+                    if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
+                        await (async channel.put(Watch.Event.CloseWrite) catch unreachable);
+                    }
+                }
+            },
+            os.linux.EINTR => continue,
+            os.linux.EINVAL => unreachable,
+            os.linux.EFAULT => unreachable,
+            os.linux.EAGAIN => {
+                (await (async loop.linuxWaitFd(
+                    inotify_fd,
+                    os.linux.EPOLLET | os.linux.EPOLLIN,
+                ) catch unreachable)) catch |err| {
+                    const transformed_err = switch (err) {
+                        error.InvalidFileDescriptor => unreachable,
+                        error.FileDescriptorAlreadyPresentInSet => unreachable,
+                        error.InvalidSyscall => unreachable,
+                        error.OperationCausesCircularLoop => unreachable,
+                        error.FileDescriptorNotRegistered => unreachable,
+                        error.SystemResources => error.SystemResources,
+                        error.UserResourceLimitReached => error.UserResourceLimitReached,
+                        error.FileDescriptorIncompatibleWithEpoll => unreachable,
+                        error.Unexpected => unreachable,
+                    };
+                    await (async channel.put(Watch.Event{ .Err = transformed_err }) catch unreachable);
+                };
+            },
+            else => unreachable,
+        }
+    }
+}
+
 const test_tmp_dir = "std_event_fs_test";
 
 test "write a file, watch it, write it again" {
@@ -338,10 +510,39 @@ async fn testFsWatch(loop: *event.Loop) !void {
         \\line 1
         \\line 2
     ;
+    const line2_offset = 7;
 
     // first just write then read the file
     try await try async writeFile(loop, file_path, contents);
 
     const read_contents = try await try async readFile(loop, file_path, 1024 * 1024);
     assert(mem.eql(u8, read_contents, contents));
+
+    // now watch the file
+    var watch = try watchFile(loop, file_path);
+    defer watch.destroy();
+
+    const ev = try async watch.channel.get();
+    var ev_consumed = false;
+    defer if (!ev_consumed) cancel ev;
+
+    // overwrite line 2
+    const fd = try await try async openReadWrite(loop, file_path, os.File.default_mode);
+    {
+        defer os.close(fd);
+
+        try await try async pwritev(loop, fd, line2_offset, []const []const u8{"lorem ipsum"});
+    }
+
+    ev_consumed = true;
+    switch (await ev) {
+        Watch.Event.CloseWrite => {},
+        Watch.Event.Err => |err| return err,
+    }
+
+    const contents_updated = try await try async readFile(loop, file_path, 1024 * 1024);
+    assert(mem.eql(u8, contents_updated,
+        \\line 1
+        \\lorem ipsum
+    ));
 }

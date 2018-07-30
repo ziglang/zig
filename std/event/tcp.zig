@@ -55,7 +55,7 @@ pub const Server = struct {
         errdefer cancel self.accept_coro.?;
 
         self.listen_resume_node.handle = self.accept_coro.?;
-        try self.loop.addFd(sockfd, &self.listen_resume_node);
+        try self.loop.linuxAddFd(sockfd, &self.listen_resume_node, posix.EPOLLIN | posix.EPOLLOUT | posix.EPOLLET);
         errdefer self.loop.removeFd(sockfd);
     }
 
@@ -116,7 +116,7 @@ pub async fn connect(loop: *Loop, _address: *const std.net.Address) !std.os.File
     errdefer std.os.close(sockfd);
 
     try std.os.posixConnectAsync(sockfd, &address.os_addr);
-    try await try async loop.waitFd(sockfd);
+    try await try async loop.linuxWaitFd(sockfd, posix.EPOLLIN | posix.EPOLLOUT);
     try std.os.posixGetSockOptConnectError(sockfd);
 
     return std.os.File.openHandle(sockfd);
@@ -181,4 +181,3 @@ async fn doAsyncTest(loop: *Loop, address: *const std.net.Address, server: *Serv
     assert(mem.eql(u8, msg, "hello from server\n"));
     server.close();
 }
-

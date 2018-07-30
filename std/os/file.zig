@@ -29,7 +29,6 @@ pub const File = struct {
 
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    /// TODO deprecated, just use open
     pub fn openRead(allocator: *mem.Allocator, path: []const u8) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_RDONLY;
@@ -51,7 +50,6 @@ pub const File = struct {
     }
 
     /// Calls `openWriteMode` with os.File.default_mode for the mode.
-    /// TODO deprecated, just use open
     pub fn openWrite(allocator: *mem.Allocator, path: []const u8) OpenError!File {
         return openWriteMode(allocator, path, os.File.default_mode);
     }
@@ -60,7 +58,6 @@ pub const File = struct {
     /// If a file already exists in the destination it will be truncated.
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    /// TODO deprecated, just use open
     pub fn openWriteMode(allocator: *mem.Allocator, path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
@@ -85,7 +82,6 @@ pub const File = struct {
     /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    /// TODO deprecated, just use open
     pub fn openWriteNoClobber(allocator: *mem.Allocator, path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;

@@ -318,45 +318,46 @@ pub const Loop = struct {
     }
 
     /// resume_node must live longer than the promise that it holds a reference to.
-    pub fn addFd(self: *Loop, fd: i32, resume_node: *ResumeNode) !void {
-        _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
-        errdefer {
-            self.finishOneEvent();
-        }
-        try self.modFd(
+    /// flags must contain EPOLLET
+    pub fn linuxAddFd(self: *Loop, fd: i32, resume_node: *ResumeNode, flags: u32) !void {
+        assert(flags & posix.EPOLLET == posix.EPOLLET);
+        self.beginOneEvent();
+        errdefer self.finishOneEvent();
+        try self.linuxModFd(
             fd,
             posix.EPOLL_CTL_ADD,
-            os.linux.EPOLLIN | os.linux.EPOLLOUT | os.linux.EPOLLET,
+            flags,
             resume_node,
         );
     }
 
-    pub fn modFd(self: *Loop, fd: i32, op: u32, events: u32, resume_node: *ResumeNode) !void {
+    pub fn linuxModFd(self: *Loop, fd: i32, op: u32, flags: u32, resume_node: *ResumeNode) !void {
+        assert(flags & posix.EPOLLET == posix.EPOLLET);
         var ev = os.linux.epoll_event{
-            .events = events,
+            .events = flags,
             .data = os.linux.epoll_data{ .ptr = @ptrToInt(resume_node) },
         };
         try os.linuxEpollCtl(self.os_data.epollfd, op, fd, &ev);
     }
 
-    pub fn removeFd(self: *Loop, fd: i32) void {
-        self.removeFdNoCounter(fd);
+    pub fn linuxRemoveFd(self: *Loop, fd: i32) void {
+        self.linuxRemoveFdNoCounter(fd);
         self.finishOneEvent();
     }
 
-    fn removeFdNoCounter(self: *Loop, fd: i32) void {
+    fn linuxRemoveFdNoCounter(self: *Loop, fd: i32) void {
         os.linuxEpollCtl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
     }
 
-    pub async fn waitFd(self: *Loop, fd: i32) !void {
-        defer self.removeFd(fd);
+    pub async fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
+        defer self.linuxRemoveFd(fd);
         suspend |p| {
             // TODO explicitly put this memory in the coroutine frame #1194
             var resume_node = ResumeNode{
                 .id = ResumeNode.Id.Basic,
                 .handle = p,
             };
-            try self.addFd(fd, &resume_node);
+            try self.linuxAddFd(fd, &resume_node, flags);
         }
     }
 
@@ -382,7 +383,7 @@ pub const Loop = struct {
                     // the pending count is already accounted for
                     const epoll_events = posix.EPOLLONESHOT | os.linux.EPOLLIN | os.linux.EPOLLOUT |
                         os.linux.EPOLLET;
-                    self.modFd(
+                    self.linuxModFd(
                         eventfd_node.eventfd,
                         eventfd_node.epoll_op,
                         epoll_events,
@@ -416,7 +417,7 @@ pub const Loop = struct {
 
     /// Bring your own linked list node. This means it can't fail.
     pub fn onNextTick(self: *Loop, node: *NextTickNode) void {
-        _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+        self.beginOneEvent(); // finished in dispatch()
         self.next_tick_queue.put(node);
         self.dispatch();
     }
@@ -470,8 +471,14 @@ pub const Loop = struct {
         }
     }
 
-    fn finishOneEvent(self: *Loop) void {
-        if (@atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst) == 1) {
+    /// call finishOneEvent when done
+    pub fn beginOneEvent(self: *Loop) void {
+        _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+    }
+
+    pub fn finishOneEvent(self: *Loop) void {
+        const prev = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+        if (prev == 1) {
             // cause all the threads to stop
             switch (builtin.os) {
                 builtin.Os.linux => {
@@ -593,7 +600,7 @@ pub const Loop = struct {
     }
 
     fn linuxFsRequest(self: *Loop, request_node: *fs.RequestNode) void {
-        _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+        self.beginOneEvent(); // finished in linuxFsRun after processing the msg
         self.os_data.fs_queue.put(request_node);
         _ = @atomicRmw(i32, &self.os_data.fs_queue_len, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst); // let this wrap
         const rc = os.linux.futex_wake(@ptrToInt(&self.os_data.fs_queue_len), os.linux.FUTEX_WAKE, 1);
@@ -610,13 +617,20 @@ pub const Loop = struct {
             while (self.os_data.fs_queue.get()) |node| {
                 processed_count +%= 1;
                 switch (node.data.msg) {
-                    @TagType(fs.Request.Msg).PWriteV => @panic("TODO"),
+                    @TagType(fs.Request.Msg).End => return,
+                    @TagType(fs.Request.Msg).PWriteV => |*msg| {
+                        msg.result = os.posix_pwritev(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+                    },
                     @TagType(fs.Request.Msg).PReadV => |*msg| {
                         msg.result = os.posix_preadv(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
                     },
                     @TagType(fs.Request.Msg).OpenRead => |*msg| {
-                        const flags = posix.O_LARGEFILE | posix.O_RDONLY;
+                        const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
                         msg.result = os.posixOpenC(msg.path.ptr, flags, 0);
+                    },
+                    @TagType(fs.Request.Msg).OpenRW => |*msg| {
+                        const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
+                        msg.result = os.posixOpenC(msg.path.ptr, flags, msg.mode);
                     },
                     @TagType(fs.Request.Msg).Close => |*msg| os.close(msg.fd),
                     @TagType(fs.Request.Msg).WriteFile => |*msg| blk: {
@@ -629,7 +643,6 @@ pub const Loop = struct {
                         defer os.close(fd);
                         msg.result = os.posixWrite(fd, msg.contents);
                     },
-                    @TagType(fs.Request.Msg).End => return,
                 }
                 switch (node.data.finish) {
                     @TagType(fs.Request.Finish).TickNode => |*tick_node| self.onNextTick(tick_node),
