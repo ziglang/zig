@@ -74,44 +74,6 @@ that counts as "freestanding" for the purposes of this table.
  * Reddit: [/r/zig](https://www.reddit.com/r/zig)
  * Email list: [ziglang@googlegroups.com](https://groups.google.com/forum/#!forum/ziglang)
 
-### Wanted: Windows Developers
-
-Flesh out the standard library for Windows, streamline Zig installation and
-distribution for Windows. Work with LLVM and LLD teams to improve
-PDB/CodeView/MSVC debugging. Implement stack traces for Windows in the MinGW
-environment and the MSVC environment.
-
-### Wanted: MacOS and iOS Developers
-
-Flesh out the standard library for MacOS. Improve the MACH-O linker. Implement
-stack traces for MacOS. Streamline the process of using Zig to build for
-iOS.
-
-### Wanted: Android Developers
-
-Flesh out the standard library for Android. Streamline the process of using
-Zig to build for Android and for depending on Zig code on Android.
-
-### Wanted: Web Developers
-
-Figure out what are the use cases for compiling Zig to WebAssembly. Create demo
-projects with it and streamline experience for users trying to output
-WebAssembly. Work on the documentation generator outputting useful searchable html
-documentation. Create Zig modules for common web tasks such as WebSockets and gzip.
-
-### Wanted: Embedded Developers
-
-Flesh out the standard library for uncommon CPU architectures and OS targets.
-Drive issue discussion for cross compiling and using Zig in constrained
-or unusual environments.
-
-### Wanted: Game Developers
-
-Create cross platform Zig modules to compete with SDL and GLFW. Create an
-OpenGL library that does not depend on libc. Drive the usability of Zig
-for video games. Create a general purpose allocator that does not depend on
-libc. Create demo games using Zig.
-
 ## Building
 
 [![Build Status](https://travis-ci.org/ziglang/zig.svg?branch=master)](https://travis-ci.org/ziglang/zig)

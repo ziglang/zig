@@ -134,6 +134,58 @@ pub fn main() void {
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
+      {#header_open|Comments#}
+      {#code_begin|test|comments#}
+const assert = @import("std").debug.assert;
+
+test "comments" {
+    // Comments in Zig start with "//" and end at the next LF byte (end of line).
+    // The below line is a comment, and won't be executed.
+
+    //assert(false);
+
+    const x = true;  // another comment
+    assert(x);
+}
+      {#code_end#}
+      <p>
+      There are no multiline comments in Zig (e.g. like <code>/* */</code>
+      comments in C).  This helps allow Zig to have the property that each line
+      of code can be tokenized out of context.
+      </p>
+      {#header_open|Doc comments#}
+      <p>
+      A doc comment is one that begins with exactly three slashes (i.e.
+      <code class="zig">///</code> but not <code class="zig">////</code>);
+      multiple doc comments in a row are merged together to form a multiline
+      doc comment.  The doc comment documents whatever immediately follows it.
+      </p>
+      {#code_begin|syntax|doc_comments#}
+/// A structure for storing a timestamp, with nanosecond precision (this is a
+/// multiline doc comment).
+const Timestamp = struct {
+    /// The number of seconds since the epoch (this is also a doc comment).
+    seconds: i64,  // signed so we can represent pre-1970 (not a doc comment)
+    /// The number of nanoseconds past the second (doc comment again).
+    nanos: u32,
+
+    /// Returns a `Timestamp` struct representing the Unix epoch; that is, the
+    /// moment of 1970 Jan 1 00:00:00 UTC (this is a doc comment too).
+    pub fn unixEpoch() Timestamp {
+        return Timestamp{
+            .seconds = 0,
+            .nanos = 0,
+        };
+    }
+};
+      {#code_end#}
+      <p>
+      Doc comments are only allowed in certain places; eventually, it will
+      become a compile error have a doc comment in an unexpected place, such as
+      in the middle of an expression, or just before a non-doc comment.
+      </p>
+      {#header_close#}
+      {#header_close#}
       {#header_open|Values#}
       {#code_begin|exe|values#}
 const std = @import("std");
@@ -4665,24 +4717,24 @@ async fn testSuspendBlock() void {
       block, while the old thread continued executing the suspend block.
       </p>
       <p>
-      However, if you use labeled <code>break</code> on the suspend block, the coroutine
+      However, the coroutine can be directly resumed from the suspend block, in which case it
       never returns to its resumer and continues executing.
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "break from suspend" {
+test "resume from suspend" {
     var buf: [500]u8 = undefined;
     var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
     var my_result: i32 = 1;
-    const p = try async<a> testBreakFromSuspend(&my_result);
+    const p = try async<a> testResumeFromSuspend(&my_result);
     cancel p;
     std.debug.assert(my_result == 2);
 }
-async fn testBreakFromSuspend(my_result: *i32) void {
-    s: suspend |p| {
-        break :s;
+async fn testResumeFromSuspend(my_result: *i32) void {
+    suspend |p| {
+        resume p;
     }
     my_result.* += 1;
     suspend;
@@ -7336,7 +7388,7 @@ Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-SuspendExpression(body) = option(Symbol ":") "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
 
 IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 

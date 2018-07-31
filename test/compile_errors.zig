@@ -2,6 +2,64 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "while loop body expression ignored",
+        \\fn returns() usize {
+        \\    return 2;
+        \\}
+        \\export fn f1() void {
+        \\    while (true) returns();
+        \\}
+        \\export fn f2() void {
+        \\    var x: ?i32 = null;
+        \\    while (x) |_| returns();
+        \\}
+        \\export fn f3() void {
+        \\    var x: error!i32 = error.Bad;
+        \\    while (x) |_| returns() else |_| unreachable;
+        \\}
+    ,
+        ".tmp_source.zig:5:25: error: expression value is ignored",
+        ".tmp_source.zig:9:26: error: expression value is ignored",
+        ".tmp_source.zig:13:26: error: expression value is ignored",
+    );
+
+    cases.add(
+        "missing parameter name of generic function",
+        \\fn dump(var) void {}
+        \\export fn entry() void {
+        \\    var a: u8 = 9;
+        \\    dump(a);
+        \\}
+    ,
+        ".tmp_source.zig:1:9: error: missing parameter name",
+    );
+
+    cases.add(
+        "non-inline for loop on a type that requires comptime",
+        \\const Foo = struct {
+        \\    name: []const u8,
+        \\    T: type,
+        \\};
+        \\export fn entry() void {
+        \\    const xx: [2]Foo = undefined;
+        \\    for (xx) |f| {}
+        \\}
+    ,
+        ".tmp_source.zig:7:15: error: variable of type 'Foo' must be const or comptime",
+    );
+
+    cases.add(
+        "generic fn as parameter without comptime keyword",
+        \\fn f(_: fn (var) void) void {}
+        \\fn g(_: var) void {}
+        \\export fn entry() void {
+        \\    f(g);
+        \\}
+    ,
+        ".tmp_source.zig:1:9: error: parameter of type 'fn(var)var' must be declared comptime",
+    );
+
+    cases.add(
         "optional pointer to void in extern struct",
         \\comptime {
         \\    _ = @IntType(false, @maxValue(u32) + 1);

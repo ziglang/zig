@@ -72,6 +72,9 @@ bool link(ArrayRef<const char *> Args, bool CanExitEarly, raw_ostream &Diag) {
     exitLld(errorCount() ? 1 : 0);
 
   freeArena();
+  ObjFile::Instances.clear();
+  ImportFile::Instances.clear();
+  BitcodeFile::Instances.clear();
   return !errorCount();
 }
 

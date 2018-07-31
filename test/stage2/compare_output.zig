@@ -2,6 +2,7 @@ const std = @import("std");
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) !void {
+    // hello world
     try ctx.testCompareOutputLibC(
         \\extern fn puts([*]const u8) void;
         \\export fn main() c_int {
@@ -9,4 +10,16 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return 0;
         \\}
     , "Hello, world!" ++ std.cstr.line_sep);
+
+    // function calling another function
+    try ctx.testCompareOutputLibC(
+        \\extern fn puts(s: [*]const u8) void;
+        \\export fn main() c_int {
+        \\    return foo(c"OK");
+        \\}
+        \\fn foo(s: [*]const u8) c_int {
+        \\    puts(s);
+        \\    return 0;
+        \\}
+    , "OK" ++ std.cstr.line_sep);
 }

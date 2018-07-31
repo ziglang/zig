@@ -10,8 +10,10 @@ const assert = std.debug.assert;
 const Token = std.zig.Token;
 const Span = @import("errmsg.zig").Span;
 const llvm = @import("llvm.zig");
-const ObjectFile = @import("codegen.zig").ObjectFile;
+const codegen = @import("codegen.zig");
+const ObjectFile = codegen.ObjectFile;
 const Decl = @import("decl.zig").Decl;
+const mem = std.mem;
 
 pub const LVal = enum {
     None,
@@ -122,6 +124,8 @@ pub const Inst = struct {
             Id.Br => return @fieldParentPtr(Br, "base", base).analyze(ira),
             Id.AddImplicitReturnType => return @fieldParentPtr(AddImplicitReturnType, "base", base).analyze(ira),
             Id.PtrType => return await (async @fieldParentPtr(PtrType, "base", base).analyze(ira) catch unreachable),
+            Id.VarPtr => return await (async @fieldParentPtr(VarPtr, "base", base).analyze(ira) catch unreachable),
+            Id.LoadPtr => return await (async @fieldParentPtr(LoadPtr, "base", base).analyze(ira) catch unreachable),
         }
     }
 
@@ -130,6 +134,8 @@ pub const Inst = struct {
             Id.Return => return @fieldParentPtr(Return, "base", base).render(ofile, fn_val),
             Id.Const => return @fieldParentPtr(Const, "base", base).render(ofile, fn_val),
             Id.Call => return @fieldParentPtr(Call, "base", base).render(ofile, fn_val),
+            Id.VarPtr => return @fieldParentPtr(VarPtr, "base", base).render(ofile, fn_val),
+            Id.LoadPtr => return @fieldParentPtr(LoadPtr, "base", base).render(ofile, fn_val),
             Id.DeclRef => unreachable,
             Id.PtrType => unreachable,
             Id.Ref => @panic("TODO"),
@@ -248,6 +254,8 @@ pub const Inst = struct {
         Call,
         DeclRef,
         PtrType,
+        VarPtr,
+        LoadPtr,
     };
 
     pub const Call = struct {
@@ -281,11 +289,13 @@ pub const Inst = struct {
                 return error.SemanticAnalysisFailed;
             };
 
-            if (fn_type.params.len != self.params.args.len) {
+            const fn_type_param_count = fn_type.paramCount();
+
+            if (fn_type_param_count != self.params.args.len) {
                 try ira.addCompileError(
                     self.base.span,
                     "expected {} arguments, found {}",
-                    fn_type.params.len,
+                    fn_type_param_count,
                     self.params.args.len,
                 );
                 return error.SemanticAnalysisFailed;
@@ -299,7 +309,7 @@ pub const Inst = struct {
                 .fn_ref = fn_ref,
                 .args = args,
             });
-            new_inst.val = IrVal{ .KnownType = fn_type.return_type };
+            new_inst.val = IrVal{ .KnownType = fn_type.key.data.Normal.return_type };
             return new_inst;
         }
 
@@ -486,6 +496,133 @@ pub const Inst = struct {
                     }
                 },
             }
+        }
+    };
+
+    pub const VarPtr = struct {
+        base: Inst,
+        params: Params,
+
+        const Params = struct {
+            var_scope: *Scope.Var,
+        };
+
+        const ir_val_init = IrVal.Init.Unknown;
+
+        pub fn dump(inst: *const VarPtr) void {
+            std.debug.warn("{}", inst.params.var_scope.name);
+        }
+
+        pub fn hasSideEffects(inst: *const VarPtr) bool {
+            return false;
+        }
+
+        pub async fn analyze(self: *const VarPtr, ira: *Analyze) !*Inst {
+            switch (self.params.var_scope.data) {
+                Scope.Var.Data.Const => @panic("TODO"),
+                Scope.Var.Data.Param => |param| {
+                    const new_inst = try ira.irb.build(
+                        Inst.VarPtr,
+                        self.base.scope,
+                        self.base.span,
+                        Inst.VarPtr.Params{ .var_scope = self.params.var_scope },
+                    );
+                    const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+                        .child_type = param.typ,
+                        .mut = Type.Pointer.Mut.Const,
+                        .vol = Type.Pointer.Vol.Non,
+                        .size = Type.Pointer.Size.One,
+                        .alignment = Type.Pointer.Align.Abi,
+                    }) catch unreachable);
+                    new_inst.val = IrVal{ .KnownType = &ptr_type.base };
+                    return new_inst;
+                },
+            }
+        }
+
+        pub fn render(self: *VarPtr, ofile: *ObjectFile, fn_val: *Value.Fn) llvm.ValueRef {
+            switch (self.params.var_scope.data) {
+                Scope.Var.Data.Const => unreachable, // turned into Inst.Const in analyze pass
+                Scope.Var.Data.Param => |param| return param.llvm_value,
+            }
+        }
+    };
+
+    pub const LoadPtr = struct {
+        base: Inst,
+        params: Params,
+
+        const Params = struct {
+            target: *Inst,
+        };
+
+        const ir_val_init = IrVal.Init.Unknown;
+
+        pub fn dump(inst: *const LoadPtr) void {}
+
+        pub fn hasSideEffects(inst: *const LoadPtr) bool {
+            return false;
+        }
+
+        pub async fn analyze(self: *const LoadPtr, ira: *Analyze) !*Inst {
+            const target = try self.params.target.getAsParam();
+            const target_type = target.getKnownType();
+            if (target_type.id != Type.Id.Pointer) {
+                try ira.addCompileError(self.base.span, "dereference of non pointer type '{}'", target_type.name);
+                return error.SemanticAnalysisFailed;
+            }
+            const ptr_type = @fieldParentPtr(Type.Pointer, "base", target_type);
+            //    if (instr_is_comptime(ptr)) {
+            //        if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst ||
+            //            ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
+            //        {
+            //            ConstExprValue *pointee = const_ptr_pointee(ira->codegen, &ptr->value);
+            //            if (pointee->special != ConstValSpecialRuntime) {
+            //                IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
+            //                    source_instruction->source_node, child_type);
+            //                copy_const_val(&result->value, pointee, ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst);
+            //                result->value.type = child_type;
+            //                return result;
+            //            }
+            //        }
+            //    }
+            const new_inst = try ira.irb.build(
+                Inst.LoadPtr,
+                self.base.scope,
+                self.base.span,
+                Inst.LoadPtr.Params{ .target = target },
+            );
+            new_inst.val = IrVal{ .KnownType = ptr_type.key.child_type };
+            return new_inst;
+        }
+
+        pub fn render(self: *LoadPtr, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
+            const child_type = self.base.getKnownType();
+            if (!child_type.hasBits()) {
+                return null;
+            }
+            const ptr = self.params.target.llvm_value.?;
+            const ptr_type = self.params.target.getKnownType().cast(Type.Pointer).?;
+
+            return try codegen.getHandleValue(ofile, ptr, ptr_type);
+
+            //uint32_t unaligned_bit_count = ptr_type->data.pointer.unaligned_bit_count;
+            //if (unaligned_bit_count == 0)
+            //    return get_handle_value(g, ptr, child_type, ptr_type);
+
+            //bool big_endian = g->is_big_endian;
+
+            //assert(!handle_is_ptr(child_type));
+            //LLVMValueRef containing_int = gen_load(g, ptr, ptr_type, "");
+
+            //uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
+            //uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
+            //uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - unaligned_bit_count : bit_offset;
+
+            //LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
+            //LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
+
+            //return LLVMBuildTrunc(g->builder, shifted_value, child_type->type_ref, "");
         }
     };
 
@@ -1158,6 +1295,7 @@ pub const Builder = struct {
                 Scope.Id.Block,
                 Scope.Id.Defer,
                 Scope.Id.DeferExpr,
+                Scope.Id.Var,
                 => scope = scope.parent.?,
             }
         }
@@ -1259,8 +1397,8 @@ pub const Builder = struct {
         var child_scope = outer_block_scope;
 
         if (parent_scope.findFnDef()) |fndef_scope| {
-            if (fndef_scope.fn_val.child_scope == parent_scope) {
-                fndef_scope.fn_val.block_scope = block_scope;
+            if (fndef_scope.fn_val.?.block_scope == null) {
+                fndef_scope.fn_val.?.block_scope = block_scope;
             }
         }
 
@@ -1490,20 +1628,23 @@ pub const Builder = struct {
             error.OutOfMemory => return error.OutOfMemory,
         }
 
-        //VariableTableEntry *var = find_variable(irb->codegen, scope, variable_name);
-        //if (var) {
-        //    IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, node, var);
-        //    if (lval == LValPtr)
-        //        return var_ptr;
-        //    else
-        //        return ir_build_load_ptr(irb, scope, node, var_ptr);
-        //}
-
-        if (await (async irb.findDecl(scope, name) catch unreachable)) |decl| {
-            return irb.build(Inst.DeclRef, scope, src_span, Inst.DeclRef.Params{
-                .decl = decl,
-                .lval = lval,
-            });
+        switch (await (async irb.findIdent(scope, name) catch unreachable)) {
+            Ident.Decl => |decl| {
+                return irb.build(Inst.DeclRef, scope, src_span, Inst.DeclRef.Params{
+                    .decl = decl,
+                    .lval = lval,
+                });
+            },
+            Ident.VarScope => |var_scope| {
+                const var_ptr = try irb.build(Inst.VarPtr, scope, src_span, Inst.VarPtr.Params{ .var_scope = var_scope });
+                switch (lval) {
+                    LVal.Ptr => return var_ptr,
+                    LVal.None => {
+                        return irb.build(Inst.LoadPtr, scope, src_span, Inst.LoadPtr.Params{ .target = var_ptr });
+                    },
+                }
+            },
+            Ident.NotFound => {},
         }
 
         //if (node->owner->any_imports_failed) {
@@ -1544,6 +1685,7 @@ pub const Builder = struct {
                 Scope.Id.Block,
                 Scope.Id.Decls,
                 Scope.Id.Root,
+                Scope.Id.Var,
                 => scope = scope.parent orelse break,
 
                 Scope.Id.DeferExpr => unreachable,
@@ -1594,6 +1736,7 @@ pub const Builder = struct {
 
                 Scope.Id.CompTime,
                 Scope.Id.Block,
+                Scope.Id.Var,
                 => scope = scope.parent orelse return is_noreturn,
 
                 Scope.Id.DeferExpr => unreachable,
@@ -1672,8 +1815,10 @@ pub const Builder = struct {
                 Type.Pointer.Size,
                 LVal,
                 *Decl,
+                *Scope.Var,
                 => {},
-                // it's ok to add more types here, just make sure any instructions are ref'd appropriately
+                // it's ok to add more types here, just make sure that
+                // any instructions and basic blocks are ref'd appropriately
                 else => @compileError("unrecognized type in Params: " ++ @typeName(FieldType)),
             }
         }
@@ -1771,18 +1916,30 @@ pub const Builder = struct {
         //// the above blocks are rendered by ir_gen after the rest of codegen
     }
 
-    async fn findDecl(irb: *Builder, scope: *Scope, name: []const u8) ?*Decl {
+    const Ident = union(enum) {
+        NotFound,
+        Decl: *Decl,
+        VarScope: *Scope.Var,
+    };
+
+    async fn findIdent(irb: *Builder, scope: *Scope, name: []const u8) Ident {
         var s = scope;
         while (true) {
             switch (s.id) {
+                Scope.Id.Root => return Ident.NotFound,
                 Scope.Id.Decls => {
                     const decls = @fieldParentPtr(Scope.Decls, "base", s);
                     const table = await (async decls.getTableReadOnly() catch unreachable);
                     if (table.get(name)) |entry| {
-                        return entry.value;
+                        return Ident{ .Decl = entry.value };
                     }
                 },
-                Scope.Id.Root => return null,
+                Scope.Id.Var => {
+                    const var_scope = @fieldParentPtr(Scope.Var, "base", s);
+                    if (mem.eql(u8, var_scope.name, name)) {
+                        return Ident{ .VarScope = var_scope };
+                    }
+                },
                 else => {},
             }
             s = s.parent.?;

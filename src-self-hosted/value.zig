@@ -60,7 +60,7 @@ pub const Value = struct {
     pub fn getLlvmConst(base: *Value, ofile: *ObjectFile) (error{OutOfMemory}!?llvm.ValueRef) {
         switch (base.id) {
             Id.Type => unreachable,
-            Id.Fn => @panic("TODO"),
+            Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmConst(ofile),
             Id.FnProto => return @fieldParentPtr(FnProto, "base", base).getLlvmConst(ofile),
             Id.Void => return null,
             Id.Bool => return @fieldParentPtr(Bool, "base", base).getLlvmConst(ofile),
@@ -180,7 +180,7 @@ pub const Value = struct {
         child_scope: *Scope,
 
         /// parent is child_scope
-        block_scope: *Scope.Block,
+        block_scope: ?*Scope.Block,
 
         /// Path to the object file that contains this function
         containing_object: Buffer,
@@ -205,7 +205,7 @@ pub const Value = struct {
                 },
                 .fndef_scope = fndef_scope,
                 .child_scope = &fndef_scope.base,
-                .block_scope = undefined,
+                .block_scope = null,
                 .symbol_name = symbol_name,
                 .containing_object = Buffer.initNull(comp.gpa()),
                 .link_set_node = link_set_node,
@@ -230,6 +230,22 @@ pub const Value = struct {
             self.fndef_scope.base.deref(comp);
             self.symbol_name.deinit();
             comp.gpa().destroy(self);
+        }
+
+        /// We know that the function definition will end up in an .o file somewhere.
+        /// Here, all we have to do is generate a global prototype.
+        /// TODO cache the prototype per ObjectFile
+        pub fn getLlvmConst(self: *Fn, ofile: *ObjectFile) !?llvm.ValueRef {
+            const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
+            const llvm_fn = llvm.AddFunction(
+                ofile.module,
+                self.symbol_name.ptr(),
+                llvm_fn_type,
+            ) orelse return error.OutOfMemory;
+
+            // TODO port more logic from codegen.cpp:fn_llvm_value
+
+            return llvm_fn;
         }
     };
 

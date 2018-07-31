@@ -161,7 +161,6 @@ ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
     ScopeSuspend *scope = allocate<ScopeSuspend>(1);
     init_scope(&scope->base, ScopeIdSuspend, node, parent);
-    scope->name = node->data.suspend.name;
     return scope;
 }
 
@@ -519,11 +518,11 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
         return return_type->promise_frame_parent;
     }
 
-    TypeTableEntry *awaiter_handle_type = get_optional_type(g, g->builtin_types.entry_promise);
+    TypeTableEntry *atomic_state_type = g->builtin_types.entry_usize;
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
 
     ZigList<const char *> field_names = {};
-    field_names.append(AWAITER_HANDLE_FIELD_NAME);
+    field_names.append(ATOMIC_STATE_FIELD_NAME);
     field_names.append(RESULT_FIELD_NAME);
     field_names.append(RESULT_PTR_FIELD_NAME);
     if (g->have_err_ret_tracing) {
@@ -533,7 +532,7 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     }
 
     ZigList<TypeTableEntry *> field_types = {};
-    field_types.append(awaiter_handle_type);
+    field_types.append(atomic_state_type);
     field_types.append(return_type);
     field_types.append(result_ptr_type);
     if (g->have_err_ret_tracing) {
@@ -1585,10 +1584,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdBlock:
             case TypeTableEntryIdBoundFn:
             case TypeTableEntryIdMetaType:
-                add_node_error(g, param_node->data.param_decl.type,
-                    buf_sprintf("parameter of type '%s' must be declared comptime",
-                    buf_ptr(&type_entry->name)));
-                return g->builtin_types.entry_invalid;
             case TypeTableEntryIdVoid:
             case TypeTableEntryIdBool:
             case TypeTableEntryIdInt:
@@ -1603,6 +1598,13 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
             case TypeTableEntryIdPromise:
+                type_ensure_zero_bits_known(g, type_entry);
+                if (type_requires_comptime(type_entry)) {
+                    add_node_error(g, param_node->data.param_decl.type,
+                        buf_sprintf("parameter of type '%s' must be declared comptime",
+                        buf_ptr(&type_entry->name)));
+                    return g->builtin_types.entry_invalid;
+                }
                 break;
         }
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
@@ -3938,7 +3940,7 @@ AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
         return nullptr;
 }
 
-static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars) {
+static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry) {
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -3975,10 +3977,6 @@ static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entr
 
         if (fn_type->data.fn.gen_param_info) {
             var->gen_arg_index = fn_type->data.fn.gen_param_info[i].gen_index;
-        }
-
-        if (arg_vars) {
-            arg_vars[i] = var;
         }
     }
 }
@@ -4057,7 +4055,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
     }
 
     if (g->verbose_ir) {
-        fprintf(stderr, "{ // (analyzed)\n");
+        fprintf(stderr, "fn %s() { // (analyzed)\n", buf_ptr(&fn_table_entry->symbol_name));
         ir_print(g, stderr, &fn_table_entry->analyzed_executable, 4);
         fprintf(stderr, "}\n");
     }
@@ -4079,7 +4077,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (!fn_table_entry->child_scope)
         fn_table_entry->child_scope = &fn_table_entry->fndef_scope->base;
 
-    define_local_param_variables(g, fn_table_entry, nullptr);
+    define_local_param_variables(g, fn_table_entry);
 
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
@@ -5019,9 +5017,10 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
             } else {
                 return type_requires_comptime(type_entry->data.pointer.child_type);
             }
+        case TypeTableEntryIdFn:
+            return type_entry->data.fn.is_generic;
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdErrorSet:
-        case TypeTableEntryIdFn:
         case TypeTableEntryIdBool:
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
@@ -6228,7 +6227,12 @@ uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry) {
     } else if (type_entry->id == TypeTableEntryIdOpaque) {
         return 1;
     } else {
-        return LLVMABIAlignmentOfType(g->target_data_ref, type_entry->type_ref);
+        uint32_t llvm_alignment = LLVMABIAlignmentOfType(g->target_data_ref, type_entry->type_ref);
+        // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
+        if (type_entry->id == TypeTableEntryIdPromise && llvm_alignment < 8) {
+            return 8;
+        }
+        return llvm_alignment;
     }
 }
 

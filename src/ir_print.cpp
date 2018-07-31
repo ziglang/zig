@@ -45,6 +45,10 @@ static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
 }
 
 static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction) {
+    if (instruction == nullptr) {
+        fprintf(irp->f, "(null)");
+        return;
+    }
     if (instruction->value.special != ConstValSpecialRuntime) {
         ir_print_const_value(irp, &instruction->value);
     } else {
