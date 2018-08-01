@@ -23,7 +23,10 @@ pub const runtime_safety = switch (builtin.mode) {
 var stderr_file: os.File = undefined;
 var stderr_file_out_stream: io.FileOutStream = undefined;
 var stderr_stream: ?*io.OutStream(io.FileOutStream.Error) = null;
+var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
+    const held = stderr_mutex.acquire();
+    defer held.release();
     const stderr = getStderrStream() catch return;
     stderr.print(fmt, args) catch return;
 }

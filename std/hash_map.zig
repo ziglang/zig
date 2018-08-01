@@ -163,6 +163,16 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             };
         }
 
+        pub fn clone(self: Self) !Self {
+            var other = Self.init(self.allocator);
+            try other.initCapacity(self.entries.len);
+            var it = self.iterator();
+            while (it.next()) |entry| {
+                try other.put(entry.key, entry.value);
+            }
+            return other;
+        }
+
         fn initCapacity(hm: *Self, capacity: usize) !void {
             hm.entries = try hm.allocator.alloc(Entry, capacity);
             hm.size = 0;

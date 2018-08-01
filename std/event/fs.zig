@@ -253,7 +253,9 @@ pub async fn openReadWrite(
 }
 
 /// This abstraction helps to close file handles in defer expressions
-/// without suspending. Start a CloseOperation before opening a file.
+/// without the possibility of failure and without the use of suspend points.
+/// Start a `CloseOperation` before opening a file, so that you can defer
+/// `CloseOperation.deinit`.
 pub const CloseOperation = struct {
     loop: *event.Loop,
     have_fd: bool,

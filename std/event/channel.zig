@@ -116,6 +116,10 @@ pub fn Channel(comptime T: type) type {
             return result;
         }
 
+        fn getOrNull(self: *SelfChannel) ?T {
+            TODO();
+        }
+
         fn dispatch(self: *SelfChannel) void {
             // set the "need dispatch" flag
             _ = @atomicRmw(u8, &self.need_dispatch, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);

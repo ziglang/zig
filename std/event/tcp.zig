@@ -61,7 +61,7 @@ pub const Server = struct {
 
     /// Stop listening
     pub fn close(self: *Server) void {
-        self.loop.removeFd(self.sockfd.?);
+        self.loop.linuxRemoveFd(self.sockfd.?);
         std.os.close(self.sockfd.?);
     }
 
@@ -116,7 +116,7 @@ pub async fn connect(loop: *Loop, _address: *const std.net.Address) !std.os.File
     errdefer std.os.close(sockfd);
 
     try std.os.posixConnectAsync(sockfd, &address.os_addr);
-    try await try async loop.linuxWaitFd(sockfd, posix.EPOLLIN | posix.EPOLLOUT);
+    try await try async loop.linuxWaitFd(sockfd, posix.EPOLLIN | posix.EPOLLOUT | posix.EPOLLET);
     try std.os.posixGetSockOptConnectError(sockfd);
 
     return std.os.File.openHandle(sockfd);
