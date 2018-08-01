@@ -248,6 +248,11 @@ pub fn formatIntValue(
                     return formatAsciiChar(value, context, Errors, output);
                 }
             },
+            'b' => {
+                radix = 2;
+                uppercase = false;
+                width = 0;
+            },
             'd' => {
                 radix = 10;
                 uppercase = false;
@@ -873,6 +878,10 @@ test "fmt.format" {
     {
         const value: u8 = 'a';
         try testFmt("u8: a\n", "u8: {c}\n", value);
+    }
+    {
+        const value: u8 = 0b1100;
+        try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", value);
     }
     {
         const value: [3]u8 = "abc";
