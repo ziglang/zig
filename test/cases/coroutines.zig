@@ -249,8 +249,8 @@ test "break from suspend" {
     std.debug.assert(my_result == 2);
 }
 async fn testBreakFromSuspend(my_result: *i32) void {
-    suspend |p| {
-        resume p;
+    suspend {
+        resume @handle();
     }
     my_result.* += 1;
     suspend;
