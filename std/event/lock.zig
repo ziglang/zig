@@ -91,13 +91,16 @@ pub const Lock = struct {
     }
 
     pub async fn acquire(self: *Lock) Held {
-        suspend |handle| {
-            // TODO explicitly put this memory in the coroutine frame #1194
-            var my_tick_node = Loop.NextTickNode{
-                .data = handle,
-                .next = undefined,
-            };
+        // TODO explicitly put this memory in the coroutine frame #1194
+        var my_handle: promise = undefined;
+        suspend |p| {
+            my_handle = p;
+            resume p;
+        }
+        var my_tick_node = Loop.NextTickNode.init(my_handle);
 
+        errdefer _ = self.queue.remove(&my_tick_node); // TODO test canceling an acquire
+        suspend |_| {
             self.queue.put(&my_tick_node);
 
             // At this point, we are in the queue, so we might have already been resumed and this coroutine
@@ -170,6 +173,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
     }
     const handle1 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node1 = Loop.NextTickNode{
+        .prev = undefined,
         .next = undefined,
         .data = handle1,
     };
@@ -177,6 +181,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
 
     const handle2 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node2 = Loop.NextTickNode{
+        .prev = undefined,
         .next = undefined,
         .data = handle2,
     };
@@ -184,6 +189,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
 
     const handle3 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node3 = Loop.NextTickNode{
+        .prev = undefined,
         .next = undefined,
         .data = handle3,
     };

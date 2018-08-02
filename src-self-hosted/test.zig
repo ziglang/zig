@@ -50,7 +50,7 @@ pub const TestContext = struct {
         errdefer self.event_loop_local.deinit();
 
         self.group = std.event.Group(error!void).init(&self.loop);
-        errdefer self.group.cancelAll();
+        errdefer self.group.deinit();
 
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         errdefer allocator.free(self.zig_lib_dir);

@@ -71,26 +71,26 @@ pub fn main() !void {
     }
 
     const commands = []Command{
-        Command{
-            .name = "build-exe",
-            .exec = cmdBuildExe,
-        },
-        Command{
-            .name = "build-lib",
-            .exec = cmdBuildLib,
-        },
-        Command{
-            .name = "build-obj",
-            .exec = cmdBuildObj,
-        },
+        //Command{
+        //    .name = "build-exe",
+        //    .exec = cmdBuildExe,
+        //},
+        //Command{
+        //    .name = "build-lib",
+        //    .exec = cmdBuildLib,
+        //},
+        //Command{
+        //    .name = "build-obj",
+        //    .exec = cmdBuildObj,
+        //},
         Command{
             .name = "fmt",
             .exec = cmdFmt,
         },
-        Command{
-            .name = "libc",
-            .exec = cmdLibC,
-        },
+        //Command{
+        //    .name = "libc",
+        //    .exec = cmdLibC,
+        //},
         Command{
             .name = "targets",
             .exec = cmdTargets,
@@ -472,23 +472,22 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 }
 
 async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
-    // TODO directly awaiting async should guarantee memory allocation elision
-    const build_event = await (async comp.events.get() catch unreachable);
+    while (true) {
+        // TODO directly awaiting async should guarantee memory allocation elision
+        const build_event = await (async comp.events.get() catch unreachable);
 
-    switch (build_event) {
-        Compilation.Event.Ok => {
-            return;
-        },
-        Compilation.Event.Error => |err| {
-            std.debug.warn("build failed: {}\n", @errorName(err));
-            os.exit(1);
-        },
-        Compilation.Event.Fail => |msgs| {
-            for (msgs) |msg| {
-                defer msg.destroy();
-                msg.printToFile(&stderr_file, color) catch os.exit(1);
-            }
-        },
+        switch (build_event) {
+            Compilation.Event.Ok => {},
+            Compilation.Event.Error => |err| {
+                stderr.print("build failed: {}\n", @errorName(err)) catch os.exit(1);
+            },
+            Compilation.Event.Fail => |msgs| {
+                for (msgs) |msg| {
+                    defer msg.destroy();
+                    msg.printToFile(&stderr_file, color) catch os.exit(1);
+                }
+            },
+        }
     }
 }
 

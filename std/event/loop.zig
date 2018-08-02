@@ -120,6 +120,7 @@ pub const Loop = struct {
                 // we need another thread for the file system because Linux does not have an async
                 // file system I/O API.
                 self.os_data.fs_end_request = fs.RequestNode{
+                    .prev = undefined,
                     .next = undefined,
                     .data = fs.Request{
                         .msg = fs.Request.Msg.End,
@@ -206,6 +207,7 @@ pub const Loop = struct {
                                 .udata = @ptrToInt(&eventfd_node.data.base),
                             },
                         },
+                        .prev = undefined,
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
@@ -270,6 +272,7 @@ pub const Loop = struct {
                             // this one is for sending events
                             .completion_key = @ptrToInt(&eventfd_node.data.base),
                         },
+                        .prev = undefined,
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
@@ -422,6 +425,12 @@ pub const Loop = struct {
         self.dispatch();
     }
 
+    pub fn cancelOnNextTick(self: *Loop, node: *NextTickNode) void {
+        if (self.next_tick_queue.remove(node)) {
+            self.finishOneEvent();
+        }
+    }
+
     pub fn run(self: *Loop) void {
         self.finishOneEvent(); // the reference we start with
 
@@ -443,6 +452,7 @@ pub const Loop = struct {
                 suspend |p| {
                     handle.* = p;
                     var my_tick_node = Loop.NextTickNode{
+                        .prev = undefined,
                         .next = undefined,
                         .data = p,
                     };
@@ -464,6 +474,7 @@ pub const Loop = struct {
     pub async fn yield(self: *Loop) void {
         suspend |p| {
             var my_tick_node = Loop.NextTickNode{
+                .prev = undefined,
                 .next = undefined,
                 .data = p,
             };

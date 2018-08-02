@@ -717,13 +717,13 @@ pub const Compilation = struct {
     }
 
     async fn buildAsync(self: *Compilation) void {
-        while (true) {
-            // TODO directly awaiting async should guarantee memory allocation elision
-            const build_result = await (async self.compileAndLink() catch unreachable);
+        var build_result = await (async self.initialCompile() catch unreachable);
 
+        while (true) {
+            const link_result = if (build_result) self.maybeLink() else |err| err;
             // this makes a handy error return trace and stack trace in debug mode
             if (std.debug.runtime_safety) {
-                build_result catch unreachable;
+                link_result catch unreachable;
             }
 
             const compile_errors = blk: {
@@ -732,7 +732,7 @@ pub const Compilation = struct {
                 break :blk held.value.toOwnedSlice();
             };
 
-            if (build_result) |_| {
+            if (link_result) |_| {
                 if (compile_errors.len == 0) {
                     await (async self.events.put(Event.Ok) catch unreachable);
                 } else {
@@ -745,108 +745,158 @@ pub const Compilation = struct {
                 await (async self.events.put(Event{ .Error = err }) catch unreachable);
             }
 
-            // for now we stop after 1
-            return;
+            var group = event.Group(BuildError!void).init(self.loop);
+            while (self.fs_watch.channel.getOrNull()) |root_scope| {
+                try group.call(rebuildFile, self, root_scope);
+            }
+            build_result = await (async group.wait() catch unreachable);
         }
     }
 
-    async fn compileAndLink(self: *Compilation) !void {
-        if (self.root_src_path) |root_src_path| {
-            // TODO async/await os.path.real
-            const root_src_real_path = os.path.real(self.gpa(), root_src_path) catch |err| {
-                try printError("unable to get real path '{}': {}", root_src_path, err);
+    async fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) !void {
+        const tree_scope = blk: {
+            const source_code = (await (async fs.readFile(
+                self.loop,
+                root_src_real_path,
+                max_src_size,
+            ) catch unreachable)) catch |err| {
+                try printError("unable to open '{}': {}", root_src_real_path, err);
                 return err;
             };
-            const root_scope = blk: {
-                errdefer self.gpa().free(root_src_real_path);
+            errdefer self.gpa().free(source_code);
 
-                const source_code = (await (async fs.readFile(
-                    self.loop,
-                    root_src_real_path,
-                    max_src_size,
-                ) catch unreachable)) catch |err| {
-                    try printError("unable to open '{}': {}", root_src_real_path, err);
-                    return err;
-                };
-                errdefer self.gpa().free(source_code);
-
-                const tree = try self.gpa().createOne(ast.Tree);
-                tree.* = try std.zig.parse(self.gpa(), source_code);
-                errdefer {
-                    tree.deinit();
-                    self.gpa().destroy(tree);
-                }
-
-                break :blk try Scope.Root.create(self, tree, root_src_real_path);
-            };
-            defer root_scope.base.deref(self);
-            const tree = root_scope.tree;
-
-            var error_it = tree.errors.iterator(0);
-            while (error_it.next()) |parse_error| {
-                const msg = try Msg.createFromParseErrorAndScope(self, root_scope, parse_error);
-                errdefer msg.destroy();
-
-                try await (async self.addCompileErrorAsync(msg) catch unreachable);
-            }
-            if (tree.errors.len != 0) {
-                return;
+            const tree = try self.gpa().createOne(ast.Tree);
+            tree.* = try std.zig.parse(self.gpa(), source_code);
+            errdefer {
+                tree.deinit();
+                self.gpa().destroy(tree);
             }
 
-            const decls = try Scope.Decls.create(self, &root_scope.base);
-            defer decls.base.deref(self);
+            break :blk try Scope.AstTree.create(self, tree, root_scope);
+        };
+        defer tree_scope.base.deref(self);
 
-            var decl_group = event.Group(BuildError!void).init(self.loop);
-            var decl_group_consumed = false;
-            errdefer if (!decl_group_consumed) decl_group.cancelAll();
+        var error_it = tree_scope.tree.errors.iterator(0);
+        while (error_it.next()) |parse_error| {
+            const msg = try Msg.createFromParseErrorAndScope(self, tree_scope, parse_error);
+            errdefer msg.destroy();
 
-            var it = tree.root_node.decls.iterator(0);
-            while (it.next()) |decl_ptr| {
-                const decl = decl_ptr.*;
-                switch (decl.id) {
-                    ast.Node.Id.Comptime => {
-                        const comptime_node = @fieldParentPtr(ast.Node.Comptime, "base", decl);
+            try await (async self.addCompileErrorAsync(msg) catch unreachable);
+        }
+        if (tree_scope.tree.errors.len != 0) {
+            return;
+        }
 
-                        try self.prelink_group.call(addCompTimeBlock, self, &decls.base, comptime_node);
-                    },
-                    ast.Node.Id.VarDecl => @panic("TODO"),
-                    ast.Node.Id.FnProto => {
-                        const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
+        const locked_table = await (async root_scope.decls.table.acquireWrite() catch unreachable);
+        defer locked_table.release();
 
-                        const name = if (fn_proto.name_token) |name_token| tree.tokenSlice(name_token) else {
-                            try self.addCompileError(root_scope, Span{
-                                .first = fn_proto.fn_token,
-                                .last = fn_proto.fn_token + 1,
-                            }, "missing function name");
-                            continue;
-                        };
+        var decl_group = event.Group(BuildError!void).init(self.loop);
+        defer decl_group.deinit();
 
+        try self.rebuildChangedDecls(
+            &decl_group,
+            locked_table,
+            root_scope.decls,
+            &tree_scope.tree.root_node.decls,
+            tree_scope,
+        );
+
+        try await (async decl_group.wait() catch unreachable);
+    }
+
+    async fn rebuildChangedDecls(
+        self: *Compilation,
+        group: *event.Group(BuildError!void),
+        locked_table: *Decl.Table,
+        decl_scope: *Scope.Decls,
+        ast_decls: &ast.Node.Root.DeclList,
+        tree_scope: *Scope.AstTree,
+    ) !void {
+        var existing_decls = try locked_table.clone();
+        defer existing_decls.deinit();
+
+        var ast_it = ast_decls.iterator(0);
+        while (ast_it.next()) |decl_ptr| {
+            const decl = decl_ptr.*;
+            switch (decl.id) {
+                ast.Node.Id.Comptime => {
+                    const comptime_node = @fieldParentPtr(ast.Node.Comptime, "base", decl);
+
+                    // TODO connect existing comptime decls to updated source files
+
+                    try self.prelink_group.call(addCompTimeBlock, self, &decl_scope.base, comptime_node);
+                },
+                ast.Node.Id.VarDecl => @panic("TODO"),
+                ast.Node.Id.FnProto => {
+                    const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
+
+                    const name = if (fn_proto.name_token) |name_token| tree_scope.tree.tokenSlice(name_token) else {
+                        try self.addCompileError(root_scope, Span{
+                            .first = fn_proto.fn_token,
+                            .last = fn_proto.fn_token + 1,
+                        }, "missing function name");
+                        continue;
+                    };
+
+                    if (existing_decls.remove(name)) |entry| {
+                        // compare new code to existing
+                        const existing_decl = entry.value;
+                        // Just compare the old bytes to the new bytes of the top level decl.
+                        // Even if the AST is technically the same, we want error messages to display
+                        // from the most recent source.
+                        @panic("TODO handle decl comparison");
+                        // Add the new thing before dereferencing the old thing. This way we don't end
+                        // up pointlessly re-creating things we end up using in the new thing.
+                    } else {
+                        // add new decl
                         const fn_decl = try self.gpa().create(Decl.Fn{
                             .base = Decl{
                                 .id = Decl.Id.Fn,
                                 .name = name,
-                                .visib = parseVisibToken(tree, fn_proto.visib_token),
+                                .visib = parseVisibToken(tree_scope.tree, fn_proto.visib_token),
                                 .resolution = event.Future(BuildError!void).init(self.loop),
-                                .parent_scope = &decls.base,
+                                .parent_scope = &decl_scope.base,
                             },
                             .value = Decl.Fn.Val{ .Unresolved = {} },
                             .fn_proto = fn_proto,
                         });
                         errdefer self.gpa().destroy(fn_decl);
 
-                        try decl_group.call(addTopLevelDecl, self, decls, &fn_decl.base);
-                    },
-                    ast.Node.Id.TestDecl => @panic("TODO"),
-                    else => unreachable,
-                }
+                        try group.call(addTopLevelDecl, self, &fn_decl.base, locked_table);
+                    }
+                },
+                ast.Node.Id.TestDecl => @panic("TODO"),
+                else => unreachable,
             }
-            decl_group_consumed = true;
-            try await (async decl_group.wait() catch unreachable);
-
-            // Now other code can rely on the decls scope having a complete list of names.
-            decls.name_future.resolve();
         }
 
+        var existing_decl_it = existing_decls.iterator();
+        while (existing_decl_it.next()) |entry| {
+            // this decl was deleted
+            const existing_decl = entry.value;
+            @panic("TODO handle decl deletion");
+        }
+    }
+
+    async fn initialCompile(self: *Compilation) !void {
+        if (self.root_src_path) |root_src_path| {
+            const root_scope = blk: {
+                // TODO async/await os.path.real
+                const root_src_real_path = os.path.real(self.gpa(), root_src_path) catch |err| {
+                    try printError("unable to get real path '{}': {}", root_src_path, err);
+                    return err;
+                };
+                errdefer self.gpa().free(root_src_real_path);
+
+                break :blk try Scope.Root.create(self, root_src_real_path);
+            };
+            defer root_scope.base.deref(self);
+
+            try self.rebuildFile(root_scope);
+        }
+    }
+
+    async fn maybeLink(self: *Compilation) !void {
         (await (async self.prelink_group.wait() catch unreachable)) catch |err| switch (err) {
             error.SemanticAnalysisFailed => {},
             else => return err,
@@ -920,28 +970,20 @@ pub const Compilation = struct {
         analyzed_code.destroy(comp.gpa());
     }
 
-    async fn addTopLevelDecl(self: *Compilation, decls: *Scope.Decls, decl: *Decl) !void {
+    async fn addTopLevelDecl(
+        self: *Compilation,
+        decl: *Decl,
+        locked_table: *Decl.Table,
+    ) !void {
         const tree = decl.findRootScope().tree;
         const is_export = decl.isExported(tree);
-
-        var add_to_table_resolved = false;
-        const add_to_table = async self.addDeclToTable(decls, decl) catch unreachable;
-        errdefer if (!add_to_table_resolved) cancel add_to_table; // TODO https://github.com/ziglang/zig/issues/1261
 
         if (is_export) {
             try self.prelink_group.call(verifyUniqueSymbol, self, decl);
             try self.prelink_group.call(resolveDecl, self, decl);
         }
 
-        add_to_table_resolved = true;
-        try await add_to_table;
-    }
-
-    async fn addDeclToTable(self: *Compilation, decls: *Scope.Decls, decl: *Decl) !void {
-        const held = await (async decls.table.acquire() catch unreachable);
-        defer held.release();
-
-        if (try held.value.put(decl.name, decl)) |other_decl| {
+        if (try locked_table.put(decl.name, decl)) |other_decl| {
             try self.addCompileError(decls.base.findRoot(), decl.getSpan(), "redefinition of '{}'", decl.name);
             // TODO note: other definition here
         }

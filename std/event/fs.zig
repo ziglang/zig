@@ -99,6 +99,7 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
     }
 
     var req_node = RequestNode{
+        .prev = undefined,
         .next = undefined,
         .data = Request{
             .msg = Request.Msg{
@@ -111,6 +112,7 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
+                    .prev = undefined,
                     .next = undefined,
                     .data = my_handle,
                 },
@@ -148,6 +150,7 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
     }
 
     var req_node = RequestNode{
+        .prev = undefined,
         .next = undefined,
         .data = Request{
             .msg = Request.Msg{
@@ -160,6 +163,7 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
+                    .prev = undefined,
                     .next = undefined,
                     .data = my_handle,
                 },
@@ -186,6 +190,7 @@ pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.
     defer loop.allocator.free(path_with_null);
 
     var req_node = RequestNode{
+        .prev = undefined,
         .next = undefined,
         .data = Request{
             .msg = Request.Msg{
@@ -196,6 +201,7 @@ pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
+                    .prev = undefined,
                     .next = undefined,
                     .data = my_handle,
                 },
@@ -227,6 +233,7 @@ pub async fn openReadWrite(
     defer loop.allocator.free(path_with_null);
 
     var req_node = RequestNode{
+        .prev = undefined,
         .next = undefined,
         .data = Request{
             .msg = Request.Msg{
@@ -238,6 +245,7 @@ pub async fn openReadWrite(
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
+                    .prev = undefined,
                     .next = undefined,
                     .data = my_handle,
                 },
@@ -267,6 +275,7 @@ pub const CloseOperation = struct {
             .loop = loop,
             .have_fd = false,
             .close_req_node = RequestNode{
+                .prev = undefined,
                 .next = undefined,
                 .data = Request{
                     .msg = Request.Msg{
@@ -312,6 +321,7 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
     defer loop.allocator.free(path_with_null);
 
     var req_node = RequestNode{
+        .prev = undefined,
         .next = undefined,
         .data = Request{
             .msg = Request.Msg{
@@ -324,6 +334,7 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
+                    .prev = undefined,
                     .next = undefined,
                     .data = my_handle,
                 },

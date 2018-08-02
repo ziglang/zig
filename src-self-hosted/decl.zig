@@ -16,6 +16,7 @@ pub const Decl = struct {
     visib: Visib,
     resolution: event.Future(Compilation.BuildError!void),
     parent_scope: *Scope,
+    tree_scope: *Scope.AstTree,
 
     pub const Table = std.HashMap([]const u8, *Decl, mem.hash_slice_u8, mem.eql_slice_u8);
 

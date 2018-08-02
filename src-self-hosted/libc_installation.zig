@@ -143,7 +143,7 @@ pub const LibCInstallation = struct {
     pub async fn findNative(self: *LibCInstallation, loop: *event.Loop) !void {
         self.initEmpty();
         var group = event.Group(FindError!void).init(loop);
-        errdefer group.cancelAll();
+        errdefer group.deinit();
         var windows_sdk: ?*c.ZigWindowsSDK = null;
         errdefer if (windows_sdk) |sdk| c.zig_free_windows_sdk(@ptrCast(?[*]c.ZigWindowsSDK, sdk));
 
@@ -313,7 +313,7 @@ pub const LibCInstallation = struct {
             },
         };
         var group = event.Group(FindError!void).init(loop);
-        errdefer group.cancelAll();
+        errdefer group.deinit();
         for (dyn_tests) |*dyn_test| {
             try group.call(testNativeDynamicLinker, self, loop, dyn_test);
         }
@@ -340,7 +340,6 @@ pub const LibCInstallation = struct {
             else => return err,
         }
     }
-
 
     async fn findNativeKernel32LibDir(self: *LibCInstallation, loop: *event.Loop, sdk: *c.ZigWindowsSDK) FindError!void {
         var search_buf: [2]Search = undefined;
@@ -449,7 +448,6 @@ fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
     }
     return search_buf[0..search_end];
 }
-
 
 fn fileExists(allocator: *std.mem.Allocator, path: []const u8) !bool {
     if (std.os.File.access(allocator, path)) |_| {

@@ -101,6 +101,7 @@ pub const RwLock = struct {
             // TODO explicitly put this memory in the coroutine frame #1194
             var my_tick_node = Loop.NextTickNode{
                 .data = handle,
+                .prev = undefined,
                 .next = undefined,
             };
 
@@ -133,6 +134,7 @@ pub const RwLock = struct {
             // TODO explicitly put this memory in the coroutine frame #1194
             var my_tick_node = Loop.NextTickNode{
                 .data = handle,
+                .prev = undefined,
                 .next = undefined,
             };
 

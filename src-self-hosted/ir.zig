@@ -1929,8 +1929,9 @@ pub const Builder = struct {
                 Scope.Id.Root => return Ident.NotFound,
                 Scope.Id.Decls => {
                     const decls = @fieldParentPtr(Scope.Decls, "base", s);
-                    const table = await (async decls.getTableReadOnly() catch unreachable);
-                    if (table.get(name)) |entry| {
+                    const locked_table = await (async decls.table.acquireRead() catch unreachable);
+                    defer locked_table.release();
+                    if (locked_table.value.get(name)) |entry| {
                         return Ident{ .Decl = entry.value };
                     }
                 },

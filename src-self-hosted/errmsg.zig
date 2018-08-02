@@ -49,7 +49,7 @@ pub const Msg = struct {
     };
 
     const ScopeAndComp = struct {
-        root_scope: *Scope.Root,
+        tree_scope: *Scope.AstTree,
         compilation: *Compilation,
     };
 
@@ -60,7 +60,7 @@ pub const Msg = struct {
                 path_and_tree.allocator.destroy(self);
             },
             Data.ScopeAndComp => |scope_and_comp| {
-                scope_and_comp.root_scope.base.deref(scope_and_comp.compilation);
+                scope_and_comp.tree_scope.base.deref(scope_and_comp.compilation);
                 scope_and_comp.compilation.gpa().free(self.text);
                 scope_and_comp.compilation.gpa().destroy(self);
             },
@@ -84,7 +84,7 @@ pub const Msg = struct {
                 return path_and_tree.realpath;
             },
             Data.ScopeAndComp => |scope_and_comp| {
-                return scope_and_comp.root_scope.realpath;
+                return scope_and_comp.tree_scope.root().realpath;
             },
         }
     }
@@ -95,31 +95,31 @@ pub const Msg = struct {
                 return path_and_tree.tree;
             },
             Data.ScopeAndComp => |scope_and_comp| {
-                return scope_and_comp.root_scope.tree;
+                return scope_and_comp.tree_scope.tree;
             },
         }
     }
 
     /// Takes ownership of text
-    /// References root_scope, and derefs when the msg is freed
-    pub fn createFromScope(comp: *Compilation, root_scope: *Scope.Root, span: Span, text: []u8) !*Msg {
+    /// References tree_scope, and derefs when the msg is freed
+    pub fn createFromScope(comp: *Compilation, tree_scope: *Scope.AstTree, span: Span, text: []u8) !*Msg {
         const msg = try comp.gpa().create(Msg{
             .text = text,
             .span = span,
             .data = Data{
                 .ScopeAndComp = ScopeAndComp{
-                    .root_scope = root_scope,
+                    .tree_scope = tree_scope,
                     .compilation = comp,
                 },
             },
         });
-        root_scope.base.ref();
+        tree_scope.base.ref();
         return msg;
     }
 
     pub fn createFromParseErrorAndScope(
         comp: *Compilation,
-        root_scope: *Scope.Root,
+        tree_scope: *Scope.AstTree,
         parse_error: *const ast.Error,
     ) !*Msg {
         const loc_token = parse_error.loc();
@@ -127,7 +127,7 @@ pub const Msg = struct {
         defer text_buf.deinit();
 
         var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
-        try parse_error.render(&root_scope.tree.tokens, out_stream);
+        try parse_error.render(&tree_scope.tree.tokens, out_stream);
 
         const msg = try comp.gpa().create(Msg{
             .text = undefined,
@@ -137,12 +137,12 @@ pub const Msg = struct {
             },
             .data = Data{
                 .ScopeAndComp = ScopeAndComp{
-                    .root_scope = root_scope,
+                    .tree_scope = tree_scope,
                     .compilation = comp,
                 },
             },
         });
-        root_scope.base.ref();
+        tree_scope.base.ref();
         msg.text = text_buf.toOwnedSlice();
         return msg;
     }
