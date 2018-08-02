@@ -694,8 +694,8 @@ async fn asyncFmtMain(
     flags: *const Args,
     color: errmsg.Color,
 ) FmtError!void {
-    suspend |p| {
-        resume p;
+    suspend {
+        resume @handle();
     }
     // Things we need to make event-based:
     // * opening the file in the first place - the open()

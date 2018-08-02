@@ -78,14 +78,9 @@ pub const Request = struct {
 
 /// data - just the inner references - must live until pwritev promise completes.
 pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: []const []const u8) !void {
-    //const data_dupe = try mem.dupe(loop.allocator, []const u8, data);
-    //defer loop.allocator.free(data_dupe);
-
     // workaround for https://github.com/ziglang/zig/issues/1194
-    var my_handle: promise = undefined;
-    suspend |p| {
-        my_handle = p;
-        resume p;
+    suspend {
+        resume @handle();
     }
 
     const iovecs = try loop.allocator.alloc(os.linux.iovec_const, data.len);
@@ -114,13 +109,13 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
                 .TickNode = event.Loop.NextTickNode{
                     .prev = undefined,
                     .next = undefined,
-                    .data = my_handle,
+                    .data = @handle(),
                 },
             },
         },
     };
 
-    suspend |_| {
+    suspend {
         loop.linuxFsRequest(&req_node);
     }
 
@@ -133,10 +128,8 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
     //defer loop.allocator.free(data_dupe);
 
     // workaround for https://github.com/ziglang/zig/issues/1194
-    var my_handle: promise = undefined;
-    suspend |p| {
-        my_handle = p;
-        resume p;
+    suspend {
+        resume @handle();
     }
 
     const iovecs = try loop.allocator.alloc(os.linux.iovec, data.len);
@@ -165,13 +158,13 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
                 .TickNode = event.Loop.NextTickNode{
                     .prev = undefined,
                     .next = undefined,
-                    .data = my_handle,
+                    .data = @handle(),
                 },
             },
         },
     };
 
-    suspend |_| {
+    suspend {
         loop.linuxFsRequest(&req_node);
     }
 
@@ -180,10 +173,8 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
 
 pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.FileHandle {
     // workaround for https://github.com/ziglang/zig/issues/1194
-    var my_handle: promise = undefined;
-    suspend |p| {
-        my_handle = p;
-        resume p;
+    suspend {
+        resume @handle();
     }
 
     const path_with_null = try std.cstr.addNullByte(loop.allocator, path);
@@ -203,13 +194,13 @@ pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.
                 .TickNode = event.Loop.NextTickNode{
                     .prev = undefined,
                     .next = undefined,
-                    .data = my_handle,
+                    .data = @handle(),
                 },
             },
         },
     };
 
-    suspend |_| {
+    suspend {
         loop.linuxFsRequest(&req_node);
     }
 
@@ -223,10 +214,8 @@ pub async fn openReadWrite(
     mode: os.File.Mode,
 ) os.File.OpenError!os.FileHandle {
     // workaround for https://github.com/ziglang/zig/issues/1194
-    var my_handle: promise = undefined;
-    suspend |p| {
-        my_handle = p;
-        resume p;
+    suspend {
+        resume @handle();
     }
 
     const path_with_null = try std.cstr.addNullByte(loop.allocator, path);
@@ -247,13 +236,13 @@ pub async fn openReadWrite(
                 .TickNode = event.Loop.NextTickNode{
                     .prev = undefined,
                     .next = undefined,
-                    .data = my_handle,
+                    .data = @handle(),
                 },
             },
         },
     };
 
-    suspend |_| {
+    suspend {
         loop.linuxFsRequest(&req_node);
     }
 
@@ -311,10 +300,8 @@ pub async fn writeFile(loop: *event.Loop, path: []const u8, contents: []const u8
 /// contents must remain alive until writeFile completes.
 pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []const u8, mode: os.File.Mode) !void {
     // workaround for https://github.com/ziglang/zig/issues/1194
-    var my_handle: promise = undefined;
-    suspend |p| {
-        my_handle = p;
-        resume p;
+    suspend {
+        resume @handle();
     }
 
     const path_with_null = try std.cstr.addNullByte(loop.allocator, path);
@@ -336,13 +323,13 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
                 .TickNode = event.Loop.NextTickNode{
                     .prev = undefined,
                     .next = undefined,
-                    .data = my_handle,
+                    .data = @handle(),
                 },
             },
         },
     };
 
-    suspend |_| {
+    suspend {
         loop.linuxFsRequest(&req_node);
     }
 
@@ -420,14 +407,12 @@ pub fn watchFile(loop: *event.Loop, file_path: []const u8) !*Watch {
 
 async fn watchEventPutter(inotify_fd: i32, wd: i32, channel: *event.Channel(Watch.Event), out_watch: **Watch) void {
     // TODO https://github.com/ziglang/zig/issues/1194
-    var my_handle: promise = undefined;
-    suspend |p| {
-        my_handle = p;
-        resume p;
+    suspend {
+        resume @handle();
     }
 
     var watch = Watch{
-        .putter = my_handle,
+        .putter = @handle(),
         .channel = channel,
     };
     out_watch.* = &watch;

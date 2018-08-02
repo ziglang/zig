@@ -97,10 +97,10 @@ pub const RwLock = struct {
     pub async fn acquireRead(self: *RwLock) HeldRead {
         _ = @atomicRmw(usize, &self.reader_lock_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
 
-        suspend |handle| {
+        suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
             var my_tick_node = Loop.NextTickNode{
-                .data = handle,
+                .data = @handle(),
                 .prev = undefined,
                 .next = undefined,
             };
@@ -130,10 +130,10 @@ pub const RwLock = struct {
     }
 
     pub async fn acquireWrite(self: *RwLock) HeldWrite {
-        suspend |handle| {
+        suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
             var my_tick_node = Loop.NextTickNode{
-                .data = handle,
+                .data = @handle(),
                 .prev = undefined,
                 .next = undefined,
             };
@@ -231,8 +231,8 @@ test "std.event.RwLock" {
 
 async fn testLock(loop: *Loop, lock: *RwLock) void {
     // TODO explicitly put next tick node memory in the coroutine frame #1194
-    suspend |p| {
-        resume p;
+    suspend {
+        resume @handle();
     }
 
     var read_nodes: [100]Loop.NextTickNode = undefined;

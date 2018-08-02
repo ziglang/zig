@@ -98,7 +98,7 @@ pub const Lock = struct {
         var my_tick_node = Loop.NextTickNode.init(@handle());
 
         errdefer _ = self.queue.remove(&my_tick_node); // TODO test canceling an acquire
-        suspend |_| {
+        suspend {
             self.queue.put(&my_tick_node);
 
             // At this point, we are in the queue, so we might have already been resumed and this coroutine
