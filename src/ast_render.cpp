@@ -1112,9 +1112,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 fprintf(ar->f, "suspend");
                 if (node->data.suspend.block != nullptr) {
-                    fprintf(ar->f, " |");
-                    render_node_grouped(ar, node->data.suspend.promise_symbol);
-                    fprintf(ar->f, "| ");
                     render_node_grouped(ar, node->data.suspend.block);
                 }
                 break;

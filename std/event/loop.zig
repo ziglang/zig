@@ -331,11 +331,11 @@ pub const Loop = struct {
 
     pub async fn waitFd(self: *Loop, fd: i32) !void {
         defer self.removeFd(fd);
-        suspend |p| {
+        suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
             var resume_node = ResumeNode{
                 .id = ResumeNode.Id.Basic,
-                .handle = p,
+                .handle = @handle(),
             };
             try self.addFd(fd, &resume_node);
         }
@@ -417,11 +417,11 @@ pub const Loop = struct {
     pub fn call(self: *Loop, comptime func: var, args: ...) !(promise->@typeOf(func).ReturnType) {
         const S = struct {
             async fn asyncFunc(loop: *Loop, handle: *promise->@typeOf(func).ReturnType, args2: ...) @typeOf(func).ReturnType {
-                suspend |p| {
-                    handle.* = p;
+                suspend {
+                    handle.* = @handle();
                     var my_tick_node = Loop.NextTickNode{
                         .next = undefined,
-                        .data = p,
+                        .data = @handle(),
                     };
                     loop.onNextTick(&my_tick_node);
                 }
@@ -439,10 +439,10 @@ pub const Loop = struct {
     /// CPU bound tasks would be waiting in the event loop but never get started because no async I/O
     /// is performed.
     pub async fn yield(self: *Loop) void {
-        suspend |p| {
+        suspend {
             var my_tick_node = Loop.NextTickNode{
                 .next = undefined,
-                .data = p,
+                .data = @handle(),
             };
             self.onNextTick(&my_tick_node);
         }

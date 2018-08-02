@@ -648,35 +648,37 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
-SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = "suspend" option( body )
 */
 static AstNode *ast_parse_suspend_block(ParseContext *pc, size_t *token_index, bool mandatory) {
     size_t orig_token_index = *token_index;
+    Token *token = &pc->tokens->at(*token_index);
+    Token *suspend_token = nullptr;
 
-    Token *suspend_token = &pc->tokens->at(*token_index);
-    if (suspend_token->id == TokenIdKeywordSuspend) {
+    if (token->id == TokenIdKeywordSuspend) {
         *token_index += 1;
+        suspend_token = token;
+        token = &pc->tokens->at(*token_index);
     } else if (mandatory) {
-        ast_expect_token(pc, suspend_token, TokenIdKeywordSuspend);
+        ast_expect_token(pc, token, TokenIdKeywordSuspend);
         zig_unreachable();
     } else {
         return nullptr;
     }
 
-    Token *bar_token = &pc->tokens->at(*token_index);
-    if (bar_token->id == TokenIdBinOr) {
-        *token_index += 1;
-    } else if (mandatory) {
-        ast_expect_token(pc, suspend_token, TokenIdBinOr);
-        zig_unreachable();
-    } else {
-        *token_index = orig_token_index;
-        return nullptr;
+    //guessing that semicolon is checked elsewhere?
+    if (token->id != TokenIdLBrace) {
+        if (mandatory) {
+            ast_expect_token(pc, token, TokenIdLBrace);
+            zig_unreachable();
+        } else {
+            *token_index = orig_token_index;
+            return nullptr;
+        }
     }
 
+    //Expect that we have a block;
     AstNode *node = ast_create_node(pc, NodeTypeSuspend, suspend_token);
-    node->data.suspend.promise_symbol = ast_parse_symbol(pc, token_index);
-    ast_eat_token(pc, token_index, TokenIdBinOr);
     node->data.suspend.block = ast_parse_block(pc, token_index, true);
 
     return node;
@@ -3134,7 +3136,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.await_expr.expr, visit, context);
             break;
         case NodeTypeSuspend:
-            visit_field(&node->data.suspend.promise_symbol, visit, context);
             visit_field(&node->data.suspend.block, visit, context);
             break;
     }
