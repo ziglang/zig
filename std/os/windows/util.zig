@@ -166,7 +166,7 @@ pub fn windowsUnloadDll(hModule: windows.HMODULE) void {
 }
 
 test "InvalidDll" {
-    if (builtin.os != builtin.Os.windows) return;
+    if (builtin.os != builtin.Os.windows) return error.SkipZigTest;
 
     const DllName = "asdf.dll";
     const allocator = std.debug.global_allocator;
