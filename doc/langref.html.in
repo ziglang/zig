@@ -134,6 +134,58 @@ pub fn main() void {
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
+      {#header_open|Comments#}
+      {#code_begin|test|comments#}
+const assert = @import("std").debug.assert;
+
+test "comments" {
+    // Comments in Zig start with "//" and end at the next LF byte (end of line).
+    // The below line is a comment, and won't be executed.
+
+    //assert(false);
+
+    const x = true;  // another comment
+    assert(x);
+}
+      {#code_end#}
+      <p>
+      There are no multiline comments in Zig (e.g. like <code>/* */</code>
+      comments in C).  This helps allow Zig to have the property that each line
+      of code can be tokenized out of context.
+      </p>
+      {#header_open|Doc comments#}
+      <p>
+      A doc comment is one that begins with exactly three slashes (i.e.
+      <code class="zig">///</code> but not <code class="zig">////</code>);
+      multiple doc comments in a row are merged together to form a multiline
+      doc comment.  The doc comment documents whatever immediately follows it.
+      </p>
+      {#code_begin|syntax|doc_comments#}
+/// A structure for storing a timestamp, with nanosecond precision (this is a
+/// multiline doc comment).
+const Timestamp = struct {
+    /// The number of seconds since the epoch (this is also a doc comment).
+    seconds: i64,  // signed so we can represent pre-1970 (not a doc comment)
+    /// The number of nanoseconds past the second (doc comment again).
+    nanos: u32,
+
+    /// Returns a `Timestamp` struct representing the Unix epoch; that is, the
+    /// moment of 1970 Jan 1 00:00:00 UTC (this is a doc comment too).
+    pub fn unixEpoch() Timestamp {
+        return Timestamp{
+            .seconds = 0,
+            .nanos = 0,
+        };
+    }
+};
+      {#code_end#}
+      <p>
+      Doc comments are only allowed in certain places; eventually, it will
+      become a compile error have a doc comment in an unexpected place, such as
+      in the middle of an expression, or just before a non-doc comment.
+      </p>
+      {#header_close#}
+      {#header_close#}
       {#header_open|Values#}
       {#code_begin|exe|values#}
 const std = @import("std");
@@ -4638,9 +4690,9 @@ test "coroutine suspend with block" {
 var a_promise: promise = undefined;
 var result = false;
 async fn testSuspendBlock() void {
-    suspend |p| {
-        comptime assert(@typeOf(p) == promise->void);
-        a_promise = p;
+    suspend {
+        comptime assert(@typeOf(@handle()) == promise->void);
+        a_promise = @handle();
     }
     result = true;
 }
@@ -4681,8 +4733,8 @@ test "resume from suspend" {
     std.debug.assert(my_result == 2);
 }
 async fn testResumeFromSuspend(my_result: *i32) void {
-    suspend |p| {
-        resume p;
+    suspend {
+        resume @handle();
     }
     my_result.* += 1;
     suspend;
@@ -4739,9 +4791,9 @@ async fn amain() void {
 }
 async fn another() i32 {
     seq('c');
-    suspend |p| {
+    suspend {
         seq('d');
-        a_promise = p;
+        a_promise = @handle();
     }
     seq('g');
     return 1234;
@@ -5329,6 +5381,16 @@ test "main" {
       </p>
       <p>
       This function is only valid within function scope.
+      </p>
+      {#header_close#}
+      {#header_open|@handle#}
+      <pre><code class="zig">@handle()</code></pre>
+      <p>
+      This function returns a <code>promise->T</code> type, where <code>T</code>
+      is the return type of the async function in scope.
+      </p>
+      <p>
+      This function is only valid within an async function scope.
       </p>
       {#header_close#}
       {#header_open|@import#}
@@ -7336,7 +7398,7 @@ Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = "suspend" option( body )
 
 IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 

@@ -1778,18 +1778,11 @@ pub const Node = struct {
 
     pub const Suspend = struct {
         base: Node,
-        label: ?TokenIndex,
         suspend_token: TokenIndex,
-        payload: ?*Node,
         body: ?*Node,
 
         pub fn iterate(self: *Suspend, index: usize) ?*Node {
             var i = index;
-
-            if (self.payload) |payload| {
-                if (i < 1) return payload;
-                i -= 1;
-            }
 
             if (self.body) |body| {
                 if (i < 1) return body;
@@ -1800,17 +1793,12 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *Suspend) TokenIndex {
-            if (self.label) |label| return label;
             return self.suspend_token;
         }
 
         pub fn lastToken(self: *Suspend) TokenIndex {
             if (self.body) |body| {
                 return body.lastToken();
-            }
-
-            if (self.payload) |payload| {
-                return payload.lastToken();
             }
 
             return self.suspend_token;

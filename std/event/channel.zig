@@ -88,13 +88,11 @@ pub fn Channel(comptime T: type) type {
         /// buffer, or in the case of a zero size buffer, when the item has been retrieved by a getter.
         pub async fn put(self: *SelfChannel, data: T) void {
             // TODO fix this workaround
-            var my_handle: promise = undefined;
-            suspend |p| {
-                my_handle = p;
-                resume p;
+            suspend {
+                resume @handle();
             }
 
-            var my_tick_node = Loop.NextTickNode.init(my_handle);
+            var my_tick_node = Loop.NextTickNode.init(@handle());
             var queue_node = std.atomic.Queue(PutNode).Node.init(PutNode{
                 .tick_node = &my_tick_node,
                 .data = data,
@@ -111,7 +109,7 @@ pub fn Channel(comptime T: type) type {
                     self.dispatch();
                 }
             }
-            suspend |handle| {
+            suspend {
                 self.putters.put(&queue_node);
                 _ = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
 
@@ -123,16 +121,14 @@ pub fn Channel(comptime T: type) type {
         /// complete when the next item is put in the channel.
         pub async fn get(self: *SelfChannel) T {
             // TODO fix this workaround
-            var my_handle: promise = undefined;
-            suspend |p| {
-                my_handle = p;
-                resume p;
+            suspend {
+                resume @handle();
             }
 
             // TODO integrate this function with named return values
             // so we can get rid of this extra result copy
             var result: T = undefined;
-            var my_tick_node = Loop.NextTickNode.init(my_handle);
+            var my_tick_node = Loop.NextTickNode.init(@handle());
             var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
                 .tick_node = &my_tick_node,
                 .data = GetNode.Data{
@@ -152,7 +148,7 @@ pub fn Channel(comptime T: type) type {
                 }
             }
 
-            suspend |_| {
+            suspend {
                 self.getters.put(&queue_node);
                 _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
 
@@ -176,16 +172,14 @@ pub fn Channel(comptime T: type) type {
         /// for data and will not wait for data to be available.
         pub async fn getOrNull(self: *SelfChannel) ?T {
             // TODO fix this workaround
-            var my_handle: promise = undefined;
-            suspend |p| {
-                my_handle = p;
-                resume p;
+            suspend {
+                resume @handle();
             }
 
             // TODO integrate this function with named return values
             // so we can get rid of this extra result copy
             var result: ?T = null;
-            var my_tick_node = Loop.NextTickNode.init(my_handle);
+            var my_tick_node = Loop.NextTickNode.init(@handle());
             var or_null_node = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).Node.init(undefined);
             var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
                 .tick_node = &my_tick_node,
@@ -211,7 +205,7 @@ pub fn Channel(comptime T: type) type {
                 }
             }
 
-            suspend |_| {
+            suspend {
                 self.getters.put(&queue_node);
                 _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
                 self.or_null_queue.put(&or_null_node);

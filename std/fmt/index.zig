@@ -18,6 +18,7 @@ pub fn format(context: var, comptime Errors: type, output: fn (@typeOf(context),
         OpenBrace,
         CloseBrace,
         FormatString,
+        Pointer,
     };
 
     comptime var start_index = 0;
@@ -54,6 +55,7 @@ pub fn format(context: var, comptime Errors: type, output: fn (@typeOf(context),
                     state = State.Start;
                     start_index = i + 1;
                 },
+                '*' => state = State.Pointer,
                 else => {
                     state = State.FormatString;
                 },
@@ -74,6 +76,17 @@ pub fn format(context: var, comptime Errors: type, output: fn (@typeOf(context),
                     start_index = i + 1;
                 },
                 else => {},
+            },
+            State.Pointer => switch (c) {
+                '}' => {
+                    try output(context, @typeName(@typeOf(args[next_arg]).Child));
+                    try output(context, "@");
+                    try formatInt(@ptrToInt(args[next_arg]), 16, false, 0, context, Errors, output);
+                    next_arg += 1;
+                    state = State.Start;
+                    start_index = i + 1;
+                },
+                else => @compileError("Unexpected format character after '*'"),
             },
         }
     }
@@ -234,6 +247,11 @@ pub fn formatIntValue(
                     if (fmt.len > 1) @compileError("Unknown format character: " ++ []u8{fmt[1]});
                     return formatAsciiChar(value, context, Errors, output);
                 }
+            },
+            'b' => {
+                radix = 2;
+                uppercase = false;
+                width = 0;
             },
             'd' => {
                 radix = 10;
@@ -860,6 +878,31 @@ test "fmt.format" {
     {
         const value: u8 = 'a';
         try testFmt("u8: a\n", "u8: {c}\n", value);
+    }
+    {
+        const value: u8 = 0b1100;
+        try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", value);
+    }
+    {
+        const value: [3]u8 = "abc";
+        try testFmt("array: abc\n", "array: {}\n", value);
+        try testFmt("array: abc\n", "array: {}\n", &value);
+
+        var buf: [100]u8 = undefined;
+        try testFmt(
+            try bufPrint(buf[0..], "array: [3]u8@{x}\n", @ptrToInt(&value)),
+            "array: {*}\n",
+            &value,
+        );
+    }
+    {
+        const value: []const u8 = "abc";
+        try testFmt("slice: abc\n", "slice: {}\n", value);
+    }
+    {
+        const value = @intToPtr(*i32, 0xdeadbeef);
+        try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", value);
+        try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", value);
     }
     try testFmt("buf: Test \n", "buf: {s5}\n", "Test");
     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", "Test");

@@ -92,12 +92,10 @@ pub const Lock = struct {
 
     pub async fn acquire(self: *Lock) Held {
         // TODO explicitly put this memory in the coroutine frame #1194
-        var my_handle: promise = undefined;
-        suspend |p| {
-            my_handle = p;
-            resume p;
+        suspend {
+            resume @handle();
         }
-        var my_tick_node = Loop.NextTickNode.init(my_handle);
+        var my_tick_node = Loop.NextTickNode.init(@handle());
 
         errdefer _ = self.queue.remove(&my_tick_node); // TODO test canceling an acquire
         suspend |_| {
@@ -110,35 +108,12 @@ pub const Lock = struct {
             // will attempt to grab the lock.
             _ = @atomicRmw(u8, &self.queue_empty_bit, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
 
-            while (true) {
-                const old_bit = @atomicRmw(u8, &self.shared_bit, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-                if (old_bit != 0) {
-                    // We did not obtain the lock. Trust that our queue entry will resume us, and allow
-                    // suspend to complete.
-                    break;
-                }
-                // We got the lock. However we might have already been resumed from the queue.
+            const old_bit = @atomicRmw(u8, &self.shared_bit, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+            if (old_bit == 0) {
                 if (self.queue.get()) |node| {
                     // Whether this node is us or someone else, we tail resume it.
                     resume node.data;
-                    break;
-                } else {
-                    // We already got resumed, and there are none left in the queue, which means that
-                    // we aren't even supposed to hold the lock right now.
-                    _ = @atomicRmw(u8, &self.queue_empty_bit, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-                    _ = @atomicRmw(u8, &self.shared_bit, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
-
-                    // There might be a queue item. If we know the queue is empty, we can be done,
-                    // because the other actor will try to obtain the lock.
-                    // But if there's a queue item, we are the actor which must loop and attempt
-                    // to grab the lock again.
-                    if (@atomicLoad(u8, &self.queue_empty_bit, AtomicOrder.SeqCst) == 1) {
-                        break;
-                    } else {
-                        continue;
-                    }
                 }
-                unreachable;
             }
         }
 
@@ -168,8 +143,8 @@ test "std.event.Lock" {
 
 async fn testLock(loop: *Loop, lock: *Lock) void {
     // TODO explicitly put next tick node memory in the coroutine frame #1194
-    suspend |p| {
-        resume p;
+    suspend {
+        resume @handle();
     }
     const handle1 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node1 = Loop.NextTickNode{

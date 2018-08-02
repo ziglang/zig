@@ -85,8 +85,8 @@ async fn b4() void {
     defer {
         defer_b4 = true;
     }
-    suspend |p| {
-        b4_handle = p;
+    suspend {
+        b4_handle = @handle();
     }
     suspend;
 }

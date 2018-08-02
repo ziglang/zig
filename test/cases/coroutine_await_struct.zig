@@ -30,9 +30,9 @@ async fn await_amain() void {
 }
 async fn await_another() Foo {
     await_seq('c');
-    suspend |p| {
+    suspend {
         await_seq('d');
-        await_a_promise = p;
+        await_a_promise = @handle();
     }
     await_seq('g');
     return Foo{ .x = 1234 };

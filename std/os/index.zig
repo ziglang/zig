@@ -120,16 +120,10 @@ pub fn getRandomBytes(buf: []u8) !void {
             try posixRead(fd, buf);
         },
         Os.windows => {
-            var hCryptProv: windows.HCRYPTPROV = undefined;
-            if (windows.CryptAcquireContextA(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0) == 0) {
-                const err = windows.GetLastError();
-                return switch (err) {
-                    else => unexpectedErrorWindows(err),
-                };
-            }
-            defer _ = windows.CryptReleaseContext(hCryptProv, 0);
-
-            if (windows.CryptGenRandom(hCryptProv, @intCast(windows.DWORD, buf.len), buf.ptr) == 0) {
+            // Call RtlGenRandom() instead of CryptGetRandom() on Windows
+            // https://github.com/rust-lang-nursery/rand/issues/111
+            // https://bugzilla.mozilla.org/show_bug.cgi?id=504270
+            if (windows.RtlGenRandom(buf.ptr, buf.len) == 0) {
                 const err = windows.GetLastError();
                 return switch (err) {
                     else => unexpectedErrorWindows(err),
@@ -149,8 +143,14 @@ pub fn getRandomBytes(buf: []u8) !void {
 }
 
 test "os.getRandomBytes" {
-    var buf: [50]u8 = undefined;
-    try getRandomBytes(buf[0..]);
+    var buf_a: [50]u8 = undefined;
+    var buf_b: [50]u8 = undefined;
+    // Call Twice
+    try getRandomBytes(buf_a[0..]);
+    try getRandomBytes(buf_b[0..]);
+
+    // Check if random (not 100% conclusive)
+    assert( !mem.eql(u8, buf_a, buf_b) );
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
@@ -2823,7 +2823,7 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
         builtin.Os.macosx => {
             var count: c_int = undefined;
             var count_len: usize = @sizeOf(c_int);
-            const rc = posix.sysctlbyname(c"hw.ncpu", @ptrCast(*c_void, &count), &count_len, null, 0);
+            const rc = posix.sysctlbyname(c"hw.logicalcpu", @ptrCast(*c_void, &count), &count_len, null, 0);
             const err = posix.getErrno(rc);
             switch (err) {
                 0 => return @intCast(usize, count),
