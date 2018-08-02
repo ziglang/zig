@@ -2516,6 +2516,10 @@ pub const Thread = struct {
     data: Data,
 
     pub const use_pthreads = is_posix and builtin.link_libc;
+
+    /// An opaque type representing a kernel thread ID.
+    pub const Id = *@OpaqueType();
+
     pub const Data = if (use_pthreads)
         struct {
             handle: c.pthread_t,
@@ -2535,6 +2539,35 @@ pub const Thread = struct {
         },
         else => @compileError("Unsupported OS"),
     };
+
+    /// Returns the ID of the calling thread.
+    pub fn currentId() Thread.Id {
+        // TODO: As-is, this function is potentially expensive (making a
+        // syscall on every call).  Once we have support for thread-local
+        // storage (https://github.com/ziglang/zig/issues/924), we could
+        // memoize it.
+        if (use_pthreads) {
+            return @ptrCast(Thread.Id, c.pthread_self());
+        } else return switch (builtin.os) {
+            builtin.Os.linux =>
+                @intToPtr(Thread.Id, @bitCast(u32, linux.getpid())),
+            builtin.Os.windows =>
+                @ptrCast(Thread.Id, windows.GetCurrentThread()),
+            else => @compileError("Unsupported OS"),
+        };
+    }
+
+    /// Returns the ID of this thread object.
+    pub fn id(self: *const Thread) Thread.Id {
+        if (use_pthreads) {
+            return @ptrCast(Thread.Id, self.data.handle);
+        } else return switch (builtin.os) {
+            builtin.Os.linux =>
+                @intToPtr(Thread.Id, @bitCast(u32, self.data.pid)),
+            builtin.Os.windows => @ptrCast(Thread.Id, self.data.handle),
+            else => @compileError("Unsupported OS"),
+        };
+    }
 
     pub fn wait(self: *const Thread) void {
         if (use_pthreads) {
