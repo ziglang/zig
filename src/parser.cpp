@@ -655,7 +655,7 @@ static AstNode *ast_parse_suspend_block(ParseContext *pc, size_t *token_index, b
     Token *token = &pc->tokens->at(*token_index);
     Token *suspend_token = nullptr;
 
-    if (suspend_token->id == TokenIdKeywordSuspend) {
+    if (token->id == TokenIdKeywordSuspend) {
         *token_index += 1;
         suspend_token = token;
         token = &pc->tokens->at(*token_index);
