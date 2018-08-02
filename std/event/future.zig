@@ -101,8 +101,7 @@ test "std.event.Future" {
 
 async fn testFuture(loop: *Loop) void {
     suspend {
-        var h: promise = @handle();
-        resume h;
+        resume @handle();
     }
     var future = Future(i32).init(loop);
 
@@ -117,16 +116,14 @@ async fn testFuture(loop: *Loop) void {
 
 async fn waitOnFuture(future: *Future(i32)) i32 {
     suspend {
-        var h: promise = @handle();
-        resume h;
+        resume @handle();
     }
     return (await (async future.get() catch @panic("memory"))).*;
 }
 
 async fn resolveFuture(future: *Future(i32)) void {
     suspend {
-        var h: promise = @handle();
-        resume h;
+        resume @handle();
     }
     future.data = 6;
     future.resolve();

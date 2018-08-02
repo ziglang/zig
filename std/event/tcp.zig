@@ -142,8 +142,7 @@ test "listen on a port, send bytes, receive bytes" {
                 std.debug.panic("unable to handle connection: {}\n", err);
             };
             suspend {
-                var h: promise = @handle();
-                cancel h;
+                cancel @handle();
             }
         }
         async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: *const std.os.File) !void {

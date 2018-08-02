@@ -57,8 +57,7 @@ pub fn Group(comptime ReturnType: type) type {
                     suspend {
                         var my_node: Stack.Node = undefined;
                         node.* = &my_node;
-                        var h: promise = @handle();
-                        resume h;
+                        resume @handle();
                     }
 
                     // TODO this allocation elision should be guaranteed because we await it in

@@ -142,8 +142,7 @@ test "std.event.Lock" {
 async fn testLock(loop: *Loop, lock: *Lock) void {
     // TODO explicitly put next tick node memory in the coroutine frame #1194
     suspend {
-        var h: promise = @handle();
-        resume h;
+        resume @handle();
     }
     const handle1 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node1 = Loop.NextTickNode{
