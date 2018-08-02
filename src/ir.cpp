@@ -3332,7 +3332,15 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
 static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *scope, Buf *name,
         bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstruction *is_comptime)
 {
-    VariableTableEntry *var = create_local_var(irb->codegen, node, scope, name, src_is_const, gen_is_const, is_shadowable, is_comptime);
+    bool is_underscored = name ? buf_eql_str(name, "_") : false;
+    VariableTableEntry *var = create_local_var( irb->codegen
+                                              , node
+                                              , scope
+                                              , (is_underscored ? nullptr : name)
+                                              , src_is_const
+                                              , gen_is_const
+                                              , (is_underscored ? true : is_shadowable)
+                                              , is_comptime );
     if (is_comptime != nullptr || gen_is_const) {
         var->mem_slot_index = exec_next_mem_slot(irb->exec);
         var->owner_exec = irb->exec;
@@ -5186,6 +5194,11 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
 
     AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
 
+    if (buf_eql_str(variable_declaration->symbol, "_")) {
+        add_node_error(irb->codegen, node, buf_sprintf("`_` is not a declarable symbol"));
+        return irb->codegen->invalid_instruction;
+    }
+
     IrInstruction *type_instruction;
     if (variable_declaration->type != nullptr) {
         type_instruction = ir_gen_node(irb, variable_declaration->type, scope);
@@ -5198,6 +5211,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     bool is_shadowable = false;
     bool is_const = variable_declaration->is_const;
     bool is_extern = variable_declaration->is_extern;
+
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
         ir_should_inline(irb->exec, scope) || variable_declaration->is_comptime);
     VariableTableEntry *var = ir_create_var(irb, node, scope, variable_declaration->symbol,
