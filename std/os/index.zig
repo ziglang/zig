@@ -133,7 +133,7 @@ pub fn getRandomBytes(buf: []u8) !void {
             // Call RtlGenRandom() instead of CryptGetRandom() on Windows
             // https://github.com/rust-lang-nursery/rand/issues/111
             // https://bugzilla.mozilla.org/show_bug.cgi?id=504270
-            if (!windows.RtlGenRandom(buf.ptr, buf.len)) {
+            if (windows.RtlGenRandom(buf.ptr, buf.len) == 0) {
                 const err = windows.GetLastError();
                 return switch (err) {
                     else => unexpectedErrorWindows(err),
