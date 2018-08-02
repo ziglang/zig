@@ -5383,6 +5383,16 @@ test "main" {
       This function is only valid within function scope.
       </p>
       {#header_close#}
+      {#header_open|@handle#}
+      <pre><code class="zig">@handle()</code></pre>
+      <p>
+      This function returns a <code>promise->T</code> type, where <code>T</code>
+      is the return type of the async function in scope.
+      </p>
+      <p>
+      This function is only valid within an async function scope.
+      </p>
+      {#header_close#}
       {#header_open|@import#}
       <pre><code class="zig">@import(comptime path: []u8) (namespace)</code></pre>
       <p>
