@@ -898,11 +898,11 @@ test "zig fmt: union(enum(u32)) with assigned enum values" {
     );
 }
 
-test "zig fmt: labeled suspend" {
+test "zig fmt: resume from suspend block" {
     try testCanonical(
         \\fn foo() void {
-        \\    s: suspend |p| {
-        \\        break :s;
+        \\    suspend {
+        \\        resume @handle();
         \\    }
         \\}
         \\

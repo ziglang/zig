@@ -651,37 +651,29 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 SuspendExpression(body) = "suspend" option( body )
 */
 static AstNode *ast_parse_suspend_block(ParseContext *pc, size_t *token_index, bool mandatory) {
-    size_t orig_token_index = *token_index;
-    Token *token = &pc->tokens->at(*token_index);
-    Token *suspend_token = nullptr;
+    Token *suspend_token = &pc->tokens->at(*token_index);
 
-    if (token->id == TokenIdKeywordSuspend) {
+    if (suspend_token->id == TokenIdKeywordSuspend) {
         *token_index += 1;
-        suspend_token = token;
-        token = &pc->tokens->at(*token_index);
     } else if (mandatory) {
-        ast_expect_token(pc, token, TokenIdKeywordSuspend);
+        ast_expect_token(pc, suspend_token, TokenIdKeywordSuspend);
         zig_unreachable();
     } else {
         return nullptr;
     }
 
-    //guessing that semicolon is checked elsewhere?
-    if (token->id != TokenIdLBrace) {
-        if (mandatory) {
-            ast_expect_token(pc, token, TokenIdLBrace);
-            zig_unreachable();
-        } else {
-            *token_index = orig_token_index;
-            return nullptr;
-        }
+    Token *lbrace = &pc->tokens->at(*token_index);
+    if (lbrace->id == TokenIdLBrace) {
+        AstNode *node = ast_create_node(pc, NodeTypeSuspend, suspend_token);
+        node->data.suspend.block = ast_parse_block(pc, token_index, true);
+        return node;
+    } else if (mandatory) {
+        ast_expect_token(pc, lbrace, TokenIdLBrace);
+        zig_unreachable();
+    } else {
+        *token_index -= 1;
+        return nullptr;
     }
-
-    //Expect that we have a block;
-    AstNode *node = ast_create_node(pc, NodeTypeSuspend, suspend_token);
-    node->data.suspend.block = ast_parse_block(pc, token_index, true);
-
-    return node;
 }
 
 /*
