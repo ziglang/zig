@@ -153,8 +153,14 @@ pub fn getRandomBytes(buf: []u8) !void {
 }
 
 test "os.getRandomBytes" {
-    var buf: [50]u8 = undefined;
-    try getRandomBytes(buf[0..]);
+    var buf_a: [50]u8 = undefined;
+    var buf_b: [50]u8 = undefined;
+    // Call Twice
+    try getRandomBytes(buf_a[0..]);
+    try getRandomBytes(buf_b[0..]);
+
+    // Check if random (not 100% conclusive)
+    assert( !mem.eql(u8, buf_a, buf_b) );
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
