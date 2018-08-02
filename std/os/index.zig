@@ -2790,7 +2790,7 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
         builtin.Os.macosx => {
             var count: c_int = undefined;
             var count_len: usize = @sizeOf(c_int);
-            const rc = posix.sysctlbyname(c"hw.ncpu", @ptrCast(*c_void, &count), &count_len, null, 0);
+            const rc = posix.sysctlbyname(c"hw.logicalcpu", @ptrCast(*c_void, &count), &count_len, null, 0);
             const err = posix.getErrno(rc);
             switch (err) {
                 0 => return @intCast(usize, count),
