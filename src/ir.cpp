@@ -580,6 +580,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameAddress *) 
     return IrInstructionIdFrameAddress;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionHandle *) {
+    return IrInstructionIdHandle;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignOf *) {
     return IrInstructionIdAlignOf;
 }
@@ -2240,6 +2244,17 @@ static IrInstruction *ir_build_frame_address_from(IrBuilder *irb, IrInstruction 
     return new_instruction;
 }
 
+static IrInstruction *ir_build_handle(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionHandle *instruction = ir_build_instruction<IrInstructionHandle>(irb, scope, source_node);
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_handle_from(IrBuilder *irb, IrInstruction *old_instruction) {
+    IrInstruction *new_instruction = ir_build_handle(irb, old_instruction->scope, old_instruction->source_node);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static IrInstruction *ir_build_overflow_op(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrOverflowOp op, IrInstruction *type_value, IrInstruction *op1, IrInstruction *op2,
         IrInstruction *result_ptr, TypeTableEntry *result_ptr_type)
@@ -3843,6 +3858,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         return irb->codegen->invalid_instruction;
     }
 
+    bool is_async = exec_is_async(irb->exec);
+
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
             zig_unreachable();
@@ -4475,6 +4492,16 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             return ir_lval_wrap(irb, scope, ir_build_return_address(irb, scope, node), lval);
         case BuiltinFnIdFrameAddress:
             return ir_lval_wrap(irb, scope, ir_build_frame_address(irb, scope, node), lval);
+        case BuiltinFnIdHandle:
+            if (!irb->exec->fn_entry) {
+                add_node_error(irb->codegen, node, buf_sprintf("@handle() called outside of function definition"));
+                return irb->codegen->invalid_instruction;
+            }
+            if (!is_async) {
+                add_node_error(irb->codegen, node, buf_sprintf("@handle() in non-async function"));
+                return irb->codegen->invalid_instruction;
+            }
+            return ir_lval_wrap(irb, scope, ir_build_handle(irb, scope, node), lval);
         case BuiltinFnIdAlignOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -7069,19 +7096,8 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     if (node->data.suspend.block == nullptr) {
         suspend_code = ir_build_coro_suspend(irb, parent_scope, node, nullptr, const_bool_false);
     } else {
-        assert(node->data.suspend.promise_symbol != nullptr);
-        assert(node->data.suspend.promise_symbol->type == NodeTypeSymbol);
-        Buf *promise_symbol_name = node->data.suspend.promise_symbol->data.symbol_expr.symbol;
         Scope *child_scope;
-        if (!buf_eql_str(promise_symbol_name, "_")) {
-            VariableTableEntry *promise_var = ir_create_var(irb, node, parent_scope, promise_symbol_name,
-                    true, true, false, const_bool_false);
-            ir_build_var_decl(irb, parent_scope, node, promise_var, nullptr, nullptr, irb->exec->coro_handle);
-            child_scope = promise_var->child_scope;
-        } else {
-            child_scope = parent_scope;
-        }
-        ScopeSuspend *suspend_scope = create_suspend_scope(node, child_scope);
+        ScopeSuspend *suspend_scope = create_suspend_scope(node, parent_scope);
         suspend_scope->resume_block = resume_block;
         child_scope = &suspend_scope->base;
         IrInstruction *save_token = ir_build_coro_save(irb, child_scope, node, irb->exec->coro_handle);
@@ -19007,6 +19023,14 @@ static TypeTableEntry *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrIn
     return u8_ptr_const;
 }
 
+static TypeTableEntry *ir_analyze_instruction_handle(IrAnalyze *ira, IrInstructionHandle *instruction) {
+    ir_build_handle_from(&ira->new_irb, &instruction->base);
+
+    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    assert(fn_entry != nullptr);
+    return get_promise_type(ira->codegen, fn_entry->type_entry->data.fn.fn_type_id.return_type);
+}
+
 static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
     if (type_is_invalid(type_value->value.type))
@@ -20982,6 +21006,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_return_address(ira, (IrInstructionReturnAddress *)instruction);
         case IrInstructionIdFrameAddress:
             return ir_analyze_instruction_frame_address(ira, (IrInstructionFrameAddress *)instruction);
+        case IrInstructionIdHandle:
+            return ir_analyze_instruction_handle(ira, (IrInstructionHandle *)instruction);
         case IrInstructionIdAlignOf:
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
         case IrInstructionIdOverflowOp:
@@ -21274,6 +21300,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAlignOf:
         case IrInstructionIdReturnAddress:
         case IrInstructionIdFrameAddress:
+        case IrInstructionIdHandle:
         case IrInstructionIdTestErr:
         case IrInstructionIdUnwrapErrCode:
         case IrInstructionIdOptionalWrap:

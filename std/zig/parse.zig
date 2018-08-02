@@ -852,19 +852,6 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         }) catch unreachable;
                         continue;
                     },
-                    Token.Id.Keyword_suspend => {
-                        const node = try arena.create(ast.Node.Suspend{
-                            .base = ast.Node{ .id = ast.Node.Id.Suspend },
-                            .label = ctx.label,
-                            .suspend_token = token_index,
-                            .payload = null,
-                            .body = null,
-                        });
-                        ctx.opt_ctx.store(&node.base);
-                        stack.append(State{ .SuspendBody = node }) catch unreachable;
-                        try stack.append(State{ .Payload = OptionalCtx{ .Optional = &node.payload } });
-                        continue;
-                    },
                     Token.Id.Keyword_inline => {
                         stack.append(State{
                             .Inline = InlineCtx{
@@ -1415,10 +1402,21 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.SuspendBody => |suspend_node| {
-                if (suspend_node.payload != null) {
-                    try stack.append(State{ .AssignmentExpressionBegin = OptionalCtx{ .RequiredNull = &suspend_node.body } });
+                const token = nextToken(&tok_it, &tree);
+                switch (token.ptr.id) {
+                    Token.Id.Semicolon => {
+                        prevToken(&tok_it, &tree);
+                        continue;
+                    },
+                    Token.Id.LBrace => {
+                        prevToken(&tok_it, &tree);
+                        try stack.append(State{ .AssignmentExpressionBegin = OptionalCtx{ .RequiredNull = &suspend_node.body } });
+                        continue;
+                    },
+                    else => {
+                        ((try tree.errors.addOne())).* = Error{ .InvalidToken = Error.InvalidToken{ .token = token.index } };
+                    },
                 }
-                continue;
             },
             State.AsyncAllocator => |async_node| {
                 if (eatToken(&tok_it, &tree, Token.Id.AngleBracketLeft) == null) {
@@ -3086,15 +3084,12 @@ fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *con
         Token.Id.Keyword_suspend => {
             const node = try arena.create(ast.Node.Suspend{
                 .base = ast.Node{ .id = ast.Node.Id.Suspend },
-                .label = null,
                 .suspend_token = token_index,
-                .payload = null,
                 .body = null,
             });
             ctx.store(&node.base);
 
             stack.append(State{ .SuspendBody = node }) catch unreachable;
-            try stack.append(State{ .Payload = OptionalCtx{ .Optional = &node.payload } });
             return true;
         },
         Token.Id.Keyword_if => {

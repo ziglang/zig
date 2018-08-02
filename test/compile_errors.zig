@@ -2,6 +2,27 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@handle() called outside of function definition",
+        \\var handle_undef: promise = undefined;
+        \\var handle_dummy: promise = @handle();
+        \\export fn entry() bool {
+        \\    return handle_undef == handle_dummy;
+        \\}
+    ,
+        ".tmp_source.zig:2:29: error: @handle() called outside of function definition",
+    );
+
+    cases.add(
+        "@handle() in non-async function",
+        \\export fn entry() bool {
+        \\    var handle_undef: promise = undefined;
+        \\    return handle_undef == @handle();
+        \\}
+    ,
+        ".tmp_source.zig:3:28: error: @handle() in non-async function",
+    );
+
+    cases.add(
         "while loop body expression ignored",
         \\fn returns() usize {
         \\    return 2;
@@ -367,8 +388,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\
         \\async fn foo() void {
-        \\    suspend |p| {
-        \\        suspend |p1| {
+        \\    suspend {
+        \\        suspend {
         \\        }
         \\    }
         \\}

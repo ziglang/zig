@@ -62,10 +62,15 @@ test "coroutine suspend with block" {
 var a_promise: promise = undefined;
 var result = false;
 async fn testSuspendBlock() void {
-    suspend |p| {
-        comptime assert(@typeOf(p) == promise->void);
-        a_promise = p;
+    suspend {
+        comptime assert(@typeOf(@handle()) == promise->void);
+        a_promise = @handle();
     }
+
+    //Test to make sure that @handle() works as advertised (issue #1296)
+    //var our_handle: promise = @handle();
+    assert( a_promise == @handle() );
+
     result = true;
 }
 
@@ -93,9 +98,9 @@ async fn await_amain() void {
 }
 async fn await_another() i32 {
     await_seq('c');
-    suspend |p| {
+    suspend {
         await_seq('d');
-        await_a_promise = p;
+        await_a_promise = @handle();
     }
     await_seq('g');
     return 1234;
@@ -244,8 +249,8 @@ test "break from suspend" {
     std.debug.assert(my_result == 2);
 }
 async fn testBreakFromSuspend(my_result: *i32) void {
-    suspend |p| {
-        resume p;
+    suspend {
+        resume @handle();
     }
     my_result.* += 1;
     suspend;

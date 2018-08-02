@@ -323,21 +323,7 @@ fn renderExpression(
         ast.Node.Id.Suspend => {
             const suspend_node = @fieldParentPtr(ast.Node.Suspend, "base", base);
 
-            if (suspend_node.label) |label| {
-                try renderToken(tree, stream, label, indent, start_col, Space.None);
-                try renderToken(tree, stream, tree.nextToken(label), indent, start_col, Space.Space);
-            }
-
-            if (suspend_node.payload) |payload| {
-                if (suspend_node.body) |body| {
-                    try renderToken(tree, stream, suspend_node.suspend_token, indent, start_col, Space.Space);
-                    try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
-                    return renderExpression(allocator, stream, tree, indent, start_col, body, space);
-                } else {
-                    try renderToken(tree, stream, suspend_node.suspend_token, indent, start_col, Space.Space);
-                    return renderExpression(allocator, stream, tree, indent, start_col, payload, space);
-                }
-            } else if (suspend_node.body) |body| {
+            if (suspend_node.body) |body| {
                 try renderToken(tree, stream, suspend_node.suspend_token, indent, start_col, Space.Space);
                 return renderExpression(allocator, stream, tree, indent, start_col, body, space);
             } else {

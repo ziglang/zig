@@ -90,10 +90,10 @@ pub const Lock = struct {
     }
 
     pub async fn acquire(self: *Lock) Held {
-        suspend |handle| {
+        suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
             var my_tick_node = Loop.NextTickNode{
-                .data = handle,
+                .data = @handle(),
                 .next = undefined,
             };
 
@@ -141,8 +141,8 @@ test "std.event.Lock" {
 
 async fn testLock(loop: *Loop, lock: *Lock) void {
     // TODO explicitly put next tick node memory in the coroutine frame #1194
-    suspend |p| {
-        resume p;
+    suspend {
+        resume @handle();
     }
     const handle1 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node1 = Loop.NextTickNode{
