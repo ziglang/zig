@@ -130,16 +130,10 @@ pub fn getRandomBytes(buf: []u8) !void {
             try posixRead(fd, buf);
         },
         Os.windows => {
-            var hCryptProv: windows.HCRYPTPROV = undefined;
-            if (windows.CryptAcquireContextA(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0) == 0) {
-                const err = windows.GetLastError();
-                return switch (err) {
-                    else => unexpectedErrorWindows(err),
-                };
-            }
-            defer _ = windows.CryptReleaseContext(hCryptProv, 0);
-
-            if (windows.CryptGenRandom(hCryptProv, @intCast(windows.DWORD, buf.len), buf.ptr) == 0) {
+            // Call RtlGenRandom() instead of CryptGetRandom() on Windows
+            // https://github.com/rust-lang-nursery/rand/issues/111
+            // https://bugzilla.mozilla.org/show_bug.cgi?id=504270
+            if (!windows.RtlGenRandom(buf.ptr, buf.len)) {
                 const err = windows.GetLastError();
                 return switch (err) {
                     else => unexpectedErrorWindows(err),
