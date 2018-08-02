@@ -1801,6 +1801,10 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
     Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
     node->data.variable_declaration.symbol = token_buf(name_token);
 
+    if (buf_eql_str(node->data.variable_declaration.symbol, "_")) {
+      ast_error(pc, name_token, "`_` is not a declarable symbol");
+    }
+
     Token *next_token = &pc->tokens->at(*token_index);
 
     if (next_token->id == TokenIdColon) {
