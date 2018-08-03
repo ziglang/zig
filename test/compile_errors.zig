@@ -23,6 +23,17 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "`_` is not a declarable symbol",
+        \\export fn f1() usize {
+        \\    var _: usize = 2;
+        \\    return _;
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: `_` is not a declarable symbol",
+        ".tmp_source.zig:3:12: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
         "while loop body expression ignored",
         \\fn returns() usize {
         \\    return 2;
