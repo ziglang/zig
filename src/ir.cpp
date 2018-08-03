@@ -5530,7 +5530,10 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
-    VariableTableEntry *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
+    bool is_shadowable = buf_eql_str(elem_var_name, "_");
+    VariableTableEntry *elem_var = ir_create_var( irb, elem_node, parent_scope
+                                                , (!is_shadowable ? elem_var_name : nullptr)
+                                                , true, false, is_shadowable, is_comptime);
     Scope *child_scope = elem_var->child_scope;
 
     IrInstruction *undefined_value = ir_build_const_undefined(irb, child_scope, elem_node);
