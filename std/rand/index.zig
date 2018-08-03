@@ -30,7 +30,7 @@ pub const DefaultCsprng = Isaac64;
 pub const Random = struct {
     fillFn: fn (r: *Random, buf: []u8) void,
 
-    /// Read random bytes into the specified buffer until fill.
+    /// Read random bytes into the specified buffer until full.
     pub fn bytes(r: *Random, buf: []u8) void {
         r.fillFn(r, buf);
     }
@@ -48,10 +48,10 @@ pub const Random = struct {
         }
     }
 
-    /// Get a random unsigned integer with even distribution between `start`
-    /// inclusive and `end` exclusive.
+    /// Return a random integer with even distribution between `start`
+    /// inclusive and `end` exclusive.  `start` must be less than `end`.
     pub fn range(r: *Random, comptime T: type, start: T, end: T) T {
-        assert(start <= end);
+        assert(start < end);
         if (T.is_signed) {
             const uint = @IntType(false, T.bit_count);
             if (start >= 0 and end >= 0) {
@@ -664,6 +664,7 @@ test "Random range" {
     testRange(&prng.random, -4, 3);
     testRange(&prng.random, -4, -1);
     testRange(&prng.random, 10, 14);
+    // TODO: test that prng.random.range(1, 1) causes an assertion error
 }
 
 fn testRange(r: *Random, start: i32, end: i32) void {
