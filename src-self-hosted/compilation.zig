@@ -876,13 +876,25 @@ pub const Compilation = struct {
 
                     if (existing_decls.remove(name)) |entry| {
                         // compare new code to existing
-                        const existing_decl = entry.value;
-                        // Just compare the old bytes to the new bytes of the top level decl.
-                        // Even if the AST is technically the same, we want error messages to display
-                        // from the most recent source.
-                        @panic("TODO handle decl comparison");
-                        // Add the new thing before dereferencing the old thing. This way we don't end
-                        // up pointlessly re-creating things we end up using in the new thing.
+                        if (entry.value.cast(Decl.Fn)) |existing_fn_decl| {
+                            // Just compare the old bytes to the new bytes of the top level decl.
+                            // Even if the AST is technically the same, we want error messages to display
+                            // from the most recent source.
+                            const old_decl_src = existing_fn_decl.base.tree_scope.tree.getNodeSource(
+                                &existing_fn_decl.fn_proto.base,
+                            );
+                            const new_decl_src = tree_scope.tree.getNodeSource(&fn_proto.base);
+                            if (mem.eql(u8, old_decl_src, new_decl_src)) {
+                                // it's the same, we can skip this decl
+                                continue;
+                            } else {
+                                @panic("TODO decl changed implementation");
+                                // Add the new thing before dereferencing the old thing. This way we don't end
+                                // up pointlessly re-creating things we end up using in the new thing.
+                            }
+                        } else {
+                            @panic("TODO decl changed kind");
+                        }
                     } else {
                         // add new decl
                         const fn_decl = try self.gpa().create(Decl.Fn{
