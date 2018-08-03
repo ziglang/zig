@@ -34,6 +34,19 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "`_` should not be usable",
+        \\export fn returns() void {
+        \\    for ([]void{}) |_, i| {
+        \\        for ([]void{}) |_, j| {
+        \\            return _;
+        \\        }
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
         "while loop body expression ignored",
         \\fn returns() usize {
         \\    return 2;
