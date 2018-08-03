@@ -63,6 +63,8 @@ pub const Scope = struct {
                 Id.CompTime,
                 Id.Var,
                 => scope = scope.parent.?,
+
+                Id.AstTree => unreachable,
             }
         }
     }
@@ -83,6 +85,8 @@ pub const Scope = struct {
                 Id.Root,
                 Id.Var,
                 => scope = scope.parent orelse return null,
+
+                Id.AstTree => unreachable,
             }
         }
     }
@@ -132,6 +136,7 @@ pub const Scope = struct {
         }
 
         pub fn destroy(self: *Root, comp: *Compilation) void {
+            // TODO comp.fs_watch.removeFile(self.realpath);
             self.decls.base.deref(comp);
             comp.gpa().free(self.realpath);
             comp.gpa().destroy(self);
@@ -144,13 +149,13 @@ pub const Scope = struct {
 
         /// Creates a scope with 1 reference
         /// Takes ownership of tree, will deinit and destroy when done.
-        pub fn create(comp: *Compilation, tree: *ast.Tree, root: *Root) !*AstTree {
-            const self = try comp.gpa().createOne(Root);
+        pub fn create(comp: *Compilation, tree: *ast.Tree, root_scope: *Root) !*AstTree {
+            const self = try comp.gpa().createOne(AstTree);
             self.* = AstTree{
                 .base = undefined,
                 .tree = tree,
             };
-            self.base.init(Id.AstTree, &root.base);
+            self.base.init(Id.AstTree, &root_scope.base);
 
             return self;
         }
@@ -181,7 +186,6 @@ pub const Scope = struct {
             self.* = Decls{
                 .base = undefined,
                 .table = event.RwLocked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
-                .name_future = event.Future(void).init(comp.loop),
             };
             self.base.init(Id.Decls, parent);
             return self;

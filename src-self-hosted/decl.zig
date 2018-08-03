@@ -16,6 +16,8 @@ pub const Decl = struct {
     visib: Visib,
     resolution: event.Future(Compilation.BuildError!void),
     parent_scope: *Scope,
+
+    // TODO when we destroy the decl, deref the tree scope
     tree_scope: *Scope.AstTree,
 
     pub const Table = std.HashMap([]const u8, *Decl, mem.hash_slice_u8, mem.eql_slice_u8);

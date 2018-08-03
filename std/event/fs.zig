@@ -367,109 +367,193 @@ pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize)
     }
 }
 
-pub const Watch = struct {
-    channel: *event.Channel(Event),
-    putter: promise,
+pub fn Watch(comptime V: type) type {
+    return struct {
+        channel: *event.Channel(Event),
+        putter: promise,
+        wd_table: WdTable,
+        table_lock: event.Lock,
+        inotify_fd: i32,
 
-    pub const Event = union(enum) {
-        CloseWrite,
-        Err: Error,
-    };
+        const WdTable = std.AutoHashMap(i32, Dir);
+        const FileTable = std.AutoHashMap([]const u8, V);
 
-    pub const Error = error{
-        UserResourceLimitReached,
-        SystemResources,
-    };
+        const Self = this;
 
-    pub fn destroy(self: *Watch) void {
-        // TODO https://github.com/ziglang/zig/issues/1261
-        cancel self.putter;
-    }
-};
+        const Dir = struct {
+            dirname: []const u8,
+            file_table: FileTable,
+        };
 
-pub fn watchFile(loop: *event.Loop, file_path: []const u8) !*Watch {
-    const path_with_null = try std.cstr.addNullByte(loop.allocator, file_path);
-    defer loop.allocator.free(path_with_null);
+        pub const Event = union(enum) {
+            CloseWrite: V,
+            Err: Error,
 
-    const inotify_fd = try os.linuxINotifyInit1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
-    errdefer os.close(inotify_fd);
+            pub const Error = error{
+                UserResourceLimitReached,
+                SystemResources,
+            };
+        };
 
-    const wd = try os.linuxINotifyAddWatchC(inotify_fd, path_with_null.ptr, os.linux.IN_CLOSE_WRITE);
-    errdefer os.close(wd);
+        pub fn create(loop: *event.Loop, event_buf_count: usize) !*Self {
+            const inotify_fd = try os.linuxINotifyInit1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
+            errdefer os.close(inotify_fd);
 
-    const channel = try event.Channel(Watch.Event).create(loop, 0);
-    errdefer channel.destroy();
+            const channel = try event.Channel(Self.Event).create(loop, event_buf_count);
+            errdefer channel.destroy();
 
-    var result: *Watch = undefined;
-    _ = try async<loop.allocator> watchEventPutter(inotify_fd, wd, channel, &result);
-    return result;
-}
+            var result: *Self = undefined;
+            _ = try async<loop.allocator> eventPutter(inotify_fd, channel, &result);
+            return result;
+        }
 
-async fn watchEventPutter(inotify_fd: i32, wd: i32, channel: *event.Channel(Watch.Event), out_watch: **Watch) void {
-    // TODO https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
+        pub fn destroy(self: *Self) void {
+            cancel self.putter;
+        }
 
-    var watch = Watch{
-        .putter = @handle(),
-        .channel = channel,
-    };
-    out_watch.* = &watch;
+        pub async fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
+            const dirname = os.path.dirname(file_path) orelse ".";
+            const dirname_with_null = try std.cstr.addNullByte(self.channel.loop.allocator, dirname);
+            var dirname_with_null_consumed = false;
+            defer if (!dirname_with_null_consumed) self.channel.loop.allocator.free(dirname_with_null);
 
-    const loop = channel.loop;
-    loop.beginOneEvent();
+            const basename = os.path.basename(file_path);
+            const basename_with_null = try std.cstr.addNullByte(self.channel.loop.allocator, basename);
+            var basename_with_null_consumed = false;
+            defer if (!basename_with_null_consumed) self.channel.loop.allocator.free(basename_with_null);
 
-    defer {
-        channel.destroy();
-        os.close(wd);
-        os.close(inotify_fd);
-        loop.finishOneEvent();
-    }
+            const wd = try os.linuxINotifyAddWatchC(
+                self.inotify_fd,
+                dirname_with_null.ptr,
+                os.linux.IN_CLOSE_WRITE | os.linux.IN_ONLYDIR | os.linux.IN_EXCL_UNLINK,
+            );
+            // wd is either a newly created watch or an existing one.
 
-    var event_buf: [4096]u8 align(@alignOf(os.linux.inotify_event)) = undefined;
+            const held = await (async self.table_lock.acquire() catch unreachable);
+            defer held.release();
 
-    while (true) {
-        const rc = os.linux.read(inotify_fd, &event_buf, event_buf.len);
-        const errno = os.linux.getErrno(rc);
-        switch (errno) {
-            0 => {
-                // can't use @bytesToSlice because of the special variable length name field
-                var ptr = event_buf[0..].ptr;
-                const end_ptr = ptr + event_buf.len;
-                var ev: *os.linux.inotify_event = undefined;
-                while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) : (ptr += @sizeOf(os.linux.inotify_event) + ev.len) {
-                    ev = @ptrCast(*os.linux.inotify_event, ptr);
-                    if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
-                        await (async channel.put(Watch.Event.CloseWrite) catch unreachable);
+            const gop = try self.wd_table.getOrPut(wd);
+            if (!gop.found_existing) {
+                gop.kv.value = Dir{
+                    .dirname = dirname_with_null,
+                    .file_table = FileTable.init(self.channel.loop.allocator),
+                };
+                dirname_with_null_consumed = true;
+            }
+            const dir = &gop.kv.value;
+
+            const file_table_gop = try dir.file_table.getOrPut(basename_with_null);
+            if (file_table_gop.found_existing) {
+                const prev_value = file_table_gop.kv.value;
+                file_table_gop.kv.value = value;
+                return prev_value;
+            } else {
+                file_table_gop.kv.value = value;
+                basename_with_null_consumed = true;
+                return null;
+            }
+        }
+
+        pub async fn removeFile(self: *Self, file_path: []const u8) ?V {
+            @panic("TODO");
+        }
+
+        async fn eventPutter(inotify_fd: i32, channel: *event.Channel(Event), out_watch: **Self) void {
+            // TODO https://github.com/ziglang/zig/issues/1194
+            suspend {
+                resume @handle();
+            }
+
+            const loop = channel.loop;
+
+            var watch = Self{
+                .putter = @handle(),
+                .channel = channel,
+                .wd_table = WdTable.init(loop.allocator),
+                .table_lock = event.Lock.init(loop),
+                .inotify_fd = inotify_fd,
+            };
+            out_watch.* = &watch;
+
+            loop.beginOneEvent();
+
+            defer {
+                watch.table_lock.deinit();
+                {
+                    var wd_it = watch.wd_table.iterator();
+                    while (wd_it.next()) |wd_entry| {
+                        var file_it = wd_entry.value.file_table.iterator();
+                        while (file_it.next()) |file_entry| {
+                            loop.allocator.free(file_entry.key);
+                        }
+                        loop.allocator.free(wd_entry.value.dirname);
                     }
                 }
-            },
-            os.linux.EINTR => continue,
-            os.linux.EINVAL => unreachable,
-            os.linux.EFAULT => unreachable,
-            os.linux.EAGAIN => {
-                (await (async loop.linuxWaitFd(
-                    inotify_fd,
-                    os.linux.EPOLLET | os.linux.EPOLLIN,
-                ) catch unreachable)) catch |err| {
-                    const transformed_err = switch (err) {
-                        error.InvalidFileDescriptor => unreachable,
-                        error.FileDescriptorAlreadyPresentInSet => unreachable,
-                        error.InvalidSyscall => unreachable,
-                        error.OperationCausesCircularLoop => unreachable,
-                        error.FileDescriptorNotRegistered => unreachable,
-                        error.SystemResources => error.SystemResources,
-                        error.UserResourceLimitReached => error.UserResourceLimitReached,
-                        error.FileDescriptorIncompatibleWithEpoll => unreachable,
-                        error.Unexpected => unreachable,
-                    };
-                    await (async channel.put(Watch.Event{ .Err = transformed_err }) catch unreachable);
-                };
-            },
-            else => unreachable,
+                loop.finishOneEvent();
+                os.close(inotify_fd);
+                channel.destroy();
+            }
+
+            var event_buf: [4096]u8 align(@alignOf(os.linux.inotify_event)) = undefined;
+
+            while (true) {
+                const rc = os.linux.read(inotify_fd, &event_buf, event_buf.len);
+                const errno = os.linux.getErrno(rc);
+                switch (errno) {
+                    0 => {
+                        // can't use @bytesToSlice because of the special variable length name field
+                        var ptr = event_buf[0..].ptr;
+                        const end_ptr = ptr + event_buf.len;
+                        var ev: *os.linux.inotify_event = undefined;
+                        while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) : (ptr += @sizeOf(os.linux.inotify_event) + ev.len) {
+                            ev = @ptrCast(*os.linux.inotify_event, ptr);
+                            if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
+                                const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);
+                                const basename_with_null = basename_ptr[0 .. std.cstr.len(basename_ptr) + 1];
+                                const user_value = blk: {
+                                    const held = await (async watch.table_lock.acquire() catch unreachable);
+                                    defer held.release();
+
+                                    const dir = &watch.wd_table.get(ev.wd).?.value;
+                                    if (dir.file_table.get(basename_with_null)) |entry| {
+                                        break :blk entry.value;
+                                    } else {
+                                        break :blk null;
+                                    }
+                                };
+                                if (user_value) |v| {
+                                    await (async channel.put(Self.Event{ .CloseWrite = v }) catch unreachable);
+                                }
+                            }
+                        }
+                    },
+                    os.linux.EINTR => continue,
+                    os.linux.EINVAL => unreachable,
+                    os.linux.EFAULT => unreachable,
+                    os.linux.EAGAIN => {
+                        (await (async loop.linuxWaitFd(
+                            inotify_fd,
+                            os.linux.EPOLLET | os.linux.EPOLLIN,
+                        ) catch unreachable)) catch |err| {
+                            const transformed_err = switch (err) {
+                                error.InvalidFileDescriptor => unreachable,
+                                error.FileDescriptorAlreadyPresentInSet => unreachable,
+                                error.InvalidSyscall => unreachable,
+                                error.OperationCausesCircularLoop => unreachable,
+                                error.FileDescriptorNotRegistered => unreachable,
+                                error.SystemResources => error.SystemResources,
+                                error.UserResourceLimitReached => error.UserResourceLimitReached,
+                                error.FileDescriptorIncompatibleWithEpoll => unreachable,
+                                error.Unexpected => unreachable,
+                            };
+                            await (async channel.put(Self.Event{ .Err = transformed_err }) catch unreachable);
+                        };
+                    },
+                    else => unreachable,
+                }
+            }
         }
-    }
+    };
 }
 
 const test_tmp_dir = "std_event_fs_test";
@@ -517,8 +601,10 @@ async fn testFsWatch(loop: *event.Loop) !void {
     assert(mem.eql(u8, read_contents, contents));
 
     // now watch the file
-    var watch = try watchFile(loop, file_path);
+    var watch = try Watch(void).create(loop, 0);
     defer watch.destroy();
+
+    assert((try await try async watch.addFile(file_path, {})) == null);
 
     const ev = try async watch.channel.get();
     var ev_consumed = false;
@@ -534,8 +620,8 @@ async fn testFsWatch(loop: *event.Loop) !void {
 
     ev_consumed = true;
     switch (await ev) {
-        Watch.Event.CloseWrite => {},
-        Watch.Event.Err => |err| return err,
+        Watch(void).Event.CloseWrite => {},
+        Watch(void).Event.Err => |err| return err,
     }
 
     const contents_updated = try await try async readFile(loop, file_path, 1024 * 1024);

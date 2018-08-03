@@ -24,6 +24,8 @@ var stderr_file: os.File = undefined;
 var stderr: *io.OutStream(io.FileOutStream.Error) = undefined;
 var stdout: *io.OutStream(io.FileOutStream.Error) = undefined;
 
+const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
+
 const usage =
     \\usage: zig [command] [options]
     \\
@@ -71,26 +73,26 @@ pub fn main() !void {
     }
 
     const commands = []Command{
-        //Command{
-        //    .name = "build-exe",
-        //    .exec = cmdBuildExe,
-        //},
-        //Command{
-        //    .name = "build-lib",
-        //    .exec = cmdBuildLib,
-        //},
-        //Command{
-        //    .name = "build-obj",
-        //    .exec = cmdBuildObj,
-        //},
+        Command{
+            .name = "build-exe",
+            .exec = cmdBuildExe,
+        },
+        Command{
+            .name = "build-lib",
+            .exec = cmdBuildLib,
+        },
+        Command{
+            .name = "build-obj",
+            .exec = cmdBuildObj,
+        },
         Command{
             .name = "fmt",
             .exec = cmdFmt,
         },
-        //Command{
-        //    .name = "libc",
-        //    .exec = cmdLibC,
-        //},
+        Command{
+            .name = "libc",
+            .exec = cmdLibC,
+        },
         Command{
             .name = "targets",
             .exec = cmdTargets,
@@ -472,16 +474,21 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 }
 
 async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
+    var count: usize = 0;
     while (true) {
         // TODO directly awaiting async should guarantee memory allocation elision
         const build_event = await (async comp.events.get() catch unreachable);
+        count += 1;
 
         switch (build_event) {
-            Compilation.Event.Ok => {},
+            Compilation.Event.Ok => {
+                stderr.print("Build {} succeeded\n", count) catch os.exit(1);
+            },
             Compilation.Event.Error => |err| {
-                stderr.print("build failed: {}\n", @errorName(err)) catch os.exit(1);
+                stderr.print("Build {} failed: {}\n", count, @errorName(err)) catch os.exit(1);
             },
             Compilation.Event.Fail => |msgs| {
+                stderr.print("Build {} compile errors:\n", count) catch os.exit(1);
                 for (msgs) |msg| {
                     defer msg.destroy();
                     msg.printToFile(&stderr_file, color) catch os.exit(1);
@@ -614,7 +621,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         var stdin_file = try io.getStdIn();
         var stdin = io.FileInStream.init(&stdin_file);
 
-        const source_code = try stdin.stream.readAllAlloc(allocator, @maxValue(usize));
+        const source_code = try stdin.stream.readAllAlloc(allocator, max_src_size);
         defer allocator.free(source_code);
 
         var tree = std.zig.parse(allocator, source_code) catch |err| {
@@ -697,12 +704,6 @@ async fn asyncFmtMain(
     suspend {
         resume @handle();
     }
-    // Things we need to make event-based:
-    // * opening the file in the first place - the open()
-    // * read()
-    // * readdir()
-    // * the actual parsing and rendering
-    // * rename()
     var fmt = Fmt{
         .seen = event.Locked(Fmt.SeenMap).init(loop, Fmt.SeenMap.init(loop.allocator)),
         .any_error = false,
@@ -714,7 +715,10 @@ async fn asyncFmtMain(
     for (flags.positionals.toSliceConst()) |file_path| {
         try group.call(fmtPath, &fmt, file_path);
     }
-    return await (async group.wait() catch unreachable);
+    try await (async group.wait() catch unreachable);
+    if (fmt.any_error) {
+        os.exit(1);
+    }
 }
 
 async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
@@ -731,9 +735,10 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
     const source_code = (await try async event.fs.readFile(
         fmt.loop,
         file_path,
-        2 * 1024 * 1024 * 1024,
+        max_src_size,
     )) catch |err| switch (err) {
         error.IsDir => {
+            // TODO make event based (and dir.next())
             var dir = try std.os.Dir.open(fmt.loop.allocator, file_path);
             defer dir.close();
 
@@ -774,6 +779,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
         return;
     }
 
+    // TODO make this evented
     const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
     defer baf.destroy();
 

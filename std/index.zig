@@ -5,6 +5,7 @@ pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("buffer.zig").BufferOutStream;
 pub const HashMap = @import("hash_map.zig").HashMap;
+pub const AutoHashMap = @import("hash_map.zig").AutoHashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const DynLib = @import("dynamic_library.zig").DynLib;

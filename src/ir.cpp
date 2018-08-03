@@ -9614,6 +9614,9 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
         case ConstValSpecialStatic:
             return &value->value;
         case ConstValSpecialRuntime:
+            if (!type_has_bits(value->value.type)) {
+                return &value->value;
+            }
             ir_add_error(ira, value, buf_sprintf("unable to evaluate constant expression"));
             return nullptr;
         case ConstValSpecialUndef:
@@ -16115,8 +16118,14 @@ static TypeTableEntry *ir_analyze_container_init_fields_union(IrAnalyze *ira, Ir
     if (casted_field_value == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
+    type_ensure_zero_bits_known(ira->codegen, casted_field_value->value.type);
+    if (type_is_invalid(casted_field_value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
     bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope);
-    if (is_comptime || casted_field_value->value.special != ConstValSpecialRuntime) {
+    if (is_comptime || casted_field_value->value.special != ConstValSpecialRuntime ||
+        !type_has_bits(casted_field_value->value.type))
+    {
         ConstExprValue *field_val = ir_resolve_const(ira, casted_field_value, UndefOk);
         if (!field_val)
             return ira->codegen->builtin_types.entry_invalid;

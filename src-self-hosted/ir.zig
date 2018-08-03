@@ -961,6 +961,7 @@ pub const Code = struct {
     basic_block_list: std.ArrayList(*BasicBlock),
     arena: std.heap.ArenaAllocator,
     return_type: ?*Type,
+    tree_scope: *Scope.AstTree,
 
     /// allocator is comp.gpa()
     pub fn destroy(self: *Code, allocator: *Allocator) void {
@@ -990,14 +991,14 @@ pub const Code = struct {
                     return ret_value.val.KnownValue.getRef();
                 }
                 try comp.addCompileError(
-                    ret_value.scope.findRoot(),
+                    self.tree_scope,
                     ret_value.span,
                     "unable to evaluate constant expression",
                 );
                 return error.SemanticAnalysisFailed;
             } else if (inst.hasSideEffects()) {
                 try comp.addCompileError(
-                    inst.scope.findRoot(),
+                    self.tree_scope,
                     inst.span,
                     "unable to evaluate constant expression",
                 );
@@ -1013,25 +1014,24 @@ pub const Builder = struct {
     code: *Code,
     current_basic_block: *BasicBlock,
     next_debug_id: usize,
-    root_scope: *Scope.Root,
     is_comptime: bool,
     is_async: bool,
     begin_scope: ?*Scope,
 
     pub const Error = Analyze.Error;
 
-    pub fn init(comp: *Compilation, root_scope: *Scope.Root, begin_scope: ?*Scope) !Builder {
+    pub fn init(comp: *Compilation, tree_scope: *Scope.AstTree, begin_scope: ?*Scope) !Builder {
         const code = try comp.gpa().create(Code{
             .basic_block_list = undefined,
             .arena = std.heap.ArenaAllocator.init(comp.gpa()),
             .return_type = null,
+            .tree_scope = tree_scope,
         });
         code.basic_block_list = std.ArrayList(*BasicBlock).init(&code.arena.allocator);
         errdefer code.destroy(comp.gpa());
 
         return Builder{
             .comp = comp,
-            .root_scope = root_scope,
             .current_basic_block = undefined,
             .code = code,
             .next_debug_id = 0,
@@ -1292,6 +1292,7 @@ pub const Builder = struct {
                 Scope.Id.FnDef => return false,
                 Scope.Id.Decls => unreachable,
                 Scope.Id.Root => unreachable,
+                Scope.Id.AstTree => unreachable,
                 Scope.Id.Block,
                 Scope.Id.Defer,
                 Scope.Id.DeferExpr,
@@ -1302,7 +1303,7 @@ pub const Builder = struct {
     }
 
     pub fn genIntLit(irb: *Builder, int_lit: *ast.Node.IntegerLiteral, scope: *Scope) !*Inst {
-        const int_token = irb.root_scope.tree.tokenSlice(int_lit.token);
+        const int_token = irb.code.tree_scope.tree.tokenSlice(int_lit.token);
 
         var base: u8 = undefined;
         var rest: []const u8 = undefined;
@@ -1341,7 +1342,7 @@ pub const Builder = struct {
     }
 
     pub async fn genStrLit(irb: *Builder, str_lit: *ast.Node.StringLiteral, scope: *Scope) !*Inst {
-        const str_token = irb.root_scope.tree.tokenSlice(str_lit.token);
+        const str_token = irb.code.tree_scope.tree.tokenSlice(str_lit.token);
         const src_span = Span.token(str_lit.token);
 
         var bad_index: usize = undefined;
@@ -1349,7 +1350,7 @@ pub const Builder = struct {
             error.OutOfMemory => return error.OutOfMemory,
             error.InvalidCharacter => {
                 try irb.comp.addCompileError(
-                    irb.root_scope,
+                    irb.code.tree_scope,
                     src_span,
                     "invalid character in string literal: '{c}'",
                     str_token[bad_index],
@@ -1427,7 +1428,7 @@ pub const Builder = struct {
 
             if (statement_node.cast(ast.Node.Defer)) |defer_node| {
                 // defer starts a new scope
-                const defer_token = irb.root_scope.tree.tokens.at(defer_node.defer_token);
+                const defer_token = irb.code.tree_scope.tree.tokens.at(defer_node.defer_token);
                 const kind = switch (defer_token.id) {
                     Token.Id.Keyword_defer => Scope.Defer.Kind.ScopeExit,
                     Token.Id.Keyword_errdefer => Scope.Defer.Kind.ErrorExit,
@@ -1513,7 +1514,7 @@ pub const Builder = struct {
                 const src_span = Span.token(control_flow_expr.ltoken);
                 if (scope.findFnDef() == null) {
                     try irb.comp.addCompileError(
-                        irb.root_scope,
+                        irb.code.tree_scope,
                         src_span,
                         "return expression outside function definition",
                     );
@@ -1523,7 +1524,7 @@ pub const Builder = struct {
                 if (scope.findDeferExpr()) |scope_defer_expr| {
                     if (!scope_defer_expr.reported_err) {
                         try irb.comp.addCompileError(
-                            irb.root_scope,
+                            irb.code.tree_scope,
                             src_span,
                             "cannot return from defer expression",
                         );
@@ -1599,7 +1600,7 @@ pub const Builder = struct {
 
     pub async fn genIdentifier(irb: *Builder, identifier: *ast.Node.Identifier, scope: *Scope, lval: LVal) !*Inst {
         const src_span = Span.token(identifier.token);
-        const name = irb.root_scope.tree.tokenSlice(identifier.token);
+        const name = irb.code.tree_scope.tree.tokenSlice(identifier.token);
 
         //if (buf_eql_str(variable_name, "_") && lval == LValPtr) {
         //    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, node);
@@ -1622,7 +1623,7 @@ pub const Builder = struct {
             }
         } else |err| switch (err) {
             error.Overflow => {
-                try irb.comp.addCompileError(irb.root_scope, src_span, "integer too large");
+                try irb.comp.addCompileError(irb.code.tree_scope, src_span, "integer too large");
                 return error.SemanticAnalysisFailed;
             },
             error.OutOfMemory => return error.OutOfMemory,
@@ -1656,7 +1657,7 @@ pub const Builder = struct {
         // TODO put a variable of same name with invalid type in global scope
         // so that future references to this same name will find a variable with an invalid type
 
-        try irb.comp.addCompileError(irb.root_scope, src_span, "unknown identifier '{}'", name);
+        try irb.comp.addCompileError(irb.code.tree_scope, src_span, "unknown identifier '{}'", name);
         return error.SemanticAnalysisFailed;
     }
 
@@ -1689,6 +1690,7 @@ pub const Builder = struct {
                 => scope = scope.parent orelse break,
 
                 Scope.Id.DeferExpr => unreachable,
+                Scope.Id.AstTree => unreachable,
             }
         }
         return result;
@@ -1740,6 +1742,7 @@ pub const Builder = struct {
                 => scope = scope.parent orelse return is_noreturn,
 
                 Scope.Id.DeferExpr => unreachable,
+                Scope.Id.AstTree => unreachable,
             }
         }
     }
@@ -1968,8 +1971,8 @@ const Analyze = struct {
         OutOfMemory,
     };
 
-    pub fn init(comp: *Compilation, root_scope: *Scope.Root, explicit_return_type: ?*Type) !Analyze {
-        var irb = try Builder.init(comp, root_scope, null);
+    pub fn init(comp: *Compilation, tree_scope: *Scope.AstTree, explicit_return_type: ?*Type) !Analyze {
+        var irb = try Builder.init(comp, tree_scope, null);
         errdefer irb.abort();
 
         return Analyze{
@@ -2047,7 +2050,7 @@ const Analyze = struct {
     }
 
     fn addCompileError(self: *Analyze, span: Span, comptime fmt: []const u8, args: ...) !void {
-        return self.irb.comp.addCompileError(self.irb.root_scope, span, fmt, args);
+        return self.irb.comp.addCompileError(self.irb.code.tree_scope, span, fmt, args);
     }
 
     fn resolvePeerTypes(self: *Analyze, expected_type: ?*Type, peers: []const *Inst) Analyze.Error!*Type {
@@ -2535,9 +2538,10 @@ const Analyze = struct {
 pub async fn gen(
     comp: *Compilation,
     body_node: *ast.Node,
+    tree_scope: *Scope.AstTree,
     scope: *Scope,
 ) !*Code {
-    var irb = try Builder.init(comp, scope.findRoot(), scope);
+    var irb = try Builder.init(comp, tree_scope, scope);
     errdefer irb.abort();
 
     const entry_block = try irb.createBasicBlock(scope, c"Entry");
@@ -2555,9 +2559,8 @@ pub async fn gen(
 
 pub async fn analyze(comp: *Compilation, old_code: *Code, expected_type: ?*Type) !*Code {
     const old_entry_bb = old_code.basic_block_list.at(0);
-    const root_scope = old_entry_bb.scope.findRoot();
 
-    var ira = try Analyze.init(comp, root_scope, expected_type);
+    var ira = try Analyze.init(comp, old_code.tree_scope, expected_type);
     errdefer ira.abort();
 
     const new_entry_bb = try ira.getNewBasicBlock(old_entry_bb, null);

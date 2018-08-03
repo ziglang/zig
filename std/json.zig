@@ -1318,7 +1318,7 @@ pub const Parser = struct {
                 _ = p.stack.pop();
 
                 var object = &p.stack.items[p.stack.len - 1].Object;
-                _ = try object.put(key, value);
+                _ = try object.put(key, value.*);
                 p.state = State.ObjectKey;
             },
             // Array Parent -> [ ..., <array>, value ]
