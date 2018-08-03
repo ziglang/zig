@@ -4759,15 +4759,4 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
     );
-
-    cases.add(
-        "`_` is not a declarable symbol",
-        \\test "" {
-        \\    var _: usize = 2;
-        \\    _ = false;
-        \\    var b = _;
-        \\}
-    ,
-        ".tmp_source.zig:2:9: error: `_` is not a declarable symbol",
-    );
 }
