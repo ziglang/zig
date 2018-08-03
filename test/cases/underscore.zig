@@ -15,20 +15,14 @@ test "ignore lval with underscore (for loop)" {
 }
 
 test "ignore lval with underscore (while loop)" {
-    while (optionalReturn()) |_| {
-      while (optionalReturn()) |_| {
+    while (optionalReturnError()) |_| {
+      while (optionalReturnError()) |_| {
           break;
-      }
-//      else |_| {
-//
-//      }
+      } else |_| { }
       break;
-    }
-//    else |_| {
-//
-//    }
+    } else |_| { }
 }
 
-fn optionalReturn() ?u32 {
-    return 1;
+fn optionalReturnError() !?u32 {
+    return error.optionalReturnError;
 }
