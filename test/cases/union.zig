@@ -297,3 +297,17 @@ test "access a member of tagged union with conflicting enum tag name" {
 
     comptime assert(Bar.A == u8);
 }
+
+test "tagged union initialization with runtime void" {
+    assert(testTaggedUnionInit({}));
+}
+
+const TaggedUnionWithAVoid = union(enum) {
+    A,
+    B: i32,
+};
+
+fn testTaggedUnionInit(x: var) bool {
+    const y = TaggedUnionWithAVoid{ .A = x };
+    return @TagType(TaggedUnionWithAVoid)(y) == TaggedUnionWithAVoid.A;
+}
