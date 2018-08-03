@@ -60,6 +60,7 @@ comptime {
     _ = @import("cases/try.zig");
     _ = @import("cases/type_info.zig");
     _ = @import("cases/undefined.zig");
+    _ = @import("cases/underscore.zig");
     _ = @import("cases/union.zig");
     _ = @import("cases/var_args.zig");
     _ = @import("cases/void.zig");
