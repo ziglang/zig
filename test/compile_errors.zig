@@ -34,13 +34,29 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "`_` should not be usable",
+        "`_` should not be usable inside for",
         \\export fn returns() void {
         \\    for ([]void{}) |_, i| {
         \\        for ([]void{}) |_, j| {
         \\            return _;
         \\        }
         \\    }
+        \\}
+    ,
+        ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
+        "`_` should not be usable inside while",
+        \\export fn returns() void {
+        \\    while (optionalReturn()) |_| {
+        \\        while (optionalReturn()) |_| {
+        \\            return _;
+        \\        }
+        \\    }
+        \\}
+        \\fn optionalReturn() ?u32 {
+        \\    return 1;
         \\}
     ,
         ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
