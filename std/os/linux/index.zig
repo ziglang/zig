@@ -999,7 +999,7 @@ pub fn setgroups(size: usize, list: *const u32) usize {
 }
 
 pub fn getpid() i32 {
-    return @bitCast(i32, u32(syscall0(SYS_getpid)));
+    return @bitCast(i32, @truncate(u32, syscall0(SYS_getpid)));
 }
 
 pub fn sigprocmask(flags: u32, noalias set: *const sigset_t, noalias oldset: ?*sigset_t) usize {
