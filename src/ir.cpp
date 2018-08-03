@@ -5358,10 +5358,8 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ir_set_cursor_at_end_and_append_block(irb, cond_block);
         // TODO make it an error to write to payload variable
         AstNode *symbol_node = node; // TODO make more accurate
-        bool is_shadowable = buf_eql_str(var_symbol, "_");
-        VariableTableEntry *payload_var = ir_create_var(irb, symbol_node, scope
-                                                       , (!is_shadowable ? var_symbol : nullptr)
-                                                       , true, false, is_shadowable, is_comptime);
+        VariableTableEntry *payload_var = ir_create_var(irb, symbol_node, scope, var_symbol,
+                true, false, false, is_comptime);
         Scope *child_scope = payload_var->child_scope;
         IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, scope, LValPtr);
         if (maybe_val_ptr == irb->codegen->invalid_instruction)
@@ -5530,10 +5528,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
-    bool is_shadowable = buf_eql_str(elem_var_name, "_");
-    VariableTableEntry *elem_var = ir_create_var( irb, elem_node, parent_scope
-                                                , (!is_shadowable ? elem_var_name : nullptr)
-                                                , true, false, is_shadowable, is_comptime);
+    VariableTableEntry *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
     Scope *child_scope = elem_var->child_scope;
 
     IrInstruction *undefined_value = ir_build_const_undefined(irb, child_scope, elem_node);
