@@ -5358,8 +5358,10 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ir_set_cursor_at_end_and_append_block(irb, cond_block);
         // TODO make it an error to write to payload variable
         AstNode *symbol_node = node; // TODO make more accurate
-        VariableTableEntry *payload_var = ir_create_var(irb, symbol_node, scope, var_symbol,
-                true, false, false, is_comptime);
+        bool is_shadowable = buf_eql_str(var_symbol, "_");
+        VariableTableEntry *payload_var = ir_create_var(irb, symbol_node, scope
+                                                       , (!is_shadowable ? var_symbol : nullptr)
+                                                       , true, false, is_shadowable, is_comptime);
         Scope *child_scope = payload_var->child_scope;
         IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, scope, LValPtr);
         if (maybe_val_ptr == irb->codegen->invalid_instruction)
