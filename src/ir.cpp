@@ -5186,6 +5186,11 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
 
     AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
 
+    if (buf_eql_str(variable_declaration->symbol, "_")) {
+        add_node_error(irb->codegen, node, buf_sprintf("`_` is not a declarable symbol"));
+        return irb->codegen->invalid_instruction;
+    }
+
     IrInstruction *type_instruction;
     if (variable_declaration->type != nullptr) {
         type_instruction = ir_gen_node(irb, variable_declaration->type, scope);
@@ -5198,6 +5203,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     bool is_shadowable = false;
     bool is_const = variable_declaration->is_const;
     bool is_extern = variable_declaration->is_extern;
+
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
         ir_should_inline(irb->exec, scope) || variable_declaration->is_comptime);
     VariableTableEntry *var = ir_create_var(irb, node, scope, variable_declaration->symbol,
