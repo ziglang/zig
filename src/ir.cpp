@@ -3332,7 +3332,15 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
 static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *scope, Buf *name,
         bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstruction *is_comptime)
 {
-    VariableTableEntry *var = create_local_var(irb->codegen, node, scope, name, src_is_const, gen_is_const, is_shadowable, is_comptime);
+    bool is_underscored = name ? buf_eql_str(name, "_") : false;
+    VariableTableEntry *var = create_local_var( irb->codegen
+                                              , node
+                                              , scope
+                                              , (is_underscored ? nullptr : name)
+                                              , src_is_const
+                                              , gen_is_const
+                                              , (is_underscored ? true : is_shadowable)
+                                              , is_comptime );
     if (is_comptime != nullptr || gen_is_const) {
         var->mem_slot_index = exec_next_mem_slot(irb->exec);
         var->owner_exec = irb->exec;
