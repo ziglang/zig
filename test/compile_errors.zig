@@ -63,6 +63,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "`_` should not be usable inside while else",
+        \\export fn returns() void {
+        \\    while (optionalReturnError()) |_| {
+        \\        while (optionalReturnError()) |_| {
+        \\            return;
+        \\        } else |_| {
+        \\            if (_ == error.optionalReturnError) return;
+        \\        }
+        \\    }
+        \\}
+        \\fn optionalReturnError() !?u32 {
+        \\    return error.optionalReturnError;
+        \\}
+    ,
+        ".tmp_source.zig:6:17: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
         "while loop body expression ignored",
         \\fn returns() usize {
         \\    return 2;
