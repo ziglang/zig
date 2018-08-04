@@ -817,6 +817,13 @@ pub fn sigaction(sig: u5, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     return result;
 }
 
+pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
+    return errnoWrap(c.socket( @bitCast(c_int, domain)
+                             , @bitCast(c_int, socket_type)
+                             , @bitCast(c_int, protocol)
+                             ));
+}
+
 pub const sigset_t = c.sigset_t;
 pub const empty_sigset = sigset_t(0);
 
