@@ -2289,8 +2289,8 @@ pub const PosixBindError = error{
 };
 
 /// addr is `&const T` where T is one of the sockaddr
-pub fn posixBind(fd: i32, addr: *const posix.sockaddr) PosixBindError!void {
-    const rc = posix.bind(fd, addr, @sizeOf(posix.sockaddr));
+pub fn posixBind(fd: i32, addr: std.net.Address) PosixBindError!void {
+    const rc = posix.bind(fd, addr.os_addr, addr.os_length);
     const err = posix.getErrno(rc);
     switch (err) {
         0 => return,
