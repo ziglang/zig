@@ -612,6 +612,11 @@ pub fn abort() noreturn {
     c.abort();
 }
 
+// bind(int socket, const struct sockaddr *address, socklen_t address_len)
+pub fn bind(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
+    return errnoWrap(c.bind( @bitCast(c_int, fd), addr, len) );
+}
+
 pub fn exit(code: i32) noreturn {
     c.exit(code);
 }
