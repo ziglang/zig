@@ -831,8 +831,13 @@ pub const timespec = c.timespec;
 pub const Stat = c.Stat;
 pub const dirent = c.dirent;
 
+pub const in_port_t = c.in_port_t;
 pub const sa_family_t = c.sa_family_t;
+pub const socklen_t = c.socklen_t;
+
 pub const sockaddr = c.sockaddr;
+pub const sockaddr_in = c.sockaddr_in;
+pub const sockaddr_in6 = c.sockaddr_in6;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with the syscall.
 pub const Kevent = c.Kevent;
