@@ -15,19 +15,28 @@ pub const OsAddress = switch (builtin.os) {
     else => posix.sockaddr,
 };
 
+pub const OsAddressLength = switch (builtin.os) {
+    builtin.Os.windows => u32,
+    else => std.os.posix.socklen_t,
+};
+
 pub const Address = struct {
     os_addr: OsAddress,
+    os_length: OsAddressLength,
 
+    /// Assumes that ip4 address is in host byte order
     pub fn initIp4(ip4: u32, port: u16) Address {
         return Address{
             .os_addr = posix.sockaddr{
-                .in = posix.sockaddr_in{
+                .in = posix.sockaddr_in {
+                    .len = @sizeOf(posix.sockaddr_in),
                     .family = posix.AF_INET,
                     .port = std.mem.endianSwapIfLe(u16, port),
-                    .addr = ip4,
+                    .addr = std.mem.endianSwapIfLe(u32, ip4),
                     .zero = []u8{0} ** 8,
                 },
             },
+            .os_length = @sizeOf(posix.sockaddr_in),
         };
     }
 
@@ -36,6 +45,7 @@ pub const Address = struct {
             .family = posix.AF_INET6,
             .os_addr = posix.sockaddr{
                 .in6 = posix.sockaddr_in6{
+                    .len = @sizeOf(posix.sockaddr_in6),
                     .family = posix.AF_INET6,
                     .port = std.mem.endianSwapIfLe(u16, port),
                     .flowinfo = 0,
@@ -43,11 +53,19 @@ pub const Address = struct {
                     .scope_id = ip6.scope_id,
                 },
             },
+            .os_length = @sizeOf(posix.sockaddr_in6),
         };
     }
 
     pub fn initPosix(addr: *const posix.sockaddr) Address {
         return Address{ .os_addr = addr.* };
+    }
+
+    pub fn family(self: *const Address) u32 {
+        return switch (builtin.os) {
+            builtin.Os.windows => self.os_addr.family,
+            else => self.os_addr.in.family,
+        };
     }
 
     pub fn format(self: *const Address, out_stream: var) !void {
