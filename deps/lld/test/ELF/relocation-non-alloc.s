@@ -1,25 +1,47 @@
 // REQUIRES: x86
 
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
-// RUN: ld.lld %t -o %t2 -shared
-// RUN: llvm-readobj -s -section-data -r %t2 | FileCheck %s
+// RUN: ld.lld %t -o %t2 -shared --apply-dynamic-relocs
+// RUN: llvm-readobj -s -section-data -r %t2 | FileCheck -check-prefix CHECK -check-prefix APPLYDYNREL %s
 
-// CHECK:      Name: .data
-// CHECK-NEXT: Type: SHT_PROGBITS
-// CHECK-NEXT: Flags [
-// CHECK-NEXT:   SHF_ALLOC
-// CHECK-NEXT:   SHF_WRITE
-// CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x1000
-// CHECK-NEXT: Offset: 0x1000
-// CHECK-NEXT: Size: 16
-// CHECK-NEXT: Link: 0
-// CHECK-NEXT: Info: 0
-// CHECK-NEXT: AddressAlignment: 1
-// CHECK-NEXT: EntrySize: 0
-// CHECK-NEXT: SectionData (
-// CHECK-NEXT:   0000: 00000000 00000000 00000000 00000000
-// CHECK-NEXT: )
+// RUN: ld.lld %t -o %t2 -shared
+// RUN: llvm-readobj -s -section-data -r %t2 | FileCheck -check-prefix CHECK -check-prefix NOAPPLYDYNREL %s
+// RUN: ld.lld %t -o %t2 -shared --no-apply-dynamic-relocs
+// RUN: llvm-readobj -s -section-data -r %t2 | FileCheck -check-prefix CHECK -check-prefix NOAPPLYDYNREL %s
+
+// APPLYDYNREL:      Name: .data
+// APPLYDYNREL-NEXT: Type: SHT_PROGBITS
+// APPLYDYNREL-NEXT: Flags [
+// APPLYDYNREL-NEXT:   SHF_ALLOC
+// APPLYDYNREL-NEXT:   SHF_WRITE
+// APPLYDYNREL-NEXT: ]
+// APPLYDYNREL-NEXT: Address: 0x1000
+// APPLYDYNREL-NEXT: Offset: 0x1000
+// APPLYDYNREL-NEXT: Size: 16
+// APPLYDYNREL-NEXT: Link: 0
+// APPLYDYNREL-NEXT: Info: 0
+// APPLYDYNREL-NEXT: AddressAlignment: 1
+// APPLYDYNREL-NEXT: EntrySize: 0
+// APPLYDYNREL-NEXT: SectionData (
+// APPLYDYNREL-NEXT:   0000: 00100000 00000000 00000000 00000000
+// APPLYDYNREL-NEXT: )
+
+// NOAPPLYDYNREL:      Name: .data
+// NOAPPLYDYNREL-NEXT: Type: SHT_PROGBITS
+// NOAPPLYDYNREL-NEXT: Flags [
+// NOAPPLYDYNREL-NEXT:   SHF_ALLOC
+// NOAPPLYDYNREL-NEXT:   SHF_WRITE
+// NOAPPLYDYNREL-NEXT: ]
+// NOAPPLYDYNREL-NEXT: Address: 0x1000
+// NOAPPLYDYNREL-NEXT: Offset: 0x1000
+// NOAPPLYDYNREL-NEXT: Size: 16
+// NOAPPLYDYNREL-NEXT: Link: 0
+// NOAPPLYDYNREL-NEXT: Info: 0
+// NOAPPLYDYNREL-NEXT: AddressAlignment: 1
+// NOAPPLYDYNREL-NEXT: EntrySize: 0
+// NOAPPLYDYNREL-NEXT: SectionData (
+// NOAPPLYDYNREL-NEXT:   0000: 00000000 00000000 00000000 00000000
+// NOAPPLYDYNREL-NEXT: )
 
 // CHECK:      Name: foo
 // CHECK-NEXT: Type: SHT_PROGBITS

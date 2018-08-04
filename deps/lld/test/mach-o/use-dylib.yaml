@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 %s \
+# RUN: ld64.lld -arch x86_64 %s \
 # RUN: %p/Inputs/use-simple-dylib.yaml %p/Inputs/x86_64/libSystem.yaml -dylib -o %t.dylib
 # RUN: llvm-objdump -private-headers %t.dylib | FileCheck %s
 

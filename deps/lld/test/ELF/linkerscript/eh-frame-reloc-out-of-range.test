@@ -1,0 +1,13 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/eh-frame-reloc-out-of-range.s -o %t.o
+# RUN: not ld.lld %t.o -T %s -o %t 2>&1 | FileCheck %s
+
+PHDRS { eh PT_LOAD; text PT_LOAD; }
+SECTIONS { . = 0x10000;
+  .eh_frame_hdr : { *(.eh_frame_hdr*) } : eh
+  .eh_frame : { *(.eh_frame) } : eh
+  . = 0xF00000000;
+  .text : { *(.text*) } : text
+}
+
+# CHECK: error: {{.*}}:(.eh_frame+0x20): relocation R_X86_64_PC32 out of range: 64424443872 is not in [-2147483648, 2147483647]

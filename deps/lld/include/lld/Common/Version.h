@@ -18,7 +18,7 @@
 #include "llvm/ADT/StringRef.h"
 
 namespace lld {
-/// \brief Retrieves a string representing the complete lld version.
+/// Retrieves a string representing the complete lld version.
 std::string getLLDVersion();
 }
 

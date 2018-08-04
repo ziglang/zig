@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -r -o %t %s && llvm-objdump -private-headers %t | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -r -o %t %s && llvm-objdump -private-headers %t | FileCheck %s
 
 # CHECK: filesize 19
 

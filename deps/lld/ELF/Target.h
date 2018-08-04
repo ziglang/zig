@@ -25,9 +25,9 @@ class Symbol;
 class TargetInfo {
 public:
   virtual uint32_t calcEFlags() const { return 0; }
-  virtual bool isPicRel(RelType Type) const { return true; }
   virtual RelType getDynRel(RelType Type) const { return Type; }
   virtual void writeGotPltHeader(uint8_t *Buf) const {}
+  virtual void writeGotHeader(uint8_t *Buf) const {}
   virtual void writeGotPlt(uint8_t *Buf, const Symbol &S) const {};
   virtual void writeIgotPlt(uint8_t *Buf, const Symbol &S) const;
   virtual int64_t getImplicitAddend(const uint8_t *Buf, RelType Type) const;
@@ -43,8 +43,12 @@ public:
   virtual void addPltHeaderSymbols(InputSection &IS) const {}
   virtual void addPltSymbols(InputSection &IS, uint64_t Off) const {}
 
+  unsigned getPltEntryOffset(unsigned Index) const {
+    return Index * PltEntrySize + PltHeaderSize;
+  }
+
   // Returns true if a relocation only uses the low bits of a value such that
-  // all those bits are in in the same page. For example, if the relocation
+  // all those bits are in the same page. For example, if the relocation
   // only uses the low 12 bits in a system with 4k pages. If this is true, the
   // bits will always have the same value at runtime and we don't have to emit
   // a dynamic relocation.
@@ -55,6 +59,13 @@ public:
   virtual bool needsThunk(RelExpr Expr, RelType RelocType,
                           const InputFile *File, uint64_t BranchAddr,
                           const Symbol &S) const;
+
+  // The function with a prologue starting at Loc was compiled with
+  // -fsplit-stack and it calls a function compiled without. Adjust the prologue
+  // to do the right thing. See https://gcc.gnu.org/wiki/SplitStacks.
+  virtual bool adjustPrologueForCrossSplitStack(uint8_t *Loc,
+                                                uint8_t *End) const;
+
   // Return true if we can reach Dst from Src with Relocation RelocType
   virtual bool inBranchRange(RelType Type, uint64_t Src,
                              uint64_t Dst) const;
@@ -71,9 +82,10 @@ public:
 
   uint64_t getImageBase();
 
-  // Offset of _GLOBAL_OFFSET_TABLE_ from base of .got section. Use -1 for
-  // end of .got
+  // Offset of _GLOBAL_OFFSET_TABLE_ from base of .got or .got.plt section.
   uint64_t GotBaseSymOff = 0;
+  // True if _GLOBAL_OFFSET_TABLE_ is relative to .got.plt, false if .got.
+  bool GotBaseSymInGotPlt = true;
 
   // On systems with range extensions we place collections of Thunks at
   // regular spacings that enable the majority of branches reach the Thunks.
@@ -97,8 +109,17 @@ public:
   // to support lazy loading.
   unsigned GotPltHeaderEntriesNum = 3;
 
-  // Set to 0 for variant 2
+  // On PPC ELF V2 abi, the first entry in the .got is the .TOC.
+  unsigned GotHeaderEntriesNum = 0;
+
+  // For TLS variant 1, the TCB is a fixed size specified by the Target.
+  // For variant 2, the TCB is an unspecified size.
+  // Set to 0 for variant 2.
   unsigned TcbSize = 0;
+
+  // Set to the offset (in bytes) that the thread pointer is initialized to
+  // point to, relative to the start of the thread local storage.
+  unsigned TlsTpOffset = 0;
 
   bool NeedsThunks = false;
 
@@ -126,6 +147,7 @@ TargetInfo *getAArch64TargetInfo();
 TargetInfo *getAMDGPUTargetInfo();
 TargetInfo *getARMTargetInfo();
 TargetInfo *getAVRTargetInfo();
+TargetInfo *getHexagonTargetInfo();
 TargetInfo *getPPC64TargetInfo();
 TargetInfo *getPPCTargetInfo();
 TargetInfo *getSPARCV9TargetInfo();
@@ -134,7 +156,17 @@ TargetInfo *getX86TargetInfo();
 TargetInfo *getX86_64TargetInfo();
 template <class ELFT> TargetInfo *getMipsTargetInfo();
 
-std::string getErrorLocation(const uint8_t *Loc);
+struct ErrorPlace {
+  InputSectionBase *IS;
+  std::string Loc;
+};
+
+// Returns input section and corresponding source string for the given location.
+ErrorPlace getErrorPlace(const uint8_t *Loc);
+
+static inline std::string getErrorLocation(const uint8_t *Loc) {
+  return getErrorPlace(Loc).Loc;
+}
 
 uint64_t getPPC64TocBase();
 uint64_t getAArch64Page(uint64_t Expr);
@@ -146,38 +178,73 @@ template <class ELFT> bool isMipsPIC(const Defined *Sym);
 
 static inline void reportRangeError(uint8_t *Loc, RelType Type, const Twine &V,
                                     int64_t Min, uint64_t Max) {
-  error(getErrorLocation(Loc) + "relocation " + lld::toString(Type) +
-        " out of range: " + V + " is not in [" + Twine(Min) + ", " +
-        Twine(Max) + "]");
+  ErrorPlace ErrPlace = getErrorPlace(Loc);
+  StringRef Hint;
+  if (ErrPlace.IS && ErrPlace.IS->Name.startswith(".debug"))
+    Hint = "; consider recompiling with -fdebug-types-section to reduce size "
+           "of debug sections";
+
+  error(ErrPlace.Loc + "relocation " + lld::toString(Type) +
+        " out of range: " + V.str() + " is not in [" + Twine(Min).str() + ", " +
+        Twine(Max).str() + "]" + Hint);
 }
 
-template <unsigned N>
-static void checkInt(uint8_t *Loc, int64_t V, RelType Type) {
-  if (!llvm::isInt<N>(V))
+// Sign-extend Nth bit all the way to MSB.
+inline int64_t signExtend(uint64_t V, int N) {
+  return int64_t(V << (64 - N)) >> (64 - N);
+}
+
+// Make sure that V can be represented as an N bit signed integer.
+inline void checkInt(uint8_t *Loc, int64_t V, int N, RelType Type) {
+  if (V != signExtend(V, N))
     reportRangeError(Loc, Type, Twine(V), llvm::minIntN(N), llvm::maxIntN(N));
 }
 
-template <unsigned N>
-static void checkUInt(uint8_t *Loc, uint64_t V, RelType Type) {
-  if (!llvm::isUInt<N>(V))
+// Make sure that V can be represented as an N bit unsigned integer.
+inline void checkUInt(uint8_t *Loc, uint64_t V, int N, RelType Type) {
+  if ((V >> N) != 0)
     reportRangeError(Loc, Type, Twine(V), 0, llvm::maxUIntN(N));
 }
 
-template <unsigned N>
-static void checkIntUInt(uint8_t *Loc, uint64_t V, RelType Type) {
-  if (!llvm::isInt<N>(V) && !llvm::isUInt<N>(V))
-    // For the error message we should cast V to a signed integer so that error
-    // messages show a small negative value rather than an extremely large one
+// Make sure that V can be represented as an N bit signed or unsigned integer.
+inline void checkIntUInt(uint8_t *Loc, uint64_t V, int N, RelType Type) {
+  // For the error message we should cast V to a signed integer so that error
+  // messages show a small negative value rather than an extremely large one
+  if (V != (uint64_t)signExtend(V, N) && (V >> N) != 0)
     reportRangeError(Loc, Type, Twine((int64_t)V), llvm::minIntN(N),
-                     llvm::maxUIntN(N));
+                     llvm::maxIntN(N));
 }
 
-template <unsigned N>
-static void checkAlignment(uint8_t *Loc, uint64_t V, RelType Type) {
+inline void checkAlignment(uint8_t *Loc, uint64_t V, int N, RelType Type) {
   if ((V & (N - 1)) != 0)
     error(getErrorLocation(Loc) + "improper alignment for relocation " +
           lld::toString(Type) + ": 0x" + llvm::utohexstr(V) +
           " is not aligned to " + Twine(N) + " bytes");
+}
+
+// Endianness-aware read/write.
+inline uint16_t read16(const void *P) {
+  return llvm::support::endian::read16(P, Config->Endianness);
+}
+
+inline uint32_t read32(const void *P) {
+  return llvm::support::endian::read32(P, Config->Endianness);
+}
+
+inline uint64_t read64(const void *P) {
+  return llvm::support::endian::read64(P, Config->Endianness);
+}
+
+inline void write16(void *P, uint16_t V) {
+  llvm::support::endian::write16(P, V, Config->Endianness);
+}
+
+inline void write32(void *P, uint32_t V) {
+  llvm::support::endian::write32(P, V, Config->Endianness);
+}
+
+inline void write64(void *P, uint64_t V) {
+  llvm::support::endian::write64(P, V, Config->Endianness);
 }
 } // namespace elf
 } // namespace lld

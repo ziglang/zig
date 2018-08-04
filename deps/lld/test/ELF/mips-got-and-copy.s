@@ -23,13 +23,17 @@
 # CHECK-NEXT:   Reserved entries [
 # CHECK:        ]
 # CHECK-NEXT:   Local entries [
+# CHECK-NEXT:   ]
+# CHECK-NEXT:   Global entries [
 # CHECK-NEXT:     Entry {
 # CHECK-NEXT:       Address:
 # CHECK-NEXT:       Access: -32744
 # CHECK-NEXT:       Initial: 0x[[DATA0]]
+# CHECK-NEXT:       Value: 0x[[DATA0]]
+# CHECK-NEXT:       Type: Object
+# CHECK-NEXT:       Section: .bss
+# CHECK-NEXT:       Name: data0@
 # CHECK-NEXT:     }
-# CHECK-NEXT:   ]
-# CHECK-NEXT:   Global entries [
 # CHECK-NEXT:     Entry {
 # CHECK-NEXT:       Address:
 # CHECK-NEXT:       Access: -32740

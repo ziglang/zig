@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
-; RUN: ld.lld -m elf_x86_64 %t.o -o %ts -mllvm -code-model=small
-; RUN: ld.lld -m elf_x86_64 %t.o -o %tl -mllvm -code-model=large
+; RUN: ld.lld %t.o -o %ts -mllvm -code-model=small
+; RUN: ld.lld %t.o -o %tl -mllvm -code-model=large
 ; RUN: llvm-objdump -d %ts | FileCheck %s --check-prefix=CHECK-SMALL
 ; RUN: llvm-objdump -d %tl | FileCheck %s --check-prefix=CHECK-LARGE
 

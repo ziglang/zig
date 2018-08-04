@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
 ; RUN: echo "VERSION_1.0{ global: foo; local: *; }; VERSION_2.0{ global: bar; local: *; };" > %t.script
-; RUN: ld.lld -m elf_x86_64 %t.o -o %t2 -shared --version-script %t.script -save-temps
+; RUN: ld.lld %t.o -o %t2 -shared --version-script %t.script -save-temps
 ; RUN: llvm-dis < %t2.0.0.preopt.bc | FileCheck %s
 ; RUN: llvm-readobj -V -dyn-symbols %t2 | FileCheck --check-prefix=DSO %s
 

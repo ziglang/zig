@@ -1,6 +1,6 @@
 # REQUIRES: arm
-# RUN: lld -flavor darwin -arch armv7 -r -print_atoms %s -o %t  | FileCheck %s
-# RUN: lld -flavor darwin -arch armv7 -dylib -print_atoms %t -o %t2 \
+# RUN: ld64.lld -arch armv7 -r -print_atoms %s -o %t  | FileCheck %s
+# RUN: ld64.lld -arch armv7 -dylib -print_atoms %t -o %t2 \
 # RUN:     %p/Inputs/armv7/libSystem.yaml -sectalign __TEXT __text 0x1000  | FileCheck %s
 # RUN: llvm-objdump -d -macho -no-symbolic-operands %t2 | FileCheck -check-prefix=CODE %s
 #

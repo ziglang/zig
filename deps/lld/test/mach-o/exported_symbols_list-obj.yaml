@@ -1,11 +1,11 @@
-# RUN: lld -flavor darwin -arch x86_64 -r  %s -o %t -exported_symbol _bar \
+# RUN: ld64.lld -arch x86_64 -r  %s -o %t -exported_symbol _bar \
 # RUN:    && llvm-nm -m %t | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64 -r  %s -o %t2 -keep_private_externs \
+# RUN: ld64.lld -arch x86_64 -r  %s -o %t2 -keep_private_externs \
 # RUN:      -exported_symbol _bar && \
 # RUN: llvm-nm -m %t2 | FileCheck -check-prefix=CHECK_KPE %s
 #
-# RUN: not lld -flavor darwin -arch x86_64 -r  %s -o %t3  \
+# RUN: not ld64.lld -arch x86_64 -r  %s -o %t3  \
 # RUN:      -exported_symbol _foo 2> %t4
 
 # Test -exported_symbols_list properly changes visibility in -r mode.

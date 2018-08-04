@@ -1,7 +1,7 @@
+// REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-linux-gnu %s -o %t
 // RUN: ld.lld %t -o %t2 2>&1
 // RUN: llvm-objdump -d  -start-address=134086664 -stop-address=134086676 -triple=aarch64-linux-gnu %t2 | FileCheck %s
-// REQUIRES: aarch64
 // Check that the range extension thunks are dumped close to the aarch64 branch
 // range of 128 MiB
  .section .text.1, "ax", %progbits

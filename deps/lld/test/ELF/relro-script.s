@@ -16,7 +16,7 @@
 // RUN: .got.plt : { *(.got.plt) } \
 // RUN: } " > %t.script
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t3.o
-// RUN: ld.lld %t3.o %t.so -o %t --script=%t.script --print-map | FileCheck %s
+// RUN: ld.lld %t3.o %t.so -o /dev/null --script=%t.script --print-map | FileCheck %s
 
 // CHECK: .data.rel.ro
 // CHECK-NEXT: <internal>:(.bss.rel.ro)

@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check R_MIPS_HIGHER / R_MIPS_HIGHEST relocations calculation.
 
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-linux %s -o %t1.o
@@ -5,8 +6,6 @@
 # RUN:         %S/Inputs/mips-dynamic.s -o %t2.o
 # RUN: ld.lld %t1.o %t2.o -o %t.exe
 # RUN: llvm-objdump -d %t.exe | FileCheck %s
-
-# REQUIRES: mips
 
   .global  __start
 __start:

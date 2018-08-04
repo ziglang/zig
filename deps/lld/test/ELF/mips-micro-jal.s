@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check PLT creation for microMIPS to microMIPS calls.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux \
@@ -44,8 +45,6 @@
 # RUN: ld.lld --no-threads -o %teb.exe %t-reg.o %t2eb.o %teb.so
 # RUN: llvm-objdump -d -mattr=micromips %teb.exe \
 # RUN:   | FileCheck --check-prefix=MIXED %s
-
-# REQUIRES: mips
 
 # EB:      Disassembly of section .plt:
 # EB-NEXT: .plt:

@@ -30,6 +30,16 @@ ENT: IMAGE_DLL_CHARACTERISTICS_HIGH_ENTROPY_VA
 # RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOENT %s
 NOENT-NOT: IMAGE_DLL_CHARACTERISTICS_HIGH_ENTROPY_VA
 
+# RUN: lld-link /out:%t.exe /entry:main /integritycheck %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=INT %s
+INT: IMAGE_DLL_CHARACTERISTICS_FORCE_INTEGRITY
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOINT %s
+# RUN: lld-link /out:%t.exe /integritycheck:no /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOINT %s
+NOINT-NOT: IMAGE_DLL_CHARACTERISTICS_FORCE_INTEGRITY
+
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
 # RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NXCOMPAT %s
 # RUN: lld-link /out:%t.exe /entry:main /nxcompat %t.obj
@@ -48,4 +58,8 @@ TSAWARE: IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE
 
 # RUN: lld-link /tsaware:no /out:%t.exe /entry:main %t.obj
 # RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOTSAWARE %s
+# RUN: lld-link /dll /out:%t.dll /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.dll | FileCheck -check-prefix=NOTSAWARE %s
+# RUN: lld-link /tsaware /dll /out:%t.dll /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.dll | FileCheck -check-prefix=NOTSAWARE %s
 NOTSAWARE-NOT: IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE

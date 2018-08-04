@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -dylib %s -o %t %p/Inputs/x86_64/libSystem.yaml
+# RUN: ld64.lld -arch x86_64 -dylib %s -o %t %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-nm %t | FileCheck %s
 #
 # Test that a data-only dylib can be built.

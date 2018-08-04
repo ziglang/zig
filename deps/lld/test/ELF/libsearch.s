@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux \
 // RUN:   %p/Inputs/libsearch-dyn.s -o %tdyn.o
@@ -10,7 +11,6 @@
 // RUN: cp -f %t.dir/libls.so %t.dir/libls2.so
 // RUN: rm -f %t.dir/libls.a
 // RUN: llvm-ar rcs %t.dir/libls.a %tst.o
-// REQUIRES: x86
 
 // Should fail if no library specified
 // RUN: not ld.lld -l 2>&1 \

@@ -18,7 +18,7 @@ the WebAssembly tool conventions
 https://github.com/WebAssembly/tool-conventions/blob/master/Linking.md.
 
 This is object format that the llvm will produce when run with the
-``wasm32-unknown-unknown-wasm`` target.  To build llvm with WebAssembly support
+``wasm32-unknown-unknown`` target.  To build llvm with WebAssembly support
 currently requires enabling the experimental backed using
 ``-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=WebAssembly``.
 

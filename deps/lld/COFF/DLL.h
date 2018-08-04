@@ -76,6 +76,11 @@ class EdataContents {
 public:
   EdataContents();
   std::vector<Chunk *> Chunks;
+
+  uint64_t getRVA() { return Chunks[0]->getRVA(); }
+  uint64_t getSize() {
+    return Chunks.back()->getRVA() + Chunks.back()->getSize() - getRVA();
+  }
 };
 
 } // namespace coff

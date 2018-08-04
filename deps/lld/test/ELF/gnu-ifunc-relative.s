@@ -1,7 +1,7 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld -static %t.o -o %tout
 // RUN: llvm-readobj -r -t %tout | FileCheck %s
-// REQUIRES: x86
 
 .type foo STT_GNU_IFUNC
 .globl foo

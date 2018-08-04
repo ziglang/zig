@@ -32,8 +32,7 @@
 # DECORATED-IMPLIB: Name type: name
 # DECORATED-IMPLIB-NEXT: __imp_@fastcall@8
 # DECORATED-IMPLIB-NEXT: @fastcall@8
-# TODO: To match link.exe, this one should also be Name type: name.
-# DECORATED-IMPLIB: Name type: noprefix
+# DECORATED-IMPLIB: Name type: name
 # DECORATED-IMPLIB-NEXT: __imp__stdcall@8
 # DECORATED-IMPLIB-NEXT: _stdcall@8
 # DECORATED-IMPLIB: Name type: name
@@ -41,12 +40,12 @@
 # DECORATED-IMPLIB-NEXT: vectorcall@@8
 
 # DECORATED-EXPORTS: Name: @fastcall@8
-# TODO: To match link.exe, this one should actually be _stdcall@8
-# DECORATED-EXPORTS: Name: stdcall@8
+# DECORATED-EXPORTS: Name: _stdcall@8
 # DECORATED-EXPORTS: Name: vectorcall@@8
 
 
-# RUN: echo -e "LIBRARY foo\nEXPORTS\n  stdcall@8\n  @fastcall@8" > %t.def
+# GNU tools don't support vectorcall at the moment, but test it for completeness.
+# RUN: echo -e "LIBRARY foo\nEXPORTS\n  stdcall@8\n  @fastcall@8\n  vectorcall@@8" > %t.def
 # RUN: lld-link -lldmingw -entry:dllmain -dll -def:%t.def %t.obj -out:%t.dll -implib:%t.lib
 # RUN: llvm-readobj %t.lib | FileCheck -check-prefix DECORATED-MINGW-IMPLIB %s
 # RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix DECORATED-MINGW-EXPORTS %s
@@ -57,9 +56,39 @@
 # DECORATED-MINGW-IMPLIB: Name type: noprefix
 # DECORATED-MINGW-IMPLIB-NEXT: __imp__stdcall@8
 # DECORATED-MINGW-IMPLIB-NEXT: _stdcall@8
+# GNU tools don't support vectorcall, but this test is just to track that
+# lld's behaviour remains consistent over time.
+# DECORATED-MINGW-IMPLIB: Name type: name
+# DECORATED-MINGW-IMPLIB-NEXT: __imp_vectorcall@@8
+# DECORATED-MINGW-IMPLIB-NEXT: vectorcall@@8
 
 # DECORATED-MINGW-EXPORTS: Name: @fastcall@8
 # DECORATED-MINGW-EXPORTS: Name: stdcall@8
+# DECORATED-MINGW-EXPORTS: Name: vectorcall@@8
+
+# RUN: lld-link -lldmingw -kill-at -entry:dllmain -dll -def:%t.def %t.obj -out:%t.dll -implib:%t.lib
+# RUN: llvm-readobj %t.lib | FileCheck -check-prefix MINGW-KILL-AT-IMPLIB %s
+# RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix MINGW-KILL-AT-EXPORTS %s
+
+# RUN: lld-link -lldmingw -kill-at -entry:dllmain -dll %t.obj -out:%t.dll -implib:%t.lib
+# RUN: llvm-readobj %t.lib | FileCheck -check-prefix MINGW-KILL-AT-IMPLIB %s
+# RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix MINGW-KILL-AT-EXPORTS %s
+
+# MINGW-KILL-AT-IMPLIB: Name type: noprefix
+# MINGW-KILL-AT-IMPLIB: __imp__fastcall
+# MINGW-KILL-AT-IMPLIB-NEXT: _fastcall
+# MINGW-KILL-AT-IMPLIB: Name type: noprefix
+# MINGW-KILL-AT-IMPLIB-NEXT: __imp__stdcall
+# MINGW-KILL-AT-IMPLIB-NEXT: _stdcall
+# GNU tools don't support vectorcall, but this test is just to track that
+# lld's behaviour remains consistent over time.
+# MINGW-KILL-AT-IMPLIB: Name type: noprefix
+# MINGW-KILL-AT-IMPLIB-NEXT: __imp__vectorcall
+# MINGW-KILL-AT-IMPLIB-NEXT: _vectorcall
+
+# MINGW-KILL-AT-EXPORTS: Name: fastcall
+# MINGW-KILL-AT-EXPORTS: Name: stdcall
+# MINGW-KILL-AT-EXPORTS: Name: vectorcall
 
 
         .def     _stdcall@8;

@@ -1,5 +1,5 @@
 # RUN: yaml2obj %s -o %t.o
-# RUN: not ld.lld -r %t.o -o %2.o 2>&1 | FileCheck %s
+# RUN: not ld.lld -r %t.o -o /dev/null 2>&1 | FileCheck %s
 
 # We used to crash at this.
 # CHECK: STT_SECTION symbol should be defined

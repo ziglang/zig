@@ -1,9 +1,9 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t --no-merge-exidx-entries -o %t2
 // RUN: llvm-objdump -s %t2 | FileCheck --check-prefix CHECK-DUPS %s
 // RUN: ld.lld %t -o %t3
 // RUN: llvm-objdump -s %t3 | FileCheck %s
-// REQUIRES: arm
 // Test that lld can at least remove duplicate .ARM.exidx sections. A more
 // fine grained implementation will be able to remove duplicate entries within
 // a .ARM.exidx section.

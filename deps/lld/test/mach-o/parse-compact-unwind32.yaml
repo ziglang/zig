@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch i386 -r -print_atoms %s -o %t  | FileCheck %s
+# RUN: ld64.lld -arch i386 -r -print_atoms %s -o %t  | FileCheck %s
 #
 # Test parsing of __LD/__compact_unwind (compact unwind) section.
 #

@@ -8,7 +8,7 @@
 // CHECK-NEXT: Flags [
 // CHECK-NEXT:   SHF_ALLOC
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x1C8
+// CHECK-NEXT: Address: 0x20D
 // CHECK-NEXT: Offset:
 // CHECK-NEXT: Size: 8
 // CHECK-NEXT: Link: 0
@@ -16,8 +16,8 @@
 // CHECK-NEXT: AddressAlignment: 1
 // CHECK-NEXT: EntrySize: 0
 // CHECK-NEXT: SectionData (
-// CHECK-NEXT:   0000: 380E0000 00000000
-//                     0x1000 - 0x1C8 = 0xE38
+// CHECK-NEXT:   0000: F30D0000 00000000
+//                     0x1000 - 0x20D = 0xDF3
 // CHECK-NEXT: )
 
 // CHECK:      Name: .text

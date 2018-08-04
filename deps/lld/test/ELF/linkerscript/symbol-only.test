@@ -1,0 +1,21 @@
+# REQUIRES: x86
+# RUN: echo '.section bar, "a"' \
+# RUN:   | llvm-mc -filetype=obj -triple=x86_64-unknown-linux - -o %t
+# RUN: ld.lld -o %t1 --script %s %t -shared
+# RUN: llvm-objdump -section-headers -t %t1 | FileCheck %s
+
+SECTIONS {
+  . = SIZEOF_HEADERS;
+  abc : { foo = .; }
+  . = ALIGN(0x1000);
+  bar : { *(bar) }
+}
+
+# CHECK:      Sections:
+# CHECK-NEXT: Idx Name          Size      Address
+# CHECK-NEXT:   0               00000000 0000000000000000
+# CHECK:          abc           00000000 [[ADDR:[0-9a-f]*]]
+# CHECK:          bar           00000000 0000000000001000
+
+# CHECK: SYMBOL TABLE:
+# CHECK:     [[ADDR]]         abc                00000000 foo

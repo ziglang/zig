@@ -7,6 +7,7 @@
 .global bar
 .hidden bar
 bar:
+  ret
 
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 
@@ -37,8 +38,7 @@ bar:
 // RUN: llvm-readobj -l --elf-output-style=GNU %t | FileCheck --check-prefix=PHDR %s
 
 // PHDR: Segment Sections
-// PHDR: .text
-// PHDR-SAME: .eh_frame
+// PHDR: .eh_frame {{.*}}.text
 
 // Check that the CIE and FDE are padded with 0x00 and not 0xCC when the
 // .eh_frame section is placed in the executable segment
@@ -58,7 +58,7 @@ bar:
 // CHECK-NEXT: EntrySize:
 // CHECK-NEXT: SectionData (
 // CHECK-NEXT:   0000: 1C000000 00000000 017A5052 00017810
-// CHECK-NEXT:   0010: 061BBEFF FFFF1B0C 07089001 00000000
-// CHECK-NEXT:   0020: 14000000 24000000 A8FFFFFF 00000000
+// CHECK-NEXT:   0010: 061B2A00 00001B0C 07089001 00000000
+// CHECK-NEXT:   0020: 14000000 24000000 14000000 00000000
 // CHECK-NEXT:   0030: 00000000 00000000
 // CHECK-NEXT: )

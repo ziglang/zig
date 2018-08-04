@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc %s -o %t.o -filetype=obj -triple=i386-pc-linux
 # RUN: ld.lld %t.o -o %t.so -shared
 # RUN: llvm-readobj --relocations --sections --section-data %t.so | FileCheck %s

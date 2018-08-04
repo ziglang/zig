@@ -1,0 +1,282 @@
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     4883EC1831C0C7442414000000004889542408894C24044883C418C3
+  - Name:            .data
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .bss
+    Characteristics: [ IMAGE_SCN_CNT_UNINITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .xdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     '0104010004220000'
+  - Name:            .drectve
+    Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     202F44454641554C544C49423A6C6962636D742E6C6962202F44454641554C544C49423A6F6C646E616D65732E6C6962
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     04000000F10000002F0000002D003C1101000000D0000700000000000000581B000000000000636C616E672076657273696F6E20372E302E30200000F1000000760000002A0047110000000000000000000000001C000000000000000000000003100000000000000000006D61696E000D003E117400000001006172676300120045114F0100000400000017000000000005000D003E110010000001006172677600120045114F01000008000000170000000000050002004F110000F20000002800000000000000000000001C00000000000000020000001C00000000000000020000001700000003000000F40000001800000001000000100139E9A066A1995A99DD01F5A392F26D7C0000F30000003000000000443A5C7372635C6C6C766D6275696C645C636C5C52656C656173655C7836345C67656E657269632E63707000000000
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_COMPILE3
+            Compile3Sym:
+              Flags:           [  ]
+              Machine:         X64
+              FrontendMajor:   7
+              FrontendMinor:   0
+              FrontendBuild:   0
+              FrontendQFE:     0
+              BackendMajor:    7000
+              BackendMinor:    0
+              BackendBuild:    0
+              BackendQFE:      0
+              Version:         'clang version 7.0.0 '
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        28
+              DbgStart:        0
+              DbgEnd:          0
+              FunctionType:    4099
+              Flags:           [  ]
+              DisplayName:     main
+          - Kind:            S_LOCAL
+            LocalSym:
+              Type:            116
+              Flags:           [ IsParameter ]
+              VarName:         argc
+          - Kind:            S_DEFRANGE_REGISTER_REL
+            DefRangeRegisterRelSym:
+              Register:        335
+              Flags:           0
+              BasePointerOffset: 4
+              Range:
+                OffsetStart:     23
+                ISectStart:      0
+                Range:           5
+              Gaps:
+          - Kind:            S_LOCAL
+            LocalSym:
+              Type:            4096
+              Flags:           [ IsParameter ]
+              VarName:         argv
+          - Kind:            S_DEFRANGE_REGISTER_REL
+            DefRangeRegisterRelSym:
+              Register:        335
+              Flags:           0
+              BasePointerOffset: 8
+              Range:
+                OffsetStart:     23
+                ISectStart:      0
+                Range:           5
+              Gaps:
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        28
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        'D:\src\llvmbuild\cl\Release\x64\generic.cpp'
+            Lines:
+              - Offset:          0
+                LineStart:       2
+                IsStatement:     false
+                EndDelta:        0
+              - Offset:          23
+                LineStart:       3
+                IsStatement:     false
+                EndDelta:        0
+            Columns:
+      - !FileChecksums
+        Checksums:
+          - FileName:        'D:\src\llvmbuild\cl\Release\x64\generic.cpp'
+            Kind:            MD5
+            Checksum:        39E9A066A1995A99DD01F5A392F26D7C
+      - !StringTable
+        Strings:
+          - 'D:\src\llvmbuild\cl\Release\x64\generic.cpp'
+          - ''
+          - ''
+          - ''
+    Relocations:
+      - VirtualAddress:  100
+        SymbolName:      main
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  104
+        SymbolName:      main
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  139
+        SymbolName:      .text
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  143
+        SymbolName:      .text
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  174
+        SymbolName:      .text
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  178
+        SymbolName:      .text
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  196
+        SymbolName:      main
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  200
+        SymbolName:      main
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            '.debug$T'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     040000000A000210700600000C0001000E0001120200000074000000001000000E0008107400000000000200011000001200011600000000021000006D61696E00F3F2F1
+    Types:
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    1648
+          Attrs:           65548
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 116, 4096 ]
+      - Kind:            LF_PROCEDURE
+        Procedure:
+          ReturnType:      116
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  2
+          ArgumentList:    4097
+      - Kind:            LF_FUNC_ID
+        FuncId:
+          ParentScope:     0
+          FunctionType:    4098
+          Name:            main
+  - Name:            .pdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     000000001C00000000000000
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      main
+        Type:            IMAGE_REL_AMD64_ADDR32NB
+      - VirtualAddress:  4
+        SymbolName:      main
+        Type:            IMAGE_REL_AMD64_ADDR32NB
+      - VirtualAddress:  8
+        SymbolName:      .xdata
+        Type:            IMAGE_REL_AMD64_ADDR32NB
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          28
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        594448369
+      Number:          1
+  - Name:            .data
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          2
+  - Name:            .bss
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          3
+  - Name:            .xdata
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        1192424177
+      Number:          4
+  - Name:            .drectve
+    Value:           0
+    SectionNumber:   5
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          48
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        149686238
+      Number:          5
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   6
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          324
+      NumberOfRelocations: 8
+      NumberOfLinenumbers: 0
+      CheckSum:        4196717433
+      Number:          6
+  - Name:            '.debug$T'
+    Value:           0
+    SectionNumber:   7
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          68
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        485351071
+      Number:          7
+  - Name:            .pdata
+    Value:           0
+    SectionNumber:   8
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          12
+      NumberOfRelocations: 3
+      NumberOfLinenumbers: 0
+      CheckSum:        722740324
+      Number:          8
+  - Name:            main
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

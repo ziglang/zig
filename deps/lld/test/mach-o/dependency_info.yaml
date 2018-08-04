@@ -1,6 +1,6 @@
 # Test -dependency_info option
 #
-# RUN: lld -flavor darwin -arch x86_64 -test_file_usage  \
+# RUN: ld64.lld -arch x86_64 -test_file_usage  \
 # RUN:        -dependency_info %t.info \
 # RUN:        -path_exists /System/Library/Frameworks \
 # RUN:        -path_exists /System/Library/Frameworks/Foo.framework/Foo \
@@ -9,7 +9,7 @@
 # RUN:        -F/Custom/Frameworks \
 # RUN:        -framework Bar \
 # RUN:        -framework Foo
-# RUN: %python %p/Inputs/DependencyDump.py %t.info | FileCheck %s
+# RUN: '%python' %p/Inputs/DependencyDump.py %t.info | FileCheck %s
 
 
 # CHECK: linker-vers: lld

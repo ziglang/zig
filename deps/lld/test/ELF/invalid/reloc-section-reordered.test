@@ -1,0 +1,30 @@
+# REQUIRES: x86
+
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld %t.o -o %t.exe 2>&1 | FileCheck %s
+# CHECK: unsupported relocation reference
+
+## YAML below lists .rela.text before .text, we do not support it.
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  OSABI:           ELFOSABI_FREEBSD
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Type:            SHT_REL
+    Name:            .rela.text
+    Link:            .symtab
+    Info:            .text
+    AddressAlign:    0x04
+    Relocations:
+      - Offset:          0
+        Symbol:          .text
+        Type:            R_X86_64_NONE
+  - Type:            SHT_PROGBITS
+    Name:            .text
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign:    0x04
+    Content:         "FFFFFFFFFFFFFFFF"

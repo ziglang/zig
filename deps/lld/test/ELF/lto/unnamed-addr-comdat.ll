@@ -1,6 +1,6 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
-; RUN: ld.lld -m elf_x86_64 %t.o %t.o -o %t.so -save-temps -shared
+; RUN: ld.lld %t.o %t.o -o %t.so -save-temps -shared
 ; RUN: llvm-dis %t.so.0.2.internalize.bc -o - | FileCheck %s
 
 target triple = "x86_64-unknown-linux-gnu"

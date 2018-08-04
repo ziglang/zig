@@ -90,6 +90,15 @@ RUN: ld.lld -### -m i386pep foo.o -s | FileCheck -check-prefix STRIP %s
 RUN: ld.lld -### -m i386pep foo.o --strip-all | FileCheck -check-prefix STRIP %s
 STRIP-NOT: -debug:dwarf
 
+RUN: ld.lld -### -m i386pep foo.o -S | FileCheck -check-prefix STRIP-DEBUG %s
+RUN: ld.lld -### -m i386pep foo.o --strip-debug | FileCheck -check-prefix STRIP-DEBUG %s
+STRIP-DEBUG: -debug:symtab
+STRIP-DEBUG-NOT: -debug:dwarf
+
+RUN: ld.lld -### -m i386pep foo.o -pdb out.pdb | FileCheck -check-prefix PDB %s
+PDB: -debug -pdb:out.pdb
+PDB-NOT: -debug:dwarf
+
 RUN: ld.lld -### -m i386pep foo.o --large-address-aware | FileCheck -check-prefix LARGE-ADDRESS-AWARE %s
 LARGE-ADDRESS-AWARE: -largeaddressaware
 
@@ -124,3 +133,15 @@ ICF-NONE: -opt:noicf
 RUN: ld.lld -### -m i386pep foo.o --icf=all | FileCheck -check-prefix ICF %s
 RUN: ld.lld -### -m i386pep foo.o -icf=all | FileCheck -check-prefix ICF %s
 ICF: -opt:icf
+
+RUN: ld.lld -### -m i386pep --start-group foo.o --end-group
+
+RUN: ld.lld -### foo.o -m i386pe -shared --kill-at | FileCheck -check-prefix=KILL-AT %s
+RUN: ld.lld -### foo.o -m i386pe -shared -kill-at | FileCheck -check-prefix=KILL-AT %s
+KILL-AT: -kill-at
+
+RUN: ld.lld -### foo.o -m i386pep -Map bar.map | FileCheck -check-prefix=MAP %s
+RUN: ld.lld -### foo.o -m i386pep --Map bar.map | FileCheck -check-prefix=MAP %s
+RUN: ld.lld -### foo.o -m i386pep -Map=bar.map | FileCheck -check-prefix=MAP %s
+RUN: ld.lld -### foo.o -m i386pep --Map=bar.map | FileCheck -check-prefix=MAP %s
+MAP: -lldmap:bar.map

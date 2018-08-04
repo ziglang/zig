@@ -2,7 +2,7 @@
 ; RUN: llvm-mc %p/Inputs/shared.s -o %t1.o -filetype=obj -triple=x86_64-unknown-linux
 ; RUN: ld.lld %t1.o -o %t1.so -shared
 ; RUN: llvm-as %s -o %t2.o
-; RUN: ld.lld %t1.so %t2.o -m elf_x86_64 -o %t
+; RUN: ld.lld %t1.so %t2.o -o %t
 ; RUN: llvm-readobj -dyn-symbols -dyn-relocations %t | FileCheck %s
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"

@@ -1,11 +1,10 @@
+# REQUIRES: mips
 # Check that GOT entries accessed via 16-bit indexing are allocated
 # in the beginning of the GOT.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t.exe
 # RUN: llvm-objdump -d -s -t %t.exe | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Disassembly of section .text:
 # CHECK-NEXT: __start:

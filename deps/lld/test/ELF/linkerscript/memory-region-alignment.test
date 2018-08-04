@@ -1,0 +1,58 @@
+# REQUIRES: x86
+# RUN: echo '.section .foo,"a"; .quad 0; .section .zed,"M",@progbits,1; .byte 0' > %t.s
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %t.s -o %t.o
+
+MEMORY {
+  ram (rwx): org = 0x1, len = 96K
+}
+
+SECTIONS {
+  .foo : ALIGN(8) {
+    *(.foo)
+  } > ram
+  
+  .zed : {
+    *(.zed)
+  } > ram
+}
+
+# RUN: ld.lld %t.o -o %t --script %s
+# RUN: llvm-readobj -sections %t | FileCheck %s
+
+# CHECK:        Name: .foo
+# CHECK-NEXT:   Type: SHT_PROGBITS
+# CHECK-NEXT:   Flags [
+# CHECK-NEXT:     SHF_ALLOC
+# CHECK-NEXT:   ]
+# CHECK-NEXT:   Address: 0x8
+# CHECK-NEXT:   Offset: 0x1008
+# CHECK-NEXT:   Size: 8
+
+# CHECK:        Name: .text
+# CHECK-NEXT:   Type: SHT_PROGBITS
+# CHECK-NEXT:   Flags [
+# CHECK-NEXT:     SHF_ALLOC
+# CHECK-NEXT:     SHF_EXECINSTR
+# CHECK-NEXT:   ]
+# CHECK-NEXT:   Address: 0x10
+# CHECK-NEXT:   Offset: 0x1010
+# CHECK-NEXT:   Size: 0
+
+# CHECK:        Name: .zed
+# CHECK-NEXT:   Type: SHT_PROGBITS
+# CHECK-NEXT:   Flags [
+# CHECK-NEXT:     SHF_MERGE
+# CHECK-NEXT:   ]
+# CHECK-NEXT:   Address: 0x10
+# CHECK-NEXT:   Offset: 0x1010
+# CHECK-NEXT:   Size: 1
+
+# CHECK:        Name: .comment
+# CHECK-NEXT:   Type: SHT_PROGBITS
+# CHECK-NEXT:   Flags [
+# CHECK-NEXT:     SHF_MERGE
+# CHECK-NEXT:     SHF_STRINGS
+# CHECK-NEXT:   ]
+# CHECK-NEXT:   Address: 0x0
+# CHECK-NEXT:   Offset: 0x1011
+# CHECK-NEXT:   Size: 8

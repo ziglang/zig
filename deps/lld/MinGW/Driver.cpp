@@ -136,6 +136,8 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
     Add("-output-def:" + StringRef(A->getValue()));
   if (auto *A = Args.getLastArg(OPT_image_base))
     Add("-base:" + StringRef(A->getValue()));
+  if (auto *A = Args.getLastArg(OPT_map))
+    Add("-lldmap:" + StringRef(A->getValue()));
 
   if (auto *A = Args.getLastArg(OPT_o))
     Add("-out:" + StringRef(A->getValue()));
@@ -144,16 +146,25 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
   else
     Add("-out:a.exe");
 
+  if (auto *A = Args.getLastArg(OPT_pdb)) {
+    Add("-debug");
+    Add("-pdb:" + StringRef(A->getValue()));
+  } else if (Args.hasArg(OPT_strip_debug)) {
+    Add("-debug:symtab");
+  } else if (!Args.hasArg(OPT_strip_all)) {
+    Add("-debug:dwarf");
+  }
+
   if (Args.hasArg(OPT_shared))
     Add("-dll");
   if (Args.hasArg(OPT_verbose))
     Add("-verbose");
   if (Args.hasArg(OPT_export_all_symbols))
     Add("-export-all-symbols");
-  if (!Args.hasArg(OPT_strip_all))
-    Add("-debug:dwarf");
   if (Args.hasArg(OPT_large_address_aware))
     Add("-largeaddressaware");
+  if (Args.hasArg(OPT_kill_at))
+    Add("-kill-at");
 
   if (Args.getLastArgValue(OPT_m) != "thumb2pe" &&
       Args.getLastArgValue(OPT_m) != "arm64pe" && !Args.hasArg(OPT_dynamicbase))

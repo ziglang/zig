@@ -2,14 +2,18 @@
 ; LTO
 ; RUN: llvm-as %s -o %t.o
 ; RUN: llvm-as %S/Inputs/defsym-bar.ll -o %t1.o
-; RUN: ld.lld %t.o %t1.o -shared -o %t.so -defsym=bar2=bar3
+; RUN: ld.lld %t.o %t1.o -shared -o %t.so -defsym=bar2=bar3 -save-temps
+; RUN: llvm-readelf -t %t.so.lto.o | FileCheck --check-prefix=OBJ %s
 ; RUN: llvm-objdump -d %t.so | FileCheck %s
 
 ; ThinLTO
 ; RUN: opt -module-summary %s -o %t.o
 ; RUN: opt -module-summary %S/Inputs/defsym-bar.ll -o %t1.o
-; RUN: ld.lld %t.o %t1.o -shared -o %t.so -defsym=bar2=bar3
-; RUN: llvm-objdump -d %t.so | FileCheck %s --check-prefix=THIN
+; RUN: ld.lld %t.o %t1.o -shared -o %t2.so -defsym=bar2=bar3 -save-temps
+; RUN: llvm-readelf -t %t2.so1.lto.o | FileCheck --check-prefix=OBJ %s
+; RUN: llvm-objdump -d %t2.so | FileCheck %s --check-prefix=THIN
+
+; OBJ:  UND bar2
 
 ; Call to bar2() should not be inlined and should be routed to bar3()
 ; Symbol bar3 should not be eliminated

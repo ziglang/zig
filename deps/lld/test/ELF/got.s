@@ -1,10 +1,10 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
 // RUN: ld.lld --hash-style=sysv %t.o %t2.so -o %t
 // RUN: llvm-readobj -s -r %t | FileCheck %s
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
-// REQUIRES: x86
 
 // CHECK:      Name: .got
 // CHECK-NEXT: Type: SHT_PROGBITS

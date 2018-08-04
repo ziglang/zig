@@ -1,7 +1,6 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-# RUN: echo "SECTIONS { .text.zed : { *(.text.foo) } \
-# RUN:                  .text.qux : { *(.text.bar) } }" > %t.script
+# RUN: echo "SECTIONS { .text.zed : { *(.text.foo) } .text.qux : { *(.text.bar) } }" > %t.script
 # RUN: ld.lld -T %t.script --emit-relocs %t.o -o %t
 # RUN: llvm-objdump -section-headers %t | FileCheck %s
 

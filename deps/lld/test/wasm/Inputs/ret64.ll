@@ -1,4 +1,6 @@
-define i64 @ret64(double %arg) local_unnamed_addr #0 {
+target triple = "wasm32-unknown-unknown"
+
+define hidden i64 @ret64(double %arg) {
 entry:
     ret i64 1
 }

@@ -1,10 +1,10 @@
 # REQUIRES: system-linker-mach-o
 #
-# RUN: not lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s  \
+# RUN: not ld64.lld -arch x86_64 -macosx_version_min 10.8 %s  \
 # RUN:     -dylib -o %t %p/Inputs/x86_64/libSystem.yaml  2> %t.err
 # RUN: FileCheck %s < %t.err
 #
-# RUN: not lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN: not ld64.lld -arch x86_64 -macosx_version_min 10.8 %s \
 # RUN:     -dylib -o %t %p/Inputs/x86_64/libSystem.yaml -demangle 2> %t.err2
 # RUN: FileCheck %s --check-prefix=DCHECK < %t.err2
 #

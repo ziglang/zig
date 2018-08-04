@@ -1,8 +1,8 @@
+# REQUIRES: aarch64
 # RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-freebsd %s -o %tmain.o
 # RUN: ld.lld %tmain.o -o %tout
 # RUN: llvm-objdump -d %tout | FileCheck %s
 # RUN: llvm-readobj -s -r %tout | FileCheck -check-prefix=RELOC %s
-# REQUIRES: aarch64
 
 #Local-Dynamic to Initial-Exec relax creates no
 #RELOC:      Relocations [

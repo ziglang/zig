@@ -3,6 +3,8 @@
 # RUN: llvm-readobj -symbols %t.exe | FileCheck %s
 # RUN: lld-link /debug:dwarf /opt:noref /out:%t.exe /entry:main %t.obj %p/Inputs/std64.lib
 # RUN: llvm-readobj -symbols %t.exe | FileCheck %s
+# RUN: lld-link /debug:symtab /opt:noref /out:%t.exe /entry:main %t.obj %p/Inputs/std64.lib
+# RUN: llvm-readobj -symbols %t.exe | FileCheck %s
 
 # RUN: lld-link /debug /out:%t.exe /entry:main %t.obj %p/Inputs/std64.lib
 # RUN: llvm-readobj -symbols %t.exe | FileCheck -check-prefix=NO %s
@@ -11,7 +13,7 @@
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: .text
 # CHECK-NEXT:     Value: 0
-# CHECK-NEXT:     Section: .text (2)
+# CHECK-NEXT:     Section: .text (1)
 # CHECK-NEXT:     BaseType: Null (0x0)
 # CHECK-NEXT:     ComplexType: Null (0x0)
 # CHECK-NEXT:     StorageClass: Static (0x3)
@@ -20,7 +22,7 @@
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: .text2
 # CHECK-NEXT:     Value: 0
-# CHECK-NEXT:     Section: .text (2)
+# CHECK-NEXT:     Section: .text (1)
 # CHECK-NEXT:     BaseType: Null (0x0)
 # CHECK-NEXT:     ComplexType: Null (0x0)
 # CHECK-NEXT:     StorageClass: Static (0x3)
@@ -29,7 +31,7 @@
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: .data
 # CHECK-NEXT:     Value: 0
-# CHECK-NEXT:     Section: .data (1)
+# CHECK-NEXT:     Section: .data (3)
 # CHECK-NEXT:     BaseType: Null (0x0)
 # CHECK-NEXT:     ComplexType: Null (0x0)
 # CHECK-NEXT:     StorageClass: Static (0x3)
@@ -38,7 +40,7 @@
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: MessageBoxA
 # CHECK-NEXT:     Value: 80
-# CHECK-NEXT:     Section: .text (2)
+# CHECK-NEXT:     Section: .text (1)
 # CHECK-NEXT:     BaseType: Null (0x0)
 # CHECK-NEXT:     ComplexType: Null (0x0)
 # CHECK-NEXT:     StorageClass: External (0x2)
@@ -47,7 +49,7 @@
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: ExitProcess
 # CHECK-NEXT:     Value: 64
-# CHECK-NEXT:     Section: .text (2)
+# CHECK-NEXT:     Section: .text (1)
 # CHECK-NEXT:     BaseType: Null (0x0)
 # CHECK-NEXT:     ComplexType: Null (0x0)
 # CHECK-NEXT:     StorageClass: External (0x2)
@@ -56,7 +58,7 @@
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: message
 # CHECK-NEXT:     Value: 6
-# CHECK-NEXT:     Section: .text2 (3)
+# CHECK-NEXT:     Section: .text2
 # CHECK-NEXT:     BaseType: Null (0x0)
 # CHECK-NEXT:     ComplexType: Null (0x0)
 # CHECK-NEXT:     StorageClass: Static (0x3)
@@ -65,7 +67,7 @@
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: main
 # CHECK-NEXT:     Value: 0
-# CHECK-NEXT:     Section: .text (2)
+# CHECK-NEXT:     Section: .text (1)
 # CHECK-NEXT:     BaseType: Null (0x0)
 # CHECK-NEXT:     ComplexType: Null (0x0)
 # CHECK-NEXT:     StorageClass: External (0x2)
@@ -74,7 +76,7 @@
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: caption
 # CHECK-NEXT:     Value: 0
-# CHECK-NEXT:     Section: .text2 (3)
+# CHECK-NEXT:     Section: .text2
 # CHECK-NEXT:     BaseType: Null (0x0)
 # CHECK-NEXT:     ComplexType: Null (0x0)
 # CHECK-NEXT:     StorageClass: Static (0x3)

@@ -11,8 +11,8 @@
 ## .rela.text because we keep .text.
 # RUN: ld.lld --gc-sections --emit-relocs --print-gc-sections %t.o -o %t \
 # RUN:   | FileCheck --check-prefix=MSG %s
-# MSG: removing unused section from '.bar' in file
-# MSG: removing unused section from '.rela.bar' in file
+# MSG: removing unused section {{.*}}.o:(.bar)
+# MSG: removing unused section {{.*}}.o:(.rela.bar)
 # RUN: llvm-objdump %t -section-headers | FileCheck %s --check-prefix=GC
 # GC-NOT:  rela.bar
 # GC:      rela.text

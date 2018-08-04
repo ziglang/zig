@@ -1,3 +1,4 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %S/Inputs/far-arm-thumb-abs.s -o %tfar
 // RUN: echo "SECTIONS { \
@@ -10,7 +11,6 @@
 // RUN: ld.lld --script %t.script %t %tfar -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-ARM %s
 // RUN: llvm-objdump -d -triple=thumbv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-THUMB %s
-// REQUIRES: arm
 
 // Test BLX instruction is chosen for ARM BL/BLX instruction and Thumb callee
 // Using two callees to ensure at least one has 2-byte alignment.

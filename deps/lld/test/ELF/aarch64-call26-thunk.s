@@ -1,8 +1,8 @@
+// REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-pc-freebsd %S/Inputs/abs.s -o %tabs
 // RUN: llvm-mc -filetype=obj -triple=aarch64-pc-freebsd %s -o %t
 // RUN: ld.lld %t %tabs -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=aarch64-pc-freebsd %t2 | FileCheck %s
-// REQUIRES: aarch64
 
 .text
 .globl _start

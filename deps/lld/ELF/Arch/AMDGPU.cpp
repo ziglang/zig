@@ -66,6 +66,7 @@ void AMDGPU::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     write32le(Loc, Val);
     break;
   case R_AMDGPU_ABS64:
+  case R_AMDGPU_REL64:
     write64le(Loc, Val);
     break;
   case R_AMDGPU_GOTPCREL32_HI:
@@ -86,6 +87,7 @@ RelExpr AMDGPU::getRelExpr(RelType Type, const Symbol &S,
   case R_AMDGPU_REL32:
   case R_AMDGPU_REL32_LO:
   case R_AMDGPU_REL32_HI:
+  case R_AMDGPU_REL64:
     return R_PC;
   case R_AMDGPU_GOTPCREL:
   case R_AMDGPU_GOTPCREL32_LO:

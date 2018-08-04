@@ -1,0 +1,52 @@
+--- !WASM
+FileHeader:
+  Version:         0x00000001
+Sections:
+  - Type:            TYPE
+    Signatures:
+      - Index:           0
+        ReturnType:      I64
+        ParamTypes:
+  - Type:            IMPORT
+    Imports:
+      - Module:          env
+        Field:           unused_undef_global
+        Kind:            GLOBAL
+        GlobalType:      I64
+        GlobalMutable:   true
+      - Module:          env
+        Field:           used_undef_global
+        Kind:            GLOBAL
+        GlobalType:      I64
+        GlobalMutable:   true
+  - Type:            FUNCTION
+    FunctionTypes:   [ 0 ]
+  - Type:            CODE
+    Functions:
+      - Index:           0
+        Locals:
+        Body:            2381808080000B
+    Relocations:
+      - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
+        Index:           1
+        Offset:          0x00000004
+  - Type:            CUSTOM
+    Name:            linking
+    Version:         1
+    SymbolTable:
+      - Index:           0
+        Kind:            GLOBAL
+        Name:            unused_undef_global
+        Flags:           [ VISIBILITY_HIDDEN, UNDEFINED ]
+        Global:          0
+      - Index:           1
+        Kind:            GLOBAL
+        Name:            used_undef_global
+        Flags:           [ VISIBILITY_HIDDEN, UNDEFINED ]
+        Global:          1
+      - Index:           2
+        Kind:            FUNCTION
+        Name:            use_undef_global
+        Flags:           [ VISIBILITY_HIDDEN ]
+        Function:        0
+...

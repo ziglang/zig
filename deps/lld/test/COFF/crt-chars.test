@@ -1,0 +1,32 @@
+# RUN: yaml2obj %s > %t.obj
+# RUN: lld-link /out:%t.dll /entry:__ImageBase /dll %t.obj
+# RUN: llvm-readobj -sections -section-data %t.dll | FileCheck %s
+
+# CHECK: Name: .CRT
+# CHECK: Characteristics [
+# CHECK-NEXT: IMAGE_SCN_CNT_INITIALIZED_DATA
+# CHECK-NEXT: IMAGE_SCN_MEM_READ
+# CHECK-NEXT: ]
+# CHECK-NEXT: SectionData (
+# CHECK-NEXT: 010203
+# CHECK-NEXT: )
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:
+  - Name:            .CRT$XCZ
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     03
+  - Name:            .CRT$XCU
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       1
+    SectionData:     02
+  - Name:            .CRT$XCA
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     01
+symbols:
+...

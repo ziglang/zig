@@ -1,0 +1,20 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/addr.s -o %t
+# RUN: ld.lld %t --script %s -o %t1
+# RUN: llvm-objdump -section-headers %t1 | FileCheck %s
+
+# CHECK:      Sections:
+# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT:   0               00000000 0000000000000000
+# CHECK-NEXT:   1 .text         00000000 0000000000001000 TEXT
+# CHECK-NEXT:   2 .foo.1        00000008 0000000000001000 DATA
+# CHECK-NEXT:   3 .foo.2        00000008 0000000000001100 DATA
+# CHECK-NEXT:   4 .foo.3        00000008 0000000000001108 DATA
+
+SECTIONS {
+  . = 0x1000;
+  .text  : { *(.text*) }
+  .foo.1 : { *(.foo.1) }
+  .foo.2 ADDR(.foo.1) + 0x100 : { *(.foo.2) }
+  .foo.3 : { *(.foo.3) }
+}

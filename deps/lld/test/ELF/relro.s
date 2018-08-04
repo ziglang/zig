@@ -1,13 +1,17 @@
+// REQUIRES: x86
+
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
-// RUN: ld.lld %t.o %t2.so -z now -z relro -o %t
+
+// RUN: ld.lld %t.o %t2.so -z now -z norelro -z relro -o %t
 // RUN: llvm-readobj -l --elf-output-style=GNU %t | FileCheck --check-prefix=CHECK --check-prefix=FULLRELRO %s
-// RUN: ld.lld %t.o %t2.so -z relro -o %t
+
+// RUN: ld.lld %t.o %t2.so -z norelro -z relro -o %t
 // RUN: llvm-readobj -l --elf-output-style=GNU %t | FileCheck --check-prefix=CHECK --check-prefix=PARTRELRO %s
+
 // RUN: ld.lld %t.o %t2.so -z norelro -o %t
 // RUN: llvm-readobj -l --elf-output-style=GNU %t | FileCheck --check-prefix=NORELRO %s
-// REQUIRES: x86
 
 // CHECK:      Program Headers:
 // CHECK-NEXT: Type

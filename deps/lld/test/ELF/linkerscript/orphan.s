@@ -13,7 +13,7 @@
 ## .bss is SHT_NOBITS section and should be last RW section, so some space
 ## in ELF file could be saved.
 # CHECK:       0               00000000 0000000000000000
-# CHECK-NEXT:  1 .text         00000000 0000000000000000 TEXT DATA
+# CHECK-NEXT:  1 .text         00000000 0000000000000000 TEXT
 # CHECK-NEXT:  2 .rw1          00000008 0000000000000000 DATA
 # CHECK-NEXT:  3 .rw2          00000008 0000000000000008 DATA
 # CHECK-NEXT:  4 .rw3          00000008 0000000000000010 DATA

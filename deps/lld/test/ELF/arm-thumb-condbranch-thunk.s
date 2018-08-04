@@ -38,13 +38,9 @@ _start:
 // CHECK1-NEXT:    80000:       70 47   bx      lr
 // CHECK1-NEXT:    80002:       7f f3 ff d7     bl      #16252926
 // CHECK1: __Thumbv7ABSLongThunk_tfunc05:
-// CHECK1-NEXT:    80008:       40 f2 01 0c     movw    r12, #1
-// CHECK1-NEXT:    8000c:       c0 f2 30 0c     movt    r12, #48
-// CHECK1-NEXT:    80010:       60 47   bx      r12
+// CHECK1-NEXT:    80008:       7f f2 fa bf     b.w     #2621428 <tfunc05>
 // CHECK1: __Thumbv7ABSLongThunk_tfunc00:
-// CHECK1-NEXT:    80012:       40 f2 01 0c     movw    r12, #1
-// CHECK1-NEXT:    80016:       c0 f2 08 0c     movt    r12, #8
-// CHECK1-NEXT:    8001a:       60 47   bx      r12
+// CHECK1-NEXT:    8000c:       ff f7 f8 bf     b.w     #-16 <tfunc00>
  FUNCTION 01
 // tfunc02 is within range of tfunc02
  beq.w tfunc02
@@ -61,7 +57,7 @@ _start:
  beq.w tfunc00
 // CHECK3:   180000:       70 47   bx      lr
 // CHECK3-NEXT:   180002:       40 f4 01 80     bne.w   #-1048574 <__Thumbv7ABSLongThunk_tfunc05>
-// CHECK3-NEXT:   180006:       00 f4 04 80     beq.w   #-1048568 <__Thumbv7ABSLongThunk_tfunc00>
+// CHECK3-NEXT:   180006:       00 f4 01 80     beq.w   #-1048574 <__Thumbv7ABSLongThunk_tfunc00>
  FUNCTION 03
  FUNCTION 04
  FUNCTION 05
@@ -70,9 +66,7 @@ _start:
  FUNCTION 08
  FUNCTION 09
 // CHECK4:  __Thumbv7ABSLongThunk_tfunc03:
-// CHECK4-NEXT:   500004:       40 f2 01 0c     movw    r12, #1
-// CHECK4-NEXT:   500008:       c0 f2 20 0c     movt    r12, #32
-// CHECK4-NEXT:   50000c:       60 47   bx      r12
+// CHECK4-NEXT:   500004:       ff f4 fc bf     b.w     #-3145736 <tfunc03>
  FUNCTION 10
 // We can't reach any Thunk Section, create a new one
  beq.w tfunc03
@@ -101,17 +95,13 @@ _start:
  FUNCTION 30
  FUNCTION 31
 // CHECK6:  __Thumbv7ABSLongThunk_tfunc33:
-// CHECK6-NEXT:  1000004:       40 f2 01 0c     movw    r12, #1
-// CHECK6-NEXT:  1000008:       c0 f2 10 1c     movt    r12, #272
-// CHECK6-NEXT:  100000c:       60 47   bx      r12
+// CHECK6-NEXT:  1000004:       ff f0 fc bf     b.w     #1048568 <tfunc33>
 // CHECK6: __Thumbv7ABSLongThunk_tfunc00:
-// CHECK6-NEXT:  100000e:       40 f2 01 0c     movw    r12, #1
-// CHECK6-NEXT:  1000012:       c0 f2 08 0c     movt    r12, #8
-// CHECK6-NEXT:  1000016:       60 47   bx      r12
+// CHECK6-NEXT:  1000008:       7f f4 fa 97     b.w     #-16252940 <tfunc00>
  FUNCTION 32
  FUNCTION 33
  // We should be able to reach an existing ThunkSection.
  b.w tfunc00
 // CHECK7: tfunc33:
 // CHECK7-NEXT:  1100000:       70 47   bx      lr
-// CHECK7-NEXT:  1100002:       00 f7 04 b8     b.w     #-1048568 <__Thumbv7ABSLongThunk_tfunc00>
+// CHECK7-NEXT:  1100002:       00 f7 01 b8     b.w     #-1048574 <__Thumbv7ABSLongThunk_tfunc00>

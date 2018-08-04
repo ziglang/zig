@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief Provide simple implementations for Atoms and File.
+/// Provide simple implementations for Atoms and File.
 ///
 //===----------------------------------------------------------------------===//
 

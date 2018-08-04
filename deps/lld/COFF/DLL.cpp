@@ -18,8 +18,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Chunks.h"
 #include "DLL.h"
+#include "Chunks.h"
 #include "llvm/Object/COFF.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Path.h"

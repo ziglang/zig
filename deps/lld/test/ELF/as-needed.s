@@ -22,7 +22,7 @@
 // RUN: ld.lld --as-needed %t.o %t2.so --no-as-needed %t3.so %t4.so -o %t2
 // RUN: llvm-readobj -dynamic-table %t2 | FileCheck %s
 
-/// GROUP directive is the same as --as-needed.
+/// GROUP command is the same as listing the files on the command line.
 
 // RUN: echo "GROUP(\"%t2.so\" \"%t3.so\" \"%t4.so\")" > %t.script
 // RUN: ld.lld %t.o %t.script -o %t2

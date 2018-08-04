@@ -1,0 +1,23 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux /dev/null -o %t.o
+# RUN: ld.lld -o %t.so --script %s %t.o -shared
+# RUN: llvm-objdump -t -h %t.so | FileCheck %s
+
+SECTIONS {
+  . = . + 4;
+  .text : {
+    *(.text)
+    foo1 = ADDR(.text) + 1; bar1 = 1 + ADDR(.text);
+    foo2 = ADDR(.text) & 1; bar2 = 1 & ADDR(.text);
+    foo3 = ADDR(.text) | 1; bar3 = 1 | ADDR(.text);
+  }
+};
+
+# CHECK:  5 .text         00000000 000000000000014c
+
+# CHECK: 000000000000014d         .text		 00000000 foo1
+# CHECK: 000000000000014d         .text		 00000000 bar1
+# CHECK: 0000000000000000         .text		 00000000 foo2
+# CHECK: 0000000000000000         .text		 00000000 bar2
+# CHECK: 000000000000014d         .text		 00000000 foo3
+# CHECK: 000000000000014d         .text		 00000000 bar3

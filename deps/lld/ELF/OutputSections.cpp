@@ -10,11 +10,11 @@
 #include "OutputSections.h"
 #include "Config.h"
 #include "LinkerScript.h"
-#include "Strings.h"
 #include "SymbolTable.h"
 #include "SyntheticSections.h"
 #include "Target.h"
 #include "lld/Common/Memory.h"
+#include "lld/Common/Strings.h"
 #include "lld/Common/Threads.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Support/Compression.h"
@@ -25,15 +25,12 @@
 using namespace llvm;
 using namespace llvm::dwarf;
 using namespace llvm::object;
-using namespace llvm::support::endian;
 using namespace llvm::ELF;
 
 using namespace lld;
 using namespace lld::elf;
 
 uint8_t Out::First;
-OutputSection *Out::Opd;
-uint8_t *Out::OpdBuf;
 PhdrEntry *Out::TlsPhdr;
 OutputSection *Out::DebugInfo;
 OutputSection *Out::ElfHeader;
@@ -45,7 +42,9 @@ OutputSection *Out::FiniArray;
 std::vector<OutputSection *> elf::OutputSections;
 
 uint32_t OutputSection::getPhdrFlags() const {
-  uint32_t Ret = PF_R;
+  uint32_t Ret = 0;
+  if (Config->EMachine != EM_ARM || !(Flags & SHF_ARM_PURECODE))
+    Ret |= PF_R;
   if (Flags & SHF_WRITE)
     Ret |= PF_W;
   if (Flags & SHF_EXECINSTR)
@@ -70,9 +69,7 @@ void OutputSection::writeHeaderTo(typename ELFT::Shdr *Shdr) {
 OutputSection::OutputSection(StringRef Name, uint32_t Type, uint64_t Flags)
     : BaseCommand(OutputSectionKind),
       SectionBase(Output, Name, Flags, /*Entsize*/ 0, /*Alignment*/ 1, Type,
-                  /*Info*/ 0,
-                  /*Link*/ 0),
-      SectionIndex(INT_MAX) {
+                  /*Info*/ 0, /*Link*/ 0) {
   Live = false;
 }
 
@@ -91,13 +88,15 @@ static bool canMergeToProgbits(unsigned Type) {
 void OutputSection::addSection(InputSection *IS) {
   if (!Live) {
     // If IS is the first section to be added to this section,
-    // initialize Type and Entsize from IS.
+    // initialize Type, Entsize and flags from IS.
     Live = true;
     Type = IS->Type;
     Entsize = IS->Entsize;
+    Flags = IS->Flags;
   } else {
     // Otherwise, check if new type or flags are compatible with existing ones.
-    if ((Flags & (SHF_ALLOC | SHF_TLS)) != (IS->Flags & (SHF_ALLOC | SHF_TLS)))
+    unsigned Mask = SHF_ALLOC | SHF_TLS | SHF_LINK_ORDER;
+    if ((Flags & Mask) != (IS->Flags & Mask))
       error("incompatible section flags for " + Name + "\n>>> " + toString(IS) +
             ": 0x" + utohexstr(IS->Flags) + "\n>>> output section " + Name +
             ": 0x" + utohexstr(Flags));
@@ -114,9 +113,14 @@ void OutputSection::addSection(InputSection *IS) {
   }
 
   IS->Parent = this;
-  Flags |= IS->Flags;
+  uint64_t AndMask =
+      Config->EMachine == EM_ARM ? (uint64_t)SHF_ARM_PURECODE : 0;
+  uint64_t OrMask = ~AndMask;
+  uint64_t AndFlags = (Flags & IS->Flags) & AndMask;
+  uint64_t OrFlags = (Flags | IS->Flags) & OrMask;
+  Flags = AndFlags | OrFlags;
+
   Alignment = std::max(Alignment, IS->Alignment);
-  IS->OutSecOff = Size++;
 
   // If this section contains a table of fixed-size entries, sh_entsize
   // holds the element size. If it contains elements of different size we
@@ -134,8 +138,8 @@ void OutputSection::addSection(InputSection *IS) {
   }
 }
 
-void elf::sortByOrder(MutableArrayRef<InputSection *> In,
-                      std::function<int(InputSectionBase *S)> Order) {
+static void sortByOrder(MutableArrayRef<InputSection *> In,
+                        llvm::function_ref<int(InputSectionBase *S)> Order) {
   typedef std::pair<int, InputSection *> Pair;
   auto Comp = [](const Pair &A, const Pair &B) { return A.first < B.first; };
 
@@ -158,11 +162,11 @@ bool OutputSection::classof(const BaseCommand *C) {
   return C->Kind == OutputSectionKind;
 }
 
-void OutputSection::sort(std::function<int(InputSectionBase *S)> Order) {
+void OutputSection::sort(llvm::function_ref<int(InputSectionBase *S)> Order) {
   assert(Live);
-  assert(SectionCommands.size() == 1);
-  sortByOrder(cast<InputSectionDescription>(SectionCommands[0])->Sections,
-              Order);
+  for (BaseCommand *B : SectionCommands)
+    if (auto *ISD = dyn_cast<InputSectionDescription>(B))
+      sortByOrder(ISD->Sections, Order);
 }
 
 // Fill [Buf, Buf + Size) with Filler.
@@ -205,11 +209,11 @@ static void writeInt(uint8_t *Buf, uint64_t Data, uint64_t Size) {
   if (Size == 1)
     *Buf = Data;
   else if (Size == 2)
-    write16(Buf, Data, Config->Endianness);
+    write16(Buf, Data);
   else if (Size == 4)
-    write32(Buf, Data, Config->Endianness);
+    write32(Buf, Data);
   else if (Size == 8)
-    write64(Buf, Data, Config->Endianness);
+    write64(Buf, Data);
   else
     llvm_unreachable("unsupported Size argument");
 }
@@ -231,12 +235,7 @@ template <class ELFT> void OutputSection::writeTo(uint8_t *Buf) {
   }
 
   // Write leading padding.
-  std::vector<InputSection *> Sections;
-  for (BaseCommand *Cmd : SectionCommands)
-    if (auto *ISD = dyn_cast<InputSectionDescription>(Cmd))
-      for (InputSection *IS : ISD->Sections)
-        if (IS->Live)
-          Sections.push_back(IS);
+  std::vector<InputSection *> Sections = getInputSections(this);
   uint32_t Filler = getFiller();
   if (Filler)
     fill(Buf, Sections.empty() ? Size : Sections[0]->OutSecOff, Filler);
@@ -281,17 +280,13 @@ static void finalizeShtGroup(OutputSection *OS,
 }
 
 template <class ELFT> void OutputSection::finalize() {
-  InputSection *First = nullptr;
-  for (BaseCommand *Base : SectionCommands) {
-    if (auto *ISD = dyn_cast<InputSectionDescription>(Base)) {
-      if (ISD->Sections.empty())
-        continue;
-      if (First == nullptr)
-        First = ISD->Sections.front();
-    }
-    if (isa<ByteCommand>(Base) && Type == SHT_NOBITS)
-      Type = SHT_PROGBITS;
-  }
+  if (Type == SHT_NOBITS)
+    for (BaseCommand *Base : SectionCommands)
+      if (isa<ByteCommand>(Base))
+        Type = SHT_PROGBITS;
+
+  std::vector<InputSection *> V = getInputSections(this);
+  InputSection *First = V.empty() ? nullptr : V[0];
 
   if (Flags & SHF_LINK_ORDER) {
     // We must preserve the link order dependency of sections with the
@@ -367,8 +362,6 @@ static bool compCtors(const InputSection *A, const InputSection *B) {
   assert(Y.startswith(".ctors") || Y.startswith(".dtors"));
   X = X.substr(6);
   Y = Y.substr(6);
-  if (X.empty() && Y.empty())
-    return false;
   return X < Y;
 }
 
@@ -392,6 +385,14 @@ int elf::getPriority(StringRef S) {
   if (!to_integer(S.substr(Pos + 1), V, 10))
     return 65536;
   return V;
+}
+
+std::vector<InputSection *> elf::getInputSections(OutputSection *OS) {
+  std::vector<InputSection *> Ret;
+  for (BaseCommand *Base : OS->SectionCommands)
+    if (auto *ISD = dyn_cast<InputSectionDescription>(Base))
+      Ret.insert(Ret.end(), ISD->Sections.begin(), ISD->Sections.end());
+  return Ret;
 }
 
 // Sorts input sections by section name suffixes, so that .foo.N comes

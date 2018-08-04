@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check generation of MIPS specific ELF header flags.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux \
@@ -40,8 +41,6 @@
 # RUN:         -mattr=micromips %S/Inputs/mips-fpic.s -o %t-mm.o
 # RUN: ld.lld %t.o %t-mm.o -o %t.exe
 # RUN: llvm-readobj -h -mips-abi-flags %t.exe | FileCheck -check-prefix=MICRO %s
-
-# REQUIRES: mips
 
   .text
   .globl  __start

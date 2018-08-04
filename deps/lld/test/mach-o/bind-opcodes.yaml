@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch arm64 %s %p/Inputs/hello-world-arm64.yaml -o %t
+# RUN: ld64.lld -arch arm64 %s %p/Inputs/hello-world-arm64.yaml -o %t
 # RUN: obj2yaml %t | FileCheck %s
 #
 

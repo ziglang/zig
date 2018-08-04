@@ -1,0 +1,37 @@
+# REQUIRES: x86
+
+# RUN: echo ".section .foo,\"a\"" > %t.s
+# RUN: echo ".quad 1" >> %t.s
+# RUN: echo ".section .bar,\"a\"" >> %t.s
+# RUN: echo ".quad 1" >> %t.s
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %t.s -o %t.o
+
+# RUN: ld.lld -o %t %t.o --script %s
+# RUN: llvm-readelf -sections -program-headers %t | FileCheck %s
+
+## Check that we can produce output without errors,
+## and .foo section has proper size.
+# CHECK:      Section Headers:
+# CHECK-NEXT:   [Nr] Name Type     Address          Off    Size
+# CHECK-NEXT:   [ 0]      NULL     0000000000000000 000000 000000
+# CHECK-NEXT:   [ 1] .foo PROGBITS 0000000000001000 001000 000108
+# CHECK-NEXT:   [ 2] .bar PROGBITS 0000000000001108 001108 000008
+
+## Check that load address is correct.
+# CHECK:      Program Headers:
+# CHECK-NEXT:   Type Offset   VirtAddr           PhysAddr           FileSiz  MemSiz
+# CHECK-NEXT:   LOAD 0x001000 0x0000000000001000 0x0000000000002000 0x000110 0x000110
+
+MEMORY {
+  ram (rwx)   : org = 0x1000, len = 0x200
+  flash (rwx) : org = 0x2000, len = 0x200
+}
+SECTIONS {
+  .foo : {
+    *(.foo)
+    . += 0x100;
+  } > ram AT>flash
+  .bar : {
+    *(.bar)
+  } > ram AT>flash
+}

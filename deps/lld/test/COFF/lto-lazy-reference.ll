@@ -1,3 +1,4 @@
+; REQUIRES: x86
 ; RUN: llc -mtriple=i686-pc-windows-msvc -filetype=obj -o %T/lto-lazy-reference-quadruple.obj %S/Inputs/lto-lazy-reference-quadruple.ll
 ; RUN: llvm-as -o %T/lto-lazy-reference-dummy.bc %S/Inputs/lto-lazy-reference-dummy.ll
 ; RUN: rm -f %t.lib

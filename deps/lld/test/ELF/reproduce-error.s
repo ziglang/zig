@@ -1,5 +1,5 @@
-# Extracting the tar archive can get over the path limit on windows.
 # REQUIRES: shell
+# Extracting the tar archive can get over the path limit on windows.
 
 # RUN: rm -rf %t.dir
 # RUN: mkdir -p %t.dir

@@ -1,5 +1,5 @@
-# RUN: lld -flavor darwin -arch i386 -macosx_version_min 10.8 %s %p/Inputs/hello-world-x86.yaml -o %t && llvm-nm -m %t | FileCheck %s
-# RUN: not lld -flavor darwin -arch i386 -ios_simulator_version_min 5.0 %s %p/Inputs/hello-world-x86.yaml -o %t 2>&1 | FileCheck %s --check-prefix=ERROR
+# RUN: ld64.lld -arch i386 -macosx_version_min 10.8 %s %p/Inputs/hello-world-x86.yaml -o %t && llvm-nm -m %t | FileCheck %s
+# RUN: not ld64.lld -arch i386 -ios_simulator_version_min 5.0 %s %p/Inputs/hello-world-x86.yaml -o %t 2>&1 | FileCheck %s --check-prefix=ERROR
 #
 # Test that i386 can link with a macos version but gives an error with a simululator version.
 #

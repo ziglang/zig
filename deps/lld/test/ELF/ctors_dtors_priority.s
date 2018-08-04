@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux \
 // RUN:   %p/Inputs/ctors_dtors_priority1.s -o %t-crtbegin.o
@@ -7,7 +8,6 @@
 // RUN:   %p/Inputs/ctors_dtors_priority3.s -o %t-crtend.o
 // RUN: ld.lld %t1 %t2 %t-crtend.o %t-crtbegin.o -o %t.exe
 // RUN: llvm-objdump -s %t.exe | FileCheck %s
-// REQUIRES: x86
 
 .globl _start
 _start:

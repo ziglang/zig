@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -r  %s -o %t -print_atoms | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -r  %s -o %t -print_atoms | FileCheck %s
 #
 # Test -keep_private_externs in -r mode.
 #

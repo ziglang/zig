@@ -13,6 +13,7 @@
 #include "Chunks.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Object/COFF.h"
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
@@ -29,16 +30,14 @@ void writeResult();
 // non-overlapping file offsets and RVAs.
 class OutputSection {
 public:
-  OutputSection(llvm::StringRef N) : Name(N), Header({}) {}
-  void setRVA(uint64_t);
-  void setFileOffset(uint64_t);
+  OutputSection(llvm::StringRef N, uint32_t Chars) : Name(N) {
+    Header.Characteristics = Chars;
+  }
   void addChunk(Chunk *C);
-  llvm::StringRef getName() { return Name; }
+  void merge(OutputSection *Other);
   ArrayRef<Chunk *> getChunks() { return Chunks; }
   void addPermissions(uint32_t C);
   void setPermissions(uint32_t C);
-  uint32_t getPermissions() { return Header.Characteristics & PermMask; }
-  uint32_t getCharacteristics() { return Header.Characteristics; }
   uint64_t getRVA() { return Header.VirtualAddress; }
   uint64_t getFileOff() { return Header.PointerToRawData; }
   void writeHeaderTo(uint8_t *Buf);
@@ -60,9 +59,10 @@ public:
   // N.B. The section index is one based.
   uint32_t SectionIndex = 0;
 
-private:
   llvm::StringRef Name;
-  llvm::object::coff_section Header;
+  llvm::object::coff_section Header = {};
+
+private:
   uint32_t StringTableOff = 0;
   std::vector<Chunk *> Chunks;
 };

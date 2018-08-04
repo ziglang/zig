@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 %s -syslibroot %p/Inputs/lib-search-paths -lmyshared -lmystatic -lfile.o -r -print_atoms 2>&1  | FileCheck %s
+# RUN: ld64.lld -arch x86_64 %s -syslibroot %p/Inputs/lib-search-paths -lmyshared -lmystatic -lfile.o -r -print_atoms 2>&1  | FileCheck %s
 
 --- !native
 undefined-atoms:

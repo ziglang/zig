@@ -1,8 +1,8 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t --shared -o %t.so
 // RUN: llvm-objdump -d -triple=thumbv7a-none-linux-gnueabi %t.so | FileCheck %s
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t.so | FileCheck %s -check-prefix=PLT
-// REQUIRES: arm
  .syntax unified
  .global sym1
  .global elsewhere

@@ -1,8 +1,8 @@
 --- !COFF
-header:
+header:          
   Machine:         IMAGE_FILE_MACHINE_I386
   Characteristics: [  ]
-sections:
+sections:        
   - Name:            .text
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       16
@@ -22,25 +22,25 @@ sections:
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
-    SectionData:     04000000F10000002F0000002D003C1101000000070006000000000000007017000000000000636C616E672076657273696F6E20362E302E30200000F5000000640000000000000000000000190000000000000004000000000000002B000000040000000400000001000000180000000000000004000000000000005800000003000400000000000300000016000000000000000400000000000000960000000100040000000000F1000000540000002E0047110000000000000000000000001900000000000000000000000D100000000000000000004E533A3A66756E63000A003E110310000001006600120045111600000008000000070000000000120002004F11F20000002800000000000000000000001900000000000000020000001C00000000000000030000000700000004000000F1000000100000000E0008110A1000004E533A3A466F6F00F40000001800000001000000100159DFAC75D18675AED1AD169FE316317E0000F3000000D400000000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A322E63707000245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2000245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200024543020246562702034202B203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200000
-    Subsections:
+    SectionData:     04000000F10000002F0000002D003C110100000007000700000000000000581B000000000000636C616E672076657273696F6E20372E302E30200000F5000000640000000000000000000000190000000000000004000000000000002B000000040000000400000001000000180000000000000004000000000000005800000003000400000000000300000016000000000000000400000000000000960000000100040000000000F1000000540000002E0047110000000000000000000000001900000000000000000000000D100000000000000000004E533A3A66756E63000A003E110310000001006600120045111600000008000000070000000000120002004F11F20000002800000000000000000000001900000000000000020000001C00000000000000030000000700000004000000F1000000100000000E0008110A1000004E533A3A466F6F00F40000001800000001000000100159DFAC75D18675AED1AD169FE316317E0000F3000000D400000000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A322E63707000245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2000245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200024543020246562702034202B203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200000
+    Subsections:     
       - !Symbols
-        Records:
+        Records:         
           - Kind:            S_COMPILE3
-            Compile3Sym:
+            Compile3Sym:     
               Flags:           [  ]
               Machine:         Pentium3
-              FrontendMajor:   6
+              FrontendMajor:   7
               FrontendMinor:   0
               FrontendBuild:   0
               FrontendQFE:     0
-              BackendMajor:    6000
+              BackendMajor:    7000
               BackendMinor:    0
               BackendBuild:    0
               BackendQFE:      0
-              Version:         'clang version 6.0.0 '
+              Version:         'clang version 7.0.0 '
       - !FrameData
-        Frames:
+        Frames:          
           - CodeSize:        25
             FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
             LocalSize:       0
@@ -66,9 +66,9 @@ sections:
             RvaStart:        3
             SavedRegsSize:   4
       - !Symbols
-        Records:
+        Records:         
           - Kind:            S_GPROC32_ID
-            ProcSym:
+            ProcSym:         
               CodeSize:        25
               DbgStart:        0
               DbgEnd:          0
@@ -76,22 +76,30 @@ sections:
               Flags:           [  ]
               DisplayName:     'NS::func'
           - Kind:            S_LOCAL
-            LocalSym:
+            LocalSym:        
               Type:            4099
               Flags:           [ IsParameter ]
               VarName:         f
           - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
+            DefRangeRegisterRelSym: 
+              Register:        22
+              Flags:           0
+              BasePointerOffset: 8
+              Range:           
+                OffsetStart:     7
+                ISectStart:      0
+                Range:           18
+              Gaps:            
           - Kind:            S_PROC_ID_END
-            ScopeEndSym:
+            ScopeEndSym:     
       - !Lines
         CodeSize:        25
         Flags:           [  ]
         RelocOffset:     0
         RelocSegment:    0
-        Blocks:
+        Blocks:          
           - FileName:        'D:\src\llvmbuild\clang\Debug\x86\obj2.cpp'
-            Lines:
+            Lines:           
               - Offset:          0
                 LineStart:       3
                 IsStatement:     false
@@ -100,26 +108,26 @@ sections:
                 LineStart:       4
                 IsStatement:     false
                 EndDelta:        0
-            Columns:
+            Columns:         
       - !Symbols
-        Records:
+        Records:         
           - Kind:            S_UDT
-            UDTSym:
+            UDTSym:          
               Type:            4106
               UDTName:         'NS::Foo'
       - !FileChecksums
-        Checksums:
+        Checksums:       
           - FileName:        'D:\src\llvmbuild\clang\Debug\x86\obj2.cpp'
             Kind:            MD5
             Checksum:        59DFAC75D18675AED1AD169FE316317E
       - !StringTable
-        Strings:
+        Strings:         
           - 'D:\src\llvmbuild\clang\Debug\x86\obj2.cpp'
           - '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
           - '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
           - '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
           - ''
-    Relocations:
+    Relocations:     
       - VirtualAddress:  68
         SymbolName:      '?func@NS@@YAHABUFoo@1@@Z'
         Type:            IMAGE_REL_I386_DIR32NB
@@ -145,13 +153,13 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
     SectionData:     040000000A000516000000004E5300F12A0005150000800200000000000000000000000000004E533A3A466F6F002E3F4155466F6F404E53404000F10A000110011000000100F2F10A000210021000002A8000000A00011201000000031000000E0008107400000000000100041000000A000210011000000A8000000A00011201000000740000001A0009100300000001100000061000000B00010007100000000000001A0003120D15030074000000000058001115030008100000466F6F002A0005150200000209100000000000000000000004004E533A3A466F6F002E3F4155466F6F404E53404000F12E00051600000000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A2E6800F10E0006160A1000000B1000000200000012000116001000000510000066756E6300F3F2F1
-    Types:
+    Types:           
       - Kind:            LF_STRING_ID
-        StringId:
+        StringId:        
           Id:              0
           String:          NS
       - Kind:            LF_STRUCTURE
-        Class:
+        Class:           
           MemberCount:     0
           Options:         [ None, ForwardReference, HasUniqueName ]
           FieldList:       0
@@ -161,32 +169,32 @@ sections:
           VTableShape:     0
           Size:            0
       - Kind:            LF_MODIFIER
-        Modifier:
+        Modifier:        
           ModifiedType:    4097
           Modifiers:       [ None, Const ]
       - Kind:            LF_POINTER
-        Pointer:
+        Pointer:         
           ReferentType:    4098
           Attrs:           32810
       - Kind:            LF_ARGLIST
-        ArgList:
+        ArgList:         
           ArgIndices:      [ 4099 ]
       - Kind:            LF_PROCEDURE
-        Procedure:
+        Procedure:       
           ReturnType:      116
           CallConv:        NearC
           Options:         [ None ]
           ParameterCount:  1
           ArgumentList:    4100
       - Kind:            LF_POINTER
-        Pointer:
+        Pointer:         
           ReferentType:    4097
           Attrs:           32778
       - Kind:            LF_ARGLIST
-        ArgList:
+        ArgList:         
           ArgIndices:      [ 116 ]
       - Kind:            LF_MFUNCTION
-        MemberFunction:
+        MemberFunction:  
           ReturnType:      3
           ClassType:       4097
           ThisType:        4102
@@ -196,21 +204,21 @@ sections:
           ArgumentList:    4103
           ThisPointerAdjustment: 0
       - Kind:            LF_FIELDLIST
-        FieldList:
+        FieldList:       
           - Kind:            LF_MEMBER
-            DataMember:
+            DataMember:      
               Attrs:           3
               Type:            116
               FieldOffset:     0
               Name:            X
           - Kind:            LF_ONEMETHOD
-            OneMethod:
+            OneMethod:       
               Type:            4104
               Attrs:           3
               VFTableOffset:   -1
               Name:            Foo
       - Kind:            LF_STRUCTURE
-        Class:
+        Class:           
           MemberCount:     2
           Options:         [ None, HasUniqueName ]
           FieldList:       4105
@@ -220,27 +228,27 @@ sections:
           VTableShape:     0
           Size:            4
       - Kind:            LF_STRING_ID
-        StringId:
+        StringId:        
           Id:              0
           String:          'D:\src\llvmbuild\clang\Debug\x86\obj.h'
       - Kind:            LF_UDT_SRC_LINE
-        UdtSourceLine:
+        UdtSourceLine:   
           UDT:             4106
           SourceFile:      4107
           LineNumber:      2
       - Kind:            LF_FUNC_ID
-        FuncId:
+        FuncId:          
           ParentScope:     4096
           FunctionType:    4101
           Name:            func
-symbols:
+symbols:         
   - Name:            .text
     Value:           0
     SectionNumber:   1
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          25
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -252,7 +260,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          0
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -264,7 +272,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          0
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -276,7 +284,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          48
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -288,11 +296,11 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          584
       NumberOfRelocations: 7
       NumberOfLinenumbers: 0
-      CheckSum:        2847177244
+      CheckSum:        917356735
       Number:          5
   - Name:            '.debug$T'
     Value:           0
@@ -300,7 +308,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          320
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0

@@ -1,0 +1,30 @@
+# REQUIRES: x86
+# RUN: echo 'nop; .section .small, "a"; .long 0; .section .big, "a"; .quad 1;' \
+# RUN:   | llvm-mc -filetype=obj -triple=x86_64-unknown-linux - -o %t.o
+# RUN: ld.lld %t.o --script %s -o %t
+
+SECTIONS {
+  OVERLAY 0x1000 : AT ( 0x4000 ) {
+    .out.big { *(.big) } 
+    .out.small { *(.small) } 
+  } 
+}
+
+## Here we check that can handle OVERLAY which will produce sections 
+## .out.big and .out.small with the same starting VAs, but different LMAs.
+## Section .big is larger than .small, we check that placing of section
+## .text does not cause overlapping error and that
+## .text's VA is 0x1000 + max(sizeof(.out.big), sizeof(.out.small)).
+
+# RUN: llvm-readobj -sections -program-headers -elf-output-style=GNU %t | FileCheck %s
+
+# CHECK: Section Headers:
+# CHECK: Name       Type     Address          Off    Size
+# CHECK: .out.big   PROGBITS 0000000000001000 001000 000008
+# CHECK: .out.small PROGBITS 0000000000001000 002000 000004
+# CHECK: .text      PROGBITS 0000000000001008 002008 000001
+
+# CHECK:      Program Headers:
+# CHECK:      Type Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+# CHECK-NEXT: LOAD 0x001000 0x0000000000001000 0x0000000000004000 0x000008 0x000008 R E 0x1000
+# CHECK-NEXT: LOAD 0x002000 0x0000000000001000 0x0000000000004008 0x000009 0x000009 R E 0x1000

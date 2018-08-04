@@ -1,5 +1,5 @@
-// Should set the value of the "_end" symbol to the end of the data segment.
 // REQUIRES: x86
+// Should set the value of the "_end" symbol to the end of the data segment.
 
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 

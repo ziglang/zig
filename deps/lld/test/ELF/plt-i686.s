@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %p/Inputs/shared.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
@@ -9,7 +10,6 @@
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASMSHARED %s
 // RUN: ld.lld -pie %t.o %t2.so -o %t
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASMPIE %s
-// REQUIRES: x86
 
 // CHECK:      Name: .plt
 // CHECK-NEXT: Type: SHT_PROGBITS

@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # In case of linking PIC and non-PIC code together and generation
 # of a relocatable object, all PIC symbols should have STO_MIPS_PIC
 # flag in the symbol table of the ouput file.
@@ -7,8 +8,6 @@
 # RUN:   %p/Inputs/mips-pic.s -o %t-pic.o
 # RUN: ld.lld -r %t-npic.o %t-pic.o -o %t-rel.o
 # RUN: llvm-readobj -t %t-rel.o | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Symbol {
 # CHECK:        Name: main

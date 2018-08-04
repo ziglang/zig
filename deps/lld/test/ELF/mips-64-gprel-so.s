@@ -1,10 +1,9 @@
+# REQUIRES: mips
 # Check setup of GP relative offsets in a function's prologue.
 
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -o %t.so
 # RUN: llvm-objdump -d -t %t.so | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Disassembly of section .text:
 # CHECK-NEXT: foo:

@@ -1,8 +1,8 @@
+// REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-none-linux-gnu %s -o %t.o
 // RUN: ld.lld -static %t.o -o %tout
 // RUN: llvm-objdump -d %tout | FileCheck %s --check-prefix=DISASM
 // RUN: llvm-readobj -r -symbols -sections %tout | FileCheck %s
-// REQUIRES: aarch64
 
 // CHECK:      Sections [
 // CHECK:       Section {

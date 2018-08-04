@@ -28,8 +28,8 @@ zed:
 // CHECK-NEXT:   SHF_MERGE
 // CHECK-NEXT:   SHF_STRINGS
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address:         0x1C8
-// CHECK-NEXT: Offset:  0x1C8
+// CHECK-NEXT: Address: 0x20D
+// CHECK-NEXT: Offset: 0x20D
 // CHECK-NEXT: Size:    4
 // CHECK-NEXT: Link: 0
 // CHECK-NEXT: Info: 0
@@ -46,8 +46,8 @@ zed:
 // NOTAIL-NEXT:   SHF_MERGE
 // NOTAIL-NEXT:   SHF_STRINGS
 // NOTAIL-NEXT: ]
-// NOTAIL-NEXT: Address:         0x1C8
-// NOTAIL-NEXT: Offset:  0x1C8
+// NOTAIL-NEXT: Address: 0x20D
+// NOTAIL-NEXT: Offset: 0x20D
 // NOTAIL-NEXT: Size:    7
 // NOTAIL-NEXT: Link: 0
 // NOTAIL-NEXT: Info: 0
@@ -64,8 +64,8 @@ zed:
 // NOMERGE-NEXT:   SHF_MERGE
 // NOMERGE-NEXT:   SHF_STRINGS
 // NOMERGE-NEXT: ]
-// NOMERGE-NEXT: Address:         0x1C8
-// NOMERGE-NEXT: Offset:  0x1C8
+// NOMERGE-NEXT: Address: 0x20D
+// NOMERGE-NEXT: Offset: 0x20D
 // NOMERGE-NEXT: Size:    11
 // NOMERGE-NEXT: Link: 0
 // NOMERGE-NEXT: Info: 0
@@ -82,8 +82,8 @@ zed:
 // CHECK-NEXT:   SHF_MERGE
 // CHECK-NEXT:   SHF_STRINGS
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x1CC
-// CHECK-NEXT: Offset: 0x1CC
+// CHECK-NEXT: Address: 0x212
+// CHECK-NEXT: Offset: 0x212
 // CHECK-NEXT: Size: 4
 // CHECK-NEXT: Link: 0
 // CHECK-NEXT: Info: 0
@@ -95,11 +95,11 @@ zed:
 
 
 // CHECK:      Name:    bar
-// CHECK-NEXT: Value:   0x1C9
+// CHECK-NEXT: Value: 0x20E
 
 // CHECK:      Name:    foo
-// CHECK-NEXT: Value:   0x1C8
+// CHECK-NEXT: Value: 0x20D
 
 // CHECK:      Name: zed
-// CHECK-NEXT: Value: 0x1CC
+// CHECK-NEXT: Value: 0x212
 // CHECK-NEXT: Size: 0

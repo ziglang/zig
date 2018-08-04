@@ -6,8 +6,10 @@
 # RUN: llvm-lib /out:%T/MixedCase.lib %T/MixedCase.obj
 # RUN: not lld-link /machine:x64 /entry:main %T/MixedCase.lib 2>&1 | FileCheck -check-prefix=ARCHIVE %s
 
-# OBJECT: MixedCase.obj: undefined symbol: f
-# ARCHIVE: MixedCase.lib(MixedCase.obj): undefined symbol: f
+# OBJECT: undefined symbol: f
+# OBJECT-NEXT: >>> referenced by {{.*}}MixedCase.obj:(main)
+# ARCHIVE: undefined symbol: f
+# ARCHIVE-NEXT: >>> referenced by {{.*}}MixedCase.lib(MixedCase.obj):(main)
 
 .globl main
 main:

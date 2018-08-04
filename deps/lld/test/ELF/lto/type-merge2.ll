@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
 ; RUN: llvm-as %p/Inputs/type-merge2.ll -o %t2.o
-; RUN: ld.lld -m elf_x86_64 %t.o %t2.o -o %t.so -shared -save-temps
+; RUN: ld.lld %t.o %t2.o -o %t.so -shared -save-temps
 ; RUN: llvm-dis %t.so.0.0.preopt.bc -o - | FileCheck %s
 
 target triple = "x86_64-unknown-linux-gnu"

@@ -1,5 +1,5 @@
-# RUN: lld -flavor darwin -arch arm64 -r -print_atoms %s -o %t | FileCheck %s
-# RUN: lld -flavor darwin -arch arm64 -r -print_atoms %t -o %t2 | FileCheck %s
+# RUN: ld64.lld -arch arm64 -r -print_atoms %s -o %t | FileCheck %s
+# RUN: ld64.lld -arch arm64 -r -print_atoms %t -o %t2 | FileCheck %s
 # RUN: llvm-objdump -r -s -section="__eh_frame" -macho %t | FileCheck -check-prefix=CODE %s
 # RUN: llvm-objdump -r -s -section="__eh_frame" -macho %t2 | FileCheck -check-prefix=CODE %s
 

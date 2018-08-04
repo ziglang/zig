@@ -1,8 +1,8 @@
-# RUN: lld -flavor darwin -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml \
+# RUN: ld64.lld -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml \
 # RUN:      %p/Inputs/libfoo.a %p/Inputs/libbar.a -o %t1
 # RUN: llvm-nm -m -n %t1 | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml \
+# RUN: ld64.lld -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml \
 # RUN:      -force_load %p/Inputs/libfoo.a %p/Inputs/libbar.a -o %t2
 # RUN: llvm-nm -m -n %t2 | FileCheck --check-prefix=CHECKF %s
 #

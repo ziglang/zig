@@ -1,6 +1,6 @@
-# RUN: lld -flavor darwin -arch armv7 -r -print_atoms %s \
+# RUN: ld64.lld -arch armv7 -r -print_atoms %s \
 # RUN: %p/Inputs/arm-interworking.yaml -o %t  | FileCheck %s \
-# RUN: && lld -flavor darwin -arch armv7 -dylib -print_atoms \
+# RUN: && ld64.lld -arch armv7 -dylib -print_atoms \
 # RUN:         %p/Inputs/armv7/libSystem.yaml %t -o %t2  | FileCheck %s \
 # RUN: && llvm-readobj -s -sd %t2 | FileCheck -check-prefix=CODE %s
 #

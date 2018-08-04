@@ -60,7 +60,7 @@ _start:
 // HDR-NEXT:    Size: 36
 // HDR-NEXT:    Link: 0
 // HDR-NEXT:    Info: 0
-// HDR-NEXT:    AddressAlignment: 1
+// HDR-NEXT:    AddressAlignment: 4
 // HDR-NEXT:    EntrySize: 0
 // HDR-NEXT:    SectionData (
 // HDR-NEXT:      0000: 011B033B 24000000 03000000 A80E0000
@@ -92,7 +92,7 @@ _start:
 // HDR-NEXT:    ]
 // HDR-NEXT:    Address: 0x200180
 // HDR-NEXT:    Offset: 0x180
-// HDR-NEXT:    Size: 96
+// HDR-NEXT:    Size: 100
 // HDR-NEXT:    Link: 0
 // HDR-NEXT:    Info: 0
 // HDR-NEXT:    AddressAlignment: 8
@@ -104,6 +104,7 @@ _start:
 // HDR-NEXT:      0030: 14000000 34000000 490E0000 01000000
 // HDR-NEXT:      0040: 00000000 00000000 14000000 4C000000
 // HDR-NEXT:      0050: 320E0000 01000000 00000000 00000000
+// HDR-NEXT:      0060: 00000000
 // HDR-NEXT:    )
 //            CIE: 14000000 00000000 017A5200 01781001 1B0C0708 90010000
 //            FDE(1): 14000000 1C000000 600E0000 01000000 00000000 00000000
@@ -130,5 +131,5 @@ _start:
 // HDR-NEXT:   Flags [
 // HDR-NEXT:     PF_R
 // HDR-NEXT:   ]
-// HDR-NEXT:   Alignment: 1
+// HDR-NEXT:   Alignment: 4
 // HDR-NEXT: }

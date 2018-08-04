@@ -19,13 +19,12 @@
 // DISASM:    1013:       90      nop
 // DISASM:    1014:       90      nop
 
-
 // SYMBOL:      Relocations [
 // SYMBOL-NEXT:   Section ({{.*}}) .rela.dyn {
-// SYMBOL-NEXT:     0x2010 R_X86_64_64 __stop_zed1 0x0
-// SYMBOL-NEXT:     0x2018 R_X86_64_64 __stop_zed1 0x1
-// SYMBOL-NEXT:     0x2000 R_X86_64_64 __stop_zed2 0x0
-// SYMBOL-NEXT:     0x2008 R_X86_64_64 __stop_zed2 0x1
+// SYMBOL-NEXT:     R_X86_64_RELATIVE
+// SYMBOL-NEXT:     R_X86_64_RELATIVE
+// SYMBOL-NEXT:     R_X86_64_RELATIVE
+// SYMBOL-NEXT:     R_X86_64_RELATIVE
 // SYMBOL-NEXT:   }
 // SYMBOL-NEXT: ]
 
@@ -45,20 +44,20 @@
 // SYMBOL: Symbol {
 // SYMBOL:   Name: __stop_foo
 // SYMBOL:   Value: 0x1012
-// STMBOL:   STV_HIDDEN
+// SYMBOL:   STV_HIDDEN
 // SYMBOL:   Section: foo
 // SYMBOL: }
 
 // SYMBOL: Symbol {
 // SYMBOL:   Name: __stop_zed1
 // SYMBOL:   Value: 0x2010
-// STMBOL:   Other: 0
+// SYMBOL:   STV_PROTECTED
 // SYMBOL:   Section: zed1
 // SYMBOL: }
 // SYMBOL: Symbol {
 // SYMBOL:   Name: __stop_zed2
 // SYMBOL:   Value: 0x2020
-// STMBOL:   Other: 0
+// SYMBOL:   STV_PROTECTED
 // SYMBOL:   Section: zed2
 // SYMBOL: }
 

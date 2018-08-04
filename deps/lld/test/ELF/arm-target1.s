@@ -31,6 +31,6 @@
 // RELATIVE: SYMBOL TABLE:
 // RELATIVE: 00001004         .text           00000000 patatino
 
-// ABS: can't create dynamic relocation R_ARM_TARGET1 against symbol: patatino
+// ABS: can't create dynamic relocation R_ARM_TARGET1 against symbol: patatino in readonly segment; recompile object files with -fPIC or pass '-Wl,-z,notext' to allow text relocations in the output
 // ABS: >>> defined in {{.*}}.o
 // ABS: >>> referenced by {{.*}}.o:(.text+0x0)

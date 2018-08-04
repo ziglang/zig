@@ -1,6 +1,6 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-# RUN: ld.lld --gdb-index -shared %t.o -o %t
+# RUN: ld.lld --gdb-index -shared %t.o -o /dev/null
 
 # This used to fail trying to compute R_X86_64_DTPOFF64
 

@@ -1,0 +1,42 @@
+REQUIRES: diasdk
+
+Input object file reconstruction:
+
+; // main.cpp
+; struct S {
+;   // Function names are chosen specifically to generate hash collisions in the
+;   // GSI hash table.
+;   virtual int A307() { return 102; }
+;   virtual int A400() { return 12; }
+;   virtual int A206() { return 201; }
+;   virtual int A105() { return 300; }
+; };
+; 
+; struct T : public S {
+;   int A105() override { return 300; }
+;   int A307() override { return 102; }
+;   int A206() override { return 201; }
+;   int A400() override { return 12; }
+; };
+; 
+; int main(int argc, char **argv) {
+;   T s;
+;   return s.A105() + s.A206() + s.A307() + s.A400();
+; }
+
+clang-cl /Z7 /GS- /GR- /c main.cpp /Foglobals-dia-vfunc-collision.obj
+
+RUN: lld-link /debug /nodefaultlib /entry:main /out:%t.exe %S/Inputs/globals-dia-vfunc-collision.obj
+RUN: llvm-pdbutil pretty -classes %t.pdb | FileCheck %s
+
+CHECK: struct T
+CHECK: func [0x000010c0+ 0 - 0x000010dd-29 | sizeof= 29] (FPO) virtual {{.*}}A105()
+CHECK: func [0x00001100+ 0 - 0x0000111b-27 | sizeof= 27] (FPO) virtual {{.*}}A307()
+CHECK: func [0x000010e0+ 0 - 0x000010fd-29 | sizeof= 29] (FPO) virtual {{.*}}A206()
+CHECK: func [0x00001120+ 0 - 0x0000113b-27 | sizeof= 27] (FPO) virtual {{.*}}A400()
+
+CHECK: struct S
+CHECK: func [0x00001160+ 0 - 0x0000116c-12 | sizeof= 12] (FPO) virtual {{.*}}A307()
+CHECK: func [0x00001170+ 0 - 0x0000117c-12 | sizeof= 12] (FPO) virtual {{.*}}A400()
+CHECK: func [0x00001180+ 0 - 0x0000118c-12 | sizeof= 12] (FPO) virtual {{.*}}A206()
+CHECK: func [0x00001190+ 0 - 0x0000119c-12 | sizeof= 12] (FPO) virtual {{.*}}A105()

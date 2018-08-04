@@ -5,7 +5,7 @@
 #   /opt/Frameworks should not be found in SDK
 #   /System/Library/Frameworks is implicit and should be in SDK
 #
-# RUN: lld -flavor darwin -arch x86_64 -r -test_file_usage -v \
+# RUN: ld64.lld -arch x86_64 -r -test_file_usage -v \
 # RUN:        -path_exists myFrameworks \
 # RUN:        -path_exists myFrameworks/my.framework/my \
 # RUN:        -path_exists /opt/Frameworks \

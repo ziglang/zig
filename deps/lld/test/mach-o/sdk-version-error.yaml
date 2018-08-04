@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -arch x86_64 -sdk_version 10.blah %s -o %t 2>&1 | FileCheck %s --check-prefix=ERROR
+# RUN: not ld64.lld -arch x86_64 -sdk_version 10.blah %s -o %t 2>&1 | FileCheck %s --check-prefix=ERROR
 
 --- !mach-o
 arch:            x86_64

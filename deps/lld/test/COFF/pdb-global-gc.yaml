@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: yaml2obj %s -o %t.obj
 # RUN: llvm-mc %S/Inputs/pdb-global-gc.s -triple x86_64-windows-msvc -filetype=obj -o %t2.obj
 # RUN: lld-link %t.obj %t2.obj -debug -entry:main \

@@ -196,6 +196,6 @@
 
 .globl _start
 _start:
-  callq a
-  callq b
-  callq c
+  .long a - .
+  .long b - .
+  .long c - .

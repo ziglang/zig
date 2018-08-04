@@ -1,10 +1,10 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %S/Inputs/shared.s -o %tso
 // RUN: ld.lld -static %t -o %tout
 // RUN: ld.lld %t -o %tout
 // RUN: ld.lld -shared %tso -o %tshared
 // RUN: ld.lld -static %t %tshared -o %tout
-// REQUIRES: x86
 
 .global _start
 _start:

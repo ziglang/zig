@@ -1,8 +1,8 @@
+# REQUIRES: aarch64
 # RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-freebsd %s -o %t
 # RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-freebsd %p/Inputs/uabs_label.s -o %t2.o
 # RUN: ld.lld %t %t2.o -o %t2
 # RUN: llvm-objdump -d %t2 | FileCheck %s
-# REQUIRES: aarch64
 
 .section .R_AARCH64_ADR_PREL_LO21,"ax",@progbits
 .globl _start

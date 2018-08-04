@@ -77,10 +77,13 @@
 #include "Config.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
+#include "SyntheticSections.h"
+#include "Writer.h"
 #include "lld/Common/Threads.h"
-#include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Object/ELF.h"
+#include "llvm/Support/xxhash.h"
 #include <algorithm>
 #include <atomic>
 
@@ -112,9 +115,9 @@ private:
   size_t findBoundary(size_t Begin, size_t End);
 
   void forEachClassRange(size_t Begin, size_t End,
-                         std::function<void(size_t, size_t)> Fn);
+                         llvm::function_ref<void(size_t, size_t)> Fn);
 
-  void forEachClass(std::function<void(size_t, size_t)> Fn);
+  void forEachClass(llvm::function_ref<void(size_t, size_t)> Fn);
 
   std::vector<InputSection *> Sections;
 
@@ -153,23 +156,40 @@ private:
 };
 }
 
-// Returns a hash value for S. Note that the information about
-// relocation targets is not included in the hash value.
-template <class ELFT> static uint32_t getHash(InputSection *S) {
-  return hash_combine(S->Flags, S->getSize(), S->NumRelocations, S->Data);
-}
-
 // Returns true if section S is subject of ICF.
 static bool isEligible(InputSection *S) {
-  // Don't merge read only data sections unless --icf-data was passed.
-  if (!(S->Flags & SHF_EXECINSTR) && !Config->ICFData)
+  if (!S->Live || S->KeepUnique || !(S->Flags & SHF_ALLOC))
     return false;
 
-  // .init and .fini contains instructions that must be executed to
-  // initialize and finalize the process. They cannot and should not
-  // be merged.
-  return S->Live && (S->Flags & SHF_ALLOC) && !(S->Flags & SHF_WRITE) &&
-         S->Name != ".init" && S->Name != ".fini";
+  // Don't merge writable sections. .data.rel.ro sections are marked as writable
+  // but are semantically read-only.
+  if ((S->Flags & SHF_WRITE) && S->Name != ".data.rel.ro" &&
+      !S->Name.startswith(".data.rel.ro."))
+    return false;
+
+  // SHF_LINK_ORDER sections are ICF'd as a unit with their dependent sections,
+  // so we don't consider them for ICF individually.
+  if (S->Flags & SHF_LINK_ORDER)
+    return false;
+
+  // Don't merge synthetic sections as their Data member is not valid and empty.
+  // The Data member needs to be valid for ICF as it is used by ICF to determine
+  // the equality of section contents.
+  if (isa<SyntheticSection>(S))
+    return false;
+
+  // .init and .fini contains instructions that must be executed to initialize
+  // and finalize the process. They cannot and should not be merged.
+  if (S->Name == ".init" || S->Name == ".fini")
+    return false;
+
+  // A user program may enumerate sections named with a C identifier using
+  // __start_* and __stop_* symbols. We cannot ICF any such sections because
+  // that could change program semantics.
+  if (isValidCIdentifier(S->Name))
+    return false;
+
+  return true;
 }
 
 // Split an equivalence class into smaller classes.
@@ -214,9 +234,6 @@ template <class ELFT>
 template <class RelTy>
 bool ICF<ELFT>::constantEq(const InputSection *SecA, ArrayRef<RelTy> RA,
                            const InputSection *SecB, ArrayRef<RelTy> RB) {
-  if (RA.size() != RB.size())
-    return false;
-
   for (size_t I = 0; I < RA.size(); ++I) {
     if (RA[I].r_offset != RB[I].r_offset ||
         RA[I].getType(Config->IsMips64EL) != RB[I].getType(Config->IsMips64EL))
@@ -282,6 +299,13 @@ template <class ELFT>
 bool ICF<ELFT>::equalsConstant(const InputSection *A, const InputSection *B) {
   if (A->NumRelocations != B->NumRelocations || A->Flags != B->Flags ||
       A->getSize() != B->getSize() || A->Data != B->Data)
+    return false;
+
+  // If two sections have different output sections, we cannot merge them.
+  // FIXME: This doesn't do the right thing in the case where there is a linker
+  // script. We probably need to move output section assignment before ICF to
+  // get the correct behaviour here.
+  if (getOutputSectionName(A) != getOutputSectionName(B))
     return false;
 
   if (A->AreRelocsRela)
@@ -350,17 +374,12 @@ template <class ELFT> size_t ICF<ELFT>::findBoundary(size_t Begin, size_t End) {
 // vector. Therefore, Sections vector can be considered as contiguous
 // groups of sections, grouped by the class.
 //
-// This function calls Fn on every group that starts within [Begin, End).
-// Note that a group must start in that range but doesn't necessarily
-// have to end before End.
+// This function calls Fn on every group within [Begin, End).
 template <class ELFT>
 void ICF<ELFT>::forEachClassRange(size_t Begin, size_t End,
-                                  std::function<void(size_t, size_t)> Fn) {
-  if (Begin > 0)
-    Begin = findBoundary(Begin - 1, End);
-
+                                  llvm::function_ref<void(size_t, size_t)> Fn) {
   while (Begin < End) {
-    size_t Mid = findBoundary(Begin, Sections.size());
+    size_t Mid = findBoundary(Begin, End);
     Fn(Begin, Mid);
     Begin = Mid;
   }
@@ -368,7 +387,7 @@ void ICF<ELFT>::forEachClassRange(size_t Begin, size_t End,
 
 // Call Fn on each equivalence class.
 template <class ELFT>
-void ICF<ELFT>::forEachClass(std::function<void(size_t, size_t)> Fn) {
+void ICF<ELFT>::forEachClass(llvm::function_ref<void(size_t, size_t)> Fn) {
   // If threading is disabled or the number of sections are
   // too small to use threading, call Fn sequentially.
   if (!ThreadsEnabled || Sections.size() < 1024) {
@@ -380,14 +399,30 @@ void ICF<ELFT>::forEachClass(std::function<void(size_t, size_t)> Fn) {
   Current = Cnt % 2;
   Next = (Cnt + 1) % 2;
 
-  // Split sections into 256 shards and call Fn in parallel.
-  size_t NumShards = 256;
+  // Shard into non-overlapping intervals, and call Fn in parallel.
+  // The sharding must be completed before any calls to Fn are made
+  // so that Fn can modify the Chunks in its shard without causing data
+  // races.
+  const size_t NumShards = 256;
   size_t Step = Sections.size() / NumShards;
-  parallelForEachN(0, NumShards, [&](size_t I) {
-    size_t End = (I == NumShards - 1) ? Sections.size() : (I + 1) * Step;
-    forEachClassRange(I * Step, End, Fn);
+  size_t Boundaries[NumShards + 1];
+  Boundaries[0] = 0;
+  Boundaries[NumShards] = Sections.size();
+
+  parallelForEachN(1, NumShards, [&](size_t I) {
+    Boundaries[I] = findBoundary((I - 1) * Step, Sections.size());
+  });
+
+  parallelForEachN(1, NumShards + 1, [&](size_t I) {
+    if (Boundaries[I - 1] < Boundaries[I])
+      forEachClassRange(Boundaries[I - 1], Boundaries[I], Fn);
   });
   ++Cnt;
+}
+
+static void print(const Twine &S) {
+  if (Config->PrintIcfSections)
+    message(S);
 }
 
 // The main function of ICF.
@@ -401,7 +436,7 @@ template <class ELFT> void ICF<ELFT>::run() {
   // Initially, we use hash values to partition sections.
   parallelForEach(Sections, [&](InputSection *S) {
     // Set MSB to 1 to avoid collisions with non-hash IDs.
-    S->Class[0] = getHash<ELFT>(S) | (1 << 31);
+    S->Class[0] = xxHash64(S->Data) | (1U << 31);
   });
 
   // From now on, sections in Sections vector are ordered so that sections
@@ -424,25 +459,21 @@ template <class ELFT> void ICF<ELFT>::run() {
   log("ICF needed " + Twine(Cnt) + " iterations");
 
   // Merge sections by the equivalence class.
-  forEachClass([&](size_t Begin, size_t End) {
+  forEachClassRange(0, Sections.size(), [&](size_t Begin, size_t End) {
     if (End - Begin == 1)
       return;
-
-    log("selected " + Sections[Begin]->Name);
+    print("selected section " + toString(Sections[Begin]));
     for (size_t I = Begin + 1; I < End; ++I) {
-      log("  removed " + Sections[I]->Name);
+      print("  removing identical section " + toString(Sections[I]));
       Sections[Begin]->replace(Sections[I]);
+
+      // At this point we know sections merged are fully identical and hence
+      // we want to remove duplicate implicit dependencies such as link order
+      // and relocation sections.
+      for (InputSection *IS : Sections[I]->DependentSections)
+        IS->Live = false;
     }
   });
-
-  // Mark ARM Exception Index table sections that refer to folded code
-  // sections as not live. These sections have an implict dependency
-  // via the link order dependency.
-  if (Config->EMachine == EM_ARM)
-    for (InputSectionBase *Sec : InputSections)
-      if (auto *S = dyn_cast<InputSection>(Sec))
-        if (S->Flags & SHF_LINK_ORDER)
-          S->Live = S->getLinkOrderDep()->Live;
 }
 
 // ICF entry point function.

@@ -1,0 +1,130 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux /dev/null -o %t
+# RUN: ld.lld %t --script %s -o %t2
+# RUN: llvm-objdump -t %t2 | FileCheck %s
+
+SECTIONS {
+  _start = .;
+  plus = 1 + 2 + 3;
+  minus = 5 - 1;
+  div = 6 / 2;
+  mod = 20 % 7;
+  mul = 1 + 2 * 3;
+  nospace = 1+2*6/3;
+  braces = 1 + (2 + 3) * 4;
+  and = 0xbb & 0xee;
+  ternary1 = 1 ? 1 : 2;
+  ternary2 = 0 ? 1 : 2;
+  less = 1 < 0 ? 1 : 2;
+  lesseq = 1 <= 1 ? 1 : 2;
+  greater = 0 > 1 ? 1 : 2;
+  greatereq = 1 >= 1 ? 1 : 2;
+  eq = 1 == 1 ? 1 : 2;
+  neq = 1 != 1 ? 1 : 2;
+  plusassign = 1;
+  plusassign += 2;
+  unary = -1 + 3;
+  lshift = 1 << 5;
+  rshift = 0xff >> 3;
+  precedence1 = 1 | 0xff & 1 << 1 + 1 * 2;
+  precedence2 = (1 | (0xff & (1 << (1 + (1 * 2)))));
+  maxpagesize = CONSTANT (MAXPAGESIZE);
+  commonpagesize = CONSTANT (COMMONPAGESIZE);
+  . = 0xfff0;
+  datasegmentalign = DATA_SEGMENT_ALIGN (0xffff, 0);
+  datasegmentalign2 = DATA_SEGMENT_ALIGN (0, 0);
+  _end = .;
+  minus_rel = _end - 0x10;
+  minus_abs = _end - _start;
+  max = MAX(11, 22);
+  min = MIN(11, 22);
+  logicaland1 = 0 && 0;
+  logicaland2 = 0 && 1;
+  logicaland3 = 1 && 0;
+  logicaland4 = 1 && 1;
+  logicalor1 = 0 || 0;
+  logicalor2 = 0 || 1;
+  logicalor3 = 1 || 0;
+  logicalor4 = 1 || 1;
+}
+
+# CHECK: 00000000000006 *ABS* 00000000 plus
+# CHECK: 00000000000004 *ABS* 00000000 minus
+# CHECK: 00000000000003 *ABS* 00000000 div
+# CHECK: 00000000000006 *ABS* 00000000 mod
+# CHECK: 00000000000007 *ABS* 00000000 mul
+# CHECK: 00000000000005 *ABS* 00000000 nospace
+# CHECK: 00000000000015 *ABS* 00000000 braces
+# CHECK: 000000000000aa *ABS* 00000000 and
+# CHECK: 00000000000001 *ABS* 00000000 ternary1
+# CHECK: 00000000000002 *ABS* 00000000 ternary2
+# CHECK: 00000000000002 *ABS* 00000000 less
+# CHECK: 00000000000001 *ABS* 00000000 lesseq
+# CHECK: 00000000000002 *ABS* 00000000 greater
+# CHECK: 00000000000001 *ABS* 00000000 greatereq
+# CHECK: 00000000000001 *ABS* 00000000 eq
+# CHECK: 00000000000002 *ABS* 00000000 neq
+# CHECK: 00000000000003 *ABS* 00000000 plusassign
+# CHECK: 00000000000002 *ABS* 00000000 unary
+# CHECK: 00000000000020 *ABS* 00000000 lshift
+# CHECK: 0000000000001f *ABS* 00000000 rshift
+# CHECK: 00000000000009 *ABS* 00000000 precedence1
+# CHECK: 00000000000009 *ABS* 00000000 precedence2
+# CHECK: 00000000001000 *ABS* 00000000 maxpagesize
+# CHECK: 00000000001000 *ABS* 00000000 commonpagesize
+# CHECK: 0000000000ffff *ABS* 00000000 datasegmentalign
+# CHECK: 0000000000fff0 *ABS* 00000000 datasegmentalign2
+# CHECK: 0000000000ffe0 .text 00000000 minus_rel
+# CHECK: 0000000000fff0 *ABS* 00000000 minus_abs
+# CHECK: 00000000000016 *ABS* 00000000 max
+# CHECK: 0000000000000b *ABS* 00000000 min
+# CHECK: 00000000000000 *ABS* 00000000 logicaland1
+# CHECK: 00000000000000 *ABS* 00000000 logicaland2
+# CHECK: 00000000000000 *ABS* 00000000 logicaland3
+# CHECK: 00000000000001 *ABS* 00000000 logicaland4
+# CHECK: 00000000000000 *ABS* 00000000 logicalor1
+# CHECK: 00000000000001 *ABS* 00000000 logicalor2
+# CHECK: 00000000000001 *ABS* 00000000 logicalor3
+# CHECK: 00000000000001 *ABS* 00000000 logicalor4
+
+## Mailformed number error.
+# RUN: echo "SECTIONS { . = 0x12Q41; }" > %t.script
+# RUN: not ld.lld %t --script %t.script -o %t2 2>&1 | \
+# RUN:  FileCheck --check-prefix=NUMERR %s
+# NUMERR: malformed number: 0x12Q41
+
+## Missing closing bracket.
+# RUN: echo "SECTIONS { . = (1; }" > %t.script
+# RUN: not ld.lld %t --script %t.script -o %t2 2>&1 | \
+# RUN:  FileCheck --check-prefix=BRACKETERR %s
+# BRACKETERR: ) expected, but got ;
+
+## Missing opening bracket.
+# RUN: echo "SECTIONS { . = 1); }" > %t.script
+# RUN: not ld.lld %t --script %t.script -o %t2 2>&1 | \
+# RUN:  FileCheck --check-prefix=BRACKETERR2 %s
+# BRACKETERR2: ; expected, but got )
+
+## Empty expression.
+# RUN: echo "SECTIONS { . = ; }" > %t.script
+# RUN: not ld.lld %t --script %t.script -o %t2 2>&1 | \
+# RUN:  FileCheck --check-prefix=ERREXPR %s
+# ERREXPR: malformed number: ;
+
+## Div by zero error.
+# RUN: echo "SECTIONS { . = 1 / 0; }" > %t.script
+# RUN: not ld.lld %t --script %t.script -o %t2 2>&1 | \
+# RUN:  FileCheck --check-prefix=DIVZERO %s
+# DIVZERO: {{.*}}.script:1: division by zero
+
+## Mod by zero error.
+# RUN: echo "SECTIONS { . = 1 % 0; }" > %t.script
+# RUN: not ld.lld %t --script %t.script -o %t2 2>&1 | \
+# RUN:  FileCheck --check-prefix=MODZERO %s
+# MODZERO: {{.*}}.script:1: modulo by zero
+
+## Broken ternary operator expression.
+# RUN: echo "SECTIONS { . = 1 ? 2; }" > %t.script
+# RUN: not ld.lld %t --script %t.script -o %t2 2>&1 | \
+# RUN:  FileCheck --check-prefix=TERNERR %s
+# TERNERR: : expected, but got ;

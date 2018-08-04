@@ -1,0 +1,54 @@
+--- !WASM
+FileHeader:
+  Version:         0x00000001
+Sections:
+  - Type:            TYPE
+    Signatures:
+      - Index:           0
+        ReturnType:      I64
+        ParamTypes:
+  - Type:            FUNCTION
+    FunctionTypes:   [ 0 ]
+  - Type:            GLOBAL
+    Globals:
+      - Index:       0
+        Type:        I64
+        Mutable:     true
+        InitExpr:
+          Opcode:          I64_CONST
+          Value:           123
+      - Index:       1
+        Type:        I64
+        Mutable:     true
+        InitExpr:
+          Opcode:          I64_CONST
+          Value:           456
+  - Type:            CODE
+    Functions:
+      - Index:           0
+        Locals:
+        Body:            2381808080000B
+    Relocations:
+      - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
+        Index:           1
+        Offset:          0x00000004
+  - Type:            CUSTOM
+    Name:            linking
+    Version:         1
+    SymbolTable:
+      - Index:           0
+        Kind:            GLOBAL
+        Name:            unused_global
+        Flags:           [ VISIBILITY_HIDDEN ]
+        Global:          0
+      - Index:           1
+        Kind:            GLOBAL
+        Name:            used_global
+        Flags:           [ VISIBILITY_HIDDEN ]
+        Global:          1
+      - Index:           2
+        Kind:            FUNCTION
+        Name:            use_global
+        Flags:           [ VISIBILITY_HIDDEN ]
+        Function:        0
+...

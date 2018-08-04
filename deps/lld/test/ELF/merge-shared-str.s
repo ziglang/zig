@@ -19,10 +19,10 @@
 // CHECK-NEXT:   SHF_MERGE
 // CHECK-NEXT:   SHF_STRINGS
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x1C8
+// CHECK-NEXT: Address: 0x228
 
 // CHECK:      Relocations [
 // CHECK-NEXT:   Section ({{.*}}) .rela.dyn {
-// CHECK-NEXT:     0x{{.*}} R_X86_64_RELATIVE - 0x1C9
+// CHECK-NEXT:     0x{{.*}} R_X86_64_RELATIVE - 0x229
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]

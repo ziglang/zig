@@ -34,9 +34,9 @@
 
 # RUN: echo "VERSION_1.0 { global: foo1; local: *; };" > %t6.script
 # RUN: echo "VERSION_2.0 { global: foo1; local: *; };" >> %t6.script
-# RUN: ld.lld --version-script %t6.script -shared %t.o %t2.so -o %t6.so 2>&1 | \
-# RUN:   FileCheck -check-prefix=WARN2 %s
-# WARN2: duplicate symbol 'foo1' in version script
+# RUN: not ld.lld --version-script %t6.script -shared %t.o %t2.so -o /dev/null 2>&1 | \
+# RUN:   FileCheck -check-prefix=ERR3 %s
+# ERR3: duplicate symbol 'foo1' in version script
 
 # RUN: echo "{ foo1; foo2; };" > %t.list
 # RUN: ld.lld --version-script %t.script --dynamic-list %t.list %t.o %t2.so -o %t2
@@ -212,6 +212,9 @@
 # ALL-NEXT:    Section: .text
 # ALL-NEXT:  }
 # ALL-NEXT: ]
+
+# RUN: echo "VERSION_1.0 { global: foo1; foo1; local: *; };" > %t8.script
+# RUN: ld.lld --version-script %t8.script -shared %t.o -o /dev/null --fatal-warnings
 
 .globl foo1
 foo1:

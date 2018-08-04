@@ -22,6 +22,6 @@
 .quad foobar4
 
 // RUN: echo "SECTIONS { . = SEGMENT_START(\"foobar\", foo); }" > %t.script
-// RUN: not ld.lld %t.o %t.script -shared -o %t2.so 2>&1 \
+// RUN: not ld.lld %t.o %t.script -shared -o /dev/null 2>&1 \
 // RUN: | FileCheck --check-prefix=ERR %s
 // ERR: {{.*}}.script:1: symbol not found: foo

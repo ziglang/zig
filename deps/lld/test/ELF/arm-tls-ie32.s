@@ -1,8 +1,8 @@
+// REQUIRES: arm
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
 // RUN: ld.lld --hash-style=sysv %t.o -o %t.so -shared
 // RUN: llvm-readobj -s -dyn-relocations %t.so | FileCheck --check-prefix=SEC %s
 // RUN: llvm-objdump -d -triple=armv7a-linux-gnueabi %t.so | FileCheck %s
-// REQUIRES: arm
 
 // Test the handling of the initial-exec TLS model. Relative location within
 // static TLS is a run-time constant computed by dynamic loader as a result

@@ -7,4 +7,4 @@
 # RUN:   /manifestuac:"level='requireAdministrator'" \
 # RUN:   /manifestinput:%p/Inputs/manifestinput.test %t.obj 2>&1 | FileCheck %s
 
-# CHECK: error: unable to find mt.exe in PATH: No such file or directory
+# CHECK: error: unable to find mt.exe in PATH: {{[Nn]}}o such file or directory

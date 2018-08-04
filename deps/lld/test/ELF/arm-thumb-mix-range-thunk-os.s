@@ -11,7 +11,7 @@
 // RUN: llvm-objdump -d %t2 -start-address=35651584 -stop-address=35651590 -triple=thumbv7a-linux-gnueabihf | FileCheck -check-prefix=CHECK6 %s
 // RUN: llvm-objdump -d %t2 -start-address=36700160 -stop-address=36700168 -triple=armv7a-linux-gnueabihf | FileCheck -check-prefix=CHECK7 %s
 // RUN: llvm-objdump -d %t2 -start-address=48234500 -stop-address=48234512 -triple=armv7a-linux-gnueabihf | FileCheck -check-prefix=CHECK8 %s
-// RUN: llvm-objdump -d %t2 -start-address=63963140 -stop-address=63963160 -triple=thumbv7a-linux-gnueabihf | FileCheck -check-prefix=CHECK9 %s
+// RUN: llvm-objdump -d %t2 -start-address=53477380 -stop-address=53477392 -triple=thumbv7a-linux-gnueabihf | FileCheck -check-prefix=CHECK9 %s
 // RUN: llvm-objdump -d %t2 -start-address=68157440 -stop-address=68157452 -triple=armv7a-linux-gnueabihf | FileCheck -check-prefix=CHECK10 %s
 // RUN: llvm-objdump -d %t2 -start-address=69206016 -stop-address=69206024 -triple=thumbv7a-linux-gnueabihf | FileCheck -check-prefix=CHECK11 %s
 
@@ -155,6 +155,13 @@ _start:
  ARMFUNCTION 48
  THUMBFUNCTION 49
  ARMFUNCTION 50
+// Expect precreated Thunk Section here
+// CHECK9: __Thumbv7ABSLongThunk_afunc34:
+// CHECK9-NEXT:  3300004:       40 f2 00 0c     movw    r12, #0
+// CHECK9-NEXT:  3300008:       c0 f2 30 2c     movt    r12, #560
+// CHECK9-NEXT:  330000c:       60 47   bx      r12
+// CHECK9: __Thumbv7ABSLongThunk_tfunc35:
+// CHECK9-NEXT:  330000e:       ff f4 f7 97     b.w     #-15728658 <tfunc35>
  THUMBFUNCTION 51
  ARMFUNCTION 52
  THUMBFUNCTION 53
@@ -165,15 +172,6 @@ _start:
  ARMFUNCTION 58
  THUMBFUNCTION 59
  ARMFUNCTION 60
-// Expect precreated Thunk Section here
-// CHECK9: __Thumbv7ABSLongThunk_afunc34:
-// CHECK9-NEXT:  3d00004:       40 f2 00 0c     movw    r12, #0
-// CHECK9-NEXT:  3d00008:       c0 f2 30 2c     movt    r12, #560
-// CHECK9-NEXT:  3d0000c:       60 47   bx      r12
-// CHECK9: __Thumbv7ABSLongThunk_tfunc35:
-// CHECK9-NEXT:  3d0000e:       40 f2 01 0c     movw    r12, #1
-// CHECK9-NEXT:  3d00012:       c0 f2 40 2c     movt    r12, #576
-// CHECK9-NEXT:  3d00016:       60 47   bx      r12
  THUMBFUNCTION 61
  ARMFUNCTION 62
  THUMBFUNCTION 63
@@ -191,5 +189,5 @@ _start:
  bl tfunc35
 // CHECK11: tfunc65:
 // CHECK11:  4200000:   70 47   bx      lr
-// CHECK11-NEXT:  4200002:      ff f6 ff f7     bl      #-5242882
-// CHECK11-NEXT:  4200006:      00 f7 02 f0     bl      #-5242876
+// CHECK11-NEXT:  4200002:      ff f4 ff d7     bl      #-15728642
+// CHECK11-NEXT:  4200006:      00 f5 02 d0     bl      #-15728636

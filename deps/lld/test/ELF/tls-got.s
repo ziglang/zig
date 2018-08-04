@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/tls-got.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
@@ -25,13 +26,13 @@
 // CHECK:      Relocations [
 // CHECK-NEXT:   Section (4) .rela.dyn {
 // CHECK-NEXT:     0x2020B8 R_X86_64_TPOFF64 tls0 0x0
-// CHECK-NEXT:     [[ADDR]] R_X86_64_TPOFF64 tls1 0x0
+// CHECK-NEXT:     0x2020B0 R_X86_64_TPOFF64 tls1 0x0
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]
 
-//0x201000 + 4249 + 7 = 0x2020B0
-//0x20100A + 4247 + 7 = 0x2020B8
-//0x201014 + 4237 + 7 = 0x2020B8
+//0x201000 + 4265 + 7 = 0x2020B0
+//0x20100A + 4263 + 7 = 0x2020B8
+//0x201014 + 4253 + 7 = 0x2020B8
 //DISASM:      Disassembly of section .text:
 //DISASM-NEXT: main:
 //DISASM-NEXT: 201000: 48 8b 05 a9 10 00 00 movq 4265(%rip), %rax

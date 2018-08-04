@@ -1,5 +1,5 @@
-# RUN: lld -flavor darwin -arch x86_64  %s -bundle -o %t %p/Inputs/x86_64/libSystem.yaml && llvm-nm -m -n %t | FileCheck %s
-# RUN: lld -flavor darwin -arch x86_64  %s -bundle -dead_strip -o %t %p/Inputs/x86_64/libSystem.yaml && llvm-nm -m -n %t | FileCheck %s
+# RUN: ld64.lld -arch x86_64  %s -bundle -o %t %p/Inputs/x86_64/libSystem.yaml && llvm-nm -m -n %t | FileCheck %s
+# RUN: ld64.lld -arch x86_64  %s -bundle -dead_strip -o %t %p/Inputs/x86_64/libSystem.yaml && llvm-nm -m -n %t | FileCheck %s
 #
 # Test that __mh_bundle_header symbol is available for bundles
 #

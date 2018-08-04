@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
 ; RUN: echo "{ foo; };" > %t.list
-; RUN: ld.lld -m elf_x86_64 -o %t --dynamic-list %t.list -pie %t.o
+; RUN: ld.lld -o %t --dynamic-list %t.list -pie %t.o
 ; RUN: llvm-readobj -dyn-symbols %t | FileCheck %s
 
 ; CHECK:      Name:     foo@

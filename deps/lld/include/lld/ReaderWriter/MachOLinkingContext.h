@@ -89,7 +89,7 @@ public:
                  bool exportDynamicSymbols);
 
   void addPasses(PassManager &pm) override;
-  bool validateImpl(raw_ostream &diagnostics) override;
+  bool validateImpl() override;
   std::string demangle(StringRef symbolName) const override;
 
   void createImplicitFiles(std::vector<std::unique_ptr<File>> &) override;
@@ -201,7 +201,7 @@ public:
 
   uint32_t swiftVersion() const { return _swiftVersion; }
 
-  /// \brief Checks whether a given path on the filesystem exists.
+  /// Checks whether a given path on the filesystem exists.
   ///
   /// When running in -test_file_usage mode, this method consults an
   /// internally maintained list of files that exist (provided by -path_exists)
@@ -211,7 +211,7 @@ public:
   /// Like pathExists() but only used on files - not directories.
   bool fileExists(StringRef path) const;
 
-  /// \brief Adds any library search paths derived from the given base, possibly
+  /// Adds any library search paths derived from the given base, possibly
   /// modified by -syslibroots.
   ///
   /// The set of paths added consists of approximately all syslibroot-prepended
@@ -219,7 +219,7 @@ public:
   /// for whatever reason. With various edge-cases for compatibility.
   void addModifiedSearchDir(StringRef libPath, bool isSystemPath = false);
 
-  /// \brief Determine whether -lFoo can be resolve within the given path, and
+  /// Determine whether -lFoo can be resolve within the given path, and
   /// return the filename if so.
   ///
   /// The -lFoo option is documented to search for libFoo.dylib and libFoo.a in
@@ -228,7 +228,7 @@ public:
   llvm::Optional<StringRef> searchDirForLibrary(StringRef path,
                                                 StringRef libName) const;
 
-  /// \brief Iterates through all search path entries looking for libName (as
+  /// Iterates through all search path entries looking for libName (as
   /// specified by -lFoo).
   llvm::Optional<StringRef> searchLibrary(StringRef libName) const;
 
@@ -236,11 +236,11 @@ public:
   /// the path with syslibroot.
   void addFrameworkSearchDir(StringRef fwPath, bool isSystemPath = false);
 
-  /// \brief Iterates through all framework directories looking for
+  /// Iterates through all framework directories looking for
   /// Foo.framework/Foo (when fwName = "Foo").
   llvm::Optional<StringRef> findPathForFramework(StringRef fwName) const;
 
-  /// \brief The dylib's binary compatibility version, in the raw uint32 format.
+  /// The dylib's binary compatibility version, in the raw uint32 format.
   ///
   /// When building a dynamic library, this is the compatibility version that
   /// gets embedded into the result. Other Mach-O binaries that link against
@@ -249,28 +249,28 @@ public:
   /// installed dynamic library.
   uint32_t compatibilityVersion() const { return _compatibilityVersion; }
 
-  /// \brief The dylib's current version, in the the raw uint32 format.
+  /// The dylib's current version, in the the raw uint32 format.
   ///
   /// When building a dynamic library, this is the current version that gets
   /// embedded into the result. Other Mach-O binaries that link against
   /// this library will store the compatibility version in its load command.
   uint32_t currentVersion() const { return _currentVersion; }
 
-  /// \brief The dylib's install name.
+  /// The dylib's install name.
   ///
   /// Binaries that link against the dylib will embed this path into the dylib
   /// load command. When loading the binaries at runtime, this is the location
   /// on disk that the loader will look for the dylib.
   StringRef installName() const { return _installName; }
 
-  /// \brief Whether or not the dylib has side effects during initialization.
+  /// Whether or not the dylib has side effects during initialization.
   ///
   /// Dylibs marked as being dead strippable provide the guarantee that loading
   /// the dylib has no side effects, allowing the linker to strip out the dylib
   /// when linking a binary that does not use any of its symbols.
   bool deadStrippableDylib() const { return _deadStrippableDylib; }
 
-  /// \brief Whether or not to use flat namespace.
+  /// Whether or not to use flat namespace.
   ///
   /// MachO usually uses a two-level namespace, where each external symbol
   /// referenced by the target is associated with the dylib that will provide
@@ -282,7 +282,7 @@ public:
   /// loaded flat_namespace dylibs must be resolvable at build time.
   bool useFlatNamespace() const { return _flatNamespace; }
 
-  /// \brief How to handle undefined symbols.
+  /// How to handle undefined symbols.
   ///
   /// Options are:
   ///  * error: Report an error and terminate linking.
@@ -294,7 +294,7 @@ public:
   ///    runtime.
   UndefinedMode undefinedMode() const { return _undefinedMode; }
 
-  /// \brief The path to the executable that will load the bundle at runtime.
+  /// The path to the executable that will load the bundle at runtime.
   ///
   /// When building a Mach-O bundle, this executable will be examined if there
   /// are undefined symbols after the main link phase. It is expected that this
@@ -331,7 +331,7 @@ public:
   /// Add section alignment constraint on final layout.
   void addSectionAlignment(StringRef seg, StringRef sect, uint16_t align);
 
-  /// \brief Add a section based on a command-line sectcreate option.
+  /// Add a section based on a command-line sectcreate option.
   void addSectCreateSection(StringRef seg, StringRef sect,
                             std::unique_ptr<MemoryBuffer> content);
 

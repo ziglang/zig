@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 
 # RUN: llvm-dwarfdump -v %t.o | FileCheck -check-prefix=INPUT %s
@@ -18,7 +19,7 @@
 # INPUT-NEXT:    DW_AT_location [DW_FORM_exprloc]        (DW_OP_addr 0x0)
 
 ## Check we use information from .debug_info in messages.
-# RUN: not ld.lld %t.o %t.o -o %t 2>&1 | FileCheck %s
+# RUN: not ld.lld %t.o %t.o -o /dev/null 2>&1 | FileCheck %s
 # CHECK:      duplicate symbol: bar
 # CHECK-NEXT: >>> defined at test.c:2
 # CHECK-NEXT: >>>            {{.*}}:(bar)

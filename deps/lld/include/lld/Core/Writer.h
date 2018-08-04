@@ -20,17 +20,17 @@ class File;
 class LinkingContext;
 class MachOLinkingContext;
 
-/// \brief The Writer is an abstract class for writing object files, shared
+/// The Writer is an abstract class for writing object files, shared
 /// library files, and executable files.  Each file format (e.g. mach-o, etc)
 /// has a concrete subclass of Writer.
 class Writer {
 public:
   virtual ~Writer();
 
-  /// \brief Write a file from the supplied File object
+  /// Write a file from the supplied File object
   virtual llvm::Error writeFile(const File &linkedFile, StringRef path) = 0;
 
-  /// \brief This method is called by Core Linking to give the Writer a chance
+  /// This method is called by Core Linking to give the Writer a chance
   /// to add file format specific "files" to set of files to be linked. This is
   /// how file format specific atoms can be added to the link.
   virtual void createImplicitFiles(std::vector<std::unique_ptr<File>> &) {}

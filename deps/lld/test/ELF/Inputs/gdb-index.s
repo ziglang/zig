@@ -1,8 +1,8 @@
 .text
 .Ltext0:
-.globl main2
-.type main2, @function
-main2:
+.globl aaaaaaaaaaaaaaaa
+.type aaaaaaaaaaaaaaaa, @function
+aaaaaaaaaaaaaaaa:
  nop
  nop
 .Letext0:
@@ -59,7 +59,7 @@ main2:
 .long 0x33
 .long 0x18
 .byte 0x30
-.string "main2"
+.string "aaaaaaaaaaaaaaaa"
 .long 0
 
 .section .debug_gnu_pubtypes,"",@progbits

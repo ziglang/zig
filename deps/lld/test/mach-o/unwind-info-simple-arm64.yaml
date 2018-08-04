@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch arm64 -o %t %s \
+# RUN: ld64.lld -arch arm64 -o %t %s \
 # RUN: %p/Inputs/unwind-info-simple-arm64.yaml -e _main %p/Inputs/arm64/libSystem.yaml
 # RUN: llvm-objdump -unwind-info %t | FileCheck %s
 

@@ -1,0 +1,22 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/sections-va-overflow.s -o %t.o
+# RUN: not ld.lld -o /dev/null --script %s %t.o 2>&1 | FileCheck %s -check-prefix=ERR
+
+PHDRS {
+  ph_headers PT_PHDR PHDRS;
+  ph_text PT_LOAD FILEHDR PHDRS FLAGS (0x1 | 0x4);
+}
+
+SECTIONS { 
+ . = 0xffffffff20000000;
+ .text : { *(.text*) } : ph_text
+ .test 0x1000 : { BYTE(0) }
+ .bss : { *(.bss*) }
+}
+
+## Section .test has VA 0x1000 and placed in the same segment as section .text
+## with VA 0xffffffff20000000. That might be technically correct, but most probably
+## is a result of a broken script file and causes file offset calculation overflow.
+## It seems we do not have to support it, so we don't and we report an error in this case.
+# ERR: error: unable to place section .text at file offset [0xFFFFFFFF20000000, 0xFFFFFFFE40000000]; check your linker script for overflows
+# ERR-NOT: unable to place section .bss

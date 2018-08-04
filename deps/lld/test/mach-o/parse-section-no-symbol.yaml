@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -r %s -print_atoms -o %t2 | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -r %s -print_atoms -o %t2 | FileCheck %s
 #
 # Test parsing of mach-o functions with no symbols at all.
 #

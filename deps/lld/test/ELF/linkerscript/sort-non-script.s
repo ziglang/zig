@@ -1,14 +1,14 @@
 # REQUIRES: x86
-# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
+# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 
 # RUN: echo "SECTIONS { foo : {*(foo)} }" > %t.script
-# RUN: ld.lld --hash-style=sysv -o %t1 --script %t.script %t -shared
-# RUN: llvm-readobj -elf-output-style=GNU -s %t1 | FileCheck %s
+# RUN: ld.lld --hash-style=sysv -o %t --script %t.script %t.o -shared
+# RUN: llvm-readelf -s %t | FileCheck %s
 
-# CHECK:      .text    {{.*}}   AX
-# CHECK-NEXT: .dynsym  {{.*}}   A
+# CHECK:      .dynsym  {{.*}}   A
 # CHECK-NEXT: .hash    {{.*}}   A
 # CHECK-NEXT: .dynstr  {{.*}}   A
+# CHECK-NEXT: .text    {{.*}}   AX
 # CHECK-NEXT: foo      {{.*}}  WA
 # CHECK-NEXT: .dynamic {{.*}}  WA
 

@@ -20,8 +20,8 @@ LinkingContext::LinkingContext() = default;
 
 LinkingContext::~LinkingContext() = default;
 
-bool LinkingContext::validate(raw_ostream &diagnostics) {
-  return validateImpl(diagnostics);
+bool LinkingContext::validate() {
+  return validateImpl();
 }
 
 llvm::Error LinkingContext::writeFile(const File &linkedFile) const {

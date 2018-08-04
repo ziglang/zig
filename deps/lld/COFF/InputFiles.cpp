@@ -27,6 +27,7 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Target/TargetOptions.h"
 #include <cstring>
 #include <system_error>
@@ -138,12 +139,13 @@ void ObjFile::initializeChunks() {
     if (Sec->Characteristics & IMAGE_SCN_LNK_COMDAT)
       SparseChunks[I] = PendingComdat;
     else
-      SparseChunks[I] = readSection(I, nullptr);
+      SparseChunks[I] = readSection(I, nullptr, "");
   }
 }
 
 SectionChunk *ObjFile::readSection(uint32_t SectionNumber,
-                                   const coff_aux_section_definition *Def) {
+                                   const coff_aux_section_definition *Def,
+                                   StringRef LeaderName) {
   const coff_section *Sec;
   StringRef Name;
   if (auto EC = COFFObj->getSection(SectionNumber, Sec))
@@ -151,15 +153,7 @@ SectionChunk *ObjFile::readSection(uint32_t SectionNumber,
   if (auto EC = COFFObj->getSectionName(Sec, Name))
     fatal("getSectionName failed: #" + Twine(SectionNumber) + ": " +
           EC.message());
-  if (Name == ".sxdata") {
-    ArrayRef<uint8_t> Data;
-    COFFObj->getSectionContents(Sec, Data);
-    if (Data.size() % 4 != 0)
-      fatal(".sxdata must be an array of symbol table indices");
-    SXData = {reinterpret_cast<const ulittle32_t *>(Data.data()),
-              Data.size() / 4};
-    return nullptr;
-  }
+
   if (Name == ".drectve") {
     ArrayRef<uint8_t> Data;
     COFFObj->getSectionContents(Sec, Data);
@@ -177,8 +171,8 @@ SectionChunk *ObjFile::readSection(uint32_t SectionNumber,
   // CodeView needs a linker support. We need to interpret and debug
   // info, and then write it to a separate .pdb file.
 
-  // Ignore debug info unless /debug is given.
-  if (!Config->Debug && Name.startswith(".debug"))
+  // Ignore DWARF debug info unless /debug is given.
+  if (!Config->Debug && Name.startswith(".debug_"))
     return nullptr;
 
   if (Sec->Characteristics & llvm::COFF::IMAGE_SCN_LNK_REMOVE)
@@ -191,6 +185,18 @@ SectionChunk *ObjFile::readSection(uint32_t SectionNumber,
   // linked in the regular manner.
   if (C->isCodeView())
     DebugChunks.push_back(C);
+  else if (Config->GuardCF != GuardCFLevel::Off && Name == ".gfids$y")
+    GuardFidChunks.push_back(C);
+  else if (Config->GuardCF != GuardCFLevel::Off && Name == ".gljmp$y")
+    GuardLJmpChunks.push_back(C);
+  else if (Name == ".sxdata")
+    SXDataChunks.push_back(C);
+  else if (Config->TailMerge && Sec->NumberOfRelocations == 0 &&
+           Name == ".rdata" && LeaderName.startswith("??_C@"))
+    // COFF sections that look like string literal sections (i.e. no
+    // relocations, in .rdata, leader symbol name matches the MSVC name mangling
+    // for string literals) are subject to string tail merging.
+    MergeChunk::addSection(C);
   else
     Chunks.push_back(C);
 
@@ -211,7 +217,7 @@ void ObjFile::readAssociativeDefinition(
   // the section; otherwise mark it as discarded.
   int32_t SectionNumber = Sym.getSectionNumber();
   if (Parent) {
-    SparseChunks[SectionNumber] = readSection(SectionNumber, Def);
+    SparseChunks[SectionNumber] = readSection(SectionNumber, Def, "");
     if (SparseChunks[SectionNumber])
       Parent->addAssociative(SparseChunks[SectionNumber]);
   } else {
@@ -275,6 +281,13 @@ void ObjFile::initializeSymbols() {
     if (auto *Def = Sym.getSectionDefinition())
       if (Def->Selection == IMAGE_COMDAT_SELECT_ASSOCIATIVE)
         readAssociativeDefinition(Sym, Def);
+    if (SparseChunks[Sym.getSectionNumber()] == PendingComdat) {
+      StringRef Name;
+      COFFObj->getSymbolName(Sym, Name);
+      log("comdat section " + Name +
+          " without leader and unassociated, discarding");
+      continue;
+    }
     Symbols[I] = createRegular(Sym);
   }
 
@@ -294,43 +307,46 @@ Symbol *ObjFile::createUndefined(COFFSymbolRef Sym) {
 Optional<Symbol *> ObjFile::createDefined(
     COFFSymbolRef Sym,
     std::vector<const coff_aux_section_definition *> &ComdatDefs) {
-  StringRef Name;
+  auto GetName = [&]() {
+    StringRef S;
+    COFFObj->getSymbolName(Sym, S);
+    return S;
+  };
+
   if (Sym.isCommon()) {
     auto *C = make<CommonChunk>(Sym);
     Chunks.push_back(C);
-    COFFObj->getSymbolName(Sym, Name);
-    Symbol *S =
-        Symtab->addCommon(this, Name, Sym.getValue(), Sym.getGeneric(), C);
-    return S;
+    return Symtab->addCommon(this, GetName(), Sym.getValue(), Sym.getGeneric(),
+                             C);
   }
+
   if (Sym.isAbsolute()) {
-    COFFObj->getSymbolName(Sym, Name);
+    StringRef Name = GetName();
+
     // Skip special symbols.
     if (Name == "@comp.id")
       return nullptr;
-    // COFF spec 5.10.1. The .sxdata section.
     if (Name == "@feat.00") {
-      if (Sym.getValue() & 1)
-        SEHCompat = true;
+      Feat00Flags = Sym.getValue();
       return nullptr;
     }
+
     if (Sym.isExternal())
       return Symtab->addAbsolute(Name, Sym);
-    else
-      return make<DefinedAbsolute>(Name, Sym);
+    return make<DefinedAbsolute>(Name, Sym);
   }
+
   int32_t SectionNumber = Sym.getSectionNumber();
   if (SectionNumber == llvm::COFF::IMAGE_SYM_DEBUG)
     return nullptr;
 
-  // Reserved sections numbers don't have contents.
   if (llvm::COFF::isReservedSectionNumber(SectionNumber))
-    fatal("broken object file: " + toString(this));
+    fatal(toString(this) + ": " + GetName() +
+          " should not refer to special section " + Twine(SectionNumber));
 
-  // This symbol references a section which is not present in the section
-  // header.
   if ((uint32_t)SectionNumber >= SparseChunks.size())
-    fatal("broken object file: " + toString(this));
+    fatal(toString(this) + ": " + GetName() +
+          " should not refer to non-existent section " + Twine(SectionNumber));
 
   // Handle comdat leader symbols.
   if (const coff_aux_section_definition *Def = ComdatDefs[SectionNumber]) {
@@ -338,16 +354,16 @@ Optional<Symbol *> ObjFile::createDefined(
     Symbol *Leader;
     bool Prevailing;
     if (Sym.isExternal()) {
-      COFFObj->getSymbolName(Sym, Name);
       std::tie(Leader, Prevailing) =
-          Symtab->addComdat(this, Name, Sym.getGeneric());
+          Symtab->addComdat(this, GetName(), Sym.getGeneric());
     } else {
       Leader = make<DefinedRegular>(this, /*Name*/ "", false,
                                     /*IsExternal*/ false, Sym.getGeneric());
       Prevailing = true;
     }
+
     if (Prevailing) {
-      SectionChunk *C = readSection(SectionNumber, Def);
+      SectionChunk *C = readSection(SectionNumber, Def, GetName());
       SparseChunks[SectionNumber] = C;
       C->Sym = cast<DefinedRegular>(Leader);
       cast<DefinedRegular>(Leader)->Data = &C->Repl;
@@ -429,7 +445,8 @@ void ImportFile::parse() {
   // address pointed by the __imp_ symbol. (This allows you to call
   // DLL functions just like regular non-DLL functions.)
   if (Hdr->getType() == llvm::COFF::IMPORT_CODE)
-    ThunkSym = Symtab->addImportThunk(Name, ImpSym, Hdr->Machine);
+    ThunkSym = Symtab->addImportThunk(
+        Name, cast_or_null<DefinedImportData>(ImpSym), Hdr->Machine);
 }
 
 void BitcodeFile::parse() {
@@ -462,7 +479,7 @@ void BitcodeFile::parse() {
     } else {
       Sym = Symtab->addRegular(this, SymName);
     }
-    SymbolBodies.push_back(Sym);
+    Symbols.push_back(Sym);
   }
   Directives = Obj->getCOFFLinkerOpts();
 }
@@ -486,10 +503,7 @@ MachineTypes BitcodeFile::getMachineType() {
 
 // Returns the last element of a path, which is supposed to be a filename.
 static StringRef getBasename(StringRef Path) {
-  size_t Pos = Path.find_last_of("\\/");
-  if (Pos == StringRef::npos)
-    return Path;
-  return Path.substr(Pos + 1);
+  return sys::path::filename(Path, sys::path::Style::windows);
 }
 
 // Returns a string in the format of "foo.obj" or "foo.obj(bar.lib)".

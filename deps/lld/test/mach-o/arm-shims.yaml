@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch armv7 %s %p/Inputs/arm-shims.yaml \
+# RUN: ld64.lld -arch armv7 %s %p/Inputs/arm-shims.yaml \
 # RUN: -dylib %p/Inputs/armv7/libSystem.yaml -o %t
 # RUN: llvm-readobj -s -sd %t | FileCheck %s
 #

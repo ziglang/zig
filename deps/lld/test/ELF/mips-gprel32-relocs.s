@@ -1,10 +1,9 @@
+# REQUIRES: mips
 # Check R_MIPS_GPREL32 relocation calculation.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld -shared -o %t.so %t.o
 # RUN: llvm-objdump -s -section=.rodata -t %t.so | FileCheck %s
-
-# REQUIRES: mips
 
   .text
   .globl  __start

@@ -36,7 +36,7 @@
 
 ## Test we fail gracefuly when alignment value is not a power of 2.
 # RUN: echo "SECTIONS { .aaa : SUBALIGN(3) { *(.aaa*) } }" > %t5.script
-# RUN: not ld.lld %t1.o --script %t5.script -o %t5 2>&1 | FileCheck -check-prefix=ERR %s
+# RUN: not ld.lld %t1.o --script %t5.script -o /dev/null 2>&1 | FileCheck -check-prefix=ERR %s
 # ERR: {{.*}}.script:1: alignment must be power of 2
 
 .global _start

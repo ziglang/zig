@@ -12,6 +12,7 @@
 #include "InputFiles.h"
 #include "Symbols.h"
 #include "lld/Common/ErrorHandler.h"
+#include "lld/Common/Strings.h"
 #include "lld/Common/TargetOptionsCommandFlags.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
@@ -40,47 +41,32 @@ using namespace llvm::object;
 using namespace lld;
 using namespace lld::coff;
 
-static void diagnosticHandler(const DiagnosticInfo &DI) {
-  SmallString<128> ErrStorage;
-  raw_svector_ostream OS(ErrStorage);
-  DiagnosticPrinterRawOStream DP(OS);
-  DI.print(DP);
-  warn(ErrStorage);
-}
-
-static void checkError(Error E) {
-  handleAllErrors(std::move(E),
-                  [&](ErrorInfoBase &EIB) { error(EIB.message()); });
-}
-
-static void saveBuffer(StringRef Buffer, const Twine &Path) {
-  std::error_code EC;
-  raw_fd_ostream OS(Path.str(), EC, sys::fs::OpenFlags::F_None);
-  if (EC)
-    error("cannot create " + Path + ": " + EC.message());
-  OS << Buffer;
-}
-
 static std::unique_ptr<lto::LTO> createLTO() {
-  lto::Config Conf;
-  Conf.Options = InitTargetOptionsFromCodeGenFlags();
+  lto::Config C;
+  C.Options = InitTargetOptionsFromCodeGenFlags();
+
+  // Always emit a section per function/datum with LTO. LLVM LTO should get most
+  // of the benefit of linker GC, but there are still opportunities for ICF.
+  C.Options.FunctionSections = true;
+  C.Options.DataSections = true;
+
   // Use static reloc model on 32-bit x86 because it usually results in more
   // compact code, and because there are also known code generation bugs when
   // using the PIC model (see PR34306).
   if (Config->Machine == COFF::IMAGE_FILE_MACHINE_I386)
-    Conf.RelocModel = Reloc::Static;
+    C.RelocModel = Reloc::Static;
   else
-    Conf.RelocModel = Reloc::PIC_;
-  Conf.DisableVerify = true;
-  Conf.DiagHandler = diagnosticHandler;
-  Conf.OptLevel = Config->LTOOptLevel;
+    C.RelocModel = Reloc::PIC_;
+  C.DisableVerify = true;
+  C.DiagHandler = diagnosticHandler;
+  C.OptLevel = Config->LTOO;
   if (Config->SaveTemps)
-    checkError(Conf.addSaveTemps(std::string(Config->OutputFile) + ".",
-                                 /*UseInputModulePath*/ true));
+    checkError(C.addSaveTemps(std::string(Config->OutputFile) + ".",
+                              /*UseInputModulePath*/ true));
   lto::ThinBackend Backend;
-  if (Config->LTOJobs != 0)
-    Backend = lto::createInProcessThinBackend(Config->LTOJobs);
-  return llvm::make_unique<lto::LTO>(std::move(Conf), Backend,
+  if (Config->ThinLTOJobs != 0)
+    Backend = lto::createInProcessThinBackend(Config->ThinLTOJobs);
+  return llvm::make_unique<lto::LTO>(std::move(C), Backend,
                                      Config->LTOPartitions);
 }
 
@@ -119,7 +105,7 @@ void BitcodeCompiler::add(BitcodeFile &F) {
 // and return the resulting objects.
 std::vector<StringRef> BitcodeCompiler::compile() {
   unsigned MaxTasks = LTOObj->getMaxTasks();
-  Buff.resize(MaxTasks);
+  Buf.resize(MaxTasks);
   Files.resize(MaxTasks);
 
   // The /lldltocache option specifies the path to a directory in which to cache
@@ -127,15 +113,15 @@ std::vector<StringRef> BitcodeCompiler::compile() {
   // specified, configure LTO to use it as the cache directory.
   lto::NativeObjectCache Cache;
   if (!Config->LTOCache.empty())
-    Cache = check(
-        lto::localCache(Config->LTOCache,
-                        [&](size_t Task, std::unique_ptr<MemoryBuffer> MB,
-                            StringRef Path) { Files[Task] = std::move(MB); }));
+    Cache = check(lto::localCache(
+        Config->LTOCache, [&](size_t Task, std::unique_ptr<MemoryBuffer> MB) {
+          Files[Task] = std::move(MB);
+        }));
 
   checkError(LTOObj->run(
       [&](size_t Task) {
         return llvm::make_unique<lto::NativeObjectStream>(
-            llvm::make_unique<raw_svector_ostream>(Buff[Task]));
+            llvm::make_unique<raw_svector_ostream>(Buf[Task]));
       },
       Cache));
 
@@ -144,15 +130,15 @@ std::vector<StringRef> BitcodeCompiler::compile() {
 
   std::vector<StringRef> Ret;
   for (unsigned I = 0; I != MaxTasks; ++I) {
-    if (Buff[I].empty())
+    if (Buf[I].empty())
       continue;
     if (Config->SaveTemps) {
       if (I == 0)
-        saveBuffer(Buff[I], Config->OutputFile + ".lto.obj");
+        saveBuffer(Buf[I], Config->OutputFile + ".lto.obj");
       else
-        saveBuffer(Buff[I], Config->OutputFile + Twine(I) + ".lto.obj");
+        saveBuffer(Buf[I], Config->OutputFile + Twine(I) + ".lto.obj");
     }
-    Ret.emplace_back(Buff[I].data(), Buff[I].size());
+    Ret.emplace_back(Buf[I].data(), Buf[I].size());
   }
 
   for (std::unique_ptr<MemoryBuffer> &File : Files)

@@ -47,7 +47,7 @@
 # CHECK-NEXT: 0000000000000001 *ABS* 00000000 symbol15
 
 # RUN: echo "SECTIONS { symbol2 = symbol; }" > %t2.script
-# RUN: not ld.lld -o %t2 --script %t2.script %t 2>&1 \
+# RUN: not ld.lld -o /dev/null --script %t2.script %t 2>&1 \
 # RUN:  | FileCheck -check-prefix=ERR %s
 # ERR: {{.*}}.script:1: symbol not found: symbol
 

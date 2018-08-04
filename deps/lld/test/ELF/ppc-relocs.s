@@ -1,7 +1,7 @@
+# REQUIRES: ppc
 # RUN: llvm-mc -filetype=obj -triple=powerpc-unknown-freebsd %s -o %t
 # RUN: ld.lld %t -o %t2
 # RUN: llvm-objdump -d %t2 | FileCheck %s
-# REQUIRES: ppc
 
 .section .R_PPC_ADDR16_HA,"ax",@progbits
 .globl _start

@@ -1,0 +1,22 @@
+# REQUIRES: x86
+
+# RUN: echo ".section .foo,\"a\"" > %t.s
+# RUN: echo ".quad 1" >> %t.s
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %t.s -o %t.o
+
+# RUN: not ld.lld -o %t %t.o --script %s 2>&1 | FileCheck %s
+
+# Check we are able to catch 'ram' overflow caused by BYTE command.
+# CHECK: error: section '.foo' will not fit in region 'ram': overflowed by 1 bytes
+
+MEMORY {
+  text (rwx): org = 0x0, len = 0x1000
+  ram (rwx): org = 0x1000, len = 8
+}
+SECTIONS {
+  .text : { *(.text) } > text
+  .foo : {
+    *(.foo)
+    BYTE(0x1)
+  } > ram
+}

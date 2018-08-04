@@ -11,7 +11,7 @@
 # RUN: ld.lld -o %t1 --script %t.script %t
 # RUN: llvm-objdump -section-headers %t1 | FileCheck -check-prefix=RAM %s
 
-# RAM:       1 .text         00000001 0000000000008000 TEXT DATA
+# RAM:       1 .text         00000001 0000000000008000 TEXT
 # RAM-NEXT:  2 .data         00001000 0000000000008001 DATA
 
 ## Check RAM and ROM memory regions.
@@ -27,7 +27,7 @@
 # RUN: ld.lld -o %t1 --script %t.script %t
 # RUN: llvm-objdump -section-headers %t1 | FileCheck -check-prefix=RAMROM %s
 
-# RAMROM:       1 .text         00000001 0000000080000000 TEXT DATA
+# RAMROM:       1 .text         00000001 0000000080000000 TEXT
 # RAMROM-NEXT:  2 .data         00001000 0000000000000000 DATA
 
 ## Check memory region placement by attributes.
@@ -43,7 +43,7 @@
 # RUN: ld.lld -o %t1 --script %t.script %t
 # RUN: llvm-objdump -section-headers %t1 | FileCheck -check-prefix=ATTRS %s
 
-# ATTRS:  1 .text         00000001 0000000080000000 TEXT DATA
+# ATTRS:  1 .text         00000001 0000000080000000 TEXT
 # ATTRS:  2 .data         00001000 0000000000000000 DATA
 
 ## Check bad `ORIGIN`.

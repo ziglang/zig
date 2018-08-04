@@ -1,5 +1,5 @@
-# RUN: lld -flavor darwin -arch i386 -macosx_version_min 10.8 %s -r -o %t \
-# RUN: && lld -flavor darwin -r %t -o %t2 -print_atoms | FileCheck %s
+# RUN: ld64.lld -arch i386 -macosx_version_min 10.8 %s -r -o %t \
+# RUN: && ld64.lld -r %t -o %t2 -print_atoms | FileCheck %s
 #
 # Test linker can detect architecture without -arch option.
 #

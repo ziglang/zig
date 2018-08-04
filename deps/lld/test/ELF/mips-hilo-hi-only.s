@@ -1,10 +1,9 @@
+# REQUIRES: mips
 # Check warning on orphaned R_MIPS_HI16 relocations.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t.exe 2>&1 | FileCheck -check-prefix=WARN %s
 # RUN: llvm-objdump -d -t %t.exe | FileCheck %s
-
-# REQUIRES: mips
 
   .text
   .globl  __start

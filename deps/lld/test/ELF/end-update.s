@@ -1,5 +1,5 @@
-// Should set the value of the "end" symbol if it is undefined.
 // REQUIRES: x86
+// Should set the value of the "end" symbol if it is undefined.
 
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -o %t

@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -dylib \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -dylib \
 # RUN:    -sectalign __DATA __custom 0x800 -sectalign __TEXT __text 0x400 \
 # RUN:    %p/Inputs/x86_64/libSystem.yaml -o %t \
 # RUN: && llvm-readobj -sections %t | FileCheck %s

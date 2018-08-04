@@ -7,10 +7,10 @@
 .quad foo
 
 # CHECK:      Relocations [
-# CHECK-NEXT:   Section (4) .rela.dyn {
+# CHECK-NEXT:   Section {{.*}} .rela.dyn {
 # CHECK-NEXT:     0x1000 R_X86_64_64 foo 0x0
 # CHECK-NEXT:   }
-# CHECK-NEXT:   Section (8) .rela.data {
+# CHECK-NEXT:   Section {{.*}} .rela.data {
 # CHECK-NEXT:     0x1000 R_X86_64_64 foo 0x0
 # CHECK-NEXT:   }
 # CHECK-NEXT: ]

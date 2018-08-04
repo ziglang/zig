@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check MIPS R_MIPS_TLS_DTPREL_HI16/LO16 and R_MIPS_TLS_TPREL_HI16/LO16
 # relocations handling.
 
@@ -8,8 +9,6 @@
 
 # RUN: ld.lld %t.o -shared -o %t.so
 # RUN: llvm-readobj -r -mips-plt-got %t.so | FileCheck -check-prefix=SO %s
-
-# REQUIRES: mips
 
 # DIS:      __start:
 # DIS-NEXT:    20000:   24 62 00 00   addiu   $2, $3, 0

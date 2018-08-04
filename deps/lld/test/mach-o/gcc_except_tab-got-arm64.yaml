@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch arm64 %s \
+# RUN: ld64.lld -arch arm64 %s \
 # RUN: -dylib %p/Inputs/arm64/libSystem.yaml -o %t
 # RUN: llvm-objdump -section-headers %t | FileCheck %s
 

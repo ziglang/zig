@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -triple=x86_64-windows-msvc -filetype=obj -o %t.obj %s
 # RUN: not lld-link -entry:__ImageBase -subsystem:console %t.obj 2>&1 | FileCheck %s
 

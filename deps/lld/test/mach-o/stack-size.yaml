@@ -1,10 +1,10 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.9 %s -o %t %p/Inputs/x86_64/libSystem.yaml
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.9 %s -o %t %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-objdump -private-headers %t | FileCheck --check-prefix=CHECK-DEFAULT %s
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.9 %s -o %t -stack_size 31415926000 %p/Inputs/x86_64/libSystem.yaml
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.9 %s -o %t -stack_size 31415926000 %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-objdump -private-headers %t | FileCheck --check-prefix=CHECK-EXPLICIT %s
-# RUN: not lld -flavor darwin -arch x86_64 -stack_size 0x31415926530 %s >/dev/null 2> %t
+# RUN: not ld64.lld -arch x86_64 -stack_size 0x31415926530 %s >/dev/null 2> %t
 # RUN: FileCheck < %t %s --check-prefix=CHECK-ERROR-MISPAGED
-# RUN: not lld -flavor darwin -arch x86_64 -stack_size hithere %s >/dev/null 2> %t
+# RUN: not ld64.lld -arch x86_64 -stack_size hithere %s >/dev/null 2> %t
 # RUN: FileCheck < %t %s --check-prefix=CHECK-ERROR-NOTHEX
 
 --- !native

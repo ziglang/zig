@@ -3,7 +3,7 @@
 # RUN: echo "SECTIONS { .text 0x2000 : {. = 0x10 ; *(.text) } }" > %t.script
 # RUN: not ld.lld %t --script %t.script -o %t1
 
-## This inputs previously created a 4gb temporarily fine under 32 bit
+## This inputs previously created a 4gb temporarily file under 32 bit
 ## configuration. Issue was fixed. There is no clean way to check that from here.
 ## This testcase added for documentation purposes.
 

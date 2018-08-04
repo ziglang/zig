@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1
 
 # RUN: ld.lld -e foobar %t1 -o %t2 2>&1 | FileCheck -check-prefix=WARN1 %s

@@ -1,3 +1,4 @@
+; REQUIRES: x86
 ; RUN: llvm-as -o %T/lto-linker-opts.obj %s
 ; RUN: env LIB=%S/Inputs lld-link /out:%T/lto-linker-opts.exe /entry:main /subsystem:console %T/lto-linker-opts.obj
 

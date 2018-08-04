@@ -1,10 +1,10 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
-; RUN: ld.lld -m elf_x86_64 %t.o -o %t2 -mllvm -debug-pass=Arguments \
+; RUN: ld.lld %t.o -o %t2 -mllvm -debug-pass=Arguments \
 ; RUN:   2>&1 | FileCheck -check-prefix=DEFAULT %s
-; RUN: ld.lld -m elf_x86_64 %t.o -o %t2 -mllvm -debug-pass=Arguments \
+; RUN: ld.lld %t.o -o %t2 -mllvm -debug-pass=Arguments \
 ; RUN:   -disable-verify 2>&1 | FileCheck -check-prefix=DISABLE %s
-; RUN: ld.lld -m elf_x86_64 %t.o -o %t2 -mllvm -debug-pass=Arguments \
+; RUN: ld.lld %t.o -o %t2 -mllvm -debug-pass=Arguments \
 ; RUN:   --plugin-opt=disable-verify 2>&1 | FileCheck -check-prefix=DISABLE %s
 
 target triple = "x86_64-unknown-linux-gnu"
