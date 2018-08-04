@@ -2518,22 +2518,28 @@ pub const Thread = struct {
     pub const use_pthreads = is_posix and builtin.link_libc;
 
     /// An opaque type representing a kernel thread ID.
-    pub const Id = *@OpaqueType();
+    pub const Id = if (use_pthreads)
+        c.pthread_t
+    else switch (builtin.os) {
+        builtin.Os.linux => i32,
+        builtin.Os.windows => windows.HANDLE,
+        else => @compileError("Unsupported OS"),
+    };
 
     pub const Data = if (use_pthreads)
         struct {
-            handle: c.pthread_t,
+            handle: Thread.Id,
             stack_addr: usize,
             stack_len: usize,
         }
     else switch (builtin.os) {
         builtin.Os.linux => struct {
-            pid: i32,
+            handle: Thread.Id,
             stack_addr: usize,
             stack_len: usize,
         },
         builtin.Os.windows => struct {
-            handle: windows.HANDLE,
+            handle: Thread.Id,
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
@@ -2547,26 +2553,17 @@ pub const Thread = struct {
         // storage (https://github.com/ziglang/zig/issues/924), we could
         // memoize it.
         if (use_pthreads) {
-            return @ptrCast(Thread.Id, c.pthread_self());
+            return c.pthread_self();
         } else return switch (builtin.os) {
-            builtin.Os.linux =>
-                @intToPtr(Thread.Id, @bitCast(u32, linux.getpid())),
-            builtin.Os.windows =>
-                @ptrCast(Thread.Id, windows.GetCurrentThread()),
+            builtin.Os.linux => linux.getpid(),
+            builtin.Os.windows => windows.GetCurrentThread(),
             else => @compileError("Unsupported OS"),
         };
     }
 
-    /// Returns the ID of this thread object.
+    /// Returns the ID of this thread.
     pub fn id(self: *const Thread) Thread.Id {
-        if (use_pthreads) {
-            return @ptrCast(Thread.Id, self.data.handle);
-        } else return switch (builtin.os) {
-            builtin.Os.linux =>
-                @intToPtr(Thread.Id, @bitCast(u32, self.data.pid)),
-            builtin.Os.windows => @ptrCast(Thread.Id, self.data.handle),
-            else => @compileError("Unsupported OS"),
-        };
+        return self.data.handle;
     }
 
     pub fn wait(self: *const Thread) void {
@@ -2583,9 +2580,9 @@ pub const Thread = struct {
         } else switch (builtin.os) {
             builtin.Os.linux => {
                 while (true) {
-                    const pid_value = @atomicLoad(i32, &self.data.pid, builtin.AtomicOrder.SeqCst);
+                    const pid_value = @atomicLoad(i32, &self.data.handle, builtin.AtomicOrder.SeqCst);
                     if (pid_value == 0) break;
-                    const rc = linux.futex_wait(@ptrToInt(&self.data.pid), linux.FUTEX_WAIT, pid_value, null);
+                    const rc = linux.futex_wait(@ptrToInt(&self.data.handle), linux.FUTEX_WAIT, pid_value, null);
                     switch (linux.getErrno(rc)) {
                         0 => continue,
                         posix.EINTR => continue,
@@ -2767,7 +2764,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         // use linux API directly.  TODO use posix.CLONE_SETTLS and initialize thread local storage correctly
         const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND | posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
         const newtls: usize = 0;
-        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.pid, newtls, &thread_ptr.data.pid);
+        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return thread_ptr,
