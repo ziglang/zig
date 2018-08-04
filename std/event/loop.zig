@@ -207,7 +207,7 @@ pub const Loop = struct {
                                 .udata = @ptrToInt(&eventfd_node.data.base),
                             },
                         },
-                        .prev = undefined,
+                        //.prev = undefined,
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
@@ -436,7 +436,7 @@ pub const Loop = struct {
 
         self.workerRun();
 
-        self.os_data.fs_thread.wait();
+        //self.os_data.fs_thread.wait();
 
         for (self.extra_threads) |extra_thread| {
             extra_thread.wait();
