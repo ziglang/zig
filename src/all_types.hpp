@@ -899,7 +899,6 @@ struct AstNodeAwaitExpr {
 
 struct AstNodeSuspend {
     AstNode *block;
-    AstNode *promise_symbol;
 };
 
 struct AstNodePromiseType {
@@ -1358,6 +1357,7 @@ enum BuiltinFnId {
     BuiltinFnIdBreakpoint,
     BuiltinFnIdReturnAddress,
     BuiltinFnIdFrameAddress,
+    BuiltinFnIdHandle,
     BuiltinFnIdEmbedFile,
     BuiltinFnIdCmpxchgWeak,
     BuiltinFnIdCmpxchgStrong,
@@ -1714,6 +1714,7 @@ struct CodeGen {
     LLVMValueRef coro_save_fn_val;
     LLVMValueRef coro_promise_fn_val;
     LLVMValueRef coro_alloc_helper_fn_val;
+    LLVMValueRef coro_frame_fn_val;
     LLVMValueRef merge_err_ret_traces_fn_val;
     LLVMValueRef add_error_return_trace_addr_fn_val;
     LLVMValueRef stacksave_fn_val;
@@ -2074,6 +2075,7 @@ enum IrInstructionId {
     IrInstructionIdBreakpoint,
     IrInstructionIdReturnAddress,
     IrInstructionIdFrameAddress,
+    IrInstructionIdHandle,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
     IrInstructionIdTestErr,
@@ -2788,6 +2790,10 @@ struct IrInstructionReturnAddress {
 };
 
 struct IrInstructionFrameAddress {
+    IrInstruction base;
+};
+
+struct IrInstructionHandle {
     IrInstruction base;
 };
 

@@ -4057,6 +4057,26 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable
     return LLVMBuildCall(g->builder, get_frame_address_fn_val(g), &zero, 1, "");
 }
 
+static LLVMValueRef get_handle_fn_val(CodeGen *g) {
+    if (g->coro_frame_fn_val)
+        return g->coro_frame_fn_val;
+
+    LLVMTypeRef fn_type = LLVMFunctionType( LLVMPointerType(LLVMInt8Type(), 0)
+                                          , nullptr, 0, false);
+    Buf *name = buf_sprintf("llvm.coro.frame");
+    g->coro_frame_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_frame_fn_val));
+
+    return g->coro_frame_fn_val;
+}
+
+static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable,
+        IrInstructionHandle *instruction)
+{
+    LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_promise->type_ref);
+    return LLVMBuildCall(g->builder, get_handle_fn_val(g), &zero, 0, "");
+}
+
 static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
     TypeTableEntry *int_type = instruction->result_ptr_type;
     assert(int_type->id == TypeTableEntryIdInt);
@@ -4821,6 +4841,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_return_address(g, executable, (IrInstructionReturnAddress *)instruction);
         case IrInstructionIdFrameAddress:
             return ir_render_frame_address(g, executable, (IrInstructionFrameAddress *)instruction);
+        case IrInstructionIdHandle:
+            return ir_render_handle(g, executable, (IrInstructionHandle *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdTestErr:
@@ -5916,6 +5938,7 @@ static void do_code_gen(CodeGen *g) {
         ir_render(g, fn_table_entry);
 
     }
+    
     assert(!g->errors.length);
 
     if (buf_len(&g->global_asm) != 0) {
@@ -6255,6 +6278,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdBreakpoint, "breakpoint", 0);
     create_builtin_fn(g, BuiltinFnIdReturnAddress, "returnAddress", 0);
     create_builtin_fn(g, BuiltinFnIdFrameAddress, "frameAddress", 0);
+    create_builtin_fn(g, BuiltinFnIdHandle, "handle", 0);
     create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3);
     create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);

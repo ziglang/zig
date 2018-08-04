@@ -3,6 +3,10 @@ const builtin = @import("builtin");
 const linux = std.os.linux;
 const assert = std.debug.assert;
 
+test "getpid" {
+    assert(linux.getpid() != 0);
+}
+
 test "timer" {
     const epoll_fd = linux.epoll_create();
     var err = linux.getErrno(epoll_fd);

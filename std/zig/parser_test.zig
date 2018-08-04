@@ -898,11 +898,11 @@ test "zig fmt: union(enum(u32)) with assigned enum values" {
     );
 }
 
-test "zig fmt: labeled suspend" {
+test "zig fmt: resume from suspend block" {
     try testCanonical(
         \\fn foo() void {
-        \\    s: suspend |p| {
-        \\        break :s;
+        \\    suspend {
+        \\        resume @handle();
         \\    }
         \\}
         \\
@@ -1784,7 +1784,7 @@ test "zig fmt: coroutines" {
         \\    x += 1;
         \\    suspend;
         \\    x += 1;
-        \\    suspend |p| {}
+        \\    suspend;
         \\    const p: promise->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}

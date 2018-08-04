@@ -2,6 +2,85 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@handle() called outside of function definition",
+        \\var handle_undef: promise = undefined;
+        \\var handle_dummy: promise = @handle();
+        \\export fn entry() bool {
+        \\    return handle_undef == handle_dummy;
+        \\}
+    ,
+        ".tmp_source.zig:2:29: error: @handle() called outside of function definition",
+    );
+
+    cases.add(
+        "@handle() in non-async function",
+        \\export fn entry() bool {
+        \\    var handle_undef: promise = undefined;
+        \\    return handle_undef == @handle();
+        \\}
+    ,
+        ".tmp_source.zig:3:28: error: @handle() in non-async function",
+    );
+
+    cases.add(
+        "`_` is not a declarable symbol",
+        \\export fn f1() usize {
+        \\    var _: usize = 2;
+        \\    return _;
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: `_` is not a declarable symbol",
+        ".tmp_source.zig:3:12: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
+        "`_` should not be usable inside for",
+        \\export fn returns() void {
+        \\    for ([]void{}) |_, i| {
+        \\        for ([]void{}) |_, j| {
+        \\            return _;
+        \\        }
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
+        "`_` should not be usable inside while",
+        \\export fn returns() void {
+        \\    while (optionalReturn()) |_| {
+        \\        while (optionalReturn()) |_| {
+        \\            return _;
+        \\        }
+        \\    }
+        \\}
+        \\fn optionalReturn() ?u32 {
+        \\    return 1;
+        \\}
+    ,
+        ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
+        "`_` should not be usable inside while else",
+        \\export fn returns() void {
+        \\    while (optionalReturnError()) |_| {
+        \\        while (optionalReturnError()) |_| {
+        \\            return;
+        \\        } else |_| {
+        \\            if (_ == error.optionalReturnError) return;
+        \\        }
+        \\    }
+        \\}
+        \\fn optionalReturnError() !?u32 {
+        \\    return error.optionalReturnError;
+        \\}
+    ,
+        ".tmp_source.zig:6:17: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
         "while loop body expression ignored",
         \\fn returns() usize {
         \\    return 2;
@@ -367,8 +446,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\
         \\async fn foo() void {
-        \\    suspend |p| {
-        \\        suspend |p1| {
+        \\    suspend {
+        \\        suspend {
         \\        }
         \\    }
         \\}

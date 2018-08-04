@@ -71,10 +71,10 @@ pub fn Channel(comptime T: type) type {
         /// puts a data item in the channel. The promise completes when the value has been added to the
         /// buffer, or in the case of a zero size buffer, when the item has been retrieved by a getter.
         pub async fn put(self: *SelfChannel, data: T) void {
-            suspend |handle| {
+            suspend {
                 var my_tick_node = Loop.NextTickNode{
                     .next = undefined,
-                    .data = handle,
+                    .data = @handle(),
                 };
                 var queue_node = std.atomic.Queue(PutNode).Node{
                     .data = PutNode{
@@ -96,10 +96,10 @@ pub fn Channel(comptime T: type) type {
             // TODO integrate this function with named return values
             // so we can get rid of this extra result copy
             var result: T = undefined;
-            suspend |handle| {
+            suspend {
                 var my_tick_node = Loop.NextTickNode{
                     .next = undefined,
-                    .data = handle,
+                    .data = @handle(),
                 };
                 var queue_node = std.atomic.Queue(GetNode).Node{
                     .data = GetNode{

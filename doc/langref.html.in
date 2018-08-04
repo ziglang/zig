@@ -4690,9 +4690,9 @@ test "coroutine suspend with block" {
 var a_promise: promise = undefined;
 var result = false;
 async fn testSuspendBlock() void {
-    suspend |p| {
-        comptime assert(@typeOf(p) == promise->void);
-        a_promise = p;
+    suspend {
+        comptime assert(@typeOf(@handle()) == promise->void);
+        a_promise = @handle();
     }
     result = true;
 }
@@ -4733,8 +4733,8 @@ test "resume from suspend" {
     std.debug.assert(my_result == 2);
 }
 async fn testResumeFromSuspend(my_result: *i32) void {
-    suspend |p| {
-        resume p;
+    suspend {
+        resume @handle();
     }
     my_result.* += 1;
     suspend;
@@ -4791,9 +4791,9 @@ async fn amain() void {
 }
 async fn another() i32 {
     seq('c');
-    suspend |p| {
+    suspend {
         seq('d');
-        a_promise = p;
+        a_promise = @handle();
     }
     seq('g');
     return 1234;
@@ -5381,6 +5381,16 @@ test "main" {
       </p>
       <p>
       This function is only valid within function scope.
+      </p>
+      {#header_close#}
+      {#header_open|@handle#}
+      <pre><code class="zig">@handle()</code></pre>
+      <p>
+      This function returns a <code>promise->T</code> type, where <code>T</code>
+      is the return type of the async function in scope.
+      </p>
+      <p>
+      This function is only valid within an async function scope.
       </p>
       {#header_close#}
       {#header_open|@import#}
@@ -7388,7 +7398,7 @@ Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = "suspend" option( body )
 
 IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
