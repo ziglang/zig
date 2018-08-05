@@ -25,8 +25,8 @@
 #error "Never use <mwaitxintrin.h> directly; include <x86intrin.h> instead."
 #endif
 
-#ifndef _MWAITXINTRIN_H
-#define _MWAITXINTRIN_H
+#ifndef __MWAITXINTRIN_H
+#define __MWAITXINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__,  __target__("mwaitx")))
@@ -44,4 +44,4 @@ _mm_mwaitx(unsigned __extensions, unsigned __hints, unsigned __clock)
 
 #undef __DEFAULT_FN_ATTRS
 
-#endif /* _MWAITXINTRIN_H */
+#endif /* __MWAITXINTRIN_H */

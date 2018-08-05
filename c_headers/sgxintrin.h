@@ -1,4 +1,4 @@
-/*===---- rdseedintrin.h - RDSEED intrinsics -------------------------------===
+/*===---- sgxintrin.h - X86 SGX intrinsics configuration -------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,35 +22,49 @@
  */
 
 #if !defined __X86INTRIN_H && !defined __IMMINTRIN_H
-#error "Never use <rdseedintrin.h> directly; include <x86intrin.h> instead."
+#error "Never use <sgxintrin.h> directly; include <x86intrin.h> instead."
 #endif
 
-#ifndef __RDSEEDINTRIN_H
-#define __RDSEEDINTRIN_H
+#ifndef __SGXINTRIN_H
+#define __SGXINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("rdseed")))
+#define __DEFAULT_FN_ATTRS \
+  __attribute__((__always_inline__, __nodebug__,  __target__("sgx")))
 
-static __inline__ int __DEFAULT_FN_ATTRS
-_rdseed16_step(unsigned short *__p)
+static __inline unsigned int __DEFAULT_FN_ATTRS
+_enclu_u32(unsigned int __leaf, __SIZE_TYPE__ __d[])
 {
-  return __builtin_ia32_rdseed16_step(__p);
+  unsigned int __result;
+  __asm__ ("enclu"
+           : "=a" (__result), "=b" (__d[0]), "=c" (__d[1]), "=d" (__d[2])
+           : "a" (__leaf), "b" (__d[0]), "c" (__d[1]), "d" (__d[2])
+           : "cc");
+  return __result;
 }
 
-static __inline__ int __DEFAULT_FN_ATTRS
-_rdseed32_step(unsigned int *__p)
+static __inline unsigned int __DEFAULT_FN_ATTRS
+_encls_u32(unsigned int __leaf, __SIZE_TYPE__ __d[])
 {
-  return __builtin_ia32_rdseed32_step(__p);
+  unsigned int __result;
+  __asm__ ("encls"
+           : "=a" (__result), "=b" (__d[0]), "=c" (__d[1]), "=d" (__d[2])
+           : "a" (__leaf), "b" (__d[0]), "c" (__d[1]), "d" (__d[2])
+           : "cc");
+  return __result;
 }
 
-#ifdef __x86_64__
-static __inline__ int __DEFAULT_FN_ATTRS
-_rdseed64_step(unsigned long long *__p)
+static __inline unsigned int __DEFAULT_FN_ATTRS
+_enclv_u32(unsigned int __leaf, __SIZE_TYPE__ __d[])
 {
-  return __builtin_ia32_rdseed64_step(__p);
+  unsigned int __result;
+  __asm__ ("enclv"
+           : "=a" (__result), "=b" (__d[0]), "=c" (__d[1]), "=d" (__d[2])
+           : "a" (__leaf), "b" (__d[0]), "c" (__d[1]), "d" (__d[2])
+           : "cc");
+  return __result;
 }
-#endif
 
 #undef __DEFAULT_FN_ATTRS
 
-#endif /* __RDSEEDINTRIN_H */
+#endif

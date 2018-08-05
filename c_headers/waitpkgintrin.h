@@ -1,4 +1,4 @@
-/*===---- xsaveintrin.h - XSAVE intrinsic ----------------------------------===
+/*===----------------------- waitpkgintrin.h - WAITPKG --------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -20,39 +20,37 @@
  *
  *===-----------------------------------------------------------------------===
  */
-
-#ifndef __IMMINTRIN_H
-#error "Never use <xsaveintrin.h> directly; include <immintrin.h> instead."
+#if !defined __X86INTRIN_H && !defined __IMMINTRIN_H
+#error "Never use <waitpkgintrin.h> directly; include <x86intrin.h> instead."
 #endif
 
-#ifndef __XSAVEINTRIN_H
-#define __XSAVEINTRIN_H
+#ifndef __WAITPKGINTRIN_H
+#define __WAITPKGINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__,  __target__("xsave")))
+#define __DEFAULT_FN_ATTRS \
+  __attribute__((__always_inline__, __nodebug__,  __target__("waitpkg")))
 
 static __inline__ void __DEFAULT_FN_ATTRS
-_xsave(void *__p, unsigned long long __m) {
-  __builtin_ia32_xsave(__p, __m);
+_umonitor (void * __address)
+{
+  __builtin_ia32_umonitor (__address);
 }
 
-static __inline__ void __DEFAULT_FN_ATTRS
-_xrstor(void *__p, unsigned long long __m) {
-  __builtin_ia32_xrstor(__p, __m);
+static __inline__ unsigned char __DEFAULT_FN_ATTRS
+_umwait (unsigned int __control, unsigned long long __counter)
+{
+  return __builtin_ia32_umwait (__control,
+    (unsigned int)(__counter >> 32), (unsigned int)__counter);
 }
 
-#ifdef __x86_64__
-static __inline__ void __DEFAULT_FN_ATTRS
-_xsave64(void *__p, unsigned long long __m) {
-  __builtin_ia32_xsave64(__p, __m);
+static __inline__ unsigned char __DEFAULT_FN_ATTRS
+_tpause (unsigned int __control, unsigned long long __counter)
+{
+  return __builtin_ia32_tpause (__control,
+    (unsigned int)(__counter >> 32), (unsigned int)__counter);
 }
-
-static __inline__ void __DEFAULT_FN_ATTRS
-_xrstor64(void *__p, unsigned long long __m) {
-  __builtin_ia32_xrstor64(__p, __m);
-}
-#endif
 
 #undef __DEFAULT_FN_ATTRS
 
-#endif
+#endif /* __WAITPKGINTRIN_H */

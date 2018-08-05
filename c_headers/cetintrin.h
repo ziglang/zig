@@ -1,4 +1,4 @@
-/*===---- cetintrin.h - CET intrinsic ------------------------------------===
+/*===---- cetintrin.h - CET intrinsic --------------------------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -42,6 +42,16 @@ static __inline__ void __DEFAULT_FN_ATTRS _incsspq(unsigned long long __a) {
 }
 #endif /* __x86_64__ */
 
+#ifdef __x86_64__
+static __inline__ void __DEFAULT_FN_ATTRS _inc_ssp(unsigned int __a) {
+  __builtin_ia32_incsspq(__a);
+}
+#else /* __x86_64__ */
+static __inline__ void __DEFAULT_FN_ATTRS _inc_ssp(unsigned int __a) {
+  __builtin_ia32_incsspd((int)__a);
+}
+#endif /* __x86_64__ */
+
 static __inline__ unsigned int __DEFAULT_FN_ATTRS _rdsspd(unsigned int __a) {
   return __builtin_ia32_rdsspd(__a);
 }
@@ -49,6 +59,16 @@ static __inline__ unsigned int __DEFAULT_FN_ATTRS _rdsspd(unsigned int __a) {
 #ifdef __x86_64__
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS _rdsspq(unsigned long long __a) {
   return __builtin_ia32_rdsspq(__a);
+}
+#endif /* __x86_64__ */
+
+#ifdef __x86_64__
+static __inline__ unsigned long long __DEFAULT_FN_ATTRS _get_ssp(void) {
+  return __builtin_ia32_rdsspq(0);
+}
+#else /* __x86_64__ */
+static __inline__ unsigned int __DEFAULT_FN_ATTRS _get_ssp(void) {
+  return __builtin_ia32_rdsspd(0);
 }
 #endif /* __x86_64__ */
 

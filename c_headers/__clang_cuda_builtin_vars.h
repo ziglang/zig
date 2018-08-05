@@ -54,7 +54,7 @@ struct dim3;
 #define __DELETE
 #endif
 
-// Make sure nobody can create instances of the special varible types.  nvcc
+// Make sure nobody can create instances of the special variable types.  nvcc
 // also disallows taking address of special variables, so we disable address-of
 // operator as well.
 #define __CUDA_DISALLOW_BUILTINVAR_ACCESS(TypeName)                            \

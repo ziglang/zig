@@ -31,7 +31,7 @@
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__,  __target__("clwb")))
 
-/// \brief Writes back to memory the cache line (if modified) that contains the
+/// Writes back to memory the cache line (if modified) that contains the
 /// linear address specified in \a __p from any level of the cache hierarchy in
 /// the cache coherence domain
 ///
