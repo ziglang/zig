@@ -2707,7 +2707,9 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
         AstNode *child_statement;
         child_scope = trans_stmt(c, &child_block_scope->base, stmt->getBody(), &child_statement);
         if (child_scope == nullptr) return nullptr;
-        body_node->data.block.statements.append(child_statement);
+        if (child_statement != nullptr) {
+            body_node->data.block.statements.append(child_statement);
+        }
     }
 
     // if (!cond) break;
@@ -2717,6 +2719,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
     terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
     terminator_node->data.if_bool_expr.then_block = trans_create_node(c, NodeTypeBreak);
 
+    assert(terminator_node != nullptr);
     body_node->data.block.statements.append(terminator_node);
 
     while_scope->node->data.while_expr.body = body_node;
@@ -3044,9 +3047,13 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
         case Stmt::UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
-        case Stmt::DoStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_do_loop(c, scope, (const DoStmt *)stmt));
+        case Stmt::DoStmtClass: {
+            AstNode *while_node = trans_do_loop(c, scope, (const DoStmt *)stmt);
+            if (while_node->data.while_expr.body == nullptr) {
+                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+            }
+            return wrap_stmt(out_node, out_child_scope, scope, while_node);
+        }
         case Stmt::ForStmtClass: {
             AstNode *while_node = trans_for_loop(c, scope, (const ForStmt *)stmt);
             if (while_node->data.while_expr.body == nullptr) {

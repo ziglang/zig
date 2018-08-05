@@ -1,6 +1,18 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("do while with empty body",
+        \\void foo(void) {
+        \\    do ; while (1);
+        \\}
+    , // TODO this should be if (1 != 0) break
+        \\pub fn foo() void {
+        \\    while (true) {
+        \\        if (!1) break;
+        \\    }
+        \\}
+    );
+
     cases.add("for with empty body",
         \\void foo(void) {
         \\    for (;;);
