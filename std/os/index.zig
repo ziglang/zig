@@ -2517,7 +2517,7 @@ pub const Thread = struct {
 
     pub const use_pthreads = is_posix and builtin.link_libc;
 
-    /// An opaque type representing a kernel thread ID.
+    /// An type representing a kernel thread ID.
     pub const Id = if (use_pthreads)
         c.pthread_t
     else switch (builtin.os) {

@@ -34,12 +34,12 @@ test "access file" {
     try os.deleteTree(a, "os_test_tmp");
 }
 
-fn testThreadIdFn(threadId: *?os.Thread.Id) void {
+fn testThreadIdFn(threadId: *os.Thread.Id) void {
     threadId.* = os.Thread.currentId();
 }
 
 test "std.os.Thread.currentId" {
-    var threadCurrentId: ?os.Thread.Id = null;
+    var threadCurrentId: os.Thread.Id = undefined;
     const thread = try os.spawnThread(&threadCurrentId, testThreadIdFn);
     const threadId = thread.id();
     thread.wait();
