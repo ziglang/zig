@@ -3020,8 +3020,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
             if (while_node->data.while_expr.body == nullptr) {
                 while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
             }
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    while_node);
+            return wrap_stmt(out_node, out_child_scope, scope, while_node);
         }
         case Stmt::IfStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
@@ -3048,9 +3047,13 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
         case Stmt::DoStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_do_loop(c, scope, (const DoStmt *)stmt));
-        case Stmt::ForStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_for_loop(c, scope, (const ForStmt *)stmt));
+        case Stmt::ForStmtClass: {
+            AstNode *while_node = trans_for_loop(c, scope, (const ForStmt *)stmt);
+            if (while_node->data.while_expr.body == nullptr) {
+                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+            }
+            return wrap_stmt(out_node, out_child_scope, scope, while_node);
+        }
         case Stmt::StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_string_literal(c, scope, (const StringLiteral *)stmt));
