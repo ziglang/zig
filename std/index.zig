@@ -32,6 +32,7 @@ pub const mem = @import("mem.zig");
 pub const net = @import("net.zig");
 pub const os = @import("os/index.zig");
 pub const rand = @import("rand/index.zig");
+pub const rb = @import("rb.zig");
 pub const sort = @import("sort.zig");
 pub const unicode = @import("unicode.zig");
 pub const zig = @import("zig/index.zig");
