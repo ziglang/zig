@@ -3015,9 +3015,14 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                     trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
         case Stmt::DeclStmtClass:
             return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
-        case Stmt::WhileStmtClass:
+        case Stmt::WhileStmtClass: {
+            AstNode *while_node = trans_while_loop(c, scope, (const WhileStmt *)stmt);
+            if (while_node->data.while_expr.body == nullptr) {
+                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+            }
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_while_loop(c, scope, (const WhileStmt *)stmt));
+                    while_node);
+        }
         case Stmt::IfStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_if_statement(c, scope, (const IfStmt *)stmt));

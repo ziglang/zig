@@ -1,6 +1,16 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("while with empty body",
+        \\void foo(void) {
+        \\    while (1);
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    while (1 != 0) {}
+        \\}
+    );
+
     cases.add("double define struct",
         \\typedef struct Bar Bar;
         \\typedef struct Foo Foo;
