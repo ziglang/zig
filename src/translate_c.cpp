@@ -2783,7 +2783,12 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
     TransScope *body_scope = trans_stmt(c, &while_scope->base, stmt->getBody(), &body_statement);
     if (body_scope == nullptr)
         return nullptr;
-    while_scope->node->data.while_expr.body = body_statement;
+
+    if (body_statement == nullptr) {
+        while_scope->node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+    } else {
+        while_scope->node->data.while_expr.body = body_statement;
+    }
 
     return loop_block_node;
 }
@@ -3020,6 +3025,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
             return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
         case Stmt::WhileStmtClass: {
             AstNode *while_node = trans_while_loop(c, scope, (const WhileStmt *)stmt);
+            assert(while_node->type == NodeTypeWhileExpr);
             if (while_node->data.while_expr.body == nullptr) {
                 while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
             }
@@ -3049,17 +3055,15 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                     trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
         case Stmt::DoStmtClass: {
             AstNode *while_node = trans_do_loop(c, scope, (const DoStmt *)stmt);
+            assert(while_node->type == NodeTypeWhileExpr);
             if (while_node->data.while_expr.body == nullptr) {
                 while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
             }
             return wrap_stmt(out_node, out_child_scope, scope, while_node);
         }
         case Stmt::ForStmtClass: {
-            AstNode *while_node = trans_for_loop(c, scope, (const ForStmt *)stmt);
-            if (while_node->data.while_expr.body == nullptr) {
-                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
-            }
-            return wrap_stmt(out_node, out_child_scope, scope, while_node);
+            AstNode *node = trans_for_loop(c, scope, (const ForStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope, node);
         }
         case Stmt::StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
