@@ -13,8 +13,8 @@ sender: MailboxId,
     payload:  ?[]const u8,
 
     pub fn from(mailbox_id: *const MailboxId) Message {
-        return Message{
-            .sender = MailboxId.Undefined,
+        return Message {
+            .sender   = MailboxId.Undefined,
             .receiver = mailbox_id.*,
             .code     = undefined,
             .args     = undefined,
@@ -80,11 +80,15 @@ pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
 // FIXME: let's borrow Linux's error numbers for now.
-pub const getErrno = @import("linux/index.zig").getErrno;
 use @import("linux/errno.zig");
+// Get the errno from a syscall return value, or 0 for no error.
+pub fn getErrno(r: usize) usize {
+    const signed_r = @bitCast(isize, r);
+    return if (signed_r > -4096 and signed_r < 0) @intCast(usize, -signed_r) else 0;
+}
 
 // TODO: implement this correctly.
-pub fn read(fd: i32, buf: *u8, count: usize) usize {
+pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
     switch (fd) {
         STDIN_FILENO => {
             var i: usize = 0;
@@ -93,9 +97,9 @@ pub fn read(fd: i32, buf: *u8, count: usize) usize {
 
                 // FIXME: we should be certain that we are receiving from Keyboard.
                 var message = Message.from(MailboxId.This);
-                receive(message.*);
+                receive(&message);
 
-                buf[i] = u8(message.args[0]);
+                buf[i] = @intCast(u8, message.args[0]);
             }
         },
         else => unreachable,
@@ -104,7 +108,7 @@ pub fn read(fd: i32, buf: *u8, count: usize) usize {
 }
 
 // TODO: implement this correctly.
-pub fn write(fd: i32, buf: *const u8, count: usize) usize {
+pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
     switch (fd) {
         STDOUT_FILENO, STDERR_FILENO => {
             send(Message.to(Server.Terminal, 1)
