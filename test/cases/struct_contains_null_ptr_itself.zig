@@ -2,13 +2,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "struct contains null pointer which contains original struct" {
-    var x: ?&NodeLineComment = null;
+    var x: ?*NodeLineComment = null;
     assert(x == null);
 }
 
 pub const Node = struct {
     id: Id,
-    comment: ?&NodeLineComment,
+    comment: ?*NodeLineComment,
 
     pub const Id = enum {
         Root,
@@ -19,4 +19,3 @@ pub const Node = struct {
 pub const NodeLineComment = struct {
     base: Node,
 };
-

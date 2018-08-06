@@ -247,10 +247,22 @@ static AstNode *trans_create_node_field_access_str(Context *c, AstNode *containe
     return trans_create_node_field_access(c, container, buf_create_from_str(field_name));
 }
 
+static AstNode *trans_create_node_ptr_deref(Context *c, AstNode *child_node) {
+    AstNode *node = trans_create_node(c, NodeTypePtrDeref);
+    node->data.ptr_deref_expr.target = child_node;
+    return node;
+}
+
 static AstNode *trans_create_node_prefix_op(Context *c, PrefixOp op, AstNode *child_node) {
     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = op;
     node->data.prefix_op_expr.primary_expr = child_node;
+    return node;
+}
+
+static AstNode *trans_create_node_unwrap_null(Context *c, AstNode *child_node) {
+    AstNode *node = trans_create_node(c, NodeTypeUnwrapOptional);
+    node->data.unwrap_optional.expr = child_node;
     return node;
 }
 
@@ -270,11 +282,21 @@ static AstNode *maybe_suppress_result(Context *c, ResultUsed result_used, AstNod
         node);
 }
 
-static AstNode *trans_create_node_addr_of(Context *c, bool is_const, bool is_volatile, AstNode *child_node) {
-    AstNode *node = trans_create_node(c, NodeTypeAddrOfExpr);
-    node->data.addr_of_expr.is_const = is_const;
-    node->data.addr_of_expr.is_volatile = is_volatile;
-    node->data.addr_of_expr.op_expr = child_node;
+static AstNode *trans_create_node_ptr_type(Context *c, bool is_const, bool is_volatile, AstNode *child_node, PtrLen ptr_len) {
+    AstNode *node = trans_create_node(c, NodeTypePointerType);
+    node->data.pointer_type.star_token = allocate<ZigToken>(1);
+    node->data.pointer_type.star_token->id = (ptr_len == PtrLenSingle) ? TokenIdStar: TokenIdBracketStarBracket;
+    node->data.pointer_type.is_const = is_const;
+    node->data.pointer_type.is_const = is_const;
+    node->data.pointer_type.is_volatile = is_volatile;
+    node->data.pointer_type.op_expr = child_node;
+    return node;
+}
+
+static AstNode *trans_create_node_addr_of(Context *c, AstNode *child_node) {
+    AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
+    node->data.prefix_op_expr.prefix_op = PrefixOpAddrOf;
+    node->data.prefix_op_expr.primary_expr = child_node;
     return node;
 }
 
@@ -366,7 +388,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *r
     fn_def->data.fn_def.fn_proto = fn_proto;
     fn_proto->data.fn_proto.fn_def_node = fn_def;
 
-    AstNode *unwrap_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, ref_node);
+    AstNode *unwrap_node = trans_create_node_unwrap_null(c, ref_node);
     AstNode *fn_call_node = trans_create_node(c, NodeTypeFnCallExpr);
     fn_call_node->data.fn_call_expr.fn_ref_expr = unwrap_node;
 
@@ -393,10 +415,6 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *r
     return fn_def;
 }
 
-static AstNode *trans_create_node_unwrap_null(Context *c, AstNode *child) {
-    return trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, child);
-}
-
 static AstNode *get_global(Context *c, Buf *name) {
     {
         auto entry = c->global_table.maybe_get(name);
@@ -409,7 +427,7 @@ static AstNode *get_global(Context *c, Buf *name) {
         if (entry)
             return entry->value;
     }
-    if (c->codegen->primitive_type_table.maybe_get(name) != nullptr) {
+    if (get_primitive_type(c->codegen, name) != nullptr) {
         return trans_create_node_symbol(c, name);
     }
     return nullptr;
@@ -718,6 +736,30 @@ static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
     }
 }
 
+static bool type_is_opaque(Context *c, const Type *ty, const SourceLocation &source_loc) {
+    switch (ty->getTypeClass()) {
+        case Type::Builtin: {
+            const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+            return builtin_ty->getKind() == BuiltinType::Void;
+        }
+        case Type::Record: {
+            const RecordType *record_ty = static_cast<const RecordType*>(ty);
+            return record_ty->getDecl()->getDefinition() == nullptr;
+        }
+        case Type::Elaborated: {
+            const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
+            return type_is_opaque(c, elaborated_ty->getNamedType().getTypePtr(), source_loc);
+        }
+        case Type::Typedef: {
+            const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
+            const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+            return type_is_opaque(c, typedef_decl->getUnderlyingType().getTypePtr(), source_loc);
+        }
+        default:
+            return false;
+    }
+}
+
 static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
@@ -839,12 +881,14 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                 }
 
                 if (qual_type_child_is_fn_proto(child_qt)) {
-                    return trans_create_node_prefix_op(c, PrefixOpMaybe, child_node);
+                    return trans_create_node_prefix_op(c, PrefixOpOptional, child_node);
                 }
 
-                AstNode *pointer_node = trans_create_node_addr_of(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_node);
-                return trans_create_node_prefix_op(c, PrefixOpMaybe, pointer_node);
+                PtrLen ptr_len = type_is_opaque(c, child_qt.getTypePtr(), source_loc) ? PtrLenSingle : PtrLenUnknown;
+
+                AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                        child_qt.isVolatileQualified(), child_node, ptr_len);
+                return trans_create_node_prefix_op(c, PrefixOpOptional, pointer_node);
             }
         case Type::Typedef:
             {
@@ -1027,8 +1071,8 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     emit_warning(c, source_loc, "unresolved array element type");
                     return nullptr;
                 }
-                AstNode *pointer_node = trans_create_node_addr_of(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_type_node);
+                AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                        child_qt.isVolatileQualified(), child_type_node, PtrLenUnknown);
                 return pointer_node;
             }
         case Type::BlockPointer:
@@ -1396,7 +1440,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         // const _ref = &lhs;
         AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
         if (lhs == nullptr) return nullptr;
-        AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+        AstNode *addr_of_lhs = trans_create_node_addr_of(c, lhs);
         // TODO: avoid name collisions with generated variable names
         Buf* tmp_var_name = buf_create_from_str("_ref");
         AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
@@ -1412,8 +1456,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         AstNode *operation_type_cast = trans_c_cast(c, rhs_location,
             stmt->getComputationLHSType(),
             stmt->getLHS()->getType(),
-            trans_create_node_prefix_op(c, PrefixOpDereference,
-                trans_create_node_symbol(c, tmp_var_name)));
+            trans_create_node_ptr_deref(c, trans_create_node_symbol(c, tmp_var_name)));
 
         // result_type(... >> u5(rhs))
         AstNode *result_type_cast = trans_c_cast(c, rhs_location,
@@ -1426,7 +1469,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 
         // *_ref = ...
         AstNode *assign_statement = trans_create_node_bin_op(c,
-            trans_create_node_prefix_op(c, PrefixOpDereference,
+            trans_create_node_ptr_deref(c,
                 trans_create_node_symbol(c, tmp_var_name)),
             BinOpTypeAssign, result_type_cast);
 
@@ -1436,7 +1479,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
             // break :x *_ref
             child_scope->node->data.block.statements.append(
                 trans_create_node_break(c, label_name,
-                    trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_ptr_deref(c,
                         trans_create_node_symbol(c, tmp_var_name))));
         }
 
@@ -1471,7 +1514,7 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
         // const _ref = &lhs;
         AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
         if (lhs == nullptr) return nullptr;
-        AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+        AstNode *addr_of_lhs = trans_create_node_addr_of(c, lhs);
         // TODO: avoid name collisions with generated variable names
         Buf* tmp_var_name = buf_create_from_str("_ref");
         AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
@@ -1483,11 +1526,11 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
         if (rhs == nullptr) return nullptr;
 
         AstNode *assign_statement = trans_create_node_bin_op(c,
-            trans_create_node_prefix_op(c, PrefixOpDereference,
+            trans_create_node_ptr_deref(c,
                 trans_create_node_symbol(c, tmp_var_name)),
             BinOpTypeAssign,
             trans_create_node_bin_op(c,
-                trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_ptr_deref(c,
                     trans_create_node_symbol(c, tmp_var_name)),
                 bin_op,
                 rhs));
@@ -1496,7 +1539,7 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
         // break :x *_ref
         child_scope->node->data.block.statements.append(
             trans_create_node_break(c, label_name,
-                trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_ptr_deref(c,
                     trans_create_node_symbol(c, tmp_var_name))));
 
         return child_scope->node;
@@ -1808,7 +1851,7 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
     // const _ref = &expr;
     AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
     if (expr == nullptr) return nullptr;
-    AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
+    AstNode *addr_of_expr = trans_create_node_addr_of(c, expr);
     // TODO: avoid name collisions with generated variable names
     Buf* ref_var_name = buf_create_from_str("_ref");
     AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
@@ -1817,13 +1860,13 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
     // const _tmp = *_ref;
     Buf* tmp_var_name = buf_create_from_str("_tmp");
     AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr,
-        trans_create_node_prefix_op(c, PrefixOpDereference,
+        trans_create_node_ptr_deref(c,
             trans_create_node_symbol(c, ref_var_name)));
     child_scope->node->data.block.statements.append(tmp_var_decl);
 
     // *_ref += 1;
     AstNode *assign_statement = trans_create_node_bin_op(c,
-        trans_create_node_prefix_op(c, PrefixOpDereference,
+        trans_create_node_ptr_deref(c,
             trans_create_node_symbol(c, ref_var_name)),
         assign_op,
         trans_create_node_unsigned(c, 1));
@@ -1863,7 +1906,7 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
     // const _ref = &expr;
     AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
     if (expr == nullptr) return nullptr;
-    AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
+    AstNode *addr_of_expr = trans_create_node_addr_of(c, expr);
     // TODO: avoid name collisions with generated variable names
     Buf* ref_var_name = buf_create_from_str("_ref");
     AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
@@ -1871,14 +1914,14 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
 
     // *_ref += 1;
     AstNode *assign_statement = trans_create_node_bin_op(c,
-        trans_create_node_prefix_op(c, PrefixOpDereference,
+        trans_create_node_ptr_deref(c,
             trans_create_node_symbol(c, ref_var_name)),
         assign_op,
         trans_create_node_unsigned(c, 1));
     child_scope->node->data.block.statements.append(assign_statement);
 
     // break :x *_ref
-    AstNode *deref_expr = trans_create_node_prefix_op(c, PrefixOpDereference,
+    AstNode *deref_expr = trans_create_node_ptr_deref(c,
             trans_create_node_symbol(c, ref_var_name));
     child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, deref_expr));
 
@@ -1912,7 +1955,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransLValue);
                 if (value_node == nullptr)
                     return value_node;
-                return trans_create_node_addr_of(c, false, false, value_node);
+                return trans_create_node_addr_of(c, value_node);
             }
         case UO_Deref:
             {
@@ -1922,8 +1965,8 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 bool is_fn_ptr = qual_type_is_fn_ptr(stmt->getSubExpr()->getType());
                 if (is_fn_ptr)
                     return value_node;
-                AstNode *unwrapped = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, value_node);
-                return trans_create_node_prefix_op(c, PrefixOpDereference, unwrapped);
+                AstNode *unwrapped = trans_create_node_unwrap_null(c, value_node);
+                return trans_create_node_ptr_deref(c, unwrapped);
             }
         case UO_Plus:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Plus");
@@ -2546,7 +2589,7 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
             }
         }
         if (callee_node == nullptr) {
-            callee_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, callee_raw_node);
+            callee_node = trans_create_node_unwrap_null(c, callee_raw_node);
         }
     } else {
         callee_node = callee_raw_node;
@@ -2664,7 +2707,9 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
         AstNode *child_statement;
         child_scope = trans_stmt(c, &child_block_scope->base, stmt->getBody(), &child_statement);
         if (child_scope == nullptr) return nullptr;
-        body_node->data.block.statements.append(child_statement);
+        if (child_statement != nullptr) {
+            body_node->data.block.statements.append(child_statement);
+        }
     }
 
     // if (!cond) break;
@@ -2674,6 +2719,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
     terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
     terminator_node->data.if_bool_expr.then_block = trans_create_node(c, NodeTypeBreak);
 
+    assert(terminator_node != nullptr);
     body_node->data.block.statements.append(terminator_node);
 
     while_scope->node->data.while_expr.body = body_node;
@@ -2737,7 +2783,12 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
     TransScope *body_scope = trans_stmt(c, &while_scope->base, stmt->getBody(), &body_statement);
     if (body_scope == nullptr)
         return nullptr;
-    while_scope->node->data.while_expr.body = body_statement;
+
+    if (body_statement == nullptr) {
+        while_scope->node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+    } else {
+        while_scope->node->data.while_expr.body = body_statement;
+    }
 
     return loop_block_node;
 }
@@ -2972,9 +3023,14 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                     trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
         case Stmt::DeclStmtClass:
             return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
-        case Stmt::WhileStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_while_loop(c, scope, (const WhileStmt *)stmt));
+        case Stmt::WhileStmtClass: {
+            AstNode *while_node = trans_while_loop(c, scope, (const WhileStmt *)stmt);
+            assert(while_node->type == NodeTypeWhileExpr);
+            if (while_node->data.while_expr.body == nullptr) {
+                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+            }
+            return wrap_stmt(out_node, out_child_scope, scope, while_node);
+        }
         case Stmt::IfStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_if_statement(c, scope, (const IfStmt *)stmt));
@@ -2997,12 +3053,18 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
         case Stmt::UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
-        case Stmt::DoStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_do_loop(c, scope, (const DoStmt *)stmt));
-        case Stmt::ForStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_for_loop(c, scope, (const ForStmt *)stmt));
+        case Stmt::DoStmtClass: {
+            AstNode *while_node = trans_do_loop(c, scope, (const DoStmt *)stmt);
+            assert(while_node->type == NodeTypeWhileExpr);
+            if (while_node->data.while_expr.body == nullptr) {
+                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+            }
+            return wrap_stmt(out_node, out_child_scope, scope, while_node);
+        }
+        case Stmt::ForStmtClass: {
+            AstNode *node = trans_for_loop(c, scope, (const ForStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope, node);
+        }
         case Stmt::StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_string_literal(c, scope, (const StringLiteral *)stmt));
@@ -3667,6 +3729,7 @@ static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_
     if (existing_entry) {
         return existing_entry->value;
     }
+
     QualType child_qt = typedef_decl->getUnderlyingType();
     Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
 
@@ -3700,16 +3763,19 @@ static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_
     // use the name of this typedef
     // TODO
 
+    // trans_qual_type here might cause us to look at this typedef again so we put the item in the map first
+    AstNode *symbol_node = trans_create_node_symbol(c, type_name);
+    c->decl_table.put(typedef_decl->getCanonicalDecl(), symbol_node);
+
     AstNode *type_node = trans_qual_type(c, child_qt, typedef_decl->getLocation());
     if (type_node == nullptr) {
         emit_warning(c, typedef_decl->getLocation(), "typedef %s - unresolved child type", buf_ptr(type_name));
         c->decl_table.put(typedef_decl, nullptr);
+        // TODO add global var with type_name equal to @compileError("unable to resolve C type") 
         return nullptr;
     }
     add_global_var(c, type_name, type_node);
 
-    AstNode *symbol_node = trans_create_node_symbol(c, type_name);
-    c->decl_table.put(typedef_decl->getCanonicalDecl(), symbol_node);
     return symbol_node;
 }
 
@@ -3744,6 +3810,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         return demote_enum_to_opaque(c, enum_decl, full_type_name, bare_name);
     }
 
+
     bool pure_enum = true;
     uint32_t field_count = 0;
     for (auto it = enum_def->enumerator_begin(),
@@ -3755,84 +3822,53 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
             pure_enum = false;
         }
     }
-
     AstNode *tag_int_type = trans_qual_type(c, enum_decl->getIntegerType(), enum_decl->getLocation());
     assert(tag_int_type);
 
-    if (pure_enum) {
-        AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
-        enum_node->data.container_decl.kind = ContainerKindEnum;
-        enum_node->data.container_decl.layout = ContainerLayoutExtern;
-        // TODO only emit this tag type if the enum tag type is not the default.
-        // I don't know what the default is, need to figure out how clang is deciding.
-        // it appears to at least be different across gcc/msvc
-        if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt) &&
-            !c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::Int))
-        {
-            enum_node->data.container_decl.init_arg_expr = tag_int_type;
-        }
-
-        enum_node->data.container_decl.fields.resize(field_count);
-        uint32_t i = 0;
-        for (auto it = enum_def->enumerator_begin(),
-                it_end = enum_def->enumerator_end();
-                it != it_end; ++it, i += 1)
-        {
-            const EnumConstantDecl *enum_const = *it;
-
-            Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
-            Buf *field_name;
-            if (bare_name != nullptr && buf_starts_with_buf(enum_val_name, bare_name)) {
-                field_name = buf_slice(enum_val_name, buf_len(bare_name), buf_len(enum_val_name));
-            } else {
-                field_name = enum_val_name;
-            }
-
-            AstNode *field_node = trans_create_node(c, NodeTypeStructField);
-            field_node->data.struct_field.name = field_name;
-            field_node->data.struct_field.type = nullptr;
-            enum_node->data.container_decl.fields.items[i] = field_node;
-
-            // in C each enum value is in the global namespace. so we put them there too.
-            // at this point we can rely on the enum emitting successfully
-            if (is_anonymous) {
-                AstNode *lit_node = trans_create_node_unsigned(c, i);
-                add_global_var(c, enum_val_name, lit_node);
-            } else {
-                AstNode *field_access_node = trans_create_node_field_access(c,
-                        trans_create_node_symbol(c, full_type_name), field_name);
-                add_global_var(c, enum_val_name, field_access_node);
-            }
-        }
-
-        if (is_anonymous) {
-            c->decl_table.put(enum_decl->getCanonicalDecl(), enum_node);
-            return enum_node;
-        } else {
-            AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
-            add_global_weak_alias(c, bare_name, full_type_name);
-            add_global_var(c, full_type_name, enum_node);
-            c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
-            return enum_node;
-        }
+    AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
+    enum_node->data.container_decl.kind = ContainerKindEnum;
+    enum_node->data.container_decl.layout = ContainerLayoutExtern;
+    // TODO only emit this tag type if the enum tag type is not the default.
+    // I don't know what the default is, need to figure out how clang is deciding.
+    // it appears to at least be different across gcc/msvc
+    if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt) &&
+        !c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::Int))
+    {
+        enum_node->data.container_decl.init_arg_expr = tag_int_type;
     }
-
-    // TODO after issue #305 is solved, make this be an enum with tag_int_type
-    // as the integer type and set the custom enum values
-    AstNode *enum_node = tag_int_type;
-
-
-    // add variables for all the values with enum_node
+    enum_node->data.container_decl.fields.resize(field_count);
+    uint32_t i = 0;
     for (auto it = enum_def->enumerator_begin(),
             it_end = enum_def->enumerator_end();
-            it != it_end; ++it)
+            it != it_end; ++it, i += 1)
     {
         const EnumConstantDecl *enum_const = *it;
 
         Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
-        AstNode *int_node = trans_create_node_apint(c, enum_const->getInitVal());
-        AstNode *var_node = add_global_var(c, enum_val_name, int_node);
-        var_node->data.variable_declaration.type = tag_int_type;
+        Buf *field_name;
+        if (bare_name != nullptr && buf_starts_with_buf(enum_val_name, bare_name)) {
+            field_name = buf_slice(enum_val_name, buf_len(bare_name), buf_len(enum_val_name));
+        } else {
+            field_name = enum_val_name;
+        }
+
+        AstNode *int_node = pure_enum && !is_anonymous ? nullptr : trans_create_node_apint(c, enum_const->getInitVal());
+        AstNode *field_node = trans_create_node(c, NodeTypeStructField);
+        field_node->data.struct_field.name = field_name;
+        field_node->data.struct_field.type = nullptr;
+        field_node->data.struct_field.value = int_node;
+        enum_node->data.container_decl.fields.items[i] = field_node;
+
+        // in C each enum value is in the global namespace. so we put them there too.
+        // at this point we can rely on the enum emitting successfully
+        if (is_anonymous) {
+            Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
+            add_global_var(c, enum_val_name, int_node);
+        } else {
+            AstNode *field_access_node = trans_create_node_field_access(c,
+                    trans_create_node_symbol(c, full_type_name), field_name);
+            add_global_var(c, enum_val_name, field_access_node);
+        }
     }
 
     if (is_anonymous) {
@@ -3843,7 +3879,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         add_global_weak_alias(c, bare_name, full_type_name);
         add_global_var(c, full_type_name, enum_node);
         c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
-        return symbol_node;
+        return enum_node;
     }
 }
 
@@ -4286,7 +4322,7 @@ static AstNode *trans_lookup_ast_maybe_fn(Context *c, AstNode *ref_node) {
         return nullptr;
     if (prefix_node->type != NodeTypePrefixOpExpr)
         return nullptr;
-    if (prefix_node->data.prefix_op_expr.prefix_op != PrefixOpMaybe)
+    if (prefix_node->data.prefix_op_expr.prefix_op != PrefixOpOptional)
         return nullptr;
 
     AstNode *fn_proto_node = prefix_node->data.prefix_op_expr.primary_expr;
@@ -4462,34 +4498,52 @@ static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *t
         } else if (first_tok->id == CTokIdAsterisk) {
             *tok_i += 1;
 
-            node = trans_create_node_addr_of(c, false, false, node);
+            node = trans_create_node_ptr_type(c, false, false, node, PtrLenUnknown);
         } else {
             return node;
         }
     }
 }
 
-static PrefixOp ctok_to_prefix_op(CTok *token) {
-    switch (token->id) {
-        case CTokIdBang: return PrefixOpBoolNot;
-        case CTokIdMinus: return PrefixOpNegation;
-        case CTokIdTilde: return PrefixOpBinNot;
-        case CTokIdAsterisk: return PrefixOpDereference;
-        default: return PrefixOpInvalid;
-    }
-}
 static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
     CTok *op_tok = &ctok->tokens.at(*tok_i);
-    PrefixOp prefix_op = ctok_to_prefix_op(op_tok);
-    if (prefix_op == PrefixOpInvalid) {
-        return parse_ctok_suffix_op_expr(c, ctok, tok_i);
-    }
-    *tok_i += 1;
 
-    AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
-    if (prefix_op_expr == nullptr)
-        return nullptr;
-    return trans_create_node_prefix_op(c, prefix_op, prefix_op_expr);
+    switch (op_tok->id) {
+        case CTokIdBang:
+            {
+                *tok_i += 1;
+                AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+                if (prefix_op_expr == nullptr)
+                    return nullptr;
+                return trans_create_node_prefix_op(c, PrefixOpBoolNot, prefix_op_expr);
+            }
+        case CTokIdMinus:
+            {
+                *tok_i += 1;
+                AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+                if (prefix_op_expr == nullptr)
+                    return nullptr;
+                return trans_create_node_prefix_op(c, PrefixOpNegation, prefix_op_expr);
+            }
+        case CTokIdTilde:
+            {
+                *tok_i += 1;
+                AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+                if (prefix_op_expr == nullptr)
+                    return nullptr;
+                return trans_create_node_prefix_op(c, PrefixOpBinNot, prefix_op_expr);
+            }
+        case CTokIdAsterisk:
+            {
+                *tok_i += 1;
+                AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+                if (prefix_op_expr == nullptr)
+                    return nullptr;
+                return trans_create_node_ptr_deref(c, prefix_op_expr);
+            }
+        default:
+            return parse_ctok_suffix_op_expr(c, ctok, tok_i);
+    }
 }
 
 static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {

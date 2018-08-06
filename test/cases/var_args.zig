@@ -2,9 +2,12 @@ const assert = @import("std").debug.assert;
 
 fn add(args: ...) i32 {
     var sum = i32(0);
-    {comptime var i: usize = 0; inline while (i < args.len) : (i += 1) {
-        sum += args[i];
-    }}
+    {
+        comptime var i: usize = 0;
+        inline while (i < args.len) : (i += 1) {
+            sum += args[i];
+        }
+    }
     return sum;
 }
 
@@ -55,30 +58,22 @@ fn extraFn(extra: u32, args: ...) usize {
     return args.len;
 }
 
+const foos = []fn (...) bool{
+    foo1,
+    foo2,
+};
 
-const foos = []fn(...) bool { foo1, foo2 };
-
-fn foo1(args: ...) bool { return true; }
-fn foo2(args: ...) bool { return false; }
+fn foo1(args: ...) bool {
+    return true;
+}
+fn foo2(args: ...) bool {
+    return false;
+}
 
 test "array of var args functions" {
     assert(foos[0]());
     assert(!foos[1]());
 }
-
-
-test "pass array and slice of same array to var args should have same pointers" {
-    const array = "hi";
-    const slice: []const u8 = array;
-    return assertSlicePtrsEql(array, slice);
-}
-
-fn assertSlicePtrsEql(args: ...) void {
-    const s1 = ([]const u8)(args[0]);
-    const s2 = args[1];
-    assert(s1.ptr == s2.ptr);
-}
-
 
 test "pass zero length array to var args param" {
     doNothingWithFirstArg("");

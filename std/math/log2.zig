@@ -14,7 +14,7 @@ const TypeId = builtin.TypeId;
 pub fn log2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => {
+        TypeId.ComptimeFloat => {
             return @typeOf(1.0)(log2_64(x));
         },
         TypeId.Float => {
@@ -24,26 +24,24 @@ pub fn log2(x: var) @typeOf(x) {
                 else => @compileError("log2 not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.IntLiteral => comptime {
+        TypeId.ComptimeInt => comptime {
             var result = 0;
             var x_shifted = x;
-            while (b: {x_shifted >>= 1; break :b x_shifted != 0;}) : (result += 1) {}
+            while (b: {
+                x_shifted >>= 1;
+                break :b x_shifted != 0;
+            }) : (result += 1) {}
             return result;
         },
         TypeId.Int => {
-            return log2_int(T, x);
+            return math.log2_int(T, x);
         },
         else => @compileError("log2 not implemented for " ++ @typeName(T)),
     }
 }
 
-pub fn log2_int(comptime T: type, x: T) T {
-    assert(x != 0);
-    return T.bit_count - 1 - T(@clz(x));
-}
-
 pub fn log2_32(x_: f32) f32 {
-    const ivln2hi: f32 =  1.4428710938e+00;
+    const ivln2hi: f32 = 1.4428710938e+00;
     const ivln2lo: f32 = -1.7605285393e-04;
     const Lg1: f32 = 0xaaaaaa.0p-24;
     const Lg2: f32 = 0xccce13.0p-25;
@@ -77,7 +75,7 @@ pub fn log2_32(x_: f32) f32 {
 
     // x into [sqrt(2) / 2, sqrt(2)]
     ix += 0x3F800000 - 0x3F3504F3;
-    k += i32(ix >> 23) - 0x7F;
+    k += @intCast(i32, ix >> 23) - 0x7F;
     ix = (ix & 0x007FFFFF) + 0x3F3504F3;
     x = @bitCast(f32, ix);
 
@@ -95,7 +93,7 @@ pub fn log2_32(x_: f32) f32 {
     u &= 0xFFFFF000;
     hi = @bitCast(f32, u);
     const lo = f - hi - hfsq + s * (hfsq + R);
-    return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + f32(k);
+    return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + @intToFloat(f32, k);
 }
 
 pub fn log2_64(x_: f64) f64 {
@@ -111,7 +109,7 @@ pub fn log2_64(x_: f64) f64 {
 
     var x = x_;
     var ix = @bitCast(u64, x);
-    var hx = u32(ix >> 32);
+    var hx = @intCast(u32, ix >> 32);
     var k: i32 = 0;
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
@@ -127,7 +125,7 @@ pub fn log2_64(x_: f64) f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = u32(@bitCast(u64, x) >> 32);
+        hx = @intCast(u32, @bitCast(u64, x) >> 32);
     } else if (hx >= 0x7FF00000) {
         return x;
     } else if (hx == 0x3FF00000 and ix << 32 == 0) {
@@ -136,7 +134,7 @@ pub fn log2_64(x_: f64) f64 {
 
     // x into [sqrt(2) / 2, sqrt(2)]
     hx += 0x3FF00000 - 0x3FE6A09E;
-    k += i32(hx >> 20) - 0x3FF;
+    k += @intCast(i32, hx >> 20) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
     ix = (u64(hx) << 32) | (ix & 0xFFFFFFFF);
     x = @bitCast(f64, ix);
@@ -161,7 +159,7 @@ pub fn log2_64(x_: f64) f64 {
     var val_lo = (lo + hi) * ivln2lo + lo * ivln2hi;
 
     // spadd(val_hi, val_lo, y)
-    const y = f64(k);
+    const y = @intToFloat(f64, k);
     const ww = y + val_hi;
     val_lo += (y - ww) + val_hi;
     val_hi = ww;

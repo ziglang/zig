@@ -28,6 +28,7 @@ enum TokenId {
     TokenIdBitShiftRight,
     TokenIdBitShiftRightEq,
     TokenIdBitXorEq,
+    TokenIdBracketStarBracket,
     TokenIdCharLiteral,
     TokenIdCmpEq,
     TokenIdCmpGreaterOrEq,
@@ -40,7 +41,6 @@ enum TokenId {
     TokenIdDash,
     TokenIdDivEq,
     TokenIdDot,
-    TokenIdDoubleQuestion,
     TokenIdEllipsis2,
     TokenIdEllipsis3,
     TokenIdEof,
@@ -75,6 +75,7 @@ enum TokenId {
     TokenIdKeywordNoAlias,
     TokenIdKeywordNull,
     TokenIdKeywordOr,
+    TokenIdKeywordOrElse,
     TokenIdKeywordPacked,
     TokenIdKeywordPromise,
     TokenIdKeywordPub,
@@ -99,8 +100,7 @@ enum TokenId {
     TokenIdLBrace,
     TokenIdLBracket,
     TokenIdLParen,
-    TokenIdMaybe,
-    TokenIdMaybeAssign,
+    TokenIdQuestion,
     TokenIdMinusEq,
     TokenIdMinusPercent,
     TokenIdMinusPercentEq,
@@ -169,6 +169,8 @@ struct Token {
         TokenCharLit char_lit;
     } data;
 };
+// work around conflicting name Token which is also found in libclang
+typedef Token ZigToken;
 
 struct Tokenization {
     ZigList<Token> *tokens;

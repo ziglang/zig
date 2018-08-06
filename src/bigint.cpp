@@ -86,6 +86,11 @@ static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count)
     size_t digits_to_copy = bit_count / 64;
     size_t leftover_bits = bit_count % 64;
     dest->digit_count = digits_to_copy + ((leftover_bits == 0) ? 0 : 1);
+    if (dest->digit_count == 1 && leftover_bits == 0) {
+        dest->data.digit = op_digits[0];
+        if (dest->data.digit == 0) dest->digit_count = 0;
+        return;
+    }
     dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
     for (size_t i = 0; i < digits_to_copy; i += 1) {
         uint64_t digit = (i < op->digit_count) ? op_digits[i] : 0;
@@ -1254,12 +1259,11 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
             bigint_normalize(dest);
             return;
         }
-        // TODO this code path is untested
-        uint64_t first_digit = dest->data.digit;
+
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
-        dest->data.digits[0] = first_digit;
-        size_t i = 1;
+
+        size_t i = 0;
         for (; i < op1->digit_count && i < op2->digit_count; i += 1) {
             dest->data.digits[i] = op1_digits[i] & op2_digits[i];
         }
@@ -1407,7 +1411,6 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         return;
     }
 
-    // TODO this code path is untested
     size_t digit_shift_count = shift_amt / 64;
     size_t leftover_shift_count = shift_amt % 64;
 
@@ -1422,7 +1425,7 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         uint64_t digit = op1_digits[op_digit_index];
         size_t dest_digit_index = op_digit_index - digit_shift_count;
         dest->data.digits[dest_digit_index] = carry | (digit >> leftover_shift_count);
-        carry = (0xffffffffffffffffULL << leftover_shift_count) & digit;
+        carry = digit << (64 - leftover_shift_count);
 
         if (dest_digit_index == 0) { break; }
         op_digit_index -= 1;
@@ -1590,6 +1593,37 @@ void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base) {
     }
 }
 
+size_t bigint_popcount_unsigned(const BigInt *bi) {
+    assert(!bi->is_negative);
+    if (bi->digit_count == 0)
+        return 0;
+
+    size_t count = 0;
+    size_t bit_count = bi->digit_count * 64;
+    for (size_t i = 0; i < bit_count; i += 1) {
+        if (bit_at_index(bi, i))
+            count += 1;
+    }
+    return count;
+}
+
+size_t bigint_popcount_signed(const BigInt *bi, size_t bit_count) {
+    if (bit_count == 0)
+        return 0;
+    if (bi->digit_count == 0)
+        return 0;
+
+    BigInt twos_comp = {0};
+    to_twos_complement(&twos_comp, bi, bit_count);
+
+    size_t count = 0;
+    for (size_t i = 0; i < bit_count; i += 1) {
+        if (bit_at_index(&twos_comp, i))
+            count += 1;
+    }
+    return count;
+}
+
 size_t bigint_ctz(const BigInt *bi, size_t bit_count) {
     if (bit_count == 0)
         return 0;
@@ -1680,10 +1714,15 @@ void bigint_incr(BigInt *x) {
         bigint_init_unsigned(x, 1);
         return;
     }
-    
-    if (x->digit_count == 1 && x->data.digit != UINT64_MAX) {
-        x->data.digit += 1;
-        return;
+
+    if (x->digit_count == 1) {
+        if (x->is_negative && x->data.digit != 0) {
+            x->data.digit -= 1;
+            return;
+        } else if (!x->is_negative && x->data.digit != UINT64_MAX) {
+            x->data.digit += 1;
+            return;
+        }
     }
 
     BigInt copy;

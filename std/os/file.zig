@@ -15,18 +15,24 @@ pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
 
-    const OpenError = os.WindowsOpenError || os.PosixOpenError;
+    pub const OpenError = os.WindowsOpenError || os.PosixOpenError;
 
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openRead(allocator: &mem.Allocator, path: []const u8) OpenError!File {
+    pub fn openRead(allocator: *mem.Allocator, path: []const u8) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE|posix.O_RDONLY;
+            const flags = posix.O_LARGEFILE | posix.O_RDONLY;
             const fd = try os.posixOpen(allocator, path, flags, 0);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(allocator, path, windows.GENERIC_READ, windows.FILE_SHARE_READ,
-                windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL);
+            const handle = try os.windowsOpen(
+                allocator,
+                path,
+                windows.GENERIC_READ,
+                windows.FILE_SHARE_READ,
+                windows.OPEN_EXISTING,
+                windows.FILE_ATTRIBUTE_NORMAL,
+            );
             return openHandle(handle);
         } else {
             @compileError("TODO implement openRead for this OS");
@@ -34,94 +40,111 @@ pub const File = struct {
     }
 
     /// Calls `openWriteMode` with os.default_file_mode for the mode.
-    pub fn openWrite(allocator: &mem.Allocator, path: []const u8) OpenError!File {
+    pub fn openWrite(allocator: *mem.Allocator, path: []const u8) OpenError!File {
         return openWriteMode(allocator, path, os.default_file_mode);
-
     }
 
     /// If the path does not exist it will be created.
     /// If a file already exists in the destination it will be truncated.
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openWriteMode(allocator: &mem.Allocator, path: []const u8, file_mode: os.FileMode) OpenError!File {
+    pub fn openWriteMode(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE|posix.O_WRONLY|posix.O_CREAT|posix.O_CLOEXEC|posix.O_TRUNC;
+            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
             const fd = try os.posixOpen(allocator, path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(allocator, path, windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE|windows.FILE_SHARE_READ|windows.FILE_SHARE_DELETE,
-                windows.CREATE_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL);
+            const handle = try os.windowsOpen(
+                allocator,
+                path,
+                windows.GENERIC_WRITE,
+                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+                windows.CREATE_ALWAYS,
+                windows.FILE_ATTRIBUTE_NORMAL,
+            );
             return openHandle(handle);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
         }
-
     }
 
     /// If the path does not exist it will be created.
     /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openWriteNoClobber(allocator: &mem.Allocator, path: []const u8, file_mode: os.FileMode) OpenError!File {
+    pub fn openWriteNoClobber(allocator: *mem.Allocator, path: []const u8, file_mode: os.FileMode) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE|posix.O_WRONLY|posix.O_CREAT|posix.O_CLOEXEC|posix.O_EXCL;
+            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
             const fd = try os.posixOpen(allocator, path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(allocator, path, windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE|windows.FILE_SHARE_READ|windows.FILE_SHARE_DELETE,
-                windows.CREATE_NEW, windows.FILE_ATTRIBUTE_NORMAL);
+            const handle = try os.windowsOpen(
+                allocator,
+                path,
+                windows.GENERIC_WRITE,
+                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+                windows.CREATE_NEW,
+                windows.FILE_ATTRIBUTE_NORMAL,
+            );
             return openHandle(handle);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
         }
-
     }
 
     pub fn openHandle(handle: os.FileHandle) File {
-        return File {
-            .handle = handle,
-        };
+        return File{ .handle = handle };
     }
 
-    pub fn access(allocator: &mem.Allocator, path: []const u8, file_mode: os.FileMode) !bool {
+    pub const AccessError = error{
+        PermissionDenied,
+        NotFound,
+        NameTooLong,
+        BadMode,
+        BadPathName,
+        Io,
+        SystemResources,
+        OutOfMemory,
+
+        Unexpected,
+    };
+
+    pub fn access(allocator: *mem.Allocator, path: []const u8) AccessError!void {
         const path_with_null = try std.cstr.addNullByte(allocator, path);
         defer allocator.free(path_with_null);
 
         if (is_posix) {
-            // mode is ignored and is always F_OK for now
             const result = posix.access(path_with_null.ptr, posix.F_OK);
             const err = posix.getErrno(result);
-            if (err > 0) {
-                return switch (err) {
-                    posix.EACCES => error.PermissionDenied,
-                    posix.EROFS => error.PermissionDenied,
-                    posix.ELOOP => error.PermissionDenied,
-                    posix.ETXTBSY => error.PermissionDenied,
-                    posix.ENOTDIR => error.NotFound,
-                    posix.ENOENT => error.NotFound,
+            switch (err) {
+                0 => return,
+                posix.EACCES => return error.PermissionDenied,
+                posix.EROFS => return error.PermissionDenied,
+                posix.ELOOP => return error.PermissionDenied,
+                posix.ETXTBSY => return error.PermissionDenied,
+                posix.ENOTDIR => return error.NotFound,
+                posix.ENOENT => return error.NotFound,
 
-                    posix.ENAMETOOLONG => error.NameTooLong,
-                    posix.EINVAL => error.BadMode,
-                    posix.EFAULT => error.BadPathName,
-                    posix.EIO => error.Io,
-                    posix.ENOMEM => error.SystemResources,
-                    else => os.unexpectedErrorPosix(err),
-                };
+                posix.ENAMETOOLONG => return error.NameTooLong,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => return error.BadPathName,
+                posix.EIO => return error.Io,
+                posix.ENOMEM => return error.SystemResources,
+                else => return os.unexpectedErrorPosix(err),
             }
-            return true;
         } else if (is_windows) {
-            if (os.windows.PathFileExists(path_with_null.ptr) == os.windows.TRUE) {
-                return true;
+            if (os.windows.GetFileAttributesA(path_with_null.ptr) != os.windows.INVALID_FILE_ATTRIBUTES) {
+                return;
             }
 
             const err = windows.GetLastError();
-            return switch (err) {
-                windows.ERROR.FILE_NOT_FOUND => error.NotFound,
-                windows.ERROR.ACCESS_DENIED => error.PermissionDenied,
-                else => os.unexpectedErrorWindows(err),
-            };
+            switch (err) {
+                windows.ERROR.FILE_NOT_FOUND,
+                windows.ERROR.PATH_NOT_FOUND,
+                => return error.NotFound,
+                windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
+                else => return os.unexpectedErrorWindows(err),
+            }
         } else {
             @compileError("TODO implement access for this OS");
         }
@@ -129,17 +152,17 @@ pub const File = struct {
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
-    pub fn close(self: &File) void {
+    pub fn close(self: *File) void {
         os.close(self.handle);
         self.handle = undefined;
     }
 
     /// Calls `os.isTty` on `self.handle`.
-    pub fn isTty(self: &File) bool {
+    pub fn isTty(self: *File) bool {
         return os.isTty(self.handle);
     }
 
-    pub fn seekForward(self: &File, amount: isize) !void {
+    pub fn seekForward(self: *File, amount: isize) !void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const result = posix.lseek(self.handle, amount, posix.SEEK_CUR);
@@ -168,7 +191,7 @@ pub const File = struct {
         }
     }
 
-    pub fn seekTo(self: &File, pos: usize) !void {
+    pub fn seekTo(self: *File, pos: usize) !void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const ipos = try math.cast(isize, pos);
@@ -199,7 +222,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getPos(self: &File) !usize {
+    pub fn getPos(self: *File) !usize {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const result = posix.lseek(self.handle, 0, posix.SEEK_CUR);
@@ -217,7 +240,7 @@ pub const File = struct {
                 return result;
             },
             Os.windows => {
-                var pos : windows.LARGE_INTEGER = undefined;
+                var pos: windows.LARGE_INTEGER = undefined;
                 if (windows.SetFilePointerEx(self.handle, 0, &pos, windows.FILE_CURRENT) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
@@ -227,31 +250,16 @@ pub const File = struct {
                 }
 
                 assert(pos >= 0);
-                if (@sizeOf(@typeOf(pos)) > @sizeOf(usize)) {
-                    if (pos > @maxValue(usize)) {
-                        return error.FilePosLargerThanPointerRange;
-                    }
-                }
-
-                return usize(pos);
+                return math.cast(usize, pos) catch error.FilePosLargerThanPointerRange;
             },
             else => @compileError("unsupported OS"),
         }
     }
 
-    pub fn getEndPos(self: &File) !usize {
+    pub fn getEndPos(self: *File) !usize {
         if (is_posix) {
-            var stat: posix.Stat = undefined;
-            const err = posix.getErrno(posix.fstat(self.handle, &stat));
-            if (err > 0) {
-                return switch (err) {
-                    posix.EBADF => error.BadFd,
-                    posix.ENOMEM => error.SystemResources,
-                    else => os.unexpectedErrorPosix(err),
-                };
-            }
-
-            return usize(stat.size);
+            const stat = try os.posixFStat(self.handle);
+            return @intCast(usize, stat.size);
         } else if (is_windows) {
             var file_size: windows.LARGE_INTEGER = undefined;
             if (windows.GetFileSizeEx(self.handle, &file_size) == 0) {
@@ -262,19 +270,19 @@ pub const File = struct {
             }
             if (file_size < 0)
                 return error.Overflow;
-            return math.cast(usize, u64(file_size));
+            return math.cast(usize, @intCast(u64, file_size));
         } else {
             @compileError("TODO support getEndPos on this OS");
         }
     }
 
-    pub const ModeError = error {
+    pub const ModeError = error{
         BadFd,
         SystemResources,
         Unexpected,
     };
 
-    fn mode(self: &File) ModeError!os.FileMode {
+    pub fn mode(self: *File) ModeError!os.FileMode {
         if (is_posix) {
             var stat: posix.Stat = undefined;
             const err = posix.getErrno(posix.fstat(self.handle, &stat));
@@ -296,22 +304,29 @@ pub const File = struct {
         }
     }
 
-    pub const ReadError = error {};
+    pub const ReadError = error{
+        BadFd,
+        Io,
+        IsDir,
 
-    pub fn read(self: &File, buffer: []u8) !usize {
+        Unexpected,
+    };
+
+    pub fn read(self: *File, buffer: []u8) ReadError!usize {
         if (is_posix) {
             var index: usize = 0;
             while (index < buffer.len) {
-                const amt_read = posix.read(self.handle, &buffer[index], buffer.len - index);
+                const amt_read = posix.read(self.handle, buffer.ptr + index, buffer.len - index);
                 const read_err = posix.getErrno(amt_read);
                 if (read_err > 0) {
                     switch (read_err) {
-                        posix.EINTR  => continue,
+                        posix.EINTR => continue,
                         posix.EINVAL => unreachable,
                         posix.EFAULT => unreachable,
-                        posix.EBADF  => return error.BadFd,
-                        posix.EIO    => return error.Io,
-                        else          => return os.unexpectedErrorPosix(read_err),
+                        posix.EBADF => return error.BadFd,
+                        posix.EIO => return error.Io,
+                        posix.EISDIR => return error.IsDir,
+                        else => return os.unexpectedErrorPosix(read_err),
                     }
                 }
                 if (amt_read == 0) return index;
@@ -321,9 +336,9 @@ pub const File = struct {
         } else if (is_windows) {
             var index: usize = 0;
             while (index < buffer.len) {
-                const want_read_count = windows.DWORD(math.min(windows.DWORD(@maxValue(windows.DWORD)), buffer.len - index));
+                const want_read_count = @intCast(windows.DWORD, math.min(windows.DWORD(@maxValue(windows.DWORD)), buffer.len - index));
                 var amt_read: windows.DWORD = undefined;
-                if (windows.ReadFile(self.handle, @ptrCast(&c_void, &buffer[index]), want_read_count, &amt_read, null) == 0) {
+                if (windows.ReadFile(self.handle, @ptrCast(*c_void, buffer.ptr + index), want_read_count, &amt_read, null) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
                         windows.ERROR.OPERATION_ABORTED => continue,
@@ -342,7 +357,7 @@ pub const File = struct {
 
     pub const WriteError = os.WindowsWriteError || os.PosixWriteError;
 
-    fn write(self: &File, bytes: []const u8) WriteError!void {
+    pub fn write(self: *File, bytes: []const u8) WriteError!void {
         if (is_posix) {
             try os.posixWrite(self.handle, bytes);
         } else if (is_windows) {

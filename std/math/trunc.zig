@@ -19,7 +19,7 @@ pub fn trunc(x: var) @typeOf(x) {
 
 fn trunc32(x: f32) f32 {
     const u = @bitCast(u32, x);
-    var e = i32(((u >> 23) & 0xFF)) - 0x7F + 9;
+    var e = @intCast(i32, ((u >> 23) & 0xFF)) - 0x7F + 9;
     var m: u32 = undefined;
 
     if (e >= 23 + 9) {
@@ -29,7 +29,7 @@ fn trunc32(x: f32) f32 {
         e = 1;
     }
 
-    m = u32(@maxValue(u32)) >> u5(e);
+    m = u32(@maxValue(u32)) >> @intCast(u5, e);
     if (u & m == 0) {
         return x;
     } else {
@@ -40,7 +40,7 @@ fn trunc32(x: f32) f32 {
 
 fn trunc64(x: f64) f64 {
     const u = @bitCast(u64, x);
-    var e = i32(((u >> 52) & 0x7FF)) - 0x3FF + 12;
+    var e = @intCast(i32, ((u >> 52) & 0x7FF)) - 0x3FF + 12;
     var m: u64 = undefined;
 
     if (e >= 52 + 12) {
@@ -50,7 +50,7 @@ fn trunc64(x: f64) f64 {
         e = 1;
     }
 
-    m = u64(@maxValue(u64)) >> u6(e);
+    m = u64(@maxValue(u64)) >> @intCast(u6, e);
     if (u & m == 0) {
         return x;
     } else {

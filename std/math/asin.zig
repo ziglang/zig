@@ -17,7 +17,7 @@ pub fn asin(x: var) @typeOf(x) {
 }
 
 fn r32(z: f32) f32 {
-    const pS0 =  1.6666586697e-01;
+    const pS0 = 1.6666586697e-01;
     const pS1 = -4.2743422091e-02;
     const pS2 = -8.6563630030e-03;
     const qS1 = -7.0662963390e-01;
@@ -37,9 +37,9 @@ fn asin32(x: f32) f32 {
     if (ix >= 0x3F800000) {
         // |x| >= 1
         if (ix == 0x3F800000) {
-            return x * pio2 + 0x1.0p-120;   // asin(+-1) = +-pi/2 with inexact
+            return x * pio2 + 0x1.0p-120; // asin(+-1) = +-pi/2 with inexact
         } else {
-            return math.nan(f32);           // asin(|x| > 1) is nan
+            return math.nan(f32); // asin(|x| > 1) is nan
         }
     }
 
@@ -66,16 +66,16 @@ fn asin32(x: f32) f32 {
 }
 
 fn r64(z: f64) f64 {
-    const pS0: f64 =  1.66666666666666657415e-01;
+    const pS0: f64 = 1.66666666666666657415e-01;
     const pS1: f64 = -3.25565818622400915405e-01;
-    const pS2: f64 =  2.01212532134862925881e-01;
+    const pS2: f64 = 2.01212532134862925881e-01;
     const pS3: f64 = -4.00555345006794114027e-02;
-    const pS4: f64 =  7.91534994289814532176e-04;
-    const pS5: f64 =  3.47933107596021167570e-05;
+    const pS4: f64 = 7.91534994289814532176e-04;
+    const pS5: f64 = 3.47933107596021167570e-05;
     const qS1: f64 = -2.40339491173441421878e+00;
-    const qS2: f64 =  2.02094576023350569471e+00;
+    const qS2: f64 = 2.02094576023350569471e+00;
     const qS3: f64 = -6.88283971605453293030e-01;
-    const qS4: f64 =  7.70381505559019352791e-02;
+    const qS4: f64 = 7.70381505559019352791e-02;
 
     const p = z * (pS0 + z * (pS1 + z * (pS2 + z * (pS3 + z * (pS4 + z * pS5)))));
     const q = 1.0 + z * (qS1 + z * (qS2 + z * (qS3 + z * qS4)));
@@ -87,12 +87,12 @@ fn asin64(x: f64) f64 {
     const pio2_lo: f64 = 6.12323399573676603587e-17;
 
     const ux = @bitCast(u64, x);
-    const hx = u32(ux >> 32);
+    const hx = @intCast(u32, ux >> 32);
     const ix = hx & 0x7FFFFFFF;
 
     // |x| >= 1 or nan
     if (ix >= 0x3FF00000) {
-        const lx = u32(ux & 0xFFFFFFFF);
+        const lx = @intCast(u32, ux & 0xFFFFFFFF);
 
         // asin(1) = +-pi/2 with inexact
         if ((ix - 0x3FF00000) | lx == 0) {

@@ -11,21 +11,19 @@ const B = struct {
 const C = struct {
     x: i32,
 
-    fn d(c: &const C) i32 {
+    fn d(c: *const C) i32 {
         return c.x;
     }
 };
 
-fn foo(a: &const A) i32 {
+fn foo(a: *const A) i32 {
     return a.b.c.d();
 }
 
 test "incomplete struct param top level declaration" {
-    const a = A {
-        .b = B {
-            .c = C {
-                .x = 13,
-            },
+    const a = A{
+        .b = B{
+            .c = C{ .x = 13 },
         },
     };
     assert(foo(a) == 13);

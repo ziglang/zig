@@ -1,6 +1,6 @@
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.GenHContext) void {
+pub fn addCases(cases: *tests.GenHContext) void {
     cases.add("declare enum",
         \\const Foo = extern enum { A, B, C };
         \\export fn entry(foo: Foo) void { }
@@ -54,7 +54,7 @@ pub fn addCases(cases: &tests.GenHContext) void {
     cases.add("declare opaque type",
         \\export const Foo = @OpaqueType();
         \\
-        \\export fn entry(foo: ?&Foo) void { }
+        \\export fn entry(foo: ?*Foo) void { }
     ,
         \\struct Foo;
         \\
@@ -64,7 +64,7 @@ pub fn addCases(cases: &tests.GenHContext) void {
     cases.add("array field-type",
         \\const Foo = extern struct {
         \\    A: [2]i32,
-        \\    B: [4]&u32,
+        \\    B: [4]*u32,
         \\};
         \\export fn entry(foo: Foo, bar: [3]u8) void { }
     ,
@@ -77,4 +77,50 @@ pub fn addCases(cases: &tests.GenHContext) void {
         \\
     );
 
+    cases.add("ptr to zig struct",
+        \\const S = struct {
+        \\    a: u8,
+        \\};
+        \\
+        \\export fn a(s: *S) u8 {
+        \\    return s.a;
+        \\}
+
+    ,
+        \\struct S;
+        \\TEST_EXPORT uint8_t a(struct S * s);
+        \\
+    );
+
+    cases.add("ptr to zig union",
+        \\const U = union(enum) {
+        \\    A: u8,
+        \\    B: u16,
+        \\};
+        \\
+        \\export fn a(s: *U) u8 {
+        \\    return s.A;
+        \\}
+
+    ,
+        \\union U;
+        \\TEST_EXPORT uint8_t a(union U * s);
+        \\
+    );
+
+    cases.add("ptr to zig enum",
+        \\const E = enum(u8) {
+        \\    A,
+        \\    B,
+        \\};
+        \\
+        \\export fn a(s: *E) u8 {
+        \\    return @enumToInt(s.*);
+        \\}
+
+    ,
+        \\enum E;
+        \\TEST_EXPORT uint8_t a(enum E * s);
+        \\
+    );
 }

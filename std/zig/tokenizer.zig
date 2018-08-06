@@ -6,61 +6,64 @@ pub const Token = struct {
     start: usize,
     end: usize,
 
-    const KeywordId = struct {
+    pub const Keyword = struct {
         bytes: []const u8,
         id: Id,
     };
 
-    const keywords = []KeywordId {
-        KeywordId{.bytes="align", .id = Id.Keyword_align},
-        KeywordId{.bytes="and", .id = Id.Keyword_and},
-        KeywordId{.bytes="asm", .id = Id.Keyword_asm},
-        KeywordId{.bytes="async", .id = Id.Keyword_async},
-        KeywordId{.bytes="await", .id = Id.Keyword_await},
-        KeywordId{.bytes="break", .id = Id.Keyword_break},
-        KeywordId{.bytes="catch", .id = Id.Keyword_catch},
-        KeywordId{.bytes="cancel", .id = Id.Keyword_cancel},
-        KeywordId{.bytes="comptime", .id = Id.Keyword_comptime},
-        KeywordId{.bytes="const", .id = Id.Keyword_const},
-        KeywordId{.bytes="continue", .id = Id.Keyword_continue},
-        KeywordId{.bytes="defer", .id = Id.Keyword_defer},
-        KeywordId{.bytes="else", .id = Id.Keyword_else},
-        KeywordId{.bytes="enum", .id = Id.Keyword_enum},
-        KeywordId{.bytes="errdefer", .id = Id.Keyword_errdefer},
-        KeywordId{.bytes="error", .id = Id.Keyword_error},
-        KeywordId{.bytes="export", .id = Id.Keyword_export},
-        KeywordId{.bytes="extern", .id = Id.Keyword_extern},
-        KeywordId{.bytes="false", .id = Id.Keyword_false},
-        KeywordId{.bytes="fn", .id = Id.Keyword_fn},
-        KeywordId{.bytes="for", .id = Id.Keyword_for},
-        KeywordId{.bytes="if", .id = Id.Keyword_if},
-        KeywordId{.bytes="inline", .id = Id.Keyword_inline},
-        KeywordId{.bytes="nakedcc", .id = Id.Keyword_nakedcc},
-        KeywordId{.bytes="noalias", .id = Id.Keyword_noalias},
-        KeywordId{.bytes="null", .id = Id.Keyword_null},
-        KeywordId{.bytes="or", .id = Id.Keyword_or},
-        KeywordId{.bytes="packed", .id = Id.Keyword_packed},
-        KeywordId{.bytes="pub", .id = Id.Keyword_pub},
-        KeywordId{.bytes="resume", .id = Id.Keyword_resume},
-        KeywordId{.bytes="return", .id = Id.Keyword_return},
-        KeywordId{.bytes="section", .id = Id.Keyword_section},
-        KeywordId{.bytes="stdcallcc", .id = Id.Keyword_stdcallcc},
-        KeywordId{.bytes="struct", .id = Id.Keyword_struct},
-        KeywordId{.bytes="suspend", .id = Id.Keyword_suspend},
-        KeywordId{.bytes="switch", .id = Id.Keyword_switch},
-        KeywordId{.bytes="test", .id = Id.Keyword_test},
-        KeywordId{.bytes="this", .id = Id.Keyword_this},
-        KeywordId{.bytes="true", .id = Id.Keyword_true},
-        KeywordId{.bytes="try", .id = Id.Keyword_try},
-        KeywordId{.bytes="undefined", .id = Id.Keyword_undefined},
-        KeywordId{.bytes="union", .id = Id.Keyword_union},
-        KeywordId{.bytes="unreachable", .id = Id.Keyword_unreachable},
-        KeywordId{.bytes="use", .id = Id.Keyword_use},
-        KeywordId{.bytes="var", .id = Id.Keyword_var},
-        KeywordId{.bytes="volatile", .id = Id.Keyword_volatile},
-        KeywordId{.bytes="while", .id = Id.Keyword_while},
+    pub const keywords = []Keyword{
+        Keyword{ .bytes = "align", .id = Id.Keyword_align },
+        Keyword{ .bytes = "and", .id = Id.Keyword_and },
+        Keyword{ .bytes = "asm", .id = Id.Keyword_asm },
+        Keyword{ .bytes = "async", .id = Id.Keyword_async },
+        Keyword{ .bytes = "await", .id = Id.Keyword_await },
+        Keyword{ .bytes = "break", .id = Id.Keyword_break },
+        Keyword{ .bytes = "catch", .id = Id.Keyword_catch },
+        Keyword{ .bytes = "cancel", .id = Id.Keyword_cancel },
+        Keyword{ .bytes = "comptime", .id = Id.Keyword_comptime },
+        Keyword{ .bytes = "const", .id = Id.Keyword_const },
+        Keyword{ .bytes = "continue", .id = Id.Keyword_continue },
+        Keyword{ .bytes = "defer", .id = Id.Keyword_defer },
+        Keyword{ .bytes = "else", .id = Id.Keyword_else },
+        Keyword{ .bytes = "enum", .id = Id.Keyword_enum },
+        Keyword{ .bytes = "errdefer", .id = Id.Keyword_errdefer },
+        Keyword{ .bytes = "error", .id = Id.Keyword_error },
+        Keyword{ .bytes = "export", .id = Id.Keyword_export },
+        Keyword{ .bytes = "extern", .id = Id.Keyword_extern },
+        Keyword{ .bytes = "false", .id = Id.Keyword_false },
+        Keyword{ .bytes = "fn", .id = Id.Keyword_fn },
+        Keyword{ .bytes = "for", .id = Id.Keyword_for },
+        Keyword{ .bytes = "if", .id = Id.Keyword_if },
+        Keyword{ .bytes = "inline", .id = Id.Keyword_inline },
+        Keyword{ .bytes = "nakedcc", .id = Id.Keyword_nakedcc },
+        Keyword{ .bytes = "noalias", .id = Id.Keyword_noalias },
+        Keyword{ .bytes = "null", .id = Id.Keyword_null },
+        Keyword{ .bytes = "or", .id = Id.Keyword_or },
+        Keyword{ .bytes = "orelse", .id = Id.Keyword_orelse },
+        Keyword{ .bytes = "packed", .id = Id.Keyword_packed },
+        Keyword{ .bytes = "promise", .id = Id.Keyword_promise },
+        Keyword{ .bytes = "pub", .id = Id.Keyword_pub },
+        Keyword{ .bytes = "resume", .id = Id.Keyword_resume },
+        Keyword{ .bytes = "return", .id = Id.Keyword_return },
+        Keyword{ .bytes = "section", .id = Id.Keyword_section },
+        Keyword{ .bytes = "stdcallcc", .id = Id.Keyword_stdcallcc },
+        Keyword{ .bytes = "struct", .id = Id.Keyword_struct },
+        Keyword{ .bytes = "suspend", .id = Id.Keyword_suspend },
+        Keyword{ .bytes = "switch", .id = Id.Keyword_switch },
+        Keyword{ .bytes = "test", .id = Id.Keyword_test },
+        Keyword{ .bytes = "this", .id = Id.Keyword_this },
+        Keyword{ .bytes = "true", .id = Id.Keyword_true },
+        Keyword{ .bytes = "try", .id = Id.Keyword_try },
+        Keyword{ .bytes = "undefined", .id = Id.Keyword_undefined },
+        Keyword{ .bytes = "union", .id = Id.Keyword_union },
+        Keyword{ .bytes = "unreachable", .id = Id.Keyword_unreachable },
+        Keyword{ .bytes = "use", .id = Id.Keyword_use },
+        Keyword{ .bytes = "var", .id = Id.Keyword_var },
+        Keyword{ .bytes = "volatile", .id = Id.Keyword_volatile },
+        Keyword{ .bytes = "while", .id = Id.Keyword_while },
     };
 
+    // TODO perfect hash at comptime
     fn getKeyword(bytes: []const u8) ?Id {
         for (keywords) |kw| {
             if (mem.eql(u8, kw.bytes, bytes)) {
@@ -70,7 +73,11 @@ pub const Token = struct {
         return null;
     }
 
-    const StrLitKind = enum {Normal, C};
+    /// TODO remove this enum
+    const StrLitKind = enum {
+        Normal,
+        C,
+    };
 
     pub const Id = union(enum) {
         Invalid,
@@ -124,7 +131,6 @@ pub const Token = struct {
         Ampersand,
         AmpersandEqual,
         QuestionMark,
-        QuestionMarkQuestionMark,
         AngleBracketLeft,
         AngleBracketLeftEqual,
         AngleBracketAngleBracketLeft,
@@ -137,6 +143,8 @@ pub const Token = struct {
         IntegerLiteral,
         FloatLiteral,
         LineComment,
+        DocComment,
+        BracketStarBracket,
         Keyword_align,
         Keyword_and,
         Keyword_asm,
@@ -164,7 +172,9 @@ pub const Token = struct {
         Keyword_noalias,
         Keyword_null,
         Keyword_or,
+        Keyword_orelse,
         Keyword_packed,
+        Keyword_promise,
         Keyword_pub,
         Keyword_resume,
         Keyword_return,
@@ -192,44 +202,13 @@ pub const Tokenizer = struct {
     index: usize,
     pending_invalid_token: ?Token,
 
-    pub const Location = struct {
-        line: usize,
-        column: usize,
-        line_start: usize,
-        line_end: usize,
-    };
-
-    pub fn getTokenLocation(self: &Tokenizer, start_index: usize, token: &const Token) Location {
-        var loc = Location {
-            .line = 0,
-            .column = 0,
-            .line_start = start_index,
-            .line_end = self.buffer.len,
-        };
-        for (self.buffer[start_index..]) |c, i| {
-            if (i + start_index == token.start) {
-                loc.line_end = i + start_index;
-                while (loc.line_end < self.buffer.len and self.buffer[loc.line_end] != '\n') : (loc.line_end += 1) {}
-                return loc;
-            }
-            if (c == '\n') {
-                loc.line += 1;
-                loc.column = 0;
-                loc.line_start = i + 1;
-            } else {
-                loc.column += 1;
-            }
-        }
-        return loc;
-    }
-
     /// For debugging purposes
-    pub fn dump(self: &Tokenizer, token: &const Token) void {
+    pub fn dump(self: *Tokenizer, token: *const Token) void {
         std.debug.warn("{} \"{}\"\n", @tagName(token.id), self.buffer[token.start..token.end]);
     }
 
     pub fn init(buffer: []const u8) Tokenizer {
-        return Tokenizer {
+        return Tokenizer{
             .buffer = buffer,
             .index = 0,
             .pending_invalid_token = null,
@@ -244,9 +223,10 @@ pub const Tokenizer = struct {
         StringLiteral,
         StringLiteralBackslash,
         MultilineStringLiteralLine,
-        MultilineStringLiteralLineBackslash,
         CharLiteral,
         CharLiteralBackslash,
+        CharLiteralEscape1,
+        CharLiteralEscape2,
         CharLiteralEnd,
         Backslash,
         Equal,
@@ -257,18 +237,25 @@ pub const Tokenizer = struct {
         Asterisk,
         AsteriskPercent,
         Slash,
+        LineCommentStart,
         LineComment,
+        DocCommentStart,
+        DocComment,
         Zero,
         IntegerLiteral,
         IntegerLiteralWithRadix,
+        IntegerLiteralWithRadixHex,
         NumberDot,
+        NumberDotHex,
         FloatFraction,
+        FloatFractionHex,
         FloatExponentUnsigned,
+        FloatExponentUnsignedHex,
         FloatExponentNumber,
+        FloatExponentNumberHex,
         Ampersand,
         Caret,
         Percent,
-        QuestionMark,
         Plus,
         PlusPercent,
         AngleBracketLeft,
@@ -278,16 +265,18 @@ pub const Tokenizer = struct {
         Period,
         Period2,
         SawAtSign,
+        LBracket,
+        LBracketStar,
     };
 
-    pub fn next(self: &Tokenizer) Token {
+    pub fn next(self: *Tokenizer) Token {
         if (self.pending_invalid_token) |token| {
             self.pending_invalid_token = null;
             return token;
         }
         const start_index = self.index;
         var state = State.Start;
-        var result = Token {
+        var result = Token{
             .id = Token.Id.Eof,
             .start = self.index,
             .end = undefined,
@@ -308,7 +297,7 @@ pub const Tokenizer = struct {
                     },
                     '"' => {
                         state = State.StringLiteral;
-                        result.id = Token.Id { .StringLiteral = Token.StrLitKind.Normal };
+                        result.id = Token.Id{ .StringLiteral = Token.StrLitKind.Normal };
                     },
                     '\'' => {
                         state = State.CharLiteral;
@@ -340,9 +329,7 @@ pub const Tokenizer = struct {
                         break;
                     },
                     '[' => {
-                        result.id = Token.Id.LBracket;
-                        self.index += 1;
-                        break;
+                        state = State.LBracket;
                     },
                     ']' => {
                         result.id = Token.Id.RBracket;
@@ -356,6 +343,11 @@ pub const Tokenizer = struct {
                     },
                     ',' => {
                         result.id = Token.Id.Comma;
+                        self.index += 1;
+                        break;
+                    },
+                    '?' => {
+                        result.id = Token.Id.QuestionMark;
                         self.index += 1;
                         break;
                     },
@@ -373,9 +365,6 @@ pub const Tokenizer = struct {
                     '+' => {
                         state = State.Plus;
                     },
-                    '?' => {
-                        state = State.QuestionMark;
-                    },
                     '<' => {
                         state = State.AngleBracketLeft;
                     },
@@ -387,7 +376,7 @@ pub const Tokenizer = struct {
                     },
                     '\\' => {
                         state = State.Backslash;
-                        result.id = Token.Id { .MultilineStringLiteralLine = Token.StrLitKind.Normal };
+                        result.id = Token.Id{ .MultilineStringLiteralLine = Token.StrLitKind.Normal };
                     },
                     '{' => {
                         result.id = Token.Id.LBrace;
@@ -444,6 +433,28 @@ pub const Tokenizer = struct {
                     },
                 },
 
+                State.LBracket => switch (c) {
+                    '*' => {
+                        state = State.LBracketStar;
+                    },
+                    else => {
+                        result.id = Token.Id.LBracket;
+                        break;
+                    },
+                },
+
+                State.LBracketStar => switch (c) {
+                    ']' => {
+                        result.id = Token.Id.BracketStarBracket;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
+                },
+
                 State.Ampersand => switch (c) {
                     '=' => {
                         result.id = Token.Id.AmpersandEqual;
@@ -473,7 +484,7 @@ pub const Tokenizer = struct {
                     else => {
                         result.id = Token.Id.Asterisk;
                         break;
-                    }
+                    },
                 },
 
                 State.AsteriskPercent => switch (c) {
@@ -484,18 +495,6 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.id = Token.Id.AsteriskPercent;
-                        break;
-                    }
-                },
-
-                State.QuestionMark => switch (c) {
-                    '?' => {
-                        result.id = Token.Id.QuestionMarkQuestionMark;
-                        self.index += 1;
-                        break;
-                    },
-                    else => {
-                        result.id = Token.Id.QuestionMark;
                         break;
                     },
                 },
@@ -553,7 +552,7 @@ pub const Tokenizer = struct {
                     else => {
                         result.id = Token.Id.Caret;
                         break;
-                    }
+                    },
                 },
 
                 State.Identifier => switch (c) {
@@ -578,11 +577,11 @@ pub const Tokenizer = struct {
                 State.C => switch (c) {
                     '\\' => {
                         state = State.Backslash;
-                        result.id = Token.Id { .MultilineStringLiteralLine = Token.StrLitKind.C };
+                        result.id = Token.Id{ .MultilineStringLiteralLine = Token.StrLitKind.C };
                     },
                     '"' => {
                         state = State.StringLiteral;
-                        result.id = Token.Id { .StringLiteral = Token.StrLitKind.C };
+                        result.id = Token.Id{ .StringLiteral = Token.StrLitKind.C };
                     },
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {
                         state = State.Identifier;
@@ -623,7 +622,7 @@ pub const Tokenizer = struct {
                         }
 
                         state = State.CharLiteralEnd;
-                    }
+                    },
                 },
 
                 State.CharLiteralBackslash => switch (c) {
@@ -631,8 +630,31 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Invalid;
                         break;
                     },
+                    'x' => {
+                        state = State.CharLiteralEscape1;
+                    },
                     else => {
                         state = State.CharLiteralEnd;
+                    },
+                },
+
+                State.CharLiteralEscape1 => switch (c) {
+                    '0'...'9', 'a'...'z', 'A'...'F' => {
+                        state = State.CharLiteralEscape2;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
+                },
+
+                State.CharLiteralEscape2 => switch (c) {
+                    '0'...'9', 'a'...'z', 'A'...'F' => {
+                        state = State.CharLiteralEnd;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
                     },
                 },
 
@@ -649,21 +671,11 @@ pub const Tokenizer = struct {
                 },
 
                 State.MultilineStringLiteralLine => switch (c) {
-                    '\\' => {
-                        state = State.MultilineStringLiteralLineBackslash;
-                    },
                     '\n' => {
                         self.index += 1;
                         break;
                     },
                     else => self.checkLiteralCharacter(),
-                },
-
-                State.MultilineStringLiteralLineBackslash => switch (c) {
-                    '\n' => break, // Look for this error later.
-                    else => {
-                        state = State.MultilineStringLiteralLine;
-                    },
                 },
 
                 State.Bang => switch (c) {
@@ -741,7 +753,7 @@ pub const Tokenizer = struct {
                     else => {
                         result.id = Token.Id.MinusPercent;
                         break;
-                    }
+                    },
                 },
 
                 State.AngleBracketLeft => switch (c) {
@@ -822,8 +834,8 @@ pub const Tokenizer = struct {
 
                 State.Slash => switch (c) {
                     '/' => {
+                        state = State.LineCommentStart;
                         result.id = Token.Id.LineComment;
-                        state = State.LineComment;
                     },
                     '=' => {
                         result.id = Token.Id.SlashEqual;
@@ -835,13 +847,40 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
-                State.LineComment => switch (c) {
+                State.LineCommentStart => switch (c) {
+                    '/' => {
+                        state = State.DocCommentStart;
+                    },
+                    '\n' => break,
+                    else => {
+                        state = State.LineComment;
+                        self.checkLiteralCharacter();
+                    },
+                },
+                State.DocCommentStart => switch (c) {
+                    '/' => {
+                        state = State.LineComment;
+                    },
+                    '\n' => {
+                        result.id = Token.Id.DocComment;
+                        break;
+                    },
+                    else => {
+                        state = State.DocComment;
+                        result.id = Token.Id.DocComment;
+                        self.checkLiteralCharacter();
+                    },
+                },
+                State.LineComment, State.DocComment => switch (c) {
                     '\n' => break,
                     else => self.checkLiteralCharacter(),
                 },
                 State.Zero => switch (c) {
-                    'b', 'o', 'x' => {
+                    'b', 'o' => {
                         state = State.IntegerLiteralWithRadix;
+                    },
+                    'x' => {
+                        state = State.IntegerLiteralWithRadixHex;
                     },
                     else => {
                         // reinterpret as a normal number
@@ -863,8 +902,15 @@ pub const Tokenizer = struct {
                     '.' => {
                         state = State.NumberDot;
                     },
+                    '0'...'9' => {},
+                    else => break,
+                },
+                State.IntegerLiteralWithRadixHex => switch (c) {
+                    '.' => {
+                        state = State.NumberDotHex;
+                    },
                     'p', 'P' => {
-                        state = State.FloatExponentUnsigned;
+                        state = State.FloatExponentUnsignedHex;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => break,
@@ -881,9 +927,28 @@ pub const Tokenizer = struct {
                         state = State.FloatFraction;
                     },
                 },
+                State.NumberDotHex => switch (c) {
+                    '.' => {
+                        self.index -= 1;
+                        state = State.Start;
+                        break;
+                    },
+                    else => {
+                        self.index -= 1;
+                        result.id = Token.Id.FloatLiteral;
+                        state = State.FloatFractionHex;
+                    },
+                },
                 State.FloatFraction => switch (c) {
-                    'p', 'P' => {
+                    'e', 'E' => {
                         state = State.FloatExponentUnsigned;
+                    },
+                    '0'...'9' => {},
+                    else => break,
+                },
+                State.FloatFractionHex => switch (c) {
+                    'p', 'P' => {
+                        state = State.FloatExponentUnsignedHex;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => break,
@@ -896,9 +961,23 @@ pub const Tokenizer = struct {
                         // reinterpret as a normal exponent number
                         self.index -= 1;
                         state = State.FloatExponentNumber;
-                    }
+                    },
+                },
+                State.FloatExponentUnsignedHex => switch (c) {
+                    '+', '-' => {
+                        state = State.FloatExponentNumberHex;
+                    },
+                    else => {
+                        // reinterpret as a normal exponent number
+                        self.index -= 1;
+                        state = State.FloatExponentNumberHex;
+                    },
                 },
                 State.FloatExponentNumber => switch (c) {
+                    '0'...'9' => {},
+                    else => break,
+                },
+                State.FloatExponentNumberHex => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => break,
                 },
@@ -909,30 +988,42 @@ pub const Tokenizer = struct {
                 State.C,
                 State.IntegerLiteral,
                 State.IntegerLiteralWithRadix,
+                State.IntegerLiteralWithRadixHex,
                 State.FloatFraction,
+                State.FloatFractionHex,
                 State.FloatExponentNumber,
+                State.FloatExponentNumberHex,
                 State.StringLiteral, // find this error later
                 State.MultilineStringLiteralLine,
-                State.Builtin => {},
+                State.Builtin,
+                => {},
 
                 State.Identifier => {
                     if (Token.getKeyword(self.buffer[result.start..self.index])) |id| {
                         result.id = id;
                     }
                 },
-                State.LineComment => {
-                    result.id = Token.Id.Eof;
+                State.LineCommentStart, State.LineComment => {
+                    result.id = Token.Id.LineComment;
+                },
+                State.DocComment, State.DocCommentStart => {
+                    result.id = Token.Id.DocComment;
                 },
 
                 State.NumberDot,
+                State.NumberDotHex,
                 State.FloatExponentUnsigned,
+                State.FloatExponentUnsignedHex,
                 State.SawAtSign,
                 State.Backslash,
-                State.MultilineStringLiteralLineBackslash,
                 State.CharLiteral,
                 State.CharLiteralBackslash,
+                State.CharLiteralEscape1,
+                State.CharLiteralEscape2,
                 State.CharLiteralEnd,
-                State.StringLiteralBackslash => {
+                State.StringLiteralBackslash,
+                State.LBracketStar,
+                => {
                     result.id = Token.Id.Invalid;
                 },
 
@@ -947,6 +1038,9 @@ pub const Tokenizer = struct {
                 },
                 State.Slash => {
                     result.id = Token.Id.Slash;
+                },
+                State.LBracket => {
+                    result.id = Token.Id.LBracket;
                 },
                 State.Zero => {
                     result.id = Token.Id.IntegerLiteral;
@@ -981,9 +1075,6 @@ pub const Tokenizer = struct {
                 State.Plus => {
                     result.id = Token.Id.Plus;
                 },
-                State.QuestionMark => {
-                    result.id = Token.Id.QuestionMark;
-                },
                 State.Percent => {
                     result.id = Token.Id.Percent;
                 },
@@ -1013,22 +1104,18 @@ pub const Tokenizer = struct {
         return result;
     }
 
-    pub fn getTokenSlice(self: &const Tokenizer, token: &const Token) []const u8 {
-        return self.buffer[token.start..token.end];
-    }
-
-    fn checkLiteralCharacter(self: &Tokenizer) void {
+    fn checkLiteralCharacter(self: *Tokenizer) void {
         if (self.pending_invalid_token != null) return;
         const invalid_length = self.getInvalidCharacterLength();
         if (invalid_length == 0) return;
-        self.pending_invalid_token = Token {
+        self.pending_invalid_token = Token{
             .id = Token.Id.Invalid,
             .start = self.index,
             .end = self.index + invalid_length,
         };
     }
 
-    fn getInvalidCharacterLength(self: &Tokenizer) u3 {
+    fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
         if (c0 < 0x80) {
             if (c0 < 0x20 or c0 == 0x7f) {
@@ -1042,9 +1129,9 @@ pub const Tokenizer = struct {
             // check utf8-encoded character.
             const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
             if (self.index + length > self.buffer.len) {
-                return u3(self.buffer.len - self.index);
+                return @intCast(u3, self.buffer.len - self.index);
             }
-            const bytes = self.buffer[self.index..self.index + length];
+            const bytes = self.buffer[self.index .. self.index + length];
             switch (length) {
                 2 => {
                     const value = std.unicode.utf8Decode2(bytes) catch return length;
@@ -1066,84 +1153,147 @@ pub const Tokenizer = struct {
     }
 };
 
-
-
 test "tokenizer" {
-    testTokenize("test", []Token.Id {
-        Token.Id.Keyword_test,
+    testTokenize("test", []Token.Id{Token.Id.Keyword_test});
+}
+
+test "tokenizer - unknown length pointer" {
+    testTokenize(
+        \\[*]u8
+    , []Token.Id{
+        Token.Id.BracketStarBracket,
+        Token.Id.Identifier,
+    });
+}
+
+test "tokenizer - char literal with hex escape" {
+    testTokenize(
+        \\'\x1b'
+    , []Token.Id{Token.Id.CharLiteral});
+}
+
+test "tokenizer - float literal e exponent" {
+    testTokenize("a = 4.94065645841246544177e-324;\n", []Token.Id{
+        Token.Id.Identifier,
+        Token.Id.Equal,
+        Token.Id.FloatLiteral,
+        Token.Id.Semicolon,
+    });
+}
+
+test "tokenizer - float literal p exponent" {
+    testTokenize("a = 0x1.a827999fcef32p+1022;\n", []Token.Id{
+        Token.Id.Identifier,
+        Token.Id.Equal,
+        Token.Id.FloatLiteral,
+        Token.Id.Semicolon,
     });
 }
 
 test "tokenizer - chars" {
-    testTokenize("'c'", []Token.Id {Token.Id.CharLiteral});
+    testTokenize("'c'", []Token.Id{Token.Id.CharLiteral});
 }
 
 test "tokenizer - invalid token characters" {
     testTokenize("#", []Token.Id{Token.Id.Invalid});
     testTokenize("`", []Token.Id{Token.Id.Invalid});
-    testTokenize("'c", []Token.Id {Token.Id.Invalid});
-    testTokenize("'", []Token.Id {Token.Id.Invalid});
-    testTokenize("''", []Token.Id {Token.Id.Invalid, Token.Id.Invalid});
+    testTokenize("'c", []Token.Id{Token.Id.Invalid});
+    testTokenize("'", []Token.Id{Token.Id.Invalid});
+    testTokenize("''", []Token.Id{ Token.Id.Invalid, Token.Id.Invalid });
 }
 
 test "tokenizer - invalid literal/comment characters" {
-    testTokenize("\"\x00\"", []Token.Id {
-        Token.Id { .StringLiteral = Token.StrLitKind.Normal },
+    testTokenize("\"\x00\"", []Token.Id{
+        Token.Id{ .StringLiteral = Token.StrLitKind.Normal },
         Token.Id.Invalid,
     });
-    testTokenize("//\x00", []Token.Id {
+    testTokenize("//\x00", []Token.Id{
+        Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\x1f", []Token.Id {
+    testTokenize("//\x1f", []Token.Id{
+        Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\x7f", []Token.Id {
+    testTokenize("//\x7f", []Token.Id{
+        Token.Id.LineComment,
         Token.Id.Invalid,
     });
 }
 
 test "tokenizer - utf8" {
-    testTokenize("//\xc2\x80", []Token.Id{});
-    testTokenize("//\xf4\x8f\xbf\xbf", []Token.Id{});
+    testTokenize("//\xc2\x80", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xf4\x8f\xbf\xbf", []Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - invalid utf8" {
-    testTokenize("//\x80", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xbf", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xf8", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xff", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xc2\xc0", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xe0", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xf0", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xf0\x90\x80\xc0", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\x80", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xbf", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xf8", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xff", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xc2\xc0", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xe0", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xf0", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xf0\x90\x80\xc0", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
 }
 
 test "tokenizer - illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", []Token.Id{});
-    testTokenize("//\xc2\x85", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xc2\x86", []Token.Id{});
-    testTokenize("//\xe2\x80\xa7", []Token.Id{});
-    testTokenize("//\xe2\x80\xa8", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xe2\x80\xa9", []Token.Id{Token.Id.Invalid});
-    testTokenize("//\xe2\x80\xaa", []Token.Id{});
+    testTokenize("//\xc2\x84", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xc2\x85", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xc2\x86", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xe2\x80\xa7", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xe2\x80\xa8", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xe2\x80\xa9", []Token.Id{
+        Token.Id.LineComment,
+        Token.Id.Invalid,
+    });
+    testTokenize("//\xe2\x80\xaa", []Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - string identifier and builtin fns" {
     testTokenize(
         \\const @"if" = @import("std");
-    ,
-        []Token.Id{
-            Token.Id.Keyword_const,
-            Token.Id.Identifier,
-            Token.Id.Equal,
-            Token.Id.Builtin,
-            Token.Id.LParen,
-            Token.Id {.StringLiteral = Token.StrLitKind.Normal},
-            Token.Id.RParen,
-            Token.Id.Semicolon,
-        }
-    );
+    , []Token.Id{
+        Token.Id.Keyword_const,
+        Token.Id.Identifier,
+        Token.Id.Equal,
+        Token.Id.Builtin,
+        Token.Id.LParen,
+        Token.Id{ .StringLiteral = Token.StrLitKind.Normal },
+        Token.Id.RParen,
+        Token.Id.Semicolon,
+    });
 }
 
 test "tokenizer - pipe and then invalid" {
@@ -1153,14 +1303,42 @@ test "tokenizer - pipe and then invalid" {
     });
 }
 
+test "tokenizer - line comment and doc comment" {
+    testTokenize("//", []Token.Id{Token.Id.LineComment});
+    testTokenize("// a / b", []Token.Id{Token.Id.LineComment});
+    testTokenize("// /", []Token.Id{Token.Id.LineComment});
+    testTokenize("/// a", []Token.Id{Token.Id.DocComment});
+    testTokenize("///", []Token.Id{Token.Id.DocComment});
+    testTokenize("////", []Token.Id{Token.Id.LineComment});
+}
+
+test "tokenizer - line comment followed by identifier" {
+    testTokenize(
+        \\    Unexpected,
+        \\    // another
+        \\    Another,
+    , []Token.Id{
+        Token.Id.Identifier,
+        Token.Id.Comma,
+        Token.Id.LineComment,
+        Token.Id.Identifier,
+        Token.Id.Comma,
+    });
+}
+
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
-        std.debug.assert(@TagType(Token.Id)(token.id) == @TagType(Token.Id)(expected_token_id));
+        if (@TagType(Token.Id)(token.id) != @TagType(Token.Id)(expected_token_id)) {
+            std.debug.panic("expected {}, found {}\n", @tagName(@TagType(Token.Id)(expected_token_id)), @tagName(@TagType(Token.Id)(token.id)));
+        }
         switch (expected_token_id) {
             Token.Id.StringLiteral => |expected_kind| {
-                std.debug.assert(expected_kind == switch (token.id) { Token.Id.StringLiteral => |kind| kind, else => unreachable });
+                std.debug.assert(expected_kind == switch (token.id) {
+                    Token.Id.StringLiteral => |kind| kind,
+                    else => unreachable,
+                });
             },
             else => {},
         }

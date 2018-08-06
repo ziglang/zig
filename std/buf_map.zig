@@ -11,17 +11,15 @@ pub const BufMap = struct {
 
     const BufMapHashMap = HashMap([]const u8, []const u8, mem.hash_slice_u8, mem.eql_slice_u8);
 
-    pub fn init(allocator: &Allocator) BufMap {
-        var self = BufMap {
-            .hash_map = BufMapHashMap.init(allocator),
-        };
+    pub fn init(allocator: *Allocator) BufMap {
+        var self = BufMap{ .hash_map = BufMapHashMap.init(allocator) };
         return self;
     }
 
-    pub fn deinit(self: &BufMap) void {
+    pub fn deinit(self: *const BufMap) void {
         var it = self.hash_map.iterator();
         while (true) {
-            const entry = it.next() ?? break; 
+            const entry = it.next() orelse break;
             self.free(entry.key);
             self.free(entry.value);
         }
@@ -29,7 +27,7 @@ pub const BufMap = struct {
         self.hash_map.deinit();
     }
 
-    pub fn set(self: &BufMap, key: []const u8, value: []const u8) !void {
+    pub fn set(self: *BufMap, key: []const u8, value: []const u8) !void {
         self.delete(key);
         const key_copy = try self.copy(key);
         errdefer self.free(key_copy);
@@ -38,30 +36,30 @@ pub const BufMap = struct {
         _ = try self.hash_map.put(key_copy, value_copy);
     }
 
-    pub fn get(self: &BufMap, key: []const u8) ?[]const u8 {
-        const entry = self.hash_map.get(key) ?? return null;
+    pub fn get(self: *const BufMap, key: []const u8) ?[]const u8 {
+        const entry = self.hash_map.get(key) orelse return null;
         return entry.value;
     }
 
-    pub fn delete(self: &BufMap, key: []const u8) void {
-        const entry = self.hash_map.remove(key) ?? return;
+    pub fn delete(self: *BufMap, key: []const u8) void {
+        const entry = self.hash_map.remove(key) orelse return;
         self.free(entry.key);
         self.free(entry.value);
     }
 
-    pub fn count(self: &const BufMap) usize {
-        return self.hash_map.size;
+    pub fn count(self: *const BufMap) usize {
+        return self.hash_map.count();
     }
 
-    pub fn iterator(self: &const BufMap) BufMapHashMap.Iterator {
+    pub fn iterator(self: *const BufMap) BufMapHashMap.Iterator {
         return self.hash_map.iterator();
     }
 
-    fn free(self: &BufMap, value: []const u8) void {
+    fn free(self: *const BufMap, value: []const u8) void {
         self.hash_map.allocator.free(value);
     }
 
-    fn copy(self: &BufMap, value: []const u8) ![]const u8 {
+    fn copy(self: *const BufMap, value: []const u8) ![]const u8 {
         return mem.dupe(self.hash_map.allocator, u8, value);
     }
 };
@@ -74,15 +72,15 @@ test "BufMap" {
     defer bufmap.deinit();
 
     try bufmap.set("x", "1");
-    assert(mem.eql(u8, ??bufmap.get("x"), "1"));
+    assert(mem.eql(u8, bufmap.get("x").?, "1"));
     assert(1 == bufmap.count());
 
     try bufmap.set("x", "2");
-    assert(mem.eql(u8, ??bufmap.get("x"), "2"));
+    assert(mem.eql(u8, bufmap.get("x").?, "2"));
     assert(1 == bufmap.count());
 
     try bufmap.set("x", "3");
-    assert(mem.eql(u8, ??bufmap.get("x"), "3"));
+    assert(mem.eql(u8, bufmap.get("x").?, "3"));
     assert(1 == bufmap.count());
 
     bufmap.delete("x");

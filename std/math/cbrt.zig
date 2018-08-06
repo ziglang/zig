@@ -54,22 +54,22 @@ fn cbrt32(x: f32) f32 {
     r = t * t * t;
     t = t * (f64(x) + x + r) / (x + r + r);
 
-    return f32(t);
+    return @floatCast(f32, t);
 }
 
 fn cbrt64(x: f64) f64 {
-    const B1: u32 = 715094163;  // (1023 - 1023 / 3 - 0.03306235651 * 2^20
-    const B2: u32 = 696219795;  // (1023 - 1023 / 3 - 54 / 3 - 0.03306235651 * 2^20
+    const B1: u32 = 715094163; // (1023 - 1023 / 3 - 0.03306235651 * 2^20
+    const B2: u32 = 696219795; // (1023 - 1023 / 3 - 54 / 3 - 0.03306235651 * 2^20
 
     // |1 / cbrt(x) - p(x)| < 2^(23.5)
-    const P0: f64 =  1.87595182427177009643;
+    const P0: f64 = 1.87595182427177009643;
     const P1: f64 = -1.88497979543377169875;
-    const P2: f64 =  1.621429720105354466140;
+    const P2: f64 = 1.621429720105354466140;
     const P3: f64 = -0.758397934778766047437;
-    const P4: f64 =  0.145996192886612446982;
+    const P4: f64 = 0.145996192886612446982;
 
     var u = @bitCast(u64, x);
-    var hx = u32(u >> 32) & 0x7FFFFFFF;
+    var hx = @intCast(u32, u >> 32) & 0x7FFFFFFF;
 
     // cbrt(nan, inf) = itself
     if (hx >= 0x7FF00000) {
@@ -79,7 +79,7 @@ fn cbrt64(x: f64) f64 {
     // cbrt to ~5bits
     if (hx < 0x00100000) {
         u = @bitCast(u64, x * 0x1.0p54);
-        hx = u32(u >> 32) & 0x7FFFFFFF;
+        hx = @intCast(u32, u >> 32) & 0x7FFFFFFF;
 
         // cbrt(0) is itself
         if (hx == 0) {

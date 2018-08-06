@@ -8,7 +8,7 @@ fn Point(comptime T: type) type {
         x: T,
         y: T,
 
-        fn addOne(self: &Self) void {
+        fn addOne(self: *Self) void {
             self.x += 1;
             self.y += 1;
         }
@@ -29,7 +29,7 @@ test "this refer to module call private fn" {
 }
 
 test "this refer to container" {
-    var pt = Point(i32) {
+    var pt = Point(i32){
         .x = 12,
         .y = 34,
     };

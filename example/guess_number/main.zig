@@ -23,7 +23,7 @@ pub fn main() !void {
 
     while (true) {
         try stdout.print("\nGuess a number between 1 and 100: ");
-        var line_buf : [20]u8 = undefined;
+        var line_buf: [20]u8 = undefined;
 
         const line_len = io.readLine(line_buf[0..]) catch |err| switch (err) {
             error.InputTooLong => {

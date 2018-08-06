@@ -30,24 +30,22 @@ fn argInAllowedSet(maybe_set: ?[]const []const u8, arg: []const u8) bool {
 }
 
 // Modifies the current argument index during iteration
-fn readFlagArguments(allocator: &Allocator, args: []const []const u8, required: usize,
-                     allowed_set: ?[]const []const u8, index: &usize) !FlagArg {
-
+fn readFlagArguments(allocator: *Allocator, args: []const []const u8, required: usize, allowed_set: ?[]const []const u8, index: *usize) !FlagArg {
     switch (required) {
-        0 => return FlagArg { .None = undefined },  // TODO: Required to force non-tag but value?
+        0 => return FlagArg{ .None = undefined }, // TODO: Required to force non-tag but value?
         1 => {
-            if (*index + 1 >= args.len) {
+            if (index.* + 1 >= args.len) {
                 return error.MissingFlagArguments;
             }
 
-            *index += 1;
-            const arg = args[*index];
+            index.* += 1;
+            const arg = args[index.*];
 
             if (!argInAllowedSet(allowed_set, arg)) {
                 return error.ArgumentNotInAllowedSet;
             }
 
-            return FlagArg { .Single = arg };
+            return FlagArg{ .Single = arg };
         },
         else => |needed| {
             var extra = ArrayList([]const u8).init(allocator);
@@ -55,12 +53,12 @@ fn readFlagArguments(allocator: &Allocator, args: []const []const u8, required: 
 
             var j: usize = 0;
             while (j < needed) : (j += 1) {
-                if (*index + 1 >= args.len) {
+                if (index.* + 1 >= args.len) {
                     return error.MissingFlagArguments;
                 }
 
-                *index += 1;
-                const arg = args[*index];
+                index.* += 1;
+                const arg = args[index.*];
 
                 if (!argInAllowedSet(allowed_set, arg)) {
                     return error.ArgumentNotInAllowedSet;
@@ -69,7 +67,7 @@ fn readFlagArguments(allocator: &Allocator, args: []const []const u8, required: 
                 try extra.append(arg);
             }
 
-            return FlagArg { .Many = extra };
+            return FlagArg{ .Many = extra };
         },
     }
 }
@@ -81,8 +79,8 @@ pub const Args = struct {
     flags: HashMapFlags,
     positionals: ArrayList([]const u8),
 
-    pub fn parse(allocator: &Allocator, comptime spec: []const Flag, args: []const []const u8) !Args {
-        var parsed = Args {
+    pub fn parse(allocator: *Allocator, comptime spec: []const Flag, args: []const []const u8) !Args {
+        var parsed = Args{
             .flags = HashMapFlags.init(allocator),
             .positionals = ArrayList([]const u8).init(allocator),
         };
@@ -101,7 +99,7 @@ pub const Args = struct {
                                 error.ArgumentNotInAllowedSet => {
                                     std.debug.warn("argument '{}' is invalid for flag '{}'\n", args[i], arg);
                                     std.debug.warn("allowed options are ");
-                                    for (??flag.allowed_set) |possible| {
+                                    for (flag.allowed_set.?) |possible| {
                                         std.debug.warn("'{}' ", possible);
                                     }
                                     std.debug.warn("\n");
@@ -116,11 +114,7 @@ pub const Args = struct {
                         };
 
                         if (flag.mergable) {
-                            var prev =
-                                if (parsed.flags.get(flag_name_trimmed)) |entry|
-                                    entry.value.Many
-                                else
-                                    ArrayList([]const u8).init(allocator);
+                            var prev = if (parsed.flags.get(flag_name_trimmed)) |entry| entry.value.Many else ArrayList([]const u8).init(allocator);
 
                             // MergeN creation disallows 0 length flag entry (doesn't make sense)
                             switch (flag_args) {
@@ -129,7 +123,7 @@ pub const Args = struct {
                                 FlagArg.Many => |inner| try prev.appendSlice(inner.toSliceConst()),
                             }
 
-                            _ = try parsed.flags.put(flag_name_trimmed, FlagArg { .Many = prev });
+                            _ = try parsed.flags.put(flag_name_trimmed, FlagArg{ .Many = prev });
                         } else {
                             _ = try parsed.flags.put(flag_name_trimmed, flag_args);
                         }
@@ -149,21 +143,23 @@ pub const Args = struct {
         return parsed;
     }
 
-    pub fn deinit(self: &Args) void {
+    pub fn deinit(self: *Args) void {
         self.flags.deinit();
         self.positionals.deinit();
     }
 
     // e.g. --help
-    pub fn present(self: &Args, name: []const u8) bool {
+    pub fn present(self: *Args, name: []const u8) bool {
         return self.flags.contains(name);
     }
 
     // e.g. --name value
-    pub fn single(self: &Args, name: []const u8) ?[]const u8 {
+    pub fn single(self: *Args, name: []const u8) ?[]const u8 {
         if (self.flags.get(name)) |entry| {
             switch (entry.value) {
-                FlagArg.Single => |inner| { return inner; },
+                FlagArg.Single => |inner| {
+                    return inner;
+                },
                 else => @panic("attempted to retrieve flag with wrong type"),
             }
         } else {
@@ -172,14 +168,16 @@ pub const Args = struct {
     }
 
     // e.g. --names value1 value2 value3
-    pub fn many(self: &Args, name: []const u8) ?[]const []const u8 {
+    pub fn many(self: *Args, name: []const u8) []const []const u8 {
         if (self.flags.get(name)) |entry| {
             switch (entry.value) {
-                FlagArg.Many => |inner| { return inner.toSliceConst(); },
+                FlagArg.Many => |inner| {
+                    return inner.toSliceConst();
+                },
                 else => @panic("attempted to retrieve flag with wrong type"),
             }
         } else {
-            return null;
+            return []const []const u8{};
         }
     }
 };
@@ -207,7 +205,7 @@ pub const Flag = struct {
     }
 
     pub fn ArgN(comptime name: []const u8, comptime n: usize) Flag {
-        return Flag {
+        return Flag{
             .name = name,
             .required = n,
             .mergable = false,
@@ -220,7 +218,7 @@ pub const Flag = struct {
             @compileError("n must be greater than 0");
         }
 
-        return Flag {
+        return Flag{
             .name = name,
             .required = n,
             .mergable = true,
@@ -229,7 +227,7 @@ pub const Flag = struct {
     }
 
     pub fn Option(comptime name: []const u8, comptime set: []const []const u8) Flag {
-        return Flag {
+        return Flag{
             .name = name,
             .required = 1,
             .mergable = false,
@@ -239,26 +237,36 @@ pub const Flag = struct {
 };
 
 test "parse arguments" {
-    const spec1 = comptime []const Flag {
+    const spec1 = comptime []const Flag{
         Flag.Bool("--help"),
         Flag.Bool("--init"),
         Flag.Arg1("--build-file"),
-        Flag.Option("--color", []const []const u8 { "on", "off", "auto" }),
+        Flag.Option("--color", []const []const u8{
+            "on",
+            "off",
+            "auto",
+        }),
         Flag.ArgN("--pkg-begin", 2),
         Flag.ArgMergeN("--object", 1),
         Flag.ArgN("--library", 1),
     };
 
-    const cliargs = []const []const u8 {
+    const cliargs = []const []const u8{
         "build",
         "--help",
         "pos1",
-        "--build-file", "build.zig",
-        "--object", "obj1",
-        "--object", "obj2",
-        "--library", "lib1",
-        "--library", "lib2",
-        "--color", "on",
+        "--build-file",
+        "build.zig",
+        "--object",
+        "obj1",
+        "--object",
+        "obj2",
+        "--library",
+        "lib1",
+        "--library",
+        "lib2",
+        "--color",
+        "on",
         "pos2",
     };
 
@@ -268,14 +276,14 @@ test "parse arguments" {
     debug.assert(!args.present("help2"));
     debug.assert(!args.present("init"));
 
-    debug.assert(mem.eql(u8, ??args.single("build-file"), "build.zig"));
-    debug.assert(mem.eql(u8, ??args.single("color"), "on"));
+    debug.assert(mem.eql(u8, args.single("build-file").?, "build.zig"));
+    debug.assert(mem.eql(u8, args.single("color").?, "on"));
 
-    const objects = ??args.many("object");
+    const objects = args.many("object").?;
     debug.assert(mem.eql(u8, objects[0], "obj1"));
     debug.assert(mem.eql(u8, objects[1], "obj2"));
 
-    debug.assert(mem.eql(u8, ??args.single("library"), "lib2"));
+    debug.assert(mem.eql(u8, args.single("library").?, "lib2"));
 
     const pos = args.positionals.toSliceConst();
     debug.assert(mem.eql(u8, pos[0], "build"));

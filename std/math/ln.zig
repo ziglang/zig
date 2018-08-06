@@ -14,7 +14,7 @@ const TypeId = builtin.TypeId;
 pub fn ln(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => {
+        TypeId.ComptimeFloat => {
             return @typeOf(1.0)(ln_64(x));
         },
         TypeId.Float => {
@@ -24,7 +24,7 @@ pub fn ln(x: var) @typeOf(x) {
                 else => @compileError("ln not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.IntLiteral => {
+        TypeId.ComptimeInt => {
             return @typeOf(1)(math.floor(ln_64(f64(x))));
         },
         TypeId.Int => {
@@ -71,7 +71,7 @@ pub fn ln_32(x_: f32) f32 {
 
     // x into [sqrt(2) / 2, sqrt(2)]
     ix += 0x3F800000 - 0x3F3504F3;
-    k += i32(ix >> 23) - 0x7F;
+    k += @intCast(i32, ix >> 23) - 0x7F;
     ix = (ix & 0x007FFFFF) + 0x3F3504F3;
     x = @bitCast(f32, ix);
 
@@ -83,12 +83,14 @@ pub fn ln_32(x_: f32) f32 {
     const t2 = z * (Lg1 + w * Lg3);
     const R = t2 + t1;
     const hfsq = 0.5 * f * f;
-    const dk = f32(k);
+    const dk = @intToFloat(f32, k);
 
     return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }
 
 pub fn ln_64(x_: f64) f64 {
+    @setFloatMode(this, @import("builtin").FloatMode.Strict);
+
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
     const Lg1: f64 = 6.666666666666735130e-01;
@@ -101,7 +103,7 @@ pub fn ln_64(x_: f64) f64 {
 
     var x = x_;
     var ix = @bitCast(u64, x);
-    var hx = u32(ix >> 32);
+    var hx = @intCast(u32, ix >> 32);
     var k: i32 = 0;
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
@@ -117,18 +119,16 @@ pub fn ln_64(x_: f64) f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = u32(@bitCast(u64, ix) >> 32);
-    }
-    else if (hx >= 0x7FF00000) {
+        hx = @intCast(u32, @bitCast(u64, ix) >> 32);
+    } else if (hx >= 0x7FF00000) {
         return x;
-    }
-    else if (hx == 0x3FF00000 and ix << 32 == 0) {
+    } else if (hx == 0x3FF00000 and ix << 32 == 0) {
         return 0;
     }
 
     // x into [sqrt(2) / 2, sqrt(2)]
     hx += 0x3FF00000 - 0x3FE6A09E;
-    k += i32(hx >> 20) - 0x3FF;
+    k += @intCast(i32, hx >> 20) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
     ix = (u64(hx) << 32) | (ix & 0xFFFFFFFF);
     x = @bitCast(f64, ix);
@@ -141,7 +141,7 @@ pub fn ln_64(x_: f64) f64 {
     const t1 = w * (Lg2 + w * (Lg4 + w * Lg6));
     const t2 = z * (Lg1 + w * (Lg3 + w * (Lg5 + w * Lg7)));
     const R = t2 + t1;
-    const dk = f64(k);
+    const dk = @intToFloat(f64, k);
 
     return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }

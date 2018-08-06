@@ -6,5 +6,4 @@ build_script:
 after_build:
   - '%APPVEYOR_BUILD_FOLDER%\ci\appveyor\after_build.bat'
 cache:
-  - 'llvm+clang-5.0.1-win64-msvc-release.tar.xz'
   - 'llvm+clang-6.0.0-win64-msvc-release.tar.xz'

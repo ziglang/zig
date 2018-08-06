@@ -208,7 +208,7 @@ static Buf *get_dynamic_linker_path(CodeGen *g) {
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
-    if (lj->link_in_crt) {
+    if (g->libc_link_lib != nullptr) {
         find_libc_lib_path(g);
     }
 
@@ -217,6 +217,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(g->linker_script);
     }
 
+    if (g->no_rosegment_workaround) {
+        lj->args.append("--no-rosegment");
+    }
     lj->args.append("--gc-sections");
 
     lj->args.append("-m");
@@ -322,10 +325,13 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (g->libc_link_lib == nullptr && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
-        Buf *builtin_o_path = build_o(g, "builtin");
-        lj->args.append(buf_ptr(builtin_o_path));
+    if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
+        if (g->libc_link_lib == nullptr) {
+            Buf *builtin_o_path = build_o(g, "builtin");
+            lj->args.append(buf_ptr(builtin_o_path));
+        }
 
+        // sometimes libgcc is missing stuff, so we still build compiler_rt and rely on weak linkage
         Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
@@ -388,6 +394,19 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 }
 
+static void construct_linker_job_wasm(LinkJob *lj) {
+    CodeGen *g = lj->codegen;
+
+    lj->args.append("--relocatable");  // So lld doesn't look for _start.
+    lj->args.append("-o");
+    lj->args.append(buf_ptr(&lj->out_file));
+
+    // .o files
+    for (size_t i = 0; i < g->link_objects.length; i += 1) {
+        lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
+    }
+}
+
 //static bool is_target_cyg_mingw(const ZigTarget *target) {
 //    return (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_Cygnus) ||
 //        (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_GNU);
@@ -416,7 +435,7 @@ static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, si
 static void construct_linker_job_coff(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
-    if (lj->link_in_crt) {
+    if (g->libc_link_lib != nullptr) {
         find_libc_lib_path(g);
     }
 
@@ -538,7 +557,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
             lj->args.append(buf_ptr(builtin_o_path));
         }
 
-        // msvc compiler_rt is missing some stuff, so we still build it and rely on LinkOnce
+        // msvc compiler_rt is missing some stuff, so we still build it and rely on weak linkage
         Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
@@ -882,7 +901,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
                 if (strchr(buf_ptr(link_lib->name), '/') == nullptr) {
                     Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
                     lj->args.append(buf_ptr(arg));
-            } else {
+                } else {
                     lj->args.append(buf_ptr(link_lib->name));
                 }
             }
@@ -921,7 +940,7 @@ static void construct_linker_job(LinkJob *lj) {
         case ZigLLVM_MachO:
             return construct_linker_job_macho(lj);
         case ZigLLVM_Wasm:
-            zig_panic("TODO link wasm");
+            return construct_linker_job_wasm(lj);
     }
 }
 

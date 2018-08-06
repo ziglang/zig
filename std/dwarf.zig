@@ -337,7 +337,6 @@ pub const AT_PGI_lbase = 0x3a00;
 pub const AT_PGI_soffset = 0x3a01;
 pub const AT_PGI_lstride = 0x3a02;
 
-
 pub const OP_addr = 0x03;
 pub const OP_deref = 0x06;
 pub const OP_const1u = 0x08;
@@ -577,7 +576,6 @@ pub const ATE_HP_unsigned_fixed = 0x8e; // Cobol.
 pub const ATE_HP_VAX_complex_float = 0x8f; // F or G floating complex.
 pub const ATE_HP_VAX_complex_float_d = 0x90; // D floating complex.
 
-
 pub const CFA_advance_loc = 0x40;
 pub const CFA_offset = 0x80;
 pub const CFA_restore = 0xc0;
@@ -641,3 +639,40 @@ pub const LNE_define_file = 0x03;
 pub const LNE_set_discriminator = 0x04;
 pub const LNE_lo_user = 0x80;
 pub const LNE_hi_user = 0xff;
+
+pub const LANG_C89 = 0x0001;
+pub const LANG_C = 0x0002;
+pub const LANG_Ada83 = 0x0003;
+pub const LANG_C_plus_plus = 0x0004;
+pub const LANG_Cobol74 = 0x0005;
+pub const LANG_Cobol85 = 0x0006;
+pub const LANG_Fortran77 = 0x0007;
+pub const LANG_Fortran90 = 0x0008;
+pub const LANG_Pascal83 = 0x0009;
+pub const LANG_Modula2 = 0x000a;
+pub const LANG_Java = 0x000b;
+pub const LANG_C99 = 0x000c;
+pub const LANG_Ada95 = 0x000d;
+pub const LANG_Fortran95 = 0x000e;
+pub const LANG_PLI = 0x000f;
+pub const LANG_ObjC = 0x0010;
+pub const LANG_ObjC_plus_plus = 0x0011;
+pub const LANG_UPC = 0x0012;
+pub const LANG_D = 0x0013;
+pub const LANG_Python = 0x0014;
+pub const LANG_Go = 0x0016;
+pub const LANG_C_plus_plus_11 = 0x001a;
+pub const LANG_Rust = 0x001c;
+pub const LANG_C11 = 0x001d;
+pub const LANG_C_plus_plus_14 = 0x0021;
+pub const LANG_Fortran03 = 0x0022;
+pub const LANG_Fortran08 = 0x0023;
+pub const LANG_lo_user = 0x8000;
+pub const LANG_hi_user = 0xffff;
+pub const LANG_Mips_Assembler = 0x8001;
+pub const LANG_Upc = 0x8765;
+pub const LANG_HP_Bliss = 0x8003;
+pub const LANG_HP_Basic91 = 0x8004;
+pub const LANG_HP_Pascal91 = 0x8005;
+pub const LANG_HP_IMacro = 0x8006;
+pub const LANG_HP_Assembler = 0x8007;

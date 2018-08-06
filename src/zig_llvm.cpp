@@ -81,7 +81,7 @@ static const bool assertions_on = false;
 #endif
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug)
+        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug, bool is_small)
 {
     std::error_code EC;
     raw_fd_ostream dest(filename, EC, sys::fs::F_None);
@@ -100,7 +100,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         return true;
     }
     PMBuilder->OptLevel = target_machine->getOptLevel();
-    PMBuilder->SizeLevel = 0;
+    PMBuilder->SizeLevel = is_small ? 2 : 0;
 
     PMBuilder->DisableTailCalls = is_debug;
     PMBuilder->DisableUnitAtATime = is_debug;
@@ -440,6 +440,11 @@ ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unreso
     return reinterpret_cast<ZigLLVMDIBuilder *>(di_builder);
 }
 
+void ZigLLVMDisposeDIBuilder(ZigLLVMDIBuilder *dbuilder) {
+    DIBuilder *di_builder = reinterpret_cast<DIBuilder *>(dbuilder);
+    delete di_builder;
+}
+
 void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope) {
     unwrap(builder)->SetCurrentDebugLocation(DebugLoc::get(
                 line, column, reinterpret_cast<DIScope*>(scope)));
@@ -765,10 +770,12 @@ static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
 
 LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
-        LLVMAtomicOrdering failure_ordering)
+        LLVMAtomicOrdering failure_ordering, bool is_weak)
 {
-    return wrap(unwrap(builder)->CreateAtomicCmpXchg(unwrap(ptr), unwrap(cmp), unwrap(new_val),
-                mapFromLLVMOrdering(success_ordering), mapFromLLVMOrdering(failure_ordering)));
+    AtomicCmpXchgInst *inst = unwrap(builder)->CreateAtomicCmpXchg(unwrap(ptr), unwrap(cmp),
+                unwrap(new_val), mapFromLLVMOrdering(success_ordering), mapFromLLVMOrdering(failure_ordering));
+    inst->setWeak(is_weak);
+    return wrap(inst);
 }
 
 LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
@@ -836,7 +843,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             return lld::mach_o::link(array_ref_args, diag);
 
         case ZigLLVM_Wasm:
-            assert(false); // TODO ZigLLDLink for Wasm
+            return lld::wasm::link(array_ref_args, false, diag);
     }
     assert(false); // unreachable
     abort();

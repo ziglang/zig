@@ -16,15 +16,14 @@ ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *m
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
-        bool is_volatile, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count);
+        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count);
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
 uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry);
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_c_int_type(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
-TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type);
+TypeTableEntry *get_optional_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size);
 TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *ptr_type);
 TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
@@ -70,6 +69,8 @@ TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name);
 TypeEnumField *find_enum_field_by_tag(TypeTableEntry *enum_type, const BigInt *tag);
 TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag);
 
+bool is_ref(TypeTableEntry *type_entry);
+bool is_array_ref(TypeTableEntry *type_entry);
 bool is_container_ref(TypeTableEntry *type_entry);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 void scan_import(CodeGen *g, ImportTableEntry *import);
@@ -104,6 +105,7 @@ ScopeDeferExpr *create_defer_expr_scope(AstNode *node, Scope *parent);
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
 ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);
 ScopeLoop *create_loop_scope(AstNode *node, Scope *parent);
+ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
 ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import);
 Scope *create_comptime_scope(AstNode *node, Scope *parent);
@@ -151,8 +153,9 @@ ConstExprValue *create_const_ptr_hard_coded_addr(CodeGen *g, TypeTableEntry *poi
         size_t addr, bool is_const);
 
 void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
-        size_t elem_index, bool is_const);
-ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const);
+        size_t elem_index, bool is_const, PtrLen ptr_len);
+ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index,
+        bool is_const, PtrLen ptr_len);
 
 void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
         size_t start, size_t len, bool is_const);
@@ -173,7 +176,7 @@ void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value);
 const char *type_id_name(TypeTableEntryId id);
 TypeTableEntryId type_id_at_index(size_t index);
 size_t type_id_len();
-size_t type_id_index(TypeTableEntryId id);
+size_t type_id_index(TypeTableEntry *entry);
 TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry);
 LinkLib *create_link_lib(Buf *name);
@@ -190,7 +193,7 @@ void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, G
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
 TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g);
-void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
+bool resolve_inferred_error_set(CodeGen *g, TypeTableEntry *err_set_type, AstNode *source_node);
 
 TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry);
 
@@ -198,5 +201,8 @@ uint32_t get_coro_frame_align_bytes(CodeGen *g);
 bool fn_type_can_fail(FnTypeId *fn_type_id);
 bool type_can_fail(TypeTableEntry *type_entry);
 bool fn_eval_cacheable(Scope *scope, TypeTableEntry *return_type);
+AstNode *type_decl_node(TypeTableEntry *type_entry);
+
+TypeTableEntry *get_primitive_type(CodeGen *g, Buf *name);
 
 #endif

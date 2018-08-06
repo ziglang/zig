@@ -12,15 +12,81 @@ pub const FloatDecimal = struct {
     exp: i32,
 };
 
+pub const RoundMode = enum {
+    // Round only the fractional portion (e.g. 1234.23 has precision 2)
+    Decimal,
+    // Round the entire whole/fractional portion (e.g. 1.23423e3 has precision 5)
+    Scientific,
+};
+
+/// Round a FloatDecimal as returned by errol3 to the specified fractional precision.
+/// All digits after the specified precision should be considered invalid.
+pub fn roundToPrecision(float_decimal: *FloatDecimal, precision: usize, mode: RoundMode) void {
+    // The round digit refers to the index which we should look at to determine
+    // whether we need to round to match the specified precision.
+    var round_digit: usize = 0;
+
+    switch (mode) {
+        RoundMode.Decimal => {
+            if (float_decimal.exp >= 0) {
+                round_digit = precision + @intCast(usize, float_decimal.exp);
+            } else {
+                // if a small negative exp, then adjust we need to offset by the number
+                // of leading zeros that will occur.
+                const min_exp_required = @intCast(usize, -float_decimal.exp);
+                if (precision > min_exp_required) {
+                    round_digit = precision - min_exp_required;
+                }
+            }
+        },
+        RoundMode.Scientific => {
+            round_digit = 1 + precision;
+        },
+    }
+
+    // It suffices to look at just this digit. We don't round and propagate say 0.04999 to 0.05
+    // first, and then to 0.1 in the case of a {.1} single precision.
+
+    // Find the digit which will signify the round point and start rounding backwards.
+    if (round_digit < float_decimal.digits.len and float_decimal.digits[round_digit] - '0' >= 5) {
+        assert(round_digit >= 0);
+
+        var i = round_digit;
+        while (true) {
+            if (i == 0) {
+                // Rounded all the way past the start. This was of the form 9.999...
+                // Slot the new digit in place and increase the exponent.
+                float_decimal.exp += 1;
+
+                // Re-size the buffer to use the reserved leading byte.
+                const one_before = @intToPtr([*]u8, @ptrToInt(&float_decimal.digits[0]) - 1);
+                float_decimal.digits = one_before[0 .. float_decimal.digits.len + 1];
+                float_decimal.digits[0] = '1';
+                return;
+            }
+
+            i -= 1;
+
+            const new_value = (float_decimal.digits[i] - '0' + 1) % 10;
+            float_decimal.digits[i] = new_value + '0';
+
+            // must continue rounding until non-9
+            if (new_value != 0) {
+                return;
+            }
+        }
+    }
+}
+
 /// Corrected Errol3 double to ASCII conversion.
 pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
     const bits = @bitCast(u64, value);
     const i = tableLowerBound(bits);
     if (i < enum3.len and enum3[i] == bits) {
         const data = enum3_data[i];
-        const digits = buffer[0..data.str.len];
+        const digits = buffer[1 .. data.str.len + 1];
         mem.copy(u8, digits, data.str);
-        return FloatDecimal {
+        return FloatDecimal{
             .digits = digits,
             .exp = data.exp,
         };
@@ -32,27 +98,25 @@ pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
 /// Uncorrected Errol3 double to ASCII conversion.
 fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     // check if in integer or fixed range
-
     if (val > 9.007199254740992e15 and val < 3.40282366920938e+38) {
         return errolInt(val, buffer);
     } else if (val >= 16.0 and val < 9.007199254740992e15) {
         return errolFixed(val, buffer);
     }
 
-
     // normalize the midpoint
 
     const e = math.frexp(val).exponent;
-    var exp = i16(math.floor(307 + f64(e) * 0.30103));
+    var exp = @floatToInt(i16, math.floor(307 + @intToFloat(f64, e) * 0.30103));
     if (exp < 20) {
         exp = 20;
-    } else if (usize(exp) >= lookup_table.len) {
-        exp = i16(lookup_table.len - 1);
+    } else if (@intCast(usize, exp) >= lookup_table.len) {
+        exp = @intCast(i16, lookup_table.len - 1);
     }
 
-    var mid = lookup_table[usize(exp)];
+    var mid = lookup_table[@intCast(usize, exp)];
     mid = hpProd(mid, val);
-    const lten = lookup_table[usize(exp)].val;
+    const lten = lookup_table[@intCast(usize, exp)].val;
 
     exp -= 307;
 
@@ -71,11 +135,11 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     }
 
     // compute boundaries
-    var high = HP {
+    var high = HP{
         .val = mid.val,
         .off = mid.off + (fpnext(val) - val) * lten * ten / 2.0,
     };
-    var low = HP {
+    var low = HP{
         .val = mid.val,
         .off = mid.off + (fpprev(val) - val) * lten * ten / 2.0,
     };
@@ -98,37 +162,37 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     }
 
     // digit generation
-    var buf_index: usize = 0;
+
+    // We generate digits starting at index 1. If rounding a buffer later then it may be
+    // required to generate a preceeding digit in some cases (9.999) in which case we use
+    // the 0-index for this extra digit.
+    var buf_index: usize = 1;
     while (true) {
-        var hdig = u8(math.floor(high.val));
-        if ((high.val == f64(hdig)) and (high.off < 0))
-            hdig -= 1;
+        var hdig = @floatToInt(u8, math.floor(high.val));
+        if ((high.val == @intToFloat(f64, hdig)) and (high.off < 0)) hdig -= 1;
 
-        var ldig = u8(math.floor(low.val));
-        if ((low.val == f64(ldig)) and (low.off < 0))
-            ldig -= 1;
+        var ldig = @floatToInt(u8, math.floor(low.val));
+        if ((low.val == @intToFloat(f64, ldig)) and (low.off < 0)) ldig -= 1;
 
-        if (ldig != hdig)
-            break;
+        if (ldig != hdig) break;
 
         buffer[buf_index] = hdig + '0';
         buf_index += 1;
-        high.val -= f64(hdig);
-        low.val -= f64(ldig);
+        high.val -= @intToFloat(f64, hdig);
+        low.val -= @intToFloat(f64, ldig);
         hpMul10(&high);
         hpMul10(&low);
     }
 
     const tmp = (high.val + low.val) / 2.0;
-    var mdig = u8(math.floor(tmp + 0.5));
-    if ((f64(mdig) - tmp) == 0.5 and (mdig & 0x1) != 0)
-        mdig -= 1;
+    var mdig = @floatToInt(u8, math.floor(tmp + 0.5));
+    if ((@intToFloat(f64, mdig) - tmp) == 0.5 and (mdig & 0x1) != 0) mdig -= 1;
 
     buffer[buf_index] = mdig + '0';
     buf_index += 1;
 
-    return FloatDecimal {
-        .digits = buffer[0..buf_index],
+    return FloatDecimal{
+        .digits = buffer[1..buf_index],
         .exp = exp,
     };
 }
@@ -153,7 +217,7 @@ fn tableLowerBound(k: u64) usize {
 ///   @in: The HP number.
 ///   @val: The double.
 ///   &returns: The HP number.
-fn hpProd(in: &const HP, val: f64) HP {
+fn hpProd(in: *const HP, val: f64) HP {
     var hi: f64 = undefined;
     var lo: f64 = undefined;
     split(in.val, &hi, &lo);
@@ -165,7 +229,7 @@ fn hpProd(in: &const HP, val: f64) HP {
     const p = in.val * val;
     const e = ((hi * hi2 - p) + lo * hi2 + hi * lo2) + lo * lo2;
 
-    return HP {
+    return HP{
         .val = p,
         .off = in.off * val + e,
     };
@@ -175,9 +239,9 @@ fn hpProd(in: &const HP, val: f64) HP {
 ///   @val: The double.
 ///   @hi: The high bits.
 ///   @lo: The low bits.
-fn split(val: f64, hi: &f64, lo: &f64) void {
-    *hi = gethi(val);
-    *lo = val - *hi;
+fn split(val: f64, hi: *f64, lo: *f64) void {
+    hi.* = gethi(val);
+    lo.* = val - hi.*;
 }
 
 fn gethi(in: f64) f64 {
@@ -188,7 +252,10 @@ fn gethi(in: f64) f64 {
 
 /// Normalize the number by factoring in the error.
 ///   @hp: The float pair.
-fn hpNormalize(hp: &HP) void {
+fn hpNormalize(hp: *HP) void {
+    // Required to avoid segfaults causing buffer overrun during errol3 digit output termination.
+    @setFloatMode(this, @import("builtin").FloatMode.Strict);
+
     const val = hp.val;
 
     hp.val += hp.off;
@@ -197,7 +264,7 @@ fn hpNormalize(hp: &HP) void {
 
 /// Divide the high-precision number by ten.
 ///   @hp: The high-precision number
-fn hpDiv10(hp: &HP) void {
+fn hpDiv10(hp: *HP) void {
     var val = hp.val;
 
     hp.val /= 10.0;
@@ -213,7 +280,7 @@ fn hpDiv10(hp: &HP) void {
 
 /// Multiply the high-precision number by ten.
 ///   @hp: The high-precision number
-fn hpMul10(hp: &HP) void {
+fn hpMul10(hp: *HP) void {
     const val = hp.val;
 
     hp.val *= 10.0;
@@ -228,7 +295,6 @@ fn hpMul10(hp: &HP) void {
     hpNormalize(hp);
 }
 
-
 /// Integer conversion algorithm, guaranteed correct, optimal, and best.
 ///  @val: The val.
 ///  @buf: The output buffer.
@@ -238,7 +304,7 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
 
     assert((val > 9.007199254740992e15) and val < (3.40282366920938e38));
 
-    var mid = u128(val);
+    var mid = @floatToInt(u128, val);
     var low: u128 = mid - fpeint((fpnext(val) - val) / 2.0);
     var high: u128 = mid + fpeint((val - fpprev(val)) / 2.0);
 
@@ -248,11 +314,11 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
         low -= 1;
     }
 
-    var l64 = u64(low % pow19);
-    const lf = u64((low / pow19) % pow19);
+    var l64 = @intCast(u64, low % pow19);
+    const lf = @intCast(u64, (low / pow19) % pow19);
 
-    var h64 = u64(high % pow19);
-    const hf = u64((high / pow19) % pow19);
+    var h64 = @intCast(u64, high % pow19);
+    const hf = @intCast(u64, (high / pow19) % pow19);
 
     if (lf != hf) {
         l64 = lf;
@@ -263,27 +329,26 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
     var mi: i32 = mismatch10(l64, h64);
     var x: u64 = 1;
     {
-        var i = i32(lf == hf);
+        var i: i32 = @boolToInt(lf == hf);
         while (i < mi) : (i += 1) {
             x *= 10;
         }
     }
     const m64 = @truncate(u64, @divTrunc(mid, x));
 
-    if (lf != hf)
-        mi += 19;
+    if (lf != hf) mi += 19;
 
     var buf_index = u64toa(m64, buffer) - 1;
 
     if (mi != 0) {
-        buffer[buf_index - 1] += u8(buffer[buf_index] >= '5');
+        buffer[buf_index - 1] += @boolToInt(buffer[buf_index] >= '5');
     } else {
         buf_index += 1;
     }
 
-    return FloatDecimal {
+    return FloatDecimal{
         .digits = buffer[0..buf_index],
-        .exp = i32(buf_index) + mi,
+        .exp = @intCast(i32, buf_index) + mi,
     };
 }
 
@@ -294,54 +359,53 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
 fn errolFixed(val: f64, buffer: []u8) FloatDecimal {
     assert((val >= 16.0) and (val < 9.007199254740992e15));
 
-    const u = u64(val);
-    const n = f64(u);
+    const u = @floatToInt(u64, val);
+    const n = @intToFloat(f64, u);
 
     var mid = val - n;
     var lo = ((fpprev(val) - n) + mid) / 2.0;
     var hi = ((fpnext(val) - n) + mid) / 2.0;
 
     var buf_index = u64toa(u, buffer);
-    var exp = i32(buf_index);
+    var exp = @intCast(i32, buf_index);
     var j = buf_index;
     buffer[j] = 0;
 
     if (mid != 0.0) {
         while (mid != 0.0) {
             lo *= 10.0;
-            const ldig = i32(lo);
-            lo -= f64(ldig);
+            const ldig = @floatToInt(i32, lo);
+            lo -= @intToFloat(f64, ldig);
 
             mid *= 10.0;
-            const mdig = i32(mid);
-            mid -= f64(mdig);
+            const mdig = @floatToInt(i32, mid);
+            mid -= @intToFloat(f64, mdig);
 
             hi *= 10.0;
-            const hdig = i32(hi);
-            hi -= f64(hdig);
+            const hdig = @floatToInt(i32, hi);
+            hi -= @intToFloat(f64, hdig);
 
-            buffer[j] = u8(mdig + '0');
+            buffer[j] = @intCast(u8, mdig + '0');
             j += 1;
 
-            if(hdig != ldig or j > 50)
-                break;
+            if (hdig != ldig or j > 50) break;
         }
 
         if (mid > 0.5) {
-            buffer[j-1] += 1;
-        } else if ((mid == 0.5) and (buffer[j-1] & 0x1) != 0) {
-            buffer[j-1] += 1;
+            buffer[j - 1] += 1;
+        } else if ((mid == 0.5) and (buffer[j - 1] & 0x1) != 0) {
+            buffer[j - 1] += 1;
         }
     } else {
-        while (buffer[j-1] == '0') {
-            buffer[j-1] = 0;
+        while (buffer[j - 1] == '0') {
+            buffer[j - 1] = 0;
             j -= 1;
         }
     }
 
     buffer[j] = 0;
 
-    return FloatDecimal {
+    return FloatDecimal{
         .digits = buffer[0..j],
         .exp = exp,
     };
@@ -355,7 +419,7 @@ fn fpprev(val: f64) f64 {
     return @bitCast(f64, @bitCast(u64, val) -% 1);
 }
 
-pub const c_digits_lut = []u8 {
+pub const c_digits_lut = []u8{
     '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6',
     '0', '7', '0', '8', '0', '9', '1', '0', '1', '1', '1', '2', '1', '3',
     '1', '4', '1', '5', '1', '6', '1', '7', '1', '8', '1', '9', '2', '0',
@@ -388,7 +452,7 @@ fn u64toa(value_param: u64, buffer: []u8) usize {
     var buf_index: usize = 0;
 
     if (value < kTen8) {
-        const v = u32(value);
+        const v = @intCast(u32, value);
         if (v < 10000) {
             const d1: u32 = (v / 100) << 1;
             const d2: u32 = (v % 100) << 1;
@@ -443,8 +507,8 @@ fn u64toa(value_param: u64, buffer: []u8) usize {
             buf_index += 1;
         }
     } else if (value < kTen16) {
-        const v0: u32 = u32(value / kTen8);
-        const v1: u32 = u32(value % kTen8);
+        const v0: u32 = @intCast(u32, value / kTen8);
+        const v1: u32 = @intCast(u32, value % kTen8);
 
         const b0: u32 = v0 / 10000;
         const c0: u32 = v0 % 10000;
@@ -514,11 +578,11 @@ fn u64toa(value_param: u64, buffer: []u8) usize {
         buffer[buf_index] = c_digits_lut[d8 + 1];
         buf_index += 1;
     } else {
-        const a = u32(value / kTen16);  // 1 to 1844
+        const a = @intCast(u32, value / kTen16); // 1 to 1844
         value %= kTen16;
 
         if (a < 10) {
-            buffer[buf_index] = '0' + u8(a);
+            buffer[buf_index] = '0' + @intCast(u8, a);
             buf_index += 1;
         } else if (a < 100) {
             const i: u32 = a << 1;
@@ -527,7 +591,7 @@ fn u64toa(value_param: u64, buffer: []u8) usize {
             buffer[buf_index] = c_digits_lut[i + 1];
             buf_index += 1;
         } else if (a < 1000) {
-            buffer[buf_index] = '0' + u8(a / 100);
+            buffer[buf_index] = '0' + @intCast(u8, a / 100);
             buf_index += 1;
 
             const i: u32 = (a % 100) << 1;
@@ -548,8 +612,8 @@ fn u64toa(value_param: u64, buffer: []u8) usize {
             buf_index += 1;
         }
 
-        const v0 = u32(value / kTen8);
-        const v1 = u32(value % kTen8);
+        const v0 = @intCast(u32, value / kTen8);
+        const v1 = @intCast(u32, value % kTen8);
 
         const b0: u32 = v0 / 10000;
         const c0: u32 = v0 % 10000;
@@ -613,7 +677,6 @@ fn fpeint(from: f64) u128 {
     return u128(1) << @truncate(u7, (bits >> 52) -% 1023);
 }
 
-
 /// Given two different integers with the same length in terms of the number
 /// of decimal digits, index the digits from the right-most position starting
 /// from zero, find the first index where the digits in the two integers
@@ -640,7 +703,6 @@ fn mismatch10(a: u64, b: u64) i32 {
         a_copy /= 10;
         b_copy /= 10;
 
-        if (a_copy == b_copy)
-            return i;
+        if (a_copy == b_copy) return i;
     }
 }

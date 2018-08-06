@@ -14,7 +14,7 @@ const TypeId = builtin.TypeId;
 pub fn log10(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => {
+        TypeId.ComptimeFloat => {
             return @typeOf(1.0)(log10_64(x));
         },
         TypeId.Float => {
@@ -24,21 +24,21 @@ pub fn log10(x: var) @typeOf(x) {
                 else => @compileError("log10 not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.IntLiteral => {
+        TypeId.ComptimeInt => {
             return @typeOf(1)(math.floor(log10_64(f64(x))));
         },
         TypeId.Int => {
-            return T(math.floor(log10_64(f64(x))));
+            return @floatToInt(T, math.floor(log10_64(@intToFloat(f64, x))));
         },
         else => @compileError("log10 not implemented for " ++ @typeName(T)),
     }
 }
 
 pub fn log10_32(x_: f32) f32 {
-    const ivln10hi: f32  =  4.3432617188e-01;
-    const ivln10lo: f32  = -3.1689971365e-05;
-    const log10_2hi: f32 =  3.0102920532e-01;
-    const log10_2lo: f32 =  7.9034151668e-07;
+    const ivln10hi: f32 = 4.3432617188e-01;
+    const ivln10lo: f32 = -3.1689971365e-05;
+    const log10_2hi: f32 = 3.0102920532e-01;
+    const log10_2lo: f32 = 7.9034151668e-07;
     const Lg1: f32 = 0xaaaaaa.0p-24;
     const Lg2: f32 = 0xccce13.0p-25;
     const Lg3: f32 = 0x91e9ee.0p-25;
@@ -71,7 +71,7 @@ pub fn log10_32(x_: f32) f32 {
 
     // x into [sqrt(2) / 2, sqrt(2)]
     ix += 0x3F800000 - 0x3F3504F3;
-    k += i32(ix >> 23) - 0x7F;
+    k += @intCast(i32, ix >> 23) - 0x7F;
     ix = (ix & 0x007FFFFF) + 0x3F3504F3;
     x = @bitCast(f32, ix);
 
@@ -89,14 +89,14 @@ pub fn log10_32(x_: f32) f32 {
     u &= 0xFFFFF000;
     hi = @bitCast(f32, u);
     const lo = f - hi - hfsq + s * (hfsq + R);
-    const dk = f32(k);
+    const dk = @intToFloat(f32, k);
 
     return dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi;
 }
 
 pub fn log10_64(x_: f64) f64 {
-    const ivln10hi: f64  = 4.34294481878168880939e-01;
-    const ivln10lo: f64  = 2.50829467116452752298e-11;
+    const ivln10hi: f64 = 4.34294481878168880939e-01;
+    const ivln10lo: f64 = 2.50829467116452752298e-11;
     const log10_2hi: f64 = 3.01029995663611771306e-01;
     const log10_2lo: f64 = 3.69423907715893078616e-13;
     const Lg1: f64 = 6.666666666666735130e-01;
@@ -109,7 +109,7 @@ pub fn log10_64(x_: f64) f64 {
 
     var x = x_;
     var ix = @bitCast(u64, x);
-    var hx = u32(ix >> 32);
+    var hx = @intCast(u32, ix >> 32);
     var k: i32 = 0;
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
@@ -125,18 +125,16 @@ pub fn log10_64(x_: f64) f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = u32(@bitCast(u64, x) >> 32);
-    }
-    else if (hx >= 0x7FF00000) {
+        hx = @intCast(u32, @bitCast(u64, x) >> 32);
+    } else if (hx >= 0x7FF00000) {
         return x;
-    }
-    else if (hx == 0x3FF00000 and ix << 32 == 0) {
+    } else if (hx == 0x3FF00000 and ix << 32 == 0) {
         return 0;
     }
 
     // x into [sqrt(2) / 2, sqrt(2)]
     hx += 0x3FF00000 - 0x3FE6A09E;
-    k += i32(hx >> 20) - 0x3FF;
+    k += @intCast(i32, hx >> 20) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
     ix = (u64(hx) << 32) | (ix & 0xFFFFFFFF);
     x = @bitCast(f64, ix);
@@ -159,7 +157,7 @@ pub fn log10_64(x_: f64) f64 {
 
     // val_hi + val_lo ~ log10(1 + f) + k * log10(2)
     var val_hi = hi * ivln10hi;
-    const dk = f64(k);
+    const dk = @intToFloat(f64, k);
     const y = dk * log10_2hi;
     var val_lo = dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi;
 

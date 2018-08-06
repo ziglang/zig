@@ -9,26 +9,27 @@ pub fn log(comptime T: type, base: T, x: T) T {
         return math.log2(x);
     } else if (base == 10) {
         return math.log10(x);
-    } else if ((@typeId(T) == TypeId.Float or @typeId(T) == TypeId.FloatLiteral) and base == math.e) {
+    } else if ((@typeId(T) == TypeId.Float or @typeId(T) == TypeId.ComptimeFloat) and base == math.e) {
         return math.ln(x);
     }
 
+    const float_base = math.lossyCast(f64, base);
     switch (@typeId(T)) {
-        TypeId.FloatLiteral => {
-            return @typeOf(1.0)(math.ln(f64(x)) / math.ln(f64(base)));
+        TypeId.ComptimeFloat => {
+            return @typeOf(1.0)(math.ln(f64(x)) / math.ln(float_base));
         },
-        TypeId.IntLiteral => {
-            return @typeOf(1)(math.floor(math.ln(f64(x)) / math.ln(f64(base))));
+        TypeId.ComptimeInt => {
+            return @typeOf(1)(math.floor(math.ln(f64(x)) / math.ln(float_base)));
         },
         builtin.TypeId.Int => {
             // TODO implement integer log without using float math
-            return T(math.floor(math.ln(f64(x)) / math.ln(f64(base))));
+            return @floatToInt(T, math.floor(math.ln(@intToFloat(f64, x)) / math.ln(float_base)));
         },
 
         builtin.TypeId.Float => {
             switch (T) {
-                f32 => return f32(math.ln(f64(x)) / math.ln(f64(base))),
-                f64 => return math.ln(x) / math.ln(f64(base)),
+                f32 => return @floatCast(f32, math.ln(f64(x)) / math.ln(float_base)),
+                f64 => return math.ln(x) / math.ln(float_base),
                 else => @compileError("log not implemented for " ++ @typeName(T)),
             }
         },

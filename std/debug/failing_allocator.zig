@@ -7,20 +7,20 @@ pub const FailingAllocator = struct {
     allocator: mem.Allocator,
     index: usize,
     fail_index: usize,
-    internal_allocator: &mem.Allocator,
+    internal_allocator: *mem.Allocator,
     allocated_bytes: usize,
     freed_bytes: usize,
     deallocations: usize,
 
-    pub fn init(allocator: &mem.Allocator, fail_index: usize) FailingAllocator {
-        return FailingAllocator {
+    pub fn init(allocator: *mem.Allocator, fail_index: usize) FailingAllocator {
+        return FailingAllocator{
             .internal_allocator = allocator,
             .fail_index = fail_index,
             .index = 0,
             .allocated_bytes = 0,
             .freed_bytes = 0,
             .deallocations = 0,
-            .allocator = mem.Allocator {
+            .allocator = mem.Allocator{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -28,7 +28,7 @@ pub const FailingAllocator = struct {
         };
     }
 
-    fn alloc(allocator: &mem.Allocator, n: usize, alignment: u29) ![]u8 {
+    fn alloc(allocator: *mem.Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
@@ -39,7 +39,7 @@ pub const FailingAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         if (new_size <= old_mem.len) {
             self.freed_bytes += old_mem.len - new_size;
@@ -55,7 +55,7 @@ pub const FailingAllocator = struct {
         return result;
     }
 
-    fn free(allocator: &mem.Allocator, bytes: []u8) void {
+    fn free(allocator: *mem.Allocator, bytes: []u8) void {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         self.freed_bytes += bytes.len;
         self.deallocations += 1;

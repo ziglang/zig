@@ -18,6 +18,10 @@ void bigfloat_init_128(BigFloat *dest, float128_t x) {
     dest->value = x;
 }
 
+void bigfloat_init_16(BigFloat *dest, float16_t x) {
+    f16_to_f128M(x, &dest->value);
+}
+
 void bigfloat_init_32(BigFloat *dest, float x) {
     float32_t f32_val;
     memcpy(&f32_val, &x, sizeof(float));
@@ -146,6 +150,10 @@ Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2) {
     }
 }
 
+float16_t bigfloat_to_f16(const BigFloat *bigfloat) {
+    return f128M_to_f16(&bigfloat->value);
+}
+
 float bigfloat_to_f32(const BigFloat *bigfloat) {
     float32_t f32_value = f128M_to_f32(&bigfloat->value);
     float result;
@@ -180,4 +188,8 @@ bool bigfloat_has_fraction(const BigFloat *bigfloat) {
     float128_t floored;
     f128M_roundToInt(&bigfloat->value, softfloat_round_minMag, false, &floored);
     return !f128M_eq(&floored, &bigfloat->value);
+}
+
+void bigfloat_sqrt(BigFloat *dest, const BigFloat *op) {
+    f128M_sqrt(&op->value, &dest->value);
 }

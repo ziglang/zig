@@ -20,12 +20,16 @@ pub fn expm1(x: var) @typeOf(x) {
 
 fn expm1_32(x_: f32) f32 {
     @setFloatMode(this, builtin.FloatMode.Strict);
+
+    if (math.isNan(x_))
+        return math.nan(f32);
+
     const o_threshold: f32 = 8.8721679688e+01;
-    const ln2_hi: f32      = 6.9313812256e-01;
-    const ln2_lo: f32      = 9.0580006145e-06;
-    const invln2: f32      = 1.4426950216e+00;
+    const ln2_hi: f32 = 6.9313812256e-01;
+    const ln2_lo: f32 = 9.0580006145e-06;
+    const invln2: f32 = 1.4426950216e+00;
     const Q1: f32 = -3.3333212137e-2;
-    const Q2: f32 =  1.5807170421e-3;
+    const Q2: f32 = 1.5807170421e-3;
 
     var x = x_;
     const ux = @bitCast(u32, x);
@@ -78,8 +82,8 @@ fn expm1_32(x_: f32) f32 {
                 kf += 0.5;
             }
 
-            k = i32(kf);
-            const t = f32(k);
+            k = @floatToInt(i32, kf);
+            const t = @intToFloat(f32, k);
             hi = x - t * ln2_hi;
             lo = t * ln2_lo;
         }
@@ -93,8 +97,7 @@ fn expm1_32(x_: f32) f32 {
             math.forceEval(x * x);
         }
         return x;
-    }
-    else {
+    } else {
         k = 0;
     }
 
@@ -124,7 +127,7 @@ fn expm1_32(x_: f32) f32 {
         }
     }
 
-    const twopk = @bitCast(f32, u32((0x7F +% k) << 23));
+    const twopk = @bitCast(f32, @intCast(u32, (0x7F +% k) << 23));
 
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;
@@ -137,7 +140,7 @@ fn expm1_32(x_: f32) f32 {
         return y - 1.0;
     }
 
-    const uf = @bitCast(f32, u32(0x7F -% k) << 23);
+    const uf = @bitCast(f32, @intCast(u32, 0x7F -% k) << 23);
     if (k < 23) {
         return (x - e + (1 - uf)) * twopk;
     } else {
@@ -147,19 +150,23 @@ fn expm1_32(x_: f32) f32 {
 
 fn expm1_64(x_: f64) f64 {
     @setFloatMode(this, builtin.FloatMode.Strict);
+
+    if (math.isNan(x_))
+        return math.nan(f64);
+
     const o_threshold: f64 = 7.09782712893383973096e+02;
-    const ln2_hi: f64      = 6.93147180369123816490e-01;
-    const ln2_lo: f64      = 1.90821492927058770002e-10;
-    const invln2: f64      = 1.44269504088896338700e+00;
+    const ln2_hi: f64 = 6.93147180369123816490e-01;
+    const ln2_lo: f64 = 1.90821492927058770002e-10;
+    const invln2: f64 = 1.44269504088896338700e+00;
     const Q1: f64 = -3.33333333333331316428e-02;
-    const Q2: f64 =  1.58730158725481460165e-03;
+    const Q2: f64 = 1.58730158725481460165e-03;
     const Q3: f64 = -7.93650757867487942473e-05;
-    const Q4: f64 =  4.00821782732936239552e-06;
+    const Q4: f64 = 4.00821782732936239552e-06;
     const Q5: f64 = -2.01099218183624371326e-07;
 
     var x = x_;
     const ux = @bitCast(u64, x);
-    const hx = u32(ux >> 32) & 0x7FFFFFFF;
+    const hx = @intCast(u32, ux >> 32) & 0x7FFFFFFF;
     const sign = ux >> 63;
 
     if (math.isNegativeInf(x)) {
@@ -208,8 +215,8 @@ fn expm1_64(x_: f64) f64 {
                 kf += 0.5;
             }
 
-            k = i32(kf);
-            const t = f64(k);
+            k = @floatToInt(i32, kf);
+            const t = @intToFloat(f64, k);
             hi = x - t * ln2_hi;
             lo = t * ln2_lo;
         }
@@ -220,11 +227,10 @@ fn expm1_64(x_: f64) f64 {
     // |x| < 2^(-54)
     else if (hx < 0x3C900000) {
         if (hx < 0x00100000) {
-            math.forceEval(f32(x));
+            math.forceEval(@floatCast(f32, x));
         }
         return x;
-    }
-    else {
+    } else {
         k = 0;
     }
 
@@ -254,7 +260,7 @@ fn expm1_64(x_: f64) f64 {
         }
     }
 
-    const twopk = @bitCast(f64, u64(0x3FF +% k) << 52);
+    const twopk = @bitCast(f64, @intCast(u64, 0x3FF +% k) << 52);
 
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;
@@ -267,7 +273,7 @@ fn expm1_64(x_: f64) f64 {
         return y - 1.0;
     }
 
-    const uf = @bitCast(f64, u64(0x3FF -% k) << 52);
+    const uf = @bitCast(f64, @intCast(u64, 0x3FF -% k) << 52);
     if (k < 20) {
         return (x - e + (1 - uf)) * twopk;
     } else {

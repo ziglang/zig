@@ -7,30 +7,30 @@ const Node = struct {
 
 test "struct contains slice of itself" {
     var other_nodes = []Node{
-        Node {
+        Node{
             .payload = 31,
             .children = []Node{},
         },
-        Node {
+        Node{
             .payload = 32,
             .children = []Node{},
         },
     };
-    var nodes = []Node {
-        Node {
+    var nodes = []Node{
+        Node{
             .payload = 1,
             .children = []Node{},
         },
-        Node {
+        Node{
             .payload = 2,
             .children = []Node{},
         },
-        Node {
+        Node{
             .payload = 3,
             .children = other_nodes[0..],
         },
     };
-    const root = Node {
+    const root = Node{
         .payload = 1234,
         .children = nodes[0..],
     };

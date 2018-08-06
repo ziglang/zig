@@ -1,1 +1,3 @@
-pub fn foo() i32 { return 1234; }
+pub fn foo() i32 {
+    return 1234;
+}

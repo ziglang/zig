@@ -68,7 +68,7 @@ fn log1p_32(x: f32) f32 {
         const uf = 1 + x;
         var iu = @bitCast(u32, uf);
         iu += 0x3F800000 - 0x3F3504F3;
-        k = i32(iu >> 23) - 0x7F;
+        k = @intCast(i32, iu >> 23) - 0x7F;
 
         // correction to avoid underflow in c / u
         if (k < 25) {
@@ -90,7 +90,7 @@ fn log1p_32(x: f32) f32 {
     const t2 = z * (Lg1 + w * Lg3);
     const R = t2 + t1;
     const hfsq = 0.5 * f * f;
-    const dk = f32(k);
+    const dk = @intToFloat(f32, k);
 
     return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }
@@ -107,7 +107,7 @@ fn log1p_64(x: f64) f64 {
     const Lg7: f64 = 1.479819860511658591e-01;
 
     var ix = @bitCast(u64, x);
-    var hx = u32(ix >> 32);
+    var hx = @intCast(u32, ix >> 32);
     var k: i32 = 1;
     var c: f64 = undefined;
     var f: f64 = undefined;
@@ -138,17 +138,16 @@ fn log1p_64(x: f64) f64 {
             c = 0;
             f = x;
         }
-    }
-    else if (hx >= 0x7FF00000) {
+    } else if (hx >= 0x7FF00000) {
         return x;
     }
 
     if (k != 0) {
         const uf = 1 + x;
         const hu = @bitCast(u64, uf);
-        var iu = u32(hu >> 32);
+        var iu = @intCast(u32, hu >> 32);
         iu += 0x3FF00000 - 0x3FE6A09E;
-        k = i32(iu >> 20) - 0x3FF;
+        k = @intCast(i32, iu >> 20) - 0x3FF;
 
         // correction to avoid underflow in c / u
         if (k < 54) {
@@ -171,7 +170,7 @@ fn log1p_64(x: f64) f64 {
     const t1 = w * (Lg2 + w * (Lg4 + w * Lg6));
     const t2 = z * (Lg1 + w * (Lg3 + w * (Lg5 + w * Lg7)));
     const R = t2 + t1;
-    const dk = f64(k);
+    const dk = @intToFloat(f64, k);
 
     return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }

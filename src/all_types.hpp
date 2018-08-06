@@ -60,7 +60,7 @@ struct IrExecutable {
     ZigList<Tld *> tld_list;
 
     IrInstruction *coro_handle;
-    IrInstruction *coro_awaiter_field_ptr; // this one is shared and in the promise
+    IrInstruction *atomic_state_field_ptr; // this one is shared and in the promise
     IrInstruction *coro_result_ptr_field_ptr;
     IrInstruction *coro_result_field_ptr;
     IrInstruction *await_handle_var_ptr; // this one is where we put the one we extracted from the promise
@@ -83,6 +83,7 @@ enum ConstParentId {
     ConstParentIdStruct,
     ConstParentIdArray,
     ConstParentIdUnion,
+    ConstParentIdScalar,
 };
 
 struct ConstParent {
@@ -100,6 +101,9 @@ struct ConstParent {
         struct {
             ConstExprValue *union_val;
         } p_union;
+        struct {
+            ConstExprValue *scalar_val;
+        } p_scalar;
     } data;
 };
 
@@ -140,6 +144,9 @@ enum ConstPtrSpecial {
     // understand the value of pointee at compile time. However, we will still
     // emit a binary with a compile time known address.
     // In this case index is the numeric address value.
+    // We also use this for null pointer. We need the data layout for ConstCastOnly == true
+    // types to be the same, so all optionals of pointer types use x_ptr
+    // instead of x_optional
     ConstPtrSpecialHardCodedAddr,
     // This means that the pointer represents memory of assigning to _.
     // That is, storing discards the data, and loading is invalid.
@@ -215,16 +222,26 @@ enum RuntimeHintErrorUnion {
     RuntimeHintErrorUnionNonError,
 };
 
-enum RuntimeHintMaybe {
-    RuntimeHintMaybeUnknown,
-    RuntimeHintMaybeNull, // TODO is this value even possible? if this is the case it might mean the const value is compile time known.
-    RuntimeHintMaybeNonNull,
+enum RuntimeHintOptional {
+    RuntimeHintOptionalUnknown,
+    RuntimeHintOptionalNull, // TODO is this value even possible? if this is the case it might mean the const value is compile time known.
+    RuntimeHintOptionalNonNull,
 };
 
 enum RuntimeHintPtr {
     RuntimeHintPtrUnknown,
     RuntimeHintPtrStack,
     RuntimeHintPtrNonStack,
+};
+
+enum RuntimeHintSliceId {
+    RuntimeHintSliceIdUnknown,
+    RuntimeHintSliceIdLen,
+};
+
+struct RuntimeHintSlice {
+    enum RuntimeHintSliceId id;
+    uint64_t len;
 };
 
 struct ConstGlobalRefs {
@@ -241,13 +258,14 @@ struct ConstExprValue {
         // populated if special == ConstValSpecialStatic
         BigInt x_bigint;
         BigFloat x_bigfloat;
+        float16_t x_f16;
         float x_f32;
         double x_f64;
         float128_t x_f128;
         bool x_bool;
         ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
-        ConstExprValue *x_maybe;
+        ConstExprValue *x_optional;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_err_set;
         BigInt x_enum_tag;
@@ -261,8 +279,9 @@ struct ConstExprValue {
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
-        RuntimeHintMaybe rh_maybe;
+        RuntimeHintOptional rh_maybe;
         RuntimeHintPtr rh_ptr;
+        RuntimeHintSlice rh_slice;
     } data;
 };
 
@@ -374,11 +393,13 @@ enum NodeType {
     NodeTypeCharLiteral,
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
-    NodeTypeAddrOfExpr,
+    NodeTypePointerType,
     NodeTypeFnCallExpr,
     NodeTypeArrayAccessExpr,
     NodeTypeSliceExpr,
     NodeTypeFieldAccessExpr,
+    NodeTypePtrDeref,
+    NodeTypeUnwrapOptional,
     NodeTypeUse,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
@@ -548,7 +569,7 @@ enum BinOpType {
     BinOpTypeMultWrap,
     BinOpTypeDiv,
     BinOpTypeMod,
-    BinOpTypeUnwrapMaybe,
+    BinOpTypeUnwrapOptional,
     BinOpTypeArrayCat,
     BinOpTypeArrayMult,
     BinOpTypeErrorUnion,
@@ -567,6 +588,10 @@ struct AstNodeCatchExpr {
     AstNode *op2;
 };
 
+struct AstNodeUnwrapOptional {
+    AstNode *expr;
+};
+
 enum CastOp {
     CastOpNoCast, // signifies the function call expression is not a cast
     CastOpNoop, // fn call expr is a cast, but does nothing
@@ -577,6 +602,8 @@ enum CastOp {
     CastOpBytesToSlice,
     CastOpNumLitToConcrete,
     CastOpErrSet,
+    CastOpBitCast,
+    CastOpPtrOfArrayToSlice,
 };
 
 struct AstNodeFnCallExpr {
@@ -603,15 +630,18 @@ struct AstNodeFieldAccessExpr {
     Buf *field_name;
 };
 
+struct AstNodePtrDerefExpr {
+    AstNode *target;
+};
+
 enum PrefixOp {
     PrefixOpInvalid,
     PrefixOpBoolNot,
     PrefixOpBinNot,
     PrefixOpNegation,
     PrefixOpNegationWrap,
-    PrefixOpDereference,
-    PrefixOpMaybe,
-    PrefixOpUnwrapMaybe,
+    PrefixOpOptional,
+    PrefixOpAddrOf,
 };
 
 struct AstNodePrefixOpExpr {
@@ -619,7 +649,8 @@ struct AstNodePrefixOpExpr {
     AstNode *primary_expr;
 };
 
-struct AstNodeAddrOfExpr {
+struct AstNodePointerType {
+    Token *star_token;
     AstNode *align_expr;
     BigInt *bit_offset_start;
     BigInt *bit_offset_end;
@@ -868,7 +899,6 @@ struct AstNodeAwaitExpr {
 
 struct AstNodeSuspend {
     AstNode *block;
-    AstNode *promise_symbol;
 };
 
 struct AstNodePromiseType {
@@ -893,8 +923,9 @@ struct AstNode {
         AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeCatchExpr unwrap_err_expr;
+        AstNodeUnwrapOptional unwrap_optional;
         AstNodePrefixOpExpr prefix_op_expr;
-        AstNodeAddrOfExpr addr_of_expr;
+        AstNodePointerType pointer_type;
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeSliceExpr slice_expr;
@@ -910,6 +941,7 @@ struct AstNode {
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
+        AstNodePtrDerefExpr ptr_deref_expr;
         AstNodeContainerDecl container_decl;
         AstNodeStructField struct_field;
         AstNodeStringLiteral string_literal;
@@ -966,8 +998,14 @@ struct FnTypeId {
 uint32_t fn_type_id_hash(FnTypeId*);
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 
+enum PtrLen {
+    PtrLenUnknown,
+    PtrLenSingle,
+};
+
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
+    PtrLen ptr_len;
     bool is_const;
     bool is_volatile;
     uint32_t alignment;
@@ -1018,6 +1056,10 @@ struct TypeTableEntryStruct {
     // whether we've finished resolving it
     bool complete;
 
+    // whether any of the fields require comptime
+    // the value is not valid until zero_bits_known == true
+    bool requires_comptime;
+
     bool zero_bits_loop_flag;
     bool zero_bits_known;
     uint32_t abi_alignment; // also figured out with zero_bits pass
@@ -1025,7 +1067,7 @@ struct TypeTableEntryStruct {
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
-struct TypeTableEntryMaybe {
+struct TypeTableEntryOptional {
     TypeTableEntry *child_type;
 };
 
@@ -1059,8 +1101,7 @@ struct TypeTableEntryEnum {
     bool zero_bits_loop_flag;
     bool zero_bits_known;
 
-    bool generate_name_table;
-    LLVMValueRef name_table;
+    LLVMValueRef name_function;
 
     HashMap<Buf *, TypeEnumField *, buf_hash, buf_eql_buf> fields_by_name;
 };
@@ -1085,6 +1126,10 @@ struct TypeTableEntryUnion {
     bool reported_infinite_err;
     // whether we've finished resolving it
     bool complete;
+
+    // whether any of the fields require comptime
+    // the value is not valid until zero_bits_known == true
+    bool requires_comptime;
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
@@ -1140,11 +1185,11 @@ enum TypeTableEntryId {
     TypeTableEntryIdPointer,
     TypeTableEntryIdArray,
     TypeTableEntryIdStruct,
-    TypeTableEntryIdNumLitFloat,
-    TypeTableEntryIdNumLitInt,
-    TypeTableEntryIdUndefLit,
-    TypeTableEntryIdNullLit,
-    TypeTableEntryIdMaybe,
+    TypeTableEntryIdComptimeFloat,
+    TypeTableEntryIdComptimeInt,
+    TypeTableEntryIdUndefined,
+    TypeTableEntryIdNull,
+    TypeTableEntryIdOptional,
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdErrorSet,
     TypeTableEntryIdEnum,
@@ -1175,7 +1220,7 @@ struct TypeTableEntry {
         TypeTableEntryFloat floating;
         TypeTableEntryArray array;
         TypeTableEntryStruct structure;
-        TypeTableEntryMaybe maybe;
+        TypeTableEntryOptional maybe;
         TypeTableEntryErrorUnion error_union;
         TypeTableEntryErrorSet error_set;
         TypeTableEntryEnum enumeration;
@@ -1187,7 +1232,7 @@ struct TypeTableEntry {
 
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
-    TypeTableEntry *maybe_parent;
+    TypeTableEntry *optional_parent;
     TypeTableEntry *promise_parent;
     TypeTableEntry *promise_frame_parent;
     // If we generate a constant name value for this type, we memoize it here.
@@ -1291,6 +1336,8 @@ enum BuiltinFnId {
     BuiltinFnIdMemberCount,
     BuiltinFnIdMemberType,
     BuiltinFnIdMemberName,
+    BuiltinFnIdField,
+    BuiltinFnIdTypeInfo,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
@@ -1303,27 +1350,42 @@ enum BuiltinFnId {
     BuiltinFnIdCompileLog,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
+    BuiltinFnIdPopCount,
     BuiltinFnIdImport,
     BuiltinFnIdCImport,
     BuiltinFnIdErrName,
     BuiltinFnIdBreakpoint,
     BuiltinFnIdReturnAddress,
     BuiltinFnIdFrameAddress,
+    BuiltinFnIdHandle,
     BuiltinFnIdEmbedFile,
-    BuiltinFnIdCmpExchange,
+    BuiltinFnIdCmpxchgWeak,
+    BuiltinFnIdCmpxchgStrong,
     BuiltinFnIdFence,
     BuiltinFnIdDivExact,
     BuiltinFnIdDivTrunc,
     BuiltinFnIdDivFloor,
     BuiltinFnIdRem,
     BuiltinFnIdMod,
+    BuiltinFnIdSqrt,
     BuiltinFnIdTruncate,
+    BuiltinFnIdIntCast,
+    BuiltinFnIdFloatCast,
+    BuiltinFnIdErrSetCast,
+    BuiltinFnIdToBytes,
+    BuiltinFnIdFromBytes,
+    BuiltinFnIdIntToFloat,
+    BuiltinFnIdFloatToInt,
+    BuiltinFnIdBoolToInt,
+    BuiltinFnIdErrToInt,
+    BuiltinFnIdIntToErr,
+    BuiltinFnIdEnumToInt,
+    BuiltinFnIdIntToEnum,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
-    BuiltinFnIdCanImplicitCast,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
@@ -1335,6 +1397,7 @@ enum BuiltinFnId {
     BuiltinFnIdOffsetOf,
     BuiltinFnIdInlineCall,
     BuiltinFnIdNoInlineCall,
+    BuiltinFnIdNewStackCall,
     BuiltinFnIdTypeId,
     BuiltinFnIdShlExact,
     BuiltinFnIdShrExact,
@@ -1346,6 +1409,7 @@ enum BuiltinFnId {
     BuiltinFnIdExport,
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
+    BuiltinFnIdAtomicLoad,
 };
 
 struct BuiltinFnEntry {
@@ -1366,10 +1430,12 @@ enum PanicMsgId {
     PanicMsgIdRemainderDivisionByZero,
     PanicMsgIdExactDivisionRemainder,
     PanicMsgIdSliceWidenRemainder,
-    PanicMsgIdUnwrapMaybeFail,
+    PanicMsgIdUnwrapOptionalFail,
     PanicMsgIdInvalidErrorCode,
     PanicMsgIdIncorrectAlignment,
     PanicMsgIdBadUnionField,
+    PanicMsgIdBadEnumValue,
+    PanicMsgIdFloatToInt,
 
     PanicMsgIdCount,
 };
@@ -1383,6 +1449,7 @@ struct TypeId {
     union {
         struct {
             TypeTableEntry *child_type;
+            PtrLen ptr_len;
             bool is_const;
             bool is_volatile;
             uint32_t alignment;
@@ -1410,9 +1477,11 @@ bool type_id_eql(TypeId a, TypeId b);
 enum ZigLLVMFnId {
     ZigLLVMFnIdCtz,
     ZigLLVMFnIdClz,
+    ZigLLVMFnIdPopCount,
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
+    ZigLLVMFnIdSqrt,
 };
 
 enum AddSubMul {
@@ -1433,7 +1502,10 @@ struct ZigLLVMFnKey {
         } clz;
         struct {
             uint32_t bit_count;
-        } floor_ceil;
+        } pop_count;
+        struct {
+            uint32_t bit_count;
+        } floating;
         struct {
             AddSubMul add_sub_mul;
             uint32_t bit_count;
@@ -1454,6 +1526,7 @@ enum BuildMode {
     BuildModeDebug,
     BuildModeFastRelease,
     BuildModeSafeRelease,
+    BuildModeSmallRelease,
 };
 
 enum EmitFileType {
@@ -1499,6 +1572,7 @@ struct CodeGen {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
+    HashMap<const TypeTableEntry *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
 
 
     ZigList<ImportTableEntry *> import_queue;
@@ -1512,7 +1586,6 @@ struct CodeGen {
 
     struct {
         TypeTableEntry *entry_bool;
-        TypeTableEntry *entry_int[2][12]; // [signed,unsigned][2,3,4,5,6,7,8,16,29,32,64,128]
         TypeTableEntry *entry_c_int[CIntTypeCount];
         TypeTableEntry *entry_c_longdouble;
         TypeTableEntry *entry_c_void;
@@ -1521,14 +1594,12 @@ struct CodeGen {
         TypeTableEntry *entry_u32;
         TypeTableEntry *entry_u29;
         TypeTableEntry *entry_u64;
-        TypeTableEntry *entry_u128;
         TypeTableEntry *entry_i8;
-        TypeTableEntry *entry_i16;
         TypeTableEntry *entry_i32;
         TypeTableEntry *entry_i64;
-        TypeTableEntry *entry_i128;
         TypeTableEntry *entry_isize;
         TypeTableEntry *entry_usize;
+        TypeTableEntry *entry_f16;
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_f64;
         TypeTableEntry *entry_f128;
@@ -1645,9 +1716,15 @@ struct CodeGen {
     LLVMValueRef coro_save_fn_val;
     LLVMValueRef coro_promise_fn_val;
     LLVMValueRef coro_alloc_helper_fn_val;
+    LLVMValueRef coro_frame_fn_val;
     LLVMValueRef merge_err_ret_traces_fn_val;
     LLVMValueRef add_error_return_trace_addr_fn_val;
+    LLVMValueRef stacksave_fn_val;
+    LLVMValueRef stackrestore_fn_val;
+    LLVMValueRef write_register_fn_val;
     bool error_during_imports;
+
+    LLVMValueRef sp_md_node;
 
     const char **clang_argv;
     size_t clang_argv_len;
@@ -1680,8 +1757,6 @@ struct CodeGen {
     ZigList<Buf *> link_objects;
     ZigList<Buf *> assembly_files;
 
-    ZigList<TypeTableEntry *> name_table_enums;
-
     Buf *test_filter;
     Buf *test_name_prefix;
 
@@ -1700,6 +1775,8 @@ struct CodeGen {
     ZigList<ZigLLVMDIType **> error_di_types;
 
     ZigList<Buf *> forbidden_libs;
+
+    bool no_rosegment_workaround;
 };
 
 enum VarLinkage {
@@ -1750,6 +1827,7 @@ enum ScopeId {
     ScopeIdVarDecl,
     ScopeIdCImport,
     ScopeIdLoop,
+    ScopeIdSuspend,
     ScopeIdFnDef,
     ScopeIdCompTime,
     ScopeIdCoroPrelude,
@@ -1845,6 +1923,16 @@ struct ScopeLoop {
     ZigList<IrBasicBlock *> *incoming_blocks;
 };
 
+// This scope is created for a suspend block in order to have labeled
+// suspend for breaking out of a suspend and for detecting if a suspend
+// block is inside a suspend block.
+struct ScopeSuspend {
+    Scope base;
+
+    IrBasicBlock *resume_block;
+    bool reported_err;
+};
+
 // This scope is created for a comptime expression.
 // NodeTypeCompTime, NodeTypeSwitchExpr
 struct ScopeCompTime {
@@ -1912,12 +2000,6 @@ struct IrBasicBlock {
     IrInstruction *must_be_comptime_source_instr;
 };
 
-struct LVal {
-    bool is_ptr;
-    bool is_const;
-    bool is_volatile;
-};
-
 enum IrInstructionId {
     IrInstructionIdInvalid,
     IrInstructionIdBr,
@@ -1957,11 +2039,12 @@ enum IrInstructionId {
     IrInstructionIdAsm,
     IrInstructionIdSizeOf,
     IrInstructionIdTestNonNull,
-    IrInstructionIdUnwrapMaybe,
-    IrInstructionIdMaybeWrap,
+    IrInstructionIdUnwrapOptional,
+    IrInstructionIdOptionalWrap,
     IrInstructionIdUnionTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
+    IrInstructionIdPopCount,
     IrInstructionIdImport,
     IrInstructionIdCImport,
     IrInstructionIdCInclude,
@@ -1978,6 +2061,11 @@ enum IrInstructionId {
     IrInstructionIdCmpxchg,
     IrInstructionIdFence,
     IrInstructionIdTruncate,
+    IrInstructionIdIntCast,
+    IrInstructionIdFloatCast,
+    IrInstructionIdIntToFloat,
+    IrInstructionIdFloatToInt,
+    IrInstructionIdBoolToInt,
     IrInstructionIdIntType,
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
@@ -1989,6 +2077,7 @@ enum IrInstructionId {
     IrInstructionIdBreakpoint,
     IrInstructionIdReturnAddress,
     IrInstructionIdFrameAddress,
+    IrInstructionIdHandle,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
     IrInstructionIdTestErr,
@@ -2004,21 +2093,22 @@ enum IrInstructionId {
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
     IrInstructionIdIntToEnum,
+    IrInstructionIdEnumToInt,
     IrInstructionIdIntToErr,
     IrInstructionIdErrToInt,
     IrInstructionIdCheckSwitchProngs,
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
-    IrInstructionIdCanImplicitCast,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdTagName,
     IrInstructionIdTagType,
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
+    IrInstructionIdTypeInfo,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
-    IrInstructionIdPtrTypeOf,
+    IrInstructionIdPtrType,
     IrInstructionIdAlignCast,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
@@ -2041,12 +2131,17 @@ enum IrInstructionId {
     IrInstructionIdCoroPromise,
     IrInstructionIdCoroAllocHelper,
     IrInstructionIdAtomicRmw,
+    IrInstructionIdAtomicLoad,
     IrInstructionIdPromiseResultType,
     IrInstructionIdAwaitBookkeeping,
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
+    IrInstructionIdSqrt,
+    IrInstructionIdErrSetCast,
+    IrInstructionIdToBytes,
+    IrInstructionIdFromBytes,
 };
 
 struct IrInstruction {
@@ -2094,6 +2189,7 @@ struct IrInstructionSwitchBr {
     size_t case_count;
     IrInstructionSwitchBrCase *cases;
     IrInstruction *is_comptime;
+    IrInstruction *switch_prongs_void;
 };
 
 struct IrInstructionSwitchVar {
@@ -2123,7 +2219,7 @@ enum IrUnOp {
     IrUnOpNegation,
     IrUnOpNegationWrap,
     IrUnOpDereference,
-    IrUnOpMaybe,
+    IrUnOpOptional,
 };
 
 struct IrInstructionUnOp {
@@ -2203,7 +2299,8 @@ struct IrInstructionFieldPtr {
     IrInstruction base;
 
     IrInstruction *container_ptr;
-    Buf *field_name;
+    Buf *field_name_buffer;
+    IrInstruction *field_name_expr;
     bool is_const;
 };
 
@@ -2228,6 +2325,7 @@ struct IrInstructionElemPtr {
 
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
+    PtrLen ptr_len;
     bool is_const;
     bool safety_check_on;
 };
@@ -2236,8 +2334,6 @@ struct IrInstructionVarPtr {
     IrInstruction base;
 
     VariableTableEntry *var;
-    bool is_const;
-    bool is_volatile;
 };
 
 struct IrInstructionCall {
@@ -2253,6 +2349,7 @@ struct IrInstructionCall {
     bool is_async;
 
     IrInstruction *async_allocator;
+    IrInstruction *new_stack;
 };
 
 struct IrInstructionConst {
@@ -2373,6 +2470,18 @@ struct IrInstructionArrayType {
     IrInstruction *child_type;
 };
 
+struct IrInstructionPtrType {
+    IrInstruction base;
+
+    IrInstruction *align_value;
+    IrInstruction *child_type;
+    uint32_t bit_offset_start;
+    uint32_t bit_offset_end;
+    PtrLen ptr_len;
+    bool is_const;
+    bool is_volatile;
+};
+
 struct IrInstructionPromiseType {
     IrInstruction base;
 
@@ -2413,7 +2522,7 @@ struct IrInstructionTestNonNull {
     IrInstruction *value;
 };
 
-struct IrInstructionUnwrapMaybe {
+struct IrInstructionUnwrapOptional {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2427,6 +2536,12 @@ struct IrInstructionCtz {
 };
 
 struct IrInstructionClz {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionPopCount {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2522,6 +2637,7 @@ struct IrInstructionEmbedFile {
 struct IrInstructionCmpxchg {
     IrInstruction base;
 
+    IrInstruction *type_value;
     IrInstruction *ptr;
     IrInstruction *cmp_value;
     IrInstruction *new_value;
@@ -2529,8 +2645,13 @@ struct IrInstructionCmpxchg {
     IrInstruction *failure_order_value;
 
     // if this instruction gets to runtime then we know these values:
+    TypeTableEntry *type;
     AtomicOrder success_order;
     AtomicOrder failure_order;
+
+    bool is_weak;
+
+    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionFence {
@@ -2546,6 +2667,60 @@ struct IrInstructionTruncate {
     IrInstruction base;
 
     IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionIntCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionFloatCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionErrSetCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionToBytes {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionFromBytes {
+    IrInstruction base;
+
+    IrInstruction *dest_child_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionIntToFloat {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionFloatToInt {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionBoolToInt {
+    IrInstruction base;
+
     IrInstruction *target;
 };
 
@@ -2620,6 +2795,10 @@ struct IrInstructionFrameAddress {
     IrInstruction base;
 };
 
+struct IrInstructionHandle {
+    IrInstruction base;
+};
+
 enum IrOverflowOp {
     IrOverflowOpAdd,
     IrOverflowOpSub,
@@ -2665,7 +2844,7 @@ struct IrInstructionUnwrapErrPayload {
     bool safety_check_on;
 };
 
-struct IrInstructionMaybeWrap {
+struct IrInstructionOptionalWrap {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2739,6 +2918,13 @@ struct IrInstructionIntToPtr {
 struct IrInstructionIntToEnum {
     IrInstruction base;
 
+    IrInstruction *dest_type;
+    IrInstruction *target;
+};
+
+struct IrInstructionEnumToInt {
+    IrInstruction base;
+
     IrInstruction *target;
 };
 
@@ -2780,11 +2966,9 @@ struct IrInstructionTypeName {
     IrInstruction *type_value;
 };
 
-struct IrInstructionCanImplicitCast {
-    IrInstruction base;
-
-    IrInstruction *type_value;
-    IrInstruction *target_value;
+enum LVal {
+    LValNone,
+    LValPtr,
 };
 
 struct IrInstructionDeclRef {
@@ -2828,6 +3012,12 @@ struct IrInstructionOffsetOf {
     IrInstruction *field_name;
 };
 
+struct IrInstructionTypeInfo {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+};
+
 struct IrInstructionTypeId {
     IrInstruction base;
 
@@ -2838,17 +3028,6 @@ struct IrInstructionSetEvalBranchQuota {
     IrInstruction base;
 
     IrInstruction *new_quota;
-};
-
-struct IrInstructionPtrTypeOf {
-    IrInstruction base;
-
-    IrInstruction *align_value;
-    IrInstruction *child_type;
-    uint32_t bit_offset_start;
-    uint32_t bit_offset_end;
-    bool is_const;
-    bool is_volatile;
 };
 
 struct IrInstructionAlignCast {
@@ -2886,10 +3065,10 @@ struct IrInstructionExport {
 struct IrInstructionErrorReturnTrace {
     IrInstruction base;
 
-    enum Nullable {
+    enum Optional {
         Null,
         NonNull,
-    } nullable;
+    } optional;
 };
 
 struct IrInstructionErrorUnion {
@@ -3000,6 +3179,15 @@ struct IrInstructionAtomicRmw {
     AtomicOrder resolved_ordering;
 };
 
+struct IrInstructionAtomicLoad {
+    IrInstruction base;
+
+    IrInstruction *operand_type;
+    IrInstruction *ptr;
+    IrInstruction *ordering;
+    AtomicOrder resolved_ordering;
+};
+
 struct IrInstructionPromiseResultType {
     IrInstruction base;
 
@@ -3036,6 +3224,13 @@ struct IrInstructionMarkErrRetTracePtr {
     IrInstruction *err_ret_trace_ptr;
 };
 
+struct IrInstructionSqrt {
+    IrInstruction base;
+
+    IrInstruction *type;
+    IrInstruction *op;
+};
+
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
 
@@ -3054,7 +3249,7 @@ static const size_t stack_trace_ptr_count = 30;
 #define RESULT_FIELD_NAME "result"
 #define ASYNC_ALLOC_FIELD_NAME "allocFn"
 #define ASYNC_FREE_FIELD_NAME "freeFn"
-#define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
+#define ATOMIC_STATE_FIELD_NAME "atomic_state"
 // these point to data belonging to the awaiter
 #define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 #define RESULT_PTR_FIELD_NAME "result_ptr"

@@ -20,7 +20,7 @@ pub const Builder = struct {
     install_tls: TopLevelStep,
     have_uninstall_step: bool,
     have_install_step: bool,
-    allocator: &Allocator,
+    allocator: *Allocator,
     lib_paths: ArrayList([]const u8),
     include_paths: ArrayList([]const u8),
     rpaths: ArrayList([]const u8),
@@ -36,9 +36,9 @@ pub const Builder = struct {
     verbose_cimport: bool,
     invalid_user_input: bool,
     zig_exe: []const u8,
-    default_step: &Step,
+    default_step: *Step,
     env_map: BufMap,
-    top_level_steps: ArrayList(&TopLevelStep),
+    top_level_steps: ArrayList(*TopLevelStep),
     prefix: []const u8,
     search_prefixes: ArrayList([]const u8),
     lib_dir: []const u8,
@@ -82,10 +82,8 @@ pub const Builder = struct {
         description: []const u8,
     };
 
-    pub fn init(allocator: &Allocator, zig_exe: []const u8, build_root: []const u8,
-        cache_root: []const u8) Builder
-    {
-        var self = Builder {
+    pub fn init(allocator: *Allocator, zig_exe: []const u8, build_root: []const u8, cache_root: []const u8) Builder {
+        var self = Builder{
             .zig_exe = zig_exe,
             .build_root = build_root,
             .cache_root = os.path.relative(allocator, build_root, cache_root) catch unreachable,
@@ -104,7 +102,7 @@ pub const Builder = struct {
             .user_input_options = UserInputOptionsMap.init(allocator),
             .available_options_map = AvailableOptionsMap.init(allocator),
             .available_options_list = ArrayList(AvailableOption).init(allocator),
-            .top_level_steps = ArrayList(&TopLevelStep).init(allocator),
+            .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
             .default_step = undefined,
             .env_map = os.getEnvMap(allocator) catch unreachable,
             .prefix = undefined,
@@ -112,12 +110,12 @@ pub const Builder = struct {
             .lib_dir = undefined,
             .exe_dir = undefined,
             .installed_files = ArrayList([]const u8).init(allocator),
-            .uninstall_tls = TopLevelStep {
+            .uninstall_tls = TopLevelStep{
                 .step = Step.init("uninstall", allocator, makeUninstall),
                 .description = "Remove build artifacts from prefix path",
             },
             .have_uninstall_step = false,
-            .install_tls = TopLevelStep {
+            .install_tls = TopLevelStep{
                 .step = Step.initNoOp("install", allocator),
                 .description = "Copy build artifacts to prefix path",
             },
@@ -129,7 +127,7 @@ pub const Builder = struct {
         return self;
     }
 
-    pub fn deinit(self: &Builder) void {
+    pub fn deinit(self: *Builder) void {
         self.lib_paths.deinit();
         self.include_paths.deinit();
         self.rpaths.deinit();
@@ -137,110 +135,102 @@ pub const Builder = struct {
         self.top_level_steps.deinit();
     }
 
-    pub fn setInstallPrefix(self: &Builder, maybe_prefix: ?[]const u8) void {
-        self.prefix = maybe_prefix ?? "/usr/local"; // TODO better default
+    pub fn setInstallPrefix(self: *Builder, maybe_prefix: ?[]const u8) void {
+        self.prefix = maybe_prefix orelse "/usr/local"; // TODO better default
         self.lib_dir = os.path.join(self.allocator, self.prefix, "lib") catch unreachable;
         self.exe_dir = os.path.join(self.allocator, self.prefix, "bin") catch unreachable;
     }
 
-    pub fn addExecutable(self: &Builder, name: []const u8, root_src: ?[]const u8) &LibExeObjStep {
+    pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         return LibExeObjStep.createExecutable(self, name, root_src);
     }
 
-    pub fn addObject(self: &Builder, name: []const u8, root_src: []const u8) &LibExeObjStep {
+    pub fn addObject(self: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
         return LibExeObjStep.createObject(self, name, root_src);
     }
 
-    pub fn addSharedLibrary(self: &Builder, name: []const u8, root_src: ?[]const u8,
-        ver: &const Version) &LibExeObjStep
-    {
+    pub fn addSharedLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8, ver: *const Version) *LibExeObjStep {
         return LibExeObjStep.createSharedLibrary(self, name, root_src, ver);
     }
 
-    pub fn addStaticLibrary(self: &Builder, name: []const u8, root_src: ?[]const u8) &LibExeObjStep {
+    pub fn addStaticLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         return LibExeObjStep.createStaticLibrary(self, name, root_src);
     }
 
-    pub fn addTest(self: &Builder, root_src: []const u8) &TestStep {
-        const test_step = self.allocator.create(TestStep) catch unreachable;
-        *test_step = TestStep.init(self, root_src);
+    pub fn addTest(self: *Builder, root_src: []const u8) *TestStep {
+        const test_step = self.allocator.create(TestStep.init(self, root_src)) catch unreachable;
         return test_step;
     }
 
-    pub fn addAssemble(self: &Builder, name: []const u8, src: []const u8) &LibExeObjStep {
+    pub fn addAssemble(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
         const obj_step = LibExeObjStep.createObject(self, name, null);
         obj_step.addAssemblyFile(src);
         return obj_step;
     }
 
-    pub fn addCStaticLibrary(self: &Builder, name: []const u8) &LibExeObjStep {
+    pub fn addCStaticLibrary(self: *Builder, name: []const u8) *LibExeObjStep {
         return LibExeObjStep.createCStaticLibrary(self, name);
     }
 
-    pub fn addCSharedLibrary(self: &Builder, name: []const u8, ver: &const Version) &LibExeObjStep {
+    pub fn addCSharedLibrary(self: *Builder, name: []const u8, ver: *const Version) *LibExeObjStep {
         return LibExeObjStep.createCSharedLibrary(self, name, ver);
     }
 
-    pub fn addCExecutable(self: &Builder, name: []const u8) &LibExeObjStep {
+    pub fn addCExecutable(self: *Builder, name: []const u8) *LibExeObjStep {
         return LibExeObjStep.createCExecutable(self, name);
     }
 
-    pub fn addCObject(self: &Builder, name: []const u8, src: []const u8) &LibExeObjStep {
+    pub fn addCObject(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
         return LibExeObjStep.createCObject(self, name, src);
     }
 
     /// ::argv is copied.
-    pub fn addCommand(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
-        argv: []const []const u8) &CommandStep
-    {
+    pub fn addCommand(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) *CommandStep {
         return CommandStep.create(self, cwd, env_map, argv);
     }
 
-    pub fn addWriteFile(self: &Builder, file_path: []const u8, data: []const u8) &WriteFileStep {
-        const write_file_step = self.allocator.create(WriteFileStep) catch unreachable;
-        *write_file_step = WriteFileStep.init(self, file_path, data);
+    pub fn addWriteFile(self: *Builder, file_path: []const u8, data: []const u8) *WriteFileStep {
+        const write_file_step = self.allocator.create(WriteFileStep.init(self, file_path, data)) catch unreachable;
         return write_file_step;
     }
 
-    pub fn addLog(self: &Builder, comptime format: []const u8, args: ...) &LogStep {
+    pub fn addLog(self: *Builder, comptime format: []const u8, args: ...) *LogStep {
         const data = self.fmt(format, args);
-        const log_step = self.allocator.create(LogStep) catch unreachable;
-        *log_step = LogStep.init(self, data);
+        const log_step = self.allocator.create(LogStep.init(self, data)) catch unreachable;
         return log_step;
     }
 
-    pub fn addRemoveDirTree(self: &Builder, dir_path: []const u8) &RemoveDirStep {
-        const remove_dir_step = self.allocator.create(RemoveDirStep) catch unreachable;
-        *remove_dir_step = RemoveDirStep.init(self, dir_path);
+    pub fn addRemoveDirTree(self: *Builder, dir_path: []const u8) *RemoveDirStep {
+        const remove_dir_step = self.allocator.create(RemoveDirStep.init(self, dir_path)) catch unreachable;
         return remove_dir_step;
     }
 
-    pub fn version(self: &const Builder, major: u32, minor: u32, patch: u32) Version {
-        return Version {
+    pub fn version(self: *const Builder, major: u32, minor: u32, patch: u32) Version {
+        return Version{
             .major = major,
             .minor = minor,
             .patch = patch,
         };
     }
 
-    pub fn addCIncludePath(self: &Builder, path: []const u8) void {
+    pub fn addCIncludePath(self: *Builder, path: []const u8) void {
         self.include_paths.append(path) catch unreachable;
     }
 
-    pub fn addRPath(self: &Builder, path: []const u8) void {
+    pub fn addRPath(self: *Builder, path: []const u8) void {
         self.rpaths.append(path) catch unreachable;
     }
 
-    pub fn addLibPath(self: &Builder, path: []const u8) void {
+    pub fn addLibPath(self: *Builder, path: []const u8) void {
         self.lib_paths.append(path) catch unreachable;
     }
 
-    pub fn make(self: &Builder, step_names: []const []const u8) !void {
-        var wanted_steps = ArrayList(&Step).init(self.allocator);
+    pub fn make(self: *Builder, step_names: []const []const u8) !void {
+        var wanted_steps = ArrayList(*Step).init(self.allocator);
         defer wanted_steps.deinit();
 
         if (step_names.len == 0) {
-            try wanted_steps.append(&self.default_step);
+            try wanted_steps.append(self.default_step);
         } else {
             for (step_names) |step_name| {
                 const s = try self.getTopLevelStepByName(step_name);
@@ -253,25 +243,23 @@ pub const Builder = struct {
         }
     }
 
-    pub fn getInstallStep(self: &Builder) &Step {
-        if (self.have_install_step)
-            return &self.install_tls.step;
+    pub fn getInstallStep(self: *Builder) *Step {
+        if (self.have_install_step) return &self.install_tls.step;
 
         self.top_level_steps.append(&self.install_tls) catch unreachable;
         self.have_install_step = true;
         return &self.install_tls.step;
     }
 
-    pub fn getUninstallStep(self: &Builder) &Step {
-        if (self.have_uninstall_step)
-            return &self.uninstall_tls.step;
+    pub fn getUninstallStep(self: *Builder) *Step {
+        if (self.have_uninstall_step) return &self.uninstall_tls.step;
 
         self.top_level_steps.append(&self.uninstall_tls) catch unreachable;
         self.have_uninstall_step = true;
         return &self.uninstall_tls.step;
     }
 
-    fn makeUninstall(uninstall_step: &Step) error!void {
+    fn makeUninstall(uninstall_step: *Step) error!void {
         const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
         const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
 
@@ -285,7 +273,7 @@ pub const Builder = struct {
         // TODO remove empty directories
     }
 
-    fn makeOneStep(self: &Builder, s: &Step) error!void {
+    fn makeOneStep(self: *Builder, s: *Step) error!void {
         if (s.loop_flag) {
             warn("Dependency loop detected:\n  {}\n", s.name);
             return error.DependencyLoopDetected;
@@ -306,7 +294,7 @@ pub const Builder = struct {
         try s.make();
     }
 
-    fn getTopLevelStepByName(self: &Builder, name: []const u8) !&Step {
+    fn getTopLevelStepByName(self: *Builder, name: []const u8) !*Step {
         for (self.top_level_steps.toSliceConst()) |top_level_step| {
             if (mem.eql(u8, top_level_step.step.name, name)) {
                 return &top_level_step.step;
@@ -316,13 +304,13 @@ pub const Builder = struct {
         return error.InvalidStepName;
     }
 
-    fn processNixOSEnvVars(self: &Builder) void {
+    fn processNixOSEnvVars(self: *Builder) void {
         if (os.getEnvVarOwned(self.allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
             var it = mem.split(nix_cflags_compile, " ");
             while (true) {
-                const word = it.next() ?? break;
+                const word = it.next() orelse break;
                 if (mem.eql(u8, word, "-isystem")) {
-                    const include_path = it.next() ?? {
+                    const include_path = it.next() orelse {
                         warn("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n");
                         break;
                     };
@@ -338,9 +326,9 @@ pub const Builder = struct {
         if (os.getEnvVarOwned(self.allocator, "NIX_LDFLAGS")) |nix_ldflags| {
             var it = mem.split(nix_ldflags, " ");
             while (true) {
-                const word = it.next() ?? break;
+                const word = it.next() orelse break;
                 if (mem.eql(u8, word, "-rpath")) {
-                    const rpath = it.next() ?? {
+                    const rpath = it.next() orelse {
                         warn("Expected argument after -rpath in NIX_LDFLAGS\n");
                         break;
                     };
@@ -358,9 +346,9 @@ pub const Builder = struct {
         }
     }
 
-    pub fn option(self: &Builder, comptime T: type, name: []const u8, description: []const u8) ?T {
+    pub fn option(self: *Builder, comptime T: type, name: []const u8, description: []const u8) ?T {
         const type_id = comptime typeToEnum(T);
-        const available_option = AvailableOption {
+        const available_option = AvailableOption{
             .name = name,
             .type_id = type_id,
             .description = description,
@@ -370,7 +358,7 @@ pub const Builder = struct {
         }
         self.available_options_list.append(available_option) catch unreachable;
 
-        const entry = self.user_input_options.get(name) ?? return null;
+        const entry = self.user_input_options.get(name) orelse return null;
         entry.value.used = true;
         switch (type_id) {
             TypeId.Bool => switch (entry.value.value) {
@@ -411,30 +399,24 @@ pub const Builder = struct {
         }
     }
 
-    pub fn step(self: &Builder, name: []const u8, description: []const u8) &Step {
-        const step_info = self.allocator.create(TopLevelStep) catch unreachable;
-        *step_info = TopLevelStep {
+    pub fn step(self: *Builder, name: []const u8, description: []const u8) *Step {
+        const step_info = self.allocator.create(TopLevelStep{
             .step = Step.initNoOp(name, self.allocator),
             .description = description,
-        };
+        }) catch unreachable;
         self.top_level_steps.append(step_info) catch unreachable;
         return &step_info.step;
     }
 
-    pub fn standardReleaseOptions(self: &Builder) builtin.Mode {
+    pub fn standardReleaseOptions(self: *Builder) builtin.Mode {
         if (self.release_mode) |mode| return mode;
 
-        const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") ?? false;
-        const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") ?? false;
+        const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") orelse false;
+        const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") orelse false;
+        const release_small = self.option(bool, "release-small", "size optimizations on and safety off") orelse false;
 
-        const mode = if (release_safe and !release_fast)
-            builtin.Mode.ReleaseSafe
-        else if (release_fast and !release_safe)
-            builtin.Mode.ReleaseFast
-        else if (!release_fast and !release_safe)
-            builtin.Mode.Debug
-        else x: {
-            warn("Both -Drelease-safe and -Drelease-fast specified");
+        const mode = if (release_safe and !release_fast and !release_small) builtin.Mode.ReleaseSafe else if (release_fast and !release_safe and !release_small) builtin.Mode.ReleaseFast else if (release_small and !release_fast and !release_safe) builtin.Mode.ReleaseSmall else if (!release_fast and !release_safe and !release_small) builtin.Mode.Debug else x: {
+            warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)");
             self.markInvalidUserInput();
             break :x builtin.Mode.Debug;
         };
@@ -442,10 +424,10 @@ pub const Builder = struct {
         return mode;
     }
 
-    pub fn addUserInputOption(self: &Builder, name: []const u8, value: []const u8) bool {
-        if (self.user_input_options.put(name, UserInputOption {
+    pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) bool {
+        if (self.user_input_options.put(name, UserInputOption{
             .name = name,
-            .value = UserValue { .Scalar = value },
+            .value = UserValue{ .Scalar = value },
             .used = false,
         }) catch unreachable) |*prev_value| {
             // option already exists
@@ -455,18 +437,18 @@ pub const Builder = struct {
                     var list = ArrayList([]const u8).init(self.allocator);
                     list.append(s) catch unreachable;
                     list.append(value) catch unreachable;
-                    _ = self.user_input_options.put(name, UserInputOption {
+                    _ = self.user_input_options.put(name, UserInputOption{
                         .name = name,
-                        .value = UserValue { .List = list },
+                        .value = UserValue{ .List = list },
                         .used = false,
                     }) catch unreachable;
                 },
                 UserValue.List => |*list| {
                     // append to the list
                     list.append(value) catch unreachable;
-                    _ = self.user_input_options.put(name, UserInputOption {
+                    _ = self.user_input_options.put(name, UserInputOption{
                         .name = name,
-                        .value = UserValue { .List = *list },
+                        .value = UserValue{ .List = list.* },
                         .used = false,
                     }) catch unreachable;
                 },
@@ -479,10 +461,10 @@ pub const Builder = struct {
         return false;
     }
 
-    pub fn addUserInputFlag(self: &Builder, name: []const u8) bool {
-        if (self.user_input_options.put(name, UserInputOption {
+    pub fn addUserInputFlag(self: *Builder, name: []const u8) bool {
+        if (self.user_input_options.put(name, UserInputOption{
             .name = name,
-            .value = UserValue {.Flag = {} },
+            .value = UserValue{ .Flag = {} },
             .used = false,
         }) catch unreachable) |*prev_value| {
             switch (prev_value.value) {
@@ -513,7 +495,7 @@ pub const Builder = struct {
         };
     }
 
-    fn markInvalidUserInput(self: &Builder) void {
+    fn markInvalidUserInput(self: *Builder) void {
         self.invalid_user_input = true;
     }
 
@@ -527,11 +509,11 @@ pub const Builder = struct {
         };
     }
 
-    pub fn validateUserInputDidItFail(self: &Builder) bool {
+    pub fn validateUserInputDidItFail(self: *Builder) bool {
         // make sure all args are used
         var it = self.user_input_options.iterator();
         while (true) {
-            const entry = it.next() ?? break;
+            const entry = it.next() orelse break;
             if (!entry.value.used) {
                 warn("Invalid option: -D{}\n\n", entry.key);
                 self.markInvalidUserInput();
@@ -541,7 +523,7 @@ pub const Builder = struct {
         return self.invalid_user_input;
     }
 
-    fn spawnChild(self: &Builder, argv: []const []const u8) !void {
+    fn spawnChild(self: *Builder, argv: []const []const u8) !void {
         return self.spawnChildEnvMap(null, &self.env_map, argv);
     }
 
@@ -553,9 +535,7 @@ pub const Builder = struct {
         warn("\n");
     }
 
-    fn spawnChildEnvMap(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
-        argv: []const []const u8) !void
-    {
+    fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) !void {
         if (self.verbose) {
             printCmd(cwd, argv);
         }
@@ -588,51 +568,50 @@ pub const Builder = struct {
         }
     }
 
-    pub fn makePath(self: &Builder, path: []const u8) !void {
+    pub fn makePath(self: *Builder, path: []const u8) !void {
         os.makePath(self.allocator, self.pathFromRoot(path)) catch |err| {
             warn("Unable to create path {}: {}\n", path, @errorName(err));
             return err;
         };
     }
 
-    pub fn installArtifact(self: &Builder, artifact: &LibExeObjStep) void {
+    pub fn installArtifact(self: *Builder, artifact: *LibExeObjStep) void {
         self.getInstallStep().dependOn(&self.addInstallArtifact(artifact).step);
     }
 
-    pub fn addInstallArtifact(self: &Builder, artifact: &LibExeObjStep) &InstallArtifactStep {
+    pub fn addInstallArtifact(self: *Builder, artifact: *LibExeObjStep) *InstallArtifactStep {
         return InstallArtifactStep.create(self, artifact);
     }
 
     ///::dest_rel_path is relative to prefix path or it can be an absolute path
-    pub fn installFile(self: &Builder, src_path: []const u8, dest_rel_path: []const u8) void {
+    pub fn installFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) void {
         self.getInstallStep().dependOn(&self.addInstallFile(src_path, dest_rel_path).step);
     }
 
     ///::dest_rel_path is relative to prefix path or it can be an absolute path
-    pub fn addInstallFile(self: &Builder, src_path: []const u8, dest_rel_path: []const u8) &InstallFileStep {
+    pub fn addInstallFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
         const full_dest_path = os.path.resolve(self.allocator, self.prefix, dest_rel_path) catch unreachable;
         self.pushInstalledFile(full_dest_path);
 
-        const install_step = self.allocator.create(InstallFileStep) catch unreachable;
-        *install_step = InstallFileStep.init(self, src_path, full_dest_path);
+        const install_step = self.allocator.create(InstallFileStep.init(self, src_path, full_dest_path)) catch unreachable;
         return install_step;
     }
 
-    pub fn pushInstalledFile(self: &Builder, full_path: []const u8) void {
+    pub fn pushInstalledFile(self: *Builder, full_path: []const u8) void {
         _ = self.getUninstallStep();
         self.installed_files.append(full_path) catch unreachable;
     }
 
-    fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) !void {
+    fn copyFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
         return self.copyFileMode(source_path, dest_path, os.default_file_mode);
     }
 
-    fn copyFileMode(self: &Builder, source_path: []const u8, dest_path: []const u8, mode: os.FileMode) !void {
+    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.FileMode) !void {
         if (self.verbose) {
             warn("cp {} {}\n", source_path, dest_path);
         }
 
-        const dirname = os.path.dirname(dest_path);
+        const dirname = os.path.dirname(dest_path) orelse ".";
         const abs_source_path = self.pathFromRoot(source_path);
         os.makePath(self.allocator, dirname) catch |err| {
             warn("Unable to create path {}: {}\n", dirname, @errorName(err));
@@ -644,37 +623,31 @@ pub const Builder = struct {
         };
     }
 
-    fn pathFromRoot(self: &Builder, rel_path: []const u8) []u8 {
+    fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
         return os.path.resolve(self.allocator, self.build_root, rel_path) catch unreachable;
     }
 
-    pub fn fmt(self: &Builder, comptime format: []const u8, args: ...) []u8 {
+    pub fn fmt(self: *Builder, comptime format: []const u8, args: ...) []u8 {
         return fmt_lib.allocPrint(self.allocator, format, args) catch unreachable;
     }
 
-    fn getCCExe(self: &Builder) []const u8 {
+    fn getCCExe(self: *Builder) []const u8 {
         if (builtin.environ == builtin.Environ.msvc) {
             return "cl.exe";
         } else {
-            return os.getEnvVarOwned(self.allocator, "CC") catch |err| 
-                if (err == error.EnvironmentVariableNotFound)
-                    ([]const u8)("cc")
-                else
-                    debug.panic("Unable to get environment variable: {}", err)
-            ;
+            return os.getEnvVarOwned(self.allocator, "CC") catch |err| if (err == error.EnvironmentVariableNotFound) ([]const u8)("cc") else debug.panic("Unable to get environment variable: {}", err);
         }
     }
 
-    pub fn findProgram(self: &Builder, names: []const []const u8, paths: []const []const u8) ![]const u8 {
+    pub fn findProgram(self: *Builder, names: []const []const u8, paths: []const []const u8) ![]const u8 {
         // TODO report error for ambiguous situations
-        const exe_extension = (Target { .Native = {}}).exeFileExt();
+        const exe_extension = (Target{ .Native = {} }).exeFileExt();
         for (self.search_prefixes.toSliceConst()) |search_prefix| {
             for (names) |name| {
                 if (os.path.isAbsolute(name)) {
                     return name;
                 }
-                const full_path = try os.path.join(self.allocator, search_prefix, "bin",
-                    self.fmt("{}{}", name, exe_extension));
+                const full_path = try os.path.join(self.allocator, search_prefix, "bin", self.fmt("{}{}", name, exe_extension));
                 if (os.path.real(self.allocator, full_path)) |real_path| {
                     return real_path;
                 } else |_| {
@@ -714,7 +687,7 @@ pub const Builder = struct {
         return error.FileNotFound;
     }
 
-    pub fn exec(self: &Builder, argv: []const []const u8) ![]u8 {
+    pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
         const max_output_size = 100 * 1024;
         const result = try os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size);
         switch (result.term) {
@@ -736,7 +709,7 @@ pub const Builder = struct {
         }
     }
 
-    pub fn addSearchPrefix(self: &Builder, search_prefix: []const u8) void {
+    pub fn addSearchPrefix(self: *Builder, search_prefix: []const u8) void {
         self.search_prefixes.append(search_prefix) catch unreachable;
     }
 };
@@ -757,8 +730,8 @@ pub const Target = union(enum) {
     Native: void,
     Cross: CrossTarget,
 
-    pub fn oFileExt(self: &const Target) []const u8 {
-        const environ = switch (*self) {
+    pub fn oFileExt(self: *const Target) []const u8 {
+        const environ = switch (self.*) {
             Target.Native => builtin.environ,
             Target.Cross => |t| t.environ,
         };
@@ -768,49 +741,49 @@ pub const Target = union(enum) {
         };
     }
 
-    pub fn exeFileExt(self: &const Target) []const u8 {
+    pub fn exeFileExt(self: *const Target) []const u8 {
         return switch (self.getOs()) {
             builtin.Os.windows => ".exe",
             else => "",
         };
     }
 
-    pub fn libFileExt(self: &const Target) []const u8 {
+    pub fn libFileExt(self: *const Target) []const u8 {
         return switch (self.getOs()) {
             builtin.Os.windows => ".lib",
             else => ".a",
         };
     }
 
-    pub fn getOs(self: &const Target) builtin.Os {
-        return switch (*self) {
+    pub fn getOs(self: *const Target) builtin.Os {
+        return switch (self.*) {
             Target.Native => builtin.os,
             Target.Cross => |t| t.os,
         };
     }
 
-    pub fn isDarwin(self: &const Target) bool {
+    pub fn isDarwin(self: *const Target) bool {
         return switch (self.getOs()) {
             builtin.Os.ios, builtin.Os.macosx => true,
             else => false,
         };
     }
 
-    pub fn isWindows(self: &const Target) bool {
+    pub fn isWindows(self: *const Target) bool {
         return switch (self.getOs()) {
             builtin.Os.windows => true,
             else => false,
         };
     }
 
-    pub fn wantSharedLibSymLinks(self: &const Target) bool {
+    pub fn wantSharedLibSymLinks(self: *const Target) bool {
         return !self.isWindows();
     }
 };
 
 pub const LibExeObjStep = struct {
     step: Step,
-    builder: &Builder,
+    builder: *Builder,
     name: []const u8,
     target: Target,
     link_libs: BufSet,
@@ -834,6 +807,7 @@ pub const LibExeObjStep = struct {
     disable_libc: bool,
     frameworks: BufSet,
     verbose_link: bool,
+    no_rosegment: bool,
 
     // zig only stuff
     root_src: ?[]const u8,
@@ -841,6 +815,7 @@ pub const LibExeObjStep = struct {
     out_h_filename: []const u8,
     assembly_files: ArrayList([]const u8),
     packages: ArrayList(Pkg),
+    build_options_contents: std.Buffer,
 
     // C only stuff
     source_files: ArrayList([]const u8),
@@ -857,61 +832,50 @@ pub const LibExeObjStep = struct {
         Obj,
     };
 
-    pub fn createSharedLibrary(builder: &Builder, name: []const u8, root_src: ?[]const u8,
-        ver: &const Version) &LibExeObjStep
-    {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        *self = initExtraArgs(builder, name, root_src, Kind.Lib, false, ver);
+    pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?[]const u8, ver: *const Version) *LibExeObjStep {
+        const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Lib, false, ver)) catch unreachable;
         return self;
     }
 
-    pub fn createCSharedLibrary(builder: &Builder, name: []const u8, version: &const Version) &LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        *self = initC(builder, name, Kind.Lib, version, false);
+    pub fn createCSharedLibrary(builder: *Builder, name: []const u8, version: *const Version) *LibExeObjStep {
+        const self = builder.allocator.create(initC(builder, name, Kind.Lib, version, false)) catch unreachable;
         return self;
     }
 
-    pub fn createStaticLibrary(builder: &Builder, name: []const u8, root_src: ?[]const u8) &LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        *self = initExtraArgs(builder, name, root_src, Kind.Lib, true, builder.version(0, 0, 0));
+    pub fn createStaticLibrary(builder: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+        const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Lib, true, builder.version(0, 0, 0))) catch unreachable;
         return self;
     }
 
-    pub fn createCStaticLibrary(builder: &Builder, name: []const u8) &LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        *self = initC(builder, name, Kind.Lib, builder.version(0, 0, 0), true);
+    pub fn createCStaticLibrary(builder: *Builder, name: []const u8) *LibExeObjStep {
+        const self = builder.allocator.create(initC(builder, name, Kind.Lib, builder.version(0, 0, 0), true)) catch unreachable;
         return self;
     }
 
-    pub fn createObject(builder: &Builder, name: []const u8, root_src: []const u8) &LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        *self = initExtraArgs(builder, name, root_src, Kind.Obj, false, builder.version(0, 0, 0));
+    pub fn createObject(builder: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
+        const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Obj, false, builder.version(0, 0, 0))) catch unreachable;
         return self;
     }
 
-    pub fn createCObject(builder: &Builder, name: []const u8, src: []const u8) &LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        *self = initC(builder, name, Kind.Obj, builder.version(0, 0, 0), false);
+    pub fn createCObject(builder: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
+        const self = builder.allocator.create(initC(builder, name, Kind.Obj, builder.version(0, 0, 0), false)) catch unreachable;
         self.object_src = src;
         return self;
     }
 
-    pub fn createExecutable(builder: &Builder, name: []const u8, root_src: ?[]const u8) &LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        *self = initExtraArgs(builder, name, root_src, Kind.Exe, false, builder.version(0, 0, 0));
+    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+        const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Exe, false, builder.version(0, 0, 0))) catch unreachable;
         return self;
     }
 
-    pub fn createCExecutable(builder: &Builder, name: []const u8) &LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        *self = initC(builder, name, Kind.Exe, builder.version(0, 0, 0), false);
+    pub fn createCExecutable(builder: *Builder, name: []const u8) *LibExeObjStep {
+        const self = builder.allocator.create(initC(builder, name, Kind.Exe, builder.version(0, 0, 0), false)) catch unreachable;
         return self;
     }
 
-    fn initExtraArgs(builder: &Builder, name: []const u8, root_src: ?[]const u8, kind: Kind,
-        static: bool, ver: &const Version) LibExeObjStep
-    {
-        var self = LibExeObjStep {
+    fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, static: bool, ver: *const Version) LibExeObjStep {
+        var self = LibExeObjStep{
+            .no_rosegment = false,
             .strip = false,
             .builder = builder,
             .verbose_link = false,
@@ -927,7 +891,7 @@ pub const LibExeObjStep = struct {
             .step = Step.init(name, builder.allocator, make),
             .output_path = null,
             .output_h_path = null,
-            .version = *ver,
+            .version = ver.*,
             .out_filename = undefined,
             .out_h_filename = builder.fmt("{}.h", name),
             .major_only_filename = undefined,
@@ -944,17 +908,19 @@ pub const LibExeObjStep = struct {
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .disable_libc = true,
+            .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
         };
         self.computeOutFileNames();
         return self;
     }
 
-    fn initC(builder: &Builder, name: []const u8, kind: Kind, version: &const Version, static: bool) LibExeObjStep {
-        var self = LibExeObjStep {
+    fn initC(builder: *Builder, name: []const u8, kind: Kind, version: *const Version, static: bool) LibExeObjStep {
+        var self = LibExeObjStep{
+            .no_rosegment = false,
             .builder = builder,
             .name = name,
             .kind = kind,
-            .version = *version,
+            .version = version.*,
             .static = static,
             .target = Target.Native,
             .cflags = ArrayList([]const u8).init(builder.allocator),
@@ -984,12 +950,17 @@ pub const LibExeObjStep = struct {
             .out_h_filename = undefined,
             .assembly_files = undefined,
             .packages = undefined,
+            .build_options_contents = undefined,
         };
         self.computeOutFileNames();
         return self;
     }
 
-    fn computeOutFileNames(self: &LibExeObjStep) void {
+    pub fn setNoRoSegment(self: *LibExeObjStep, value: bool) void {
+        self.no_rosegment = value;
+    }
+
+    fn computeOutFileNames(self: *LibExeObjStep) void {
         switch (self.kind) {
             Kind.Obj => {
                 self.out_filename = self.builder.fmt("{}{}", self.name, self.target.oFileExt());
@@ -1003,8 +974,7 @@ pub const LibExeObjStep = struct {
                 } else {
                     switch (self.target.getOs()) {
                         builtin.Os.ios, builtin.Os.macosx => {
-                            self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib",
-                                self.name, self.version.major, self.version.minor, self.version.patch);
+                            self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
                             self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
                         },
@@ -1012,8 +982,7 @@ pub const LibExeObjStep = struct {
                             self.out_filename = self.builder.fmt("{}.dll", self.name);
                         },
                         else => {
-                            self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
-                                self.name, self.version.major, self.version.minor, self.version.patch);
+                            self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}", self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
                             self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
                         },
@@ -1023,30 +992,28 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn setTarget(self: &LibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os,
-        target_environ: builtin.Environ) void
-    {
-        self.target = Target {
-            .Cross = CrossTarget {
+    pub fn setTarget(self: *LibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
+        self.target = Target{
+            .Cross = CrossTarget{
                 .arch = target_arch,
                 .os = target_os,
                 .environ = target_environ,
-            }
+            },
         };
         self.computeOutFileNames();
     }
 
     // TODO respect this in the C args
-    pub fn setLinkerScriptPath(self: &LibExeObjStep, path: []const u8) void {
+    pub fn setLinkerScriptPath(self: *LibExeObjStep, path: []const u8) void {
         self.linker_script = path;
     }
 
-    pub fn linkFramework(self: &LibExeObjStep, framework_name: []const u8) void {
+    pub fn linkFramework(self: *LibExeObjStep, framework_name: []const u8) void {
         assert(self.target.isDarwin());
         self.frameworks.put(framework_name) catch unreachable;
     }
 
-    pub fn linkLibrary(self: &LibExeObjStep, lib: &LibExeObjStep) void {
+    pub fn linkLibrary(self: *LibExeObjStep, lib: *LibExeObjStep) void {
         assert(self.kind != Kind.Obj);
         assert(lib.kind == Kind.Lib);
 
@@ -1067,26 +1034,26 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn linkSystemLibrary(self: &LibExeObjStep, name: []const u8) void {
+    pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
         assert(self.kind != Kind.Obj);
         self.link_libs.put(name) catch unreachable;
     }
 
-    pub fn addSourceFile(self: &LibExeObjStep, file: []const u8) void {
+    pub fn addSourceFile(self: *LibExeObjStep, file: []const u8) void {
         assert(self.kind != Kind.Obj);
         assert(!self.is_zig);
         self.source_files.append(file) catch unreachable;
     }
 
-    pub fn setVerboseLink(self: &LibExeObjStep, value: bool) void {
+    pub fn setVerboseLink(self: *LibExeObjStep, value: bool) void {
         self.verbose_link = value;
     }
 
-    pub fn setBuildMode(self: &LibExeObjStep, mode: builtin.Mode) void {
+    pub fn setBuildMode(self: *LibExeObjStep, mode: builtin.Mode) void {
         self.build_mode = mode;
     }
 
-    pub fn setOutputPath(self: &LibExeObjStep, file_path: []const u8) void {
+    pub fn setOutputPath(self: *LibExeObjStep, file_path: []const u8) void {
         self.output_path = file_path;
 
         // catch a common mistake
@@ -1095,14 +1062,11 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn getOutputPath(self: &LibExeObjStep) []const u8 {
-        return if (self.output_path) |output_path|
-            output_path
-        else
-            os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename) catch unreachable;
+    pub fn getOutputPath(self: *LibExeObjStep) []const u8 {
+        return if (self.output_path) |output_path| output_path else os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename) catch unreachable;
     }
 
-    pub fn setOutputHPath(self: &LibExeObjStep, file_path: []const u8) void {
+    pub fn setOutputHPath(self: *LibExeObjStep, file_path: []const u8) void {
         self.output_h_path = file_path;
 
         // catch a common mistake
@@ -1111,24 +1075,21 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn getOutputHPath(self: &LibExeObjStep) []const u8 {
-        return if (self.output_h_path) |output_h_path|
-            output_h_path
-        else
-            os.path.join(self.builder.allocator, self.builder.cache_root, self.out_h_filename) catch unreachable;
+    pub fn getOutputHPath(self: *LibExeObjStep) []const u8 {
+        return if (self.output_h_path) |output_h_path| output_h_path else os.path.join(self.builder.allocator, self.builder.cache_root, self.out_h_filename) catch unreachable;
     }
 
-    pub fn addAssemblyFile(self: &LibExeObjStep, path: []const u8) void {
+    pub fn addAssemblyFile(self: *LibExeObjStep, path: []const u8) void {
         self.assembly_files.append(path) catch unreachable;
     }
 
-    pub fn addObjectFile(self: &LibExeObjStep, path: []const u8) void {
+    pub fn addObjectFile(self: *LibExeObjStep, path: []const u8) void {
         assert(self.kind != Kind.Obj);
 
         self.object_files.append(path) catch unreachable;
     }
 
-    pub fn addObject(self: &LibExeObjStep, obj: &LibExeObjStep) void {
+    pub fn addObject(self: *LibExeObjStep, obj: *LibExeObjStep) void {
         assert(obj.kind == Kind.Obj);
         assert(self.kind != Kind.Obj);
 
@@ -1145,40 +1106,46 @@ pub const LibExeObjStep = struct {
         self.include_dirs.append(self.builder.cache_root) catch unreachable;
     }
 
-    pub fn addIncludeDir(self: &LibExeObjStep, path: []const u8) void {
+    pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
+        assert(self.is_zig);
+        const out = &std.io.BufferOutStream.init(&self.build_options_contents).stream;
+        out.print("pub const {} = {};\n", name, value) catch unreachable;
+    }
+
+    pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(path) catch unreachable;
     }
 
-    pub fn addLibPath(self: &LibExeObjStep, path: []const u8) void {
+    pub fn addLibPath(self: *LibExeObjStep, path: []const u8) void {
         self.lib_paths.append(path) catch unreachable;
     }
 
-    pub fn addPackagePath(self: &LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
+    pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
         assert(self.is_zig);
 
-        self.packages.append(Pkg {
+        self.packages.append(Pkg{
             .name = name,
             .path = pkg_index_path,
         }) catch unreachable;
     }
 
-    pub fn addCompileFlags(self: &LibExeObjStep, flags: []const []const u8) void {
+    pub fn addCompileFlags(self: *LibExeObjStep, flags: []const []const u8) void {
         for (flags) |flag| {
             self.cflags.append(flag) catch unreachable;
         }
     }
 
-    pub fn setNoStdLib(self: &LibExeObjStep, disable: bool) void {
+    pub fn setNoStdLib(self: *LibExeObjStep, disable: bool) void {
         assert(!self.is_zig);
         self.disable_libc = disable;
     }
 
-    fn make(step: &Step) !void {
+    fn make(step: *Step) !void {
         const self = @fieldParentPtr(LibExeObjStep, "step", step);
         return if (self.is_zig) self.makeZig() else self.makeC();
     }
 
-    fn makeZig(self: &LibExeObjStep) !void {
+    fn makeZig(self: *LibExeObjStep) !void {
         const builder = self.builder;
 
         assert(self.is_zig);
@@ -1202,6 +1169,15 @@ pub const LibExeObjStep = struct {
 
         if (self.root_src) |root_src| {
             zig_args.append(builder.pathFromRoot(root_src)) catch unreachable;
+        }
+
+        if (self.build_options_contents.len() > 0) {
+            const build_options_file = try os.path.join(builder.allocator, builder.cache_root, builder.fmt("{}_build_options.zig", self.name));
+            try std.io.writeFile(builder.allocator, build_options_file, self.build_options_contents.toSliceConst());
+            try zig_args.append("--pkg-begin");
+            try zig_args.append("build_options");
+            try zig_args.append(builder.pathFromRoot(build_options_file));
+            try zig_args.append("--pkg-end");
         }
 
         for (self.object_files.toSliceConst()) |object_file| {
@@ -1229,6 +1205,7 @@ pub const LibExeObjStep = struct {
             builtin.Mode.Debug => {},
             builtin.Mode.ReleaseSafe => zig_args.append("--release-safe") catch unreachable,
             builtin.Mode.ReleaseFast => zig_args.append("--release-fast") catch unreachable,
+            builtin.Mode.ReleaseSmall => zig_args.append("--release-small") catch unreachable,
         }
 
         zig_args.append("--cache-dir") catch unreachable;
@@ -1280,7 +1257,7 @@ pub const LibExeObjStep = struct {
         {
             var it = self.link_libs.iterator();
             while (true) {
-                const entry = it.next() ?? break;
+                const entry = it.next() orelse break;
                 zig_args.append("--library") catch unreachable;
                 zig_args.append(entry.key) catch unreachable;
             }
@@ -1336,15 +1313,18 @@ pub const LibExeObjStep = struct {
             }
         }
 
+        if (self.no_rosegment) {
+            try zig_args.append("--no-rosegment");
+        }
+
         try builder.spawnChild(zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static and self.target.wantSharedLibSymLinks()) {
-            try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
-                self.name_only_filename);
+            try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename, self.name_only_filename);
         }
     }
 
-    fn appendCompileFlags(self: &LibExeObjStep, args: &ArrayList([]const u8)) void {
+    fn appendCompileFlags(self: *LibExeObjStep, args: *ArrayList([]const u8)) void {
         if (!self.strip) {
             args.append("-g") catch unreachable;
         }
@@ -1369,7 +1349,7 @@ pub const LibExeObjStep = struct {
                     args.append("ssp-buffer-size=4") catch unreachable;
                 }
             },
-            builtin.Mode.ReleaseFast => {
+            builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => {
                 args.append("-O2") catch unreachable;
                 args.append("-fno-stack-protector") catch unreachable;
             },
@@ -1389,7 +1369,7 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    fn makeC(self: &LibExeObjStep) !void {
+    fn makeC(self: *LibExeObjStep) !void {
         const builder = self.builder;
 
         const cc = builder.getCCExe();
@@ -1430,8 +1410,9 @@ pub const LibExeObjStep = struct {
                     cc_args.append(abs_source_file) catch unreachable;
 
                     const cache_o_src = os.path.join(builder.allocator, builder.cache_root, source_file) catch unreachable;
-                    const cache_o_dir = os.path.dirname(cache_o_src);
-                    try builder.makePath(cache_o_dir);
+                    if (os.path.dirname(cache_o_src)) |cache_o_dir| {
+                        try builder.makePath(cache_o_dir);
+                    }
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     cc_args.append("-o") catch unreachable;
                     cc_args.append(builder.pathFromRoot(cache_o_file)) catch unreachable;
@@ -1501,8 +1482,7 @@ pub const LibExeObjStep = struct {
                     }
 
                     if (!is_darwin) {
-                        const rpath_arg = builder.fmt("-Wl,-rpath,{}",
-                            os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
+                        const rpath_arg = builder.fmt("-Wl,-rpath,{}", os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
                         defer builder.allocator.free(rpath_arg);
                         cc_args.append(rpath_arg) catch unreachable;
 
@@ -1531,8 +1511,7 @@ pub const LibExeObjStep = struct {
                     try builder.spawnChild(cc_args.toSliceConst());
 
                     if (self.target.wantSharedLibSymLinks()) {
-                        try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
-                            self.name_only_filename);
+                        try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename, self.name_only_filename);
                     }
                 }
             },
@@ -1546,8 +1525,9 @@ pub const LibExeObjStep = struct {
                     cc_args.append(abs_source_file) catch unreachable;
 
                     const cache_o_src = os.path.join(builder.allocator, builder.cache_root, source_file) catch unreachable;
-                    const cache_o_dir = os.path.dirname(cache_o_src);
-                    try builder.makePath(cache_o_dir);
+                    if (os.path.dirname(cache_o_src)) |cache_o_dir| {
+                        try builder.makePath(cache_o_dir);
+                    }
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     cc_args.append("-o") catch unreachable;
                     cc_args.append(builder.pathFromRoot(cache_o_file)) catch unreachable;
@@ -1577,8 +1557,7 @@ pub const LibExeObjStep = struct {
                 cc_args.append("-o") catch unreachable;
                 cc_args.append(output_path) catch unreachable;
 
-                const rpath_arg = builder.fmt("-Wl,-rpath,{}",
-                    os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
+                const rpath_arg = builder.fmt("-Wl,-rpath,{}", os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
                 defer builder.allocator.free(rpath_arg);
                 cc_args.append(rpath_arg) catch unreachable;
 
@@ -1618,7 +1597,7 @@ pub const LibExeObjStep = struct {
 
 pub const TestStep = struct {
     step: Step,
-    builder: &Builder,
+    builder: *Builder,
     root_src: []const u8,
     build_mode: builtin.Mode,
     verbose: bool,
@@ -1628,10 +1607,13 @@ pub const TestStep = struct {
     target: Target,
     exec_cmd_args: ?[]const ?[]const u8,
     include_dirs: ArrayList([]const u8),
+    lib_paths: ArrayList([]const u8),
+    object_files: ArrayList([]const u8),
+    no_rosegment: bool,
 
-    pub fn init(builder: &Builder, root_src: []const u8) TestStep {
+    pub fn init(builder: *Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
-        return TestStep {
+        return TestStep{
             .step = Step.init(step_name, builder.allocator, make),
             .builder = builder,
             .root_src = root_src,
@@ -1640,53 +1622,66 @@ pub const TestStep = struct {
             .name_prefix = "",
             .filter = null,
             .link_libs = BufSet.init(builder.allocator),
-            .target = Target { .Native = {} },
+            .target = Target{ .Native = {} },
             .exec_cmd_args = null,
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
+            .lib_paths = ArrayList([]const u8).init(builder.allocator),
+            .object_files = ArrayList([]const u8).init(builder.allocator),
+            .no_rosegment = false,
         };
     }
 
-    pub fn setVerbose(self: &TestStep, value: bool) void {
+    pub fn setNoRoSegment(self: *TestStep, value: bool) void {
+        self.no_rosegment = value;
+    }
+
+    pub fn addLibPath(self: *TestStep, path: []const u8) void {
+        self.lib_paths.append(path) catch unreachable;
+    }
+
+    pub fn setVerbose(self: *TestStep, value: bool) void {
         self.verbose = value;
     }
 
-    pub fn addIncludeDir(self: &TestStep, path: []const u8) void {
+    pub fn addIncludeDir(self: *TestStep, path: []const u8) void {
         self.include_dirs.append(path) catch unreachable;
     }
 
-    pub fn setBuildMode(self: &TestStep, mode: builtin.Mode) void {
+    pub fn setBuildMode(self: *TestStep, mode: builtin.Mode) void {
         self.build_mode = mode;
     }
 
-    pub fn linkSystemLibrary(self: &TestStep, name: []const u8) void {
+    pub fn linkSystemLibrary(self: *TestStep, name: []const u8) void {
         self.link_libs.put(name) catch unreachable;
     }
 
-    pub fn setNamePrefix(self: &TestStep, text: []const u8) void {
+    pub fn setNamePrefix(self: *TestStep, text: []const u8) void {
         self.name_prefix = text;
     }
 
-    pub fn setFilter(self: &TestStep, text: ?[]const u8) void {
+    pub fn setFilter(self: *TestStep, text: ?[]const u8) void {
         self.filter = text;
     }
 
-    pub fn setTarget(self: &TestStep, target_arch: builtin.Arch, target_os: builtin.Os,
-        target_environ: builtin.Environ) void
-    {
-        self.target = Target {
-            .Cross = CrossTarget {
+    pub fn addObjectFile(self: *TestStep, path: []const u8) void {
+        self.object_files.append(path) catch unreachable;
+    }
+
+    pub fn setTarget(self: *TestStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
+        self.target = Target{
+            .Cross = CrossTarget{
                 .arch = target_arch,
                 .os = target_os,
                 .environ = target_environ,
-            }
+            },
         };
     }
 
-    pub fn setExecCmd(self: &TestStep, args: []const ?[]const u8) void {
+    pub fn setExecCmd(self: *TestStep, args: []const ?[]const u8) void {
         self.exec_cmd_args = args;
     }
 
-    fn make(step: &Step) !void {
+    fn make(step: *Step) !void {
         const self = @fieldParentPtr(TestStep, "step", step);
         const builder = self.builder;
 
@@ -1706,6 +1701,7 @@ pub const TestStep = struct {
             builtin.Mode.Debug => {},
             builtin.Mode.ReleaseSafe => try zig_args.append("--release-safe"),
             builtin.Mode.ReleaseFast => try zig_args.append("--release-fast"),
+            builtin.Mode.ReleaseSmall => try zig_args.append("--release-small"),
         }
 
         switch (self.target) {
@@ -1732,10 +1728,15 @@ pub const TestStep = struct {
             try zig_args.append(self.name_prefix);
         }
 
+        for (self.object_files.toSliceConst()) |object_file| {
+            try zig_args.append("--object");
+            try zig_args.append(builder.pathFromRoot(object_file));
+        }
+
         {
             var it = self.link_libs.iterator();
             while (true) {
-                const entry = it.next() ?? break;
+                const entry = it.next() orelse break;
                 try zig_args.append("--library");
                 try zig_args.append(entry.key);
             }
@@ -1767,9 +1768,18 @@ pub const TestStep = struct {
             try zig_args.append(rpath);
         }
 
+        for (self.lib_paths.toSliceConst()) |lib_path| {
+            try zig_args.append("--library-path");
+            try zig_args.append(lib_path);
+        }
+
         for (builder.lib_paths.toSliceConst()) |lib_path| {
             try zig_args.append("--library-path");
             try zig_args.append(lib_path);
+        }
+
+        if (self.no_rosegment) {
+            try zig_args.append("--no-rosegment");
         }
 
         try builder.spawnChild(zig_args.toSliceConst());
@@ -1778,29 +1788,27 @@ pub const TestStep = struct {
 
 pub const CommandStep = struct {
     step: Step,
-    builder: &Builder,
+    builder: *Builder,
     argv: [][]const u8,
     cwd: ?[]const u8,
-    env_map: &const BufMap,
+    env_map: *const BufMap,
 
     /// ::argv is copied.
-    pub fn create(builder: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
-        argv: []const []const u8) &CommandStep
-    {
-        const self = builder.allocator.create(CommandStep) catch unreachable;
-        *self = CommandStep {
+    pub fn create(builder: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) *CommandStep {
+        const self = builder.allocator.create(CommandStep{
             .builder = builder,
             .step = Step.init(argv[0], builder.allocator, make),
             .argv = builder.allocator.alloc([]u8, argv.len) catch unreachable,
             .cwd = cwd,
             .env_map = env_map,
-        };
+        }) catch unreachable;
+
         mem.copy([]const u8, self.argv, argv);
         self.step.name = self.argv[0];
         return self;
     }
 
-    fn make(step: &Step) !void {
+    fn make(step: *Step) !void {
         const self = @fieldParentPtr(CommandStep, "step", step);
 
         const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
@@ -1810,37 +1818,34 @@ pub const CommandStep = struct {
 
 const InstallArtifactStep = struct {
     step: Step,
-    builder: &Builder,
-    artifact: &LibExeObjStep,
+    builder: *Builder,
+    artifact: *LibExeObjStep,
     dest_file: []const u8,
 
     const Self = this;
 
-    pub fn create(builder: &Builder, artifact: &LibExeObjStep) &Self {
-        const self = builder.allocator.create(Self) catch unreachable;
+    pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
         const dest_dir = switch (artifact.kind) {
             LibExeObjStep.Kind.Obj => unreachable,
             LibExeObjStep.Kind.Exe => builder.exe_dir,
             LibExeObjStep.Kind.Lib => builder.lib_dir,
         };
-        *self = Self {
+        const self = builder.allocator.create(Self{
             .builder = builder,
             .step = Step.init(builder.fmt("install {}", artifact.step.name), builder.allocator, make),
             .artifact = artifact,
             .dest_file = os.path.join(builder.allocator, dest_dir, artifact.out_filename) catch unreachable,
-        };
+        }) catch unreachable;
         self.step.dependOn(&artifact.step);
         builder.pushInstalledFile(self.dest_file);
         if (self.artifact.kind == LibExeObjStep.Kind.Lib and !self.artifact.static) {
-            builder.pushInstalledFile(os.path.join(builder.allocator, builder.lib_dir,
-                artifact.major_only_filename) catch unreachable);
-            builder.pushInstalledFile(os.path.join(builder.allocator, builder.lib_dir,
-                artifact.name_only_filename) catch unreachable);
+            builder.pushInstalledFile(os.path.join(builder.allocator, builder.lib_dir, artifact.major_only_filename) catch unreachable);
+            builder.pushInstalledFile(os.path.join(builder.allocator, builder.lib_dir, artifact.name_only_filename) catch unreachable);
         }
         return self;
     }
 
-    fn make(step: &Step) !void {
+    fn make(step: *Step) !void {
         const self = @fieldParentPtr(Self, "step", step);
         const builder = self.builder;
 
@@ -1854,20 +1859,19 @@ const InstallArtifactStep = struct {
         };
         try builder.copyFileMode(self.artifact.getOutputPath(), self.dest_file, mode);
         if (self.artifact.kind == LibExeObjStep.Kind.Lib and !self.artifact.static) {
-            try doAtomicSymLinks(builder.allocator, self.dest_file,
-                self.artifact.major_only_filename, self.artifact.name_only_filename);
+            try doAtomicSymLinks(builder.allocator, self.dest_file, self.artifact.major_only_filename, self.artifact.name_only_filename);
         }
     }
 };
 
 pub const InstallFileStep = struct {
     step: Step,
-    builder: &Builder,
+    builder: *Builder,
     src_path: []const u8,
     dest_path: []const u8,
 
-    pub fn init(builder: &Builder, src_path: []const u8, dest_path: []const u8) InstallFileStep {
-        return InstallFileStep {
+    pub fn init(builder: *Builder, src_path: []const u8, dest_path: []const u8) InstallFileStep {
+        return InstallFileStep{
             .builder = builder,
             .step = Step.init(builder.fmt("install {}", src_path), builder.allocator, make),
             .src_path = src_path,
@@ -1875,7 +1879,7 @@ pub const InstallFileStep = struct {
         };
     }
 
-    fn make(step: &Step) !void {
+    fn make(step: *Step) !void {
         const self = @fieldParentPtr(InstallFileStep, "step", step);
         try self.builder.copyFile(self.src_path, self.dest_path);
     }
@@ -1883,12 +1887,12 @@ pub const InstallFileStep = struct {
 
 pub const WriteFileStep = struct {
     step: Step,
-    builder: &Builder,
+    builder: *Builder,
     file_path: []const u8,
     data: []const u8,
 
-    pub fn init(builder: &Builder, file_path: []const u8, data: []const u8) WriteFileStep {
-        return WriteFileStep {
+    pub fn init(builder: *Builder, file_path: []const u8, data: []const u8) WriteFileStep {
+        return WriteFileStep{
             .builder = builder,
             .step = Step.init(builder.fmt("writefile {}", file_path), builder.allocator, make),
             .file_path = file_path,
@@ -1896,10 +1900,10 @@ pub const WriteFileStep = struct {
         };
     }
 
-    fn make(step: &Step) !void {
+    fn make(step: *Step) !void {
         const self = @fieldParentPtr(WriteFileStep, "step", step);
         const full_path = self.builder.pathFromRoot(self.file_path);
-        const full_path_dir = os.path.dirname(full_path);
+        const full_path_dir = os.path.dirname(full_path) orelse ".";
         os.makePath(self.builder.allocator, full_path_dir) catch |err| {
             warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
             return err;
@@ -1913,18 +1917,18 @@ pub const WriteFileStep = struct {
 
 pub const LogStep = struct {
     step: Step,
-    builder: &Builder,
+    builder: *Builder,
     data: []const u8,
 
-    pub fn init(builder: &Builder, data: []const u8) LogStep {
-        return LogStep {
+    pub fn init(builder: *Builder, data: []const u8) LogStep {
+        return LogStep{
             .builder = builder,
             .step = Step.init(builder.fmt("log {}", data), builder.allocator, make),
             .data = data,
         };
     }
 
-    fn make(step: &Step) error!void {
+    fn make(step: *Step) error!void {
         const self = @fieldParentPtr(LogStep, "step", step);
         warn("{}", self.data);
     }
@@ -1932,18 +1936,18 @@ pub const LogStep = struct {
 
 pub const RemoveDirStep = struct {
     step: Step,
-    builder: &Builder,
+    builder: *Builder,
     dir_path: []const u8,
 
-    pub fn init(builder: &Builder, dir_path: []const u8) RemoveDirStep {
-        return RemoveDirStep {
+    pub fn init(builder: *Builder, dir_path: []const u8) RemoveDirStep {
+        return RemoveDirStep{
             .builder = builder,
             .step = Step.init(builder.fmt("RemoveDir {}", dir_path), builder.allocator, make),
             .dir_path = dir_path,
         };
     }
 
-    fn make(step: &Step) !void {
+    fn make(step: *Step) !void {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
@@ -1956,43 +1960,40 @@ pub const RemoveDirStep = struct {
 
 pub const Step = struct {
     name: []const u8,
-    makeFn: fn(self: &Step) error!void,
-    dependencies: ArrayList(&Step),
+    makeFn: fn (self: *Step) error!void,
+    dependencies: ArrayList(*Step),
     loop_flag: bool,
     done_flag: bool,
 
-    pub fn init(name: []const u8, allocator: &Allocator, makeFn: fn (&Step)error!void) Step {
-        return Step {
+    pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) error!void) Step {
+        return Step{
             .name = name,
             .makeFn = makeFn,
-            .dependencies = ArrayList(&Step).init(allocator),
+            .dependencies = ArrayList(*Step).init(allocator),
             .loop_flag = false,
             .done_flag = false,
         };
     }
-    pub fn initNoOp(name: []const u8, allocator: &Allocator) Step {
+    pub fn initNoOp(name: []const u8, allocator: *Allocator) Step {
         return init(name, allocator, makeNoOp);
     }
 
-    pub fn make(self: &Step) !void {
-        if (self.done_flag)
-            return;
+    pub fn make(self: *Step) !void {
+        if (self.done_flag) return;
 
         try self.makeFn(self);
         self.done_flag = true;
     }
 
-    pub fn dependOn(self: &Step, other: &Step) void {
+    pub fn dependOn(self: *Step, other: *Step) void {
         self.dependencies.append(other) catch unreachable;
     }
 
-    fn makeNoOp(self: &Step) error!void {}
+    fn makeNoOp(self: *Step) error!void {}
 };
 
-fn doAtomicSymLinks(allocator: &Allocator, output_path: []const u8, filename_major_only: []const u8,
-    filename_name_only: []const u8) !void
-{
-    const out_dir = os.path.dirname(output_path);
+fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
+    const out_dir = os.path.dirname(output_path) orelse ".";
     const out_basename = os.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = os.path.join(allocator, out_dir, filename_major_only) catch unreachable;

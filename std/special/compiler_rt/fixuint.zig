@@ -1,5 +1,5 @@
 const is_test = @import("builtin").is_test;
-const Log2Int = @import("../../math/index.zig").Log2Int;
+const Log2Int = @import("std").math.Log2Int;
 
 pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t {
     @setRuntimeSafety(is_test);
@@ -32,28 +32,20 @@ pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t
     const aAbs: rep_t = aRep & absMask;
 
     const sign = if ((aRep & signBit) != 0) i32(-1) else i32(1);
-    const exponent = i32(aAbs >> significandBits) - exponentBias;
+    const exponent = @intCast(i32, aAbs >> significandBits) - exponentBias;
     const significand: rep_t = (aAbs & significandMask) | implicitBit;
 
     // If either the value or the exponent is negative, the result is zero.
-    if (sign == -1 or exponent < 0)
-        return 0;
+    if (sign == -1 or exponent < 0) return 0;
 
     // If the value is too large for the integer type, saturate.
-    if (c_uint(exponent) >= fixuint_t.bit_count)
-        return ~fixuint_t(0);
+    if (@intCast(c_uint, exponent) >= fixuint_t.bit_count) return ~fixuint_t(0);
 
     // If 0 <= exponent < significandBits, right shift to get the result.
     // Otherwise, shift left.
     if (exponent < significandBits) {
-        // TODO this is a workaround for the mysterious "integer cast truncated bits"
-        // happening on the next line
-        @setRuntimeSafety(false);
-        return fixuint_t(significand >> Log2Int(rep_t)(significandBits - exponent));
+        return @intCast(fixuint_t, significand >> @intCast(Log2Int(rep_t), significandBits - exponent));
     } else {
-        // TODO this is a workaround for the mysterious "integer cast truncated bits"
-        // happening on the next line
-        @setRuntimeSafety(false);
-        return fixuint_t(significand) << Log2Int(fixuint_t)(exponent - significandBits);
+        return @intCast(fixuint_t, significand) << @intCast(Log2Int(fixuint_t), exponent - significandBits);
     }
 }

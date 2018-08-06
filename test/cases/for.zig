@@ -3,8 +3,14 @@ const assert = std.debug.assert;
 const mem = std.mem;
 
 test "continue in for loop" {
-    const array = []i32 {1, 2, 3, 4, 5};
-    var sum : i32 = 0;
+    const array = []i32{
+        1,
+        2,
+        3,
+        4,
+        5,
+    };
+    var sum: i32 = 0;
     for (array) |x| {
         sum += x;
         if (x < 3) {
@@ -24,23 +30,23 @@ test "for loop with pointer elem var" {
 }
 fn mangleString(s: []u8) void {
     for (s) |*c| {
-        *c += 1;
+        c.* += 1;
     }
 }
 
 test "basic for loop" {
-    const expected_result = []u8{9, 8, 7, 6, 0, 1, 2, 3, 9, 8, 7, 6, 0, 1, 2, 3 };
+    const expected_result = []u8{ 9, 8, 7, 6, 0, 1, 2, 3, 9, 8, 7, 6, 0, 1, 2, 3 };
 
     var buffer: [expected_result.len]u8 = undefined;
     var buf_index: usize = 0;
 
-    const array = []u8 {9, 8, 7, 6};
+    const array = []u8{ 9, 8, 7, 6 };
     for (array) |item| {
         buffer[buf_index] = item;
         buf_index += 1;
     }
     for (array) |item, index| {
-        buffer[buf_index] = u8(index);
+        buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
     const unknown_size: []const u8 = array;
@@ -49,7 +55,7 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (unknown_size) |item, index| {
-        buffer[buf_index] = u8(index);
+        buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
 
@@ -65,7 +71,8 @@ fn testBreakOuter() void {
     var array = "aoeu";
     var count: usize = 0;
     outer: for (array) |_| {
-        for (array) |_2| { // TODO shouldn't get error for redeclaring "_"
+        // TODO shouldn't get error for redeclaring "_"
+        for (array) |_2| {
             count += 1;
             break :outer;
         }
@@ -82,7 +89,8 @@ fn testContinueOuter() void {
     var array = "aoeu";
     var counter: usize = 0;
     outer: for (array) |_| {
-        for (array) |_2| { // TODO shouldn't get error for redeclaring "_"
+        // TODO shouldn't get error for redeclaring "_"
+        for (array) |_2| {
             counter += 1;
             continue :outer;
         }

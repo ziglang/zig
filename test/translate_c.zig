@@ -1,6 +1,72 @@
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.TranslateCContext) void {
+pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("for loop with var init but empty body",
+        \\void foo(void) {
+        \\    for (int x = 0; x < 10; x++);
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    {
+        \\        var x: c_int = 0;
+        \\        while (x < 10) : (x += 1) {}
+        \\    }
+        \\}
+    );
+
+    cases.add("do while with empty body",
+        \\void foo(void) {
+        \\    do ; while (1);
+        \\}
+    , // TODO this should be if (1 != 0) break
+        \\pub fn foo() void {
+        \\    while (true) {
+        \\        if (!1) break;
+        \\    }
+        \\}
+    );
+
+    cases.add("for with empty body",
+        \\void foo(void) {
+        \\    for (;;);
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    while (true) {}
+        \\}
+    );
+
+    cases.add("while with empty body",
+        \\void foo(void) {
+        \\    while (1);
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    while (1 != 0) {}
+        \\}
+    );
+
+    cases.add("double define struct",
+        \\typedef struct Bar Bar;
+        \\typedef struct Foo Foo;
+        \\
+        \\struct Foo {
+        \\    Foo *a;
+        \\};
+        \\
+        \\struct Bar {
+        \\    Foo *a;
+        \\};
+    ,
+        \\pub const struct_Foo = extern struct {
+        \\    a: ?[*]Foo,
+        \\};
+        \\pub const Foo = struct_Foo;
+        \\pub const struct_Bar = extern struct {
+        \\    a: ?[*]Foo,
+        \\};
+    );
+
     cases.addAllowWarnings("simple data types",
         \\#include <stdint.h>
         \\int foo(char a, unsigned char b, signed char c);
@@ -53,10 +119,32 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub const Foo = enum_Foo;
     );
 
+    cases.add("enums",
+        \\enum Foo {
+        \\    FooA = 2,
+        \\    FooB = 5,
+        \\    Foo1,
+        \\};
+    ,
+        \\pub const enum_Foo = extern enum {
+        \\    A = 2,
+        \\    B = 5,
+        \\    @"1" = 6,
+        \\};
+    ,
+        \\pub const FooA = enum_Foo.A;
+    ,
+        \\pub const FooB = enum_Foo.B;
+    ,
+        \\pub const Foo1 = enum_Foo.@"1";
+    ,
+        \\pub const Foo = enum_Foo;
+    );
+
     cases.add("restrict -> noalias",
         \\void foo(void *restrict bar, void *restrict);
     ,
-        \\pub extern fn foo(noalias bar: ?&c_void, noalias arg1: ?&c_void) void;
+        \\pub extern fn foo(noalias bar: ?*c_void, noalias arg1: ?*c_void) void;
     );
 
     cases.add("simple struct",
@@ -67,7 +155,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     ,
         \\const struct_Foo = extern struct {
         \\    x: c_int,
-        \\    y: ?&u8,
+        \\    y: ?[*]u8,
         \\};
     ,
         \\pub const Foo = struct_Foo;
@@ -98,7 +186,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     ,
         \\pub const BarB = enum_Bar.B;
     ,
-        \\pub extern fn func(a: ?&struct_Foo, b: ?&(?&enum_Bar)) void;
+        \\pub extern fn func(a: ?[*]struct_Foo, b: ?[*](?[*]enum_Bar)) void;
     ,
         \\pub const Foo = struct_Foo;
     ,
@@ -108,7 +196,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     cases.add("constant size array",
         \\void func(int array[20]);
     ,
-        \\pub extern fn func(array: ?&c_int) void;
+        \\pub extern fn func(array: ?[*]c_int) void;
     );
 
     cases.add("self referential struct with function pointer",
@@ -117,7 +205,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\};
     ,
         \\pub const struct_Foo = extern struct {
-        \\    derp: ?extern fn(?&struct_Foo) void,
+        \\    derp: ?extern fn(?[*]struct_Foo) void,
         \\};
     ,
         \\pub const Foo = struct_Foo;
@@ -129,7 +217,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     ,
         \\pub const struct_Foo = @OpaqueType();
     ,
-        \\pub extern fn some_func(foo: ?&struct_Foo, x: c_int) ?&struct_Foo;
+        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
     ,
         \\pub const Foo = struct_Foo;
     );
@@ -176,11 +264,11 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\};
     ,
         \\pub const struct_Bar = extern struct {
-        \\    next: ?&struct_Foo,
+        \\    next: ?[*]struct_Foo,
         \\};
     ,
         \\pub const struct_Foo = extern struct {
-        \\    next: ?&struct_Bar,
+        \\    next: ?[*]struct_Bar,
         \\};
     );
 
@@ -190,7 +278,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     ,
         \\pub const Foo = c_void;
     ,
-        \\pub extern fn fun(a: ?&Foo) Foo;
+        \\pub extern fn fun(a: ?*Foo) Foo;
     );
 
     cases.add("generate inline func for #define global extern fn",
@@ -203,13 +291,13 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub extern var fn_ptr: ?extern fn() void;
     ,
         \\pub inline fn foo() void {
-        \\    return (??fn_ptr)();
+        \\    return fn_ptr.?();
         \\}
     ,
         \\pub extern var fn_ptr2: ?extern fn(c_int, f32) u8;
     ,
         \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
-        \\    return (??fn_ptr2)(arg0, arg1);
+        \\    return fn_ptr2.?(arg0, arg1);
         \\}
     );
 
@@ -462,7 +550,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return 6;
         \\}
     ,
-        \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?&c_void) c_int {
+        \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    if ((a != 0) and (b != 0)) return 0;
         \\    if ((b != 0) and (c != null)) return 1;
         \\    if ((a != 0) and (c != null)) return 2;
@@ -564,8 +652,8 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub const struct_Foo = extern struct {
         \\    field: c_int,
         \\};
-        \\pub export fn read_field(foo: ?&struct_Foo) c_int {
-        \\    return (??foo).field;
+        \\pub export fn read_field(foo: ?[*]struct_Foo) c_int {
+        \\    return foo.?.field;
         \\}
     );
 
@@ -595,7 +683,6 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\}
     );
 
-
     cases.addC("c style cast",
         \\int float_to_int(float a) {
         \\    return (int)a;
@@ -611,8 +698,8 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return x;
         \\}
     ,
-        \\pub export fn foo(x: ?&c_ushort) ?&c_void {
-        \\    return @ptrCast(?&c_void, x);
+        \\pub export fn foo(x: ?[*]c_ushort) ?*c_void {
+        \\    return @ptrCast(?*c_void, x);
         \\}
     );
 
@@ -632,7 +719,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return 0;
         \\}
     ,
-        \\pub export fn foo() ?&c_int {
+        \\pub export fn foo() ?[*]c_int {
         \\    return null;
         \\}
     );
@@ -677,43 +764,43 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    var a: c_int = 0;
         \\    a += x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) + 1);
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* + 1);
+        \\        break :x _ref.*;
         \\    };
         \\    a -= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) - 1);
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* - 1);
+        \\        break :x _ref.*;
         \\    };
         \\    a *= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) * 1);
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* * 1);
+        \\        break :x _ref.*;
         \\    };
         \\    a &= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) & 1);
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* & 1);
+        \\        break :x _ref.*;
         \\    };
         \\    a |= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) | 1);
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* | 1);
+        \\        break :x _ref.*;
         \\    };
         \\    a ^= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) ^ 1);
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* ^ 1);
+        \\        break :x _ref.*;
         \\    };
         \\    a >>= @import("std").math.Log2Int(c_int)(x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_int)(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* >> @import("std").math.Log2Int(c_int)(1));
+        \\        break :x _ref.*;
         \\    });
         \\    a <<= @import("std").math.Log2Int(c_int)(x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_int)(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* << @import("std").math.Log2Int(c_int)(1));
+        \\        break :x _ref.*;
         \\    });
         \\}
     );
@@ -735,43 +822,43 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    var a: c_uint = c_uint(0);
         \\    a +%= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) +% c_uint(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* +% c_uint(1));
+        \\        break :x _ref.*;
         \\    };
         \\    a -%= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) -% c_uint(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* -% c_uint(1));
+        \\        break :x _ref.*;
         \\    };
         \\    a *%= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) *% c_uint(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* *% c_uint(1));
+        \\        break :x _ref.*;
         \\    };
         \\    a &= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) & c_uint(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* & c_uint(1));
+        \\        break :x _ref.*;
         \\    };
         \\    a |= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) | c_uint(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* | c_uint(1));
+        \\        break :x _ref.*;
         \\    };
         \\    a ^= x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) ^ c_uint(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* ^ c_uint(1));
+        \\        break :x _ref.*;
         \\    };
         \\    a >>= @import("std").math.Log2Int(c_uint)(x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_uint)(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* >> @import("std").math.Log2Int(c_uint)(1));
+        \\        break :x _ref.*;
         \\    });
         \\    a <<= @import("std").math.Log2Int(c_uint)(x: {
         \\        const _ref = &a;
-        \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_uint)(1));
-        \\        break :x *_ref;
+        \\        _ref.* = (_ref.* << @import("std").math.Log2Int(c_uint)(1));
+        \\        break :x _ref.*;
         \\    });
         \\}
     );
@@ -810,26 +897,26 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    u -%= 1;
         \\    i = x: {
         \\        const _ref = &i;
-        \\        const _tmp = *_ref;
-        \\        (*_ref) += 1;
+        \\        const _tmp = _ref.*;
+        \\        _ref.* += 1;
         \\        break :x _tmp;
         \\    };
         \\    i = x: {
         \\        const _ref = &i;
-        \\        const _tmp = *_ref;
-        \\        (*_ref) -= 1;
+        \\        const _tmp = _ref.*;
+        \\        _ref.* -= 1;
         \\        break :x _tmp;
         \\    };
         \\    u = x: {
         \\        const _ref = &u;
-        \\        const _tmp = *_ref;
-        \\        (*_ref) +%= 1;
+        \\        const _tmp = _ref.*;
+        \\        _ref.* +%= 1;
         \\        break :x _tmp;
         \\    };
         \\    u = x: {
         \\        const _ref = &u;
-        \\        const _tmp = *_ref;
-        \\        (*_ref) -%= 1;
+        \\        const _tmp = _ref.*;
+        \\        _ref.* -%= 1;
         \\        break :x _tmp;
         \\    };
         \\}
@@ -858,23 +945,23 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    u -%= 1;
         \\    i = x: {
         \\        const _ref = &i;
-        \\        (*_ref) += 1;
-        \\        break :x *_ref;
+        \\        _ref.* += 1;
+        \\        break :x _ref.*;
         \\    };
         \\    i = x: {
         \\        const _ref = &i;
-        \\        (*_ref) -= 1;
-        \\        break :x *_ref;
+        \\        _ref.* -= 1;
+        \\        break :x _ref.*;
         \\    };
         \\    u = x: {
         \\        const _ref = &u;
-        \\        (*_ref) +%= 1;
-        \\        break :x *_ref;
+        \\        _ref.* +%= 1;
+        \\        break :x _ref.*;
         \\    };
         \\    u = x: {
         \\        const _ref = &u;
-        \\        (*_ref) -%= 1;
-        \\        break :x *_ref;
+        \\        _ref.* -%= 1;
+        \\        break :x _ref.*;
         \\    };
         \\}
     );
@@ -927,11 +1014,11 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub export fn bar() void {
         \\    var f: ?extern fn() void = foo;
         \\    var b: ?extern fn() c_int = baz;
-        \\    (??f)();
-        \\    (??f)();
+        \\    f.?();
+        \\    f.?();
         \\    foo();
-        \\    _ = (??b)();
-        \\    _ = (??b)();
+        \\    _ = b.?();
+        \\    _ = b.?();
         \\    _ = baz();
         \\}
     );
@@ -941,8 +1028,8 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    *x = 1;
         \\}
     ,
-        \\pub export fn foo(x: ?&c_int) void {
-        \\    (*??x) = 1;
+        \\pub export fn foo(x: ?[*]c_int) void {
+        \\    x.?.* = 1;
         \\}
     );
 
@@ -969,8 +1056,8 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     ,
         \\pub fn foo() c_int {
         \\    var x: c_int = 1234;
-        \\    var ptr: ?&c_int = &x;
-        \\    return *??ptr;
+        \\    var ptr: ?[*]c_int = &x;
+        \\    return ptr.?.*;
         \\}
     );
 
@@ -979,7 +1066,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return "bar";
         \\}
     ,
-        \\pub fn foo() ?&const u8 {
+        \\pub fn foo() ?[*]const u8 {
         \\    return c"bar";
         \\}
     );
@@ -1077,7 +1164,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub const glClearPFN = PFNGLCLEARPROC;
     ,
         \\pub inline fn glClearUnion(arg0: GLbitfield) void {
-        \\    return (??glProcs.gl.Clear)(arg0);
+        \\    return glProcs.gl.Clear.?(arg0);
         \\}
     ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
@@ -1108,8 +1195,8 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return (float *)a;
         \\}
     ,
-        \\fn ptrcast(a: ?&c_int) ?&f32 {
-        \\    return @ptrCast(?&f32, a);
+        \\fn ptrcast(a: ?[*]c_int) ?[*]f32 {
+        \\    return @ptrCast(?[*]f32, a);
         \\}
     );
 
@@ -1131,7 +1218,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return !c;
         \\}
     ,
-        \\pub fn foo(a: c_int, b: f32, c: ?&c_void) c_int {
+        \\pub fn foo(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    return !(a == 0);
         \\    return !(a != 0);
         \\    return !(b != 0);
@@ -1152,7 +1239,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     cases.add("const ptr initializer",
         \\static const char *v0 = "0.0.0";
     ,
-        \\pub var v0: ?&const u8 = c"0.0.0";
+        \\pub var v0: ?[*]const u8 = c"0.0.0";
     );
 
     cases.add("static incomplete array inside function",
@@ -1161,14 +1248,14 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\}
     ,
         \\pub fn foo() void {
-        \\    const v2: &const u8 = c"2.2.2";
+        \\    const v2: [*]const u8 = c"2.2.2";
         \\}
     );
 
     cases.add("macro pointer cast",
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     ,
-        \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast(&NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr(&NRF_GPIO_Type, NRF_GPIO_BASE) else (&NRF_GPIO_Type)(NRF_GPIO_BASE);
+        \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*]NRF_GPIO_Type, NRF_GPIO_BASE) else ([*]NRF_GPIO_Type)(NRF_GPIO_BASE);
     );
 
     cases.add("if on none bool",
@@ -1189,7 +1276,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    B,
         \\    C,
         \\};
-        \\pub fn if_none_bool(a: c_int, b: f32, c: ?&c_void, d: enum_SomeEnum) c_int {
+        \\pub fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
         \\    if (c != null) return 2;
@@ -1206,7 +1293,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return 3;
         \\}
     ,
-        \\pub fn while_none_bool(a: c_int, b: f32, c: ?&c_void) c_int {
+        \\pub fn while_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
         \\    while (c != null) return 2;
@@ -1222,7 +1309,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return 3;
         \\}
     ,
-        \\pub fn for_none_bool(a: c_int, b: f32, c: ?&c_void) c_int {
+        \\pub fn for_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
         \\    while (c != null) return 2;
@@ -1246,29 +1333,29 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    }
         \\}
     ,
-       \\pub fn switch_fn(i: c_int) c_int {
-       \\    var res: c_int = 0;
-       \\    __switch: {
-       \\        __case_2: {
-       \\            __default: {
-       \\                __case_1: {
-       \\                    __case_0: {
-       \\                        switch (i) {
-       \\                            0 => break :__case_0,
-       \\                            1 => break :__case_1,
-       \\                            else => break :__default,
-       \\                            2 => break :__case_2,
-       \\                        }
-       \\                    }
-       \\                    res = 1;
-       \\                }
-       \\                res = 2;
-       \\            }
-       \\            res = (3 * i);
-       \\            break :__switch;
-       \\        }
-       \\        res = 5;
-       \\    }
-       \\}
+        \\pub fn switch_fn(i: c_int) c_int {
+        \\    var res: c_int = 0;
+        \\    __switch: {
+        \\        __case_2: {
+        \\            __default: {
+        \\                __case_1: {
+        \\                    __case_0: {
+        \\                        switch (i) {
+        \\                            0 => break :__case_0,
+        \\                            1 => break :__case_1,
+        \\                            else => break :__default,
+        \\                            2 => break :__case_2,
+        \\                        }
+        \\                    }
+        \\                    res = 1;
+        \\                }
+        \\                res = 2;
+        \\            }
+        \\            res = (3 * i);
+        \\            break :__switch;
+        \\        }
+        \\        res = 5;
+        \\    }
+        \\}
     );
 }

@@ -18,53 +18,36 @@ const is_windows = builtin.os == builtin.Os.windows;
 const GetStdIoErrs = os.WindowsGetStdHandleErrs;
 
 pub fn getStdErr() GetStdIoErrs!File {
-    const handle = if (is_windows)
-        try os.windowsGetStdHandle(os.windows.STD_ERROR_HANDLE)
-    else if (is_posix)
-        os.posix.STDERR_FILENO
-    else
-        unreachable;
+    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_ERROR_HANDLE) else if (is_posix) os.posix.STDERR_FILENO else unreachable;
     return File.openHandle(handle);
 }
 
 pub fn getStdOut() GetStdIoErrs!File {
-    const handle = if (is_windows)
-        try os.windowsGetStdHandle(os.windows.STD_OUTPUT_HANDLE)
-    else if (is_posix)
-        os.posix.STDOUT_FILENO
-    else
-        unreachable;
+    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_OUTPUT_HANDLE) else if (is_posix) os.posix.STDOUT_FILENO else unreachable;
     return File.openHandle(handle);
 }
 
 pub fn getStdIn() GetStdIoErrs!File {
-    const handle = if (is_windows)
-        try os.windowsGetStdHandle(os.windows.STD_INPUT_HANDLE)
-    else if (is_posix)
-        os.posix.STDIN_FILENO
-    else
-        unreachable;
+    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_INPUT_HANDLE) else if (is_posix) os.posix.STDIN_FILENO else unreachable;
     return File.openHandle(handle);
 }
 
 /// Implementation of InStream trait for File
 pub const FileInStream = struct {
-    file: &File,
+    file: *File,
     stream: Stream,
 
     pub const Error = @typeOf(File.read).ReturnType.ErrorSet;
     pub const Stream = InStream(Error);
 
-    pub fn init(file: &File) FileInStream {
-        return FileInStream {
+    pub fn init(file: *File) FileInStream {
+        return FileInStream{
             .file = file,
-            .stream = Stream {
-                .readFn = readFn,
-            },
+            .stream = Stream{ .readFn = readFn },
         };
     }
 
-    fn readFn(in_stream: &Stream, buffer: []u8) Error!usize {
+    fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
         const self = @fieldParentPtr(FileInStream, "stream", in_stream);
         return self.file.read(buffer);
     }
@@ -72,22 +55,20 @@ pub const FileInStream = struct {
 
 /// Implementation of OutStream trait for File
 pub const FileOutStream = struct {
-    file: &File,
+    file: *File,
     stream: Stream,
 
     pub const Error = File.WriteError;
     pub const Stream = OutStream(Error);
 
-    pub fn init(file: &File) FileOutStream {
-        return FileOutStream {
+    pub fn init(file: *File) FileOutStream {
+        return FileOutStream{
             .file = file,
-            .stream = Stream {
-                .writeFn = writeFn,
-            },
+            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
-    fn writeFn(out_stream: &Stream, bytes: []const u8) !void {
+    fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
         const self = @fieldParentPtr(FileOutStream, "stream", out_stream);
         return self.file.write(bytes);
     }
@@ -101,12 +82,12 @@ pub fn InStream(comptime ReadError: type) type {
         /// Return the number of bytes read. If the number read is smaller than buf.len, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
-        readFn: fn(self: &Self, buffer: []u8) Error!usize,
+        readFn: fn (self: *Self, buffer: []u8) Error!usize,
 
         /// Replaces `buffer` contents by reading from the stream until it is finished.
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and
         /// the contents read from the stream are lost.
-        pub fn readAllBuffer(self: &Self, buffer: &Buffer, max_size: usize) !void {
+        pub fn readAllBuffer(self: *Self, buffer: *Buffer, max_size: usize) !void {
             try buffer.resize(0);
 
             var actual_buf_len: usize = 0;
@@ -121,8 +102,7 @@ pub fn InStream(comptime ReadError: type) type {
                 }
 
                 const new_buf_size = math.min(max_size, actual_buf_len + os.page_size);
-                if (new_buf_size == actual_buf_len)
-                    return error.StreamTooLong;
+                if (new_buf_size == actual_buf_len) return error.StreamTooLong;
                 try buffer.resize(new_buf_size);
             }
         }
@@ -131,7 +111,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readAllAlloc(self: &Self, allocator: &mem.Allocator, max_size: usize) ![]u8 {
+        pub fn readAllAlloc(self: *Self, allocator: *mem.Allocator, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -143,7 +123,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// Does not include the delimiter in the result.
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and the contents
         /// read from the stream so far are lost.
-        pub fn readUntilDelimiterBuffer(self: &Self, buffer: &Buffer, delimiter: u8, max_size: usize) !void {
+        pub fn readUntilDelimiterBuffer(self: *Self, buffer: *Buffer, delimiter: u8, max_size: usize) !void {
             try buffer.resize(0);
 
             while (true) {
@@ -165,9 +145,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readUntilDelimiterAlloc(self: &Self, allocator: &mem.Allocator,
-            delimiter: u8, max_size: usize) ![]u8
-        {
+        pub fn readUntilDelimiterAlloc(self: *Self, allocator: *mem.Allocator, delimiter: u8, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -178,49 +156,56 @@ pub fn InStream(comptime ReadError: type) type {
         /// Returns the number of bytes read. If the number read is smaller than buf.len, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
-        pub fn read(self: &Self, buffer: []u8) !usize {
+        pub fn read(self: *Self, buffer: []u8) !usize {
             return self.readFn(self, buffer);
         }
 
         /// Same as `read` but end of stream returns `error.EndOfStream`.
-        pub fn readNoEof(self: &Self, buf: []u8) !void {
+        pub fn readNoEof(self: *Self, buf: []u8) !void {
             const amt_read = try self.read(buf);
             if (amt_read < buf.len) return error.EndOfStream;
         }
 
         /// Reads 1 byte from the stream or returns `error.EndOfStream`.
-        pub fn readByte(self: &Self) !u8 {
+        pub fn readByte(self: *Self) !u8 {
             var result: [1]u8 = undefined;
             try self.readNoEof(result[0..]);
             return result[0];
         }
 
         /// Same as `readByte` except the returned byte is signed.
-        pub fn readByteSigned(self: &Self) !i8 {
+        pub fn readByteSigned(self: *Self) !i8 {
             return @bitCast(i8, try self.readByte());
         }
 
-        pub fn readIntLe(self: &Self, comptime T: type) !T {
+        pub fn readIntLe(self: *Self, comptime T: type) !T {
             return self.readInt(builtin.Endian.Little, T);
         }
 
-        pub fn readIntBe(self: &Self, comptime T: type) !T {
+        pub fn readIntBe(self: *Self, comptime T: type) !T {
             return self.readInt(builtin.Endian.Big, T);
         }
 
-        pub fn readInt(self: &Self, endian: builtin.Endian, comptime T: type) !T {
+        pub fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readInt(bytes, T, endian);
         }
 
-        pub fn readVarInt(self: &Self, endian: builtin.Endian, comptime T: type, size: usize) !T {
+        pub fn readVarInt(self: *Self, endian: builtin.Endian, comptime T: type, size: usize) !T {
             assert(size <= @sizeOf(T));
             assert(size <= 8);
             var input_buf: [8]u8 = undefined;
             const input_slice = input_buf[0..size];
             try self.readNoEof(input_slice);
             return mem.readInt(input_slice, T, endian);
+        }
+
+        pub fn skipBytes(self: *Self, num_bytes: usize) !void {
+            var i: usize = 0;
+            while (i < num_bytes) : (i += 1) {
+                _ = try self.readByte();
+            }
         }
     };
 }
@@ -230,45 +215,64 @@ pub fn OutStream(comptime WriteError: type) type {
         const Self = this;
         pub const Error = WriteError;
 
-        writeFn: fn(self: &Self, bytes: []const u8) Error!void,
+        writeFn: fn (self: *Self, bytes: []const u8) Error!void,
 
-        pub fn print(self: &Self, comptime format: []const u8, args: ...) !void {
+        pub fn print(self: *Self, comptime format: []const u8, args: ...) !void {
             return std.fmt.format(self, Error, self.writeFn, format, args);
         }
 
-        pub fn write(self: &Self, bytes: []const u8) !void {
+        pub fn write(self: *Self, bytes: []const u8) !void {
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeByte(self: &Self, byte: u8) !void {
-            const slice = (&byte)[0..1];
+        pub fn writeByte(self: *Self, byte: u8) !void {
+            const slice = (*[1]u8)(&byte)[0..];
             return self.writeFn(self, slice);
         }
 
-        pub fn writeByteNTimes(self: &Self, byte: u8, n: usize) !void {
-            const slice = (&byte)[0..1];
+        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) !void {
+            const slice = (*[1]u8)(&byte)[0..];
             var i: usize = 0;
             while (i < n) : (i += 1) {
                 try self.writeFn(self, slice);
             }
         }
+
+        pub fn writeIntLe(self: *Self, comptime T: type, value: T) !void {
+            return self.writeInt(builtin.Endian.Little, T, value);
+        }
+
+        pub fn writeIntBe(self: *Self, comptime T: type, value: T) !void {
+            return self.writeInt(builtin.Endian.Big, T, value);
+        }
+
+        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) !void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeInt(bytes[0..], value, endian);
+            return self.writeFn(self, bytes);
+        }
     };
 }
 
 /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
-pub fn writeFile(allocator: &mem.Allocator, path: []const u8, data: []const u8) !void {
+pub fn writeFile(allocator: *mem.Allocator, path: []const u8, data: []const u8) !void {
     var file = try File.openWrite(allocator, path);
     defer file.close();
     try file.write(data);
 }
 
 /// On success, caller owns returned buffer.
-pub fn readFileAlloc(allocator: &mem.Allocator, path: []const u8) ![]u8 {
+pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
+    return readFileAllocAligned(allocator, path, @alignOf(u8));
+}
+
+/// On success, caller owns returned buffer.
+pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
     var file = try File.openRead(allocator, path);
     defer file.close();
 
     const size = try file.getEndPos();
-    const buf = try allocator.alloc(u8, size);
+    const buf = try allocator.alignedAlloc(u8, A, size);
     errdefer allocator.free(buf);
 
     var adapter = FileInStream.init(&file);
@@ -283,18 +287,18 @@ pub fn BufferedInStream(comptime Error: type) type {
 pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
     return struct {
         const Self = this;
-        const Stream = InStream(Error); 
+        const Stream = InStream(Error);
 
         pub stream: Stream,
 
-        unbuffered_in_stream: &Stream,
+        unbuffered_in_stream: *Stream,
 
         buffer: [buffer_size]u8,
         start_index: usize,
         end_index: usize,
 
-        pub fn init(unbuffered_in_stream: &Stream) Self {
-            return Self {
+        pub fn init(unbuffered_in_stream: *Stream) Self {
+            return Self{
                 .unbuffered_in_stream = unbuffered_in_stream,
                 .buffer = undefined,
 
@@ -305,13 +309,11 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                 .start_index = buffer_size,
                 .end_index = buffer_size,
 
-                .stream = Stream {
-                    .readFn = readFn,
-                },
+                .stream = Stream{ .readFn = readFn },
             };
         }
 
-        fn readFn(in_stream: &Stream, dest: []u8) !usize {
+        fn readFn(in_stream: *Stream, dest: []u8) !usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
             var dest_index: usize = 0;
@@ -350,6 +352,150 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
     };
 }
 
+/// Creates a stream which supports 'un-reading' data, so that it can be read again.
+/// This makes look-ahead style parsing much easier.
+pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) type {
+    return struct {
+        const Self = this;
+        pub const Error = InStreamError;
+        pub const Stream = InStream(Error);
+
+        pub stream: Stream,
+        base: *Stream,
+
+        // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
+        // is not too difficult to derive from this.
+        buffer: [buffer_size]u8,
+        index: usize,
+        at_end: bool,
+
+        pub fn init(base: *Stream) Self {
+            return Self{
+                .base = base,
+                .buffer = undefined,
+                .index = 0,
+                .at_end = false,
+                .stream = Stream{ .readFn = readFn },
+            };
+        }
+
+        pub fn putBackByte(self: *Self, byte: u8) void {
+            self.buffer[self.index] = byte;
+            self.index += 1;
+        }
+
+        pub fn putBack(self: *Self, bytes: []const u8) void {
+            var pos = bytes.len;
+            while (pos != 0) {
+                pos -= 1;
+                self.putBackByte(bytes[pos]);
+            }
+        }
+
+        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
+            const self = @fieldParentPtr(Self, "stream", in_stream);
+
+            // copy over anything putBack()'d
+            var pos: usize = 0;
+            while (pos < dest.len and self.index != 0) {
+                dest[pos] = self.buffer[self.index - 1];
+                self.index -= 1;
+                pos += 1;
+            }
+
+            if (pos == dest.len or self.at_end) {
+                return pos;
+            }
+
+            // ask the backing stream for more
+            const left = dest.len - pos;
+            const read = try self.base.read(dest[pos..]);
+            assert(read <= left);
+
+            self.at_end = (read < left);
+            return pos + read;
+        }
+
+    };
+}
+
+pub const SliceInStream = struct {
+    const Self = this;
+    pub const Error = error { };
+    pub const Stream = InStream(Error);
+
+    pub stream: Stream,
+
+    pos: usize,
+    slice: []const u8,
+
+    pub fn init(slice: []const u8) Self {
+        return Self{
+            .slice = slice,
+            .pos = 0,
+            .stream = Stream{ .readFn = readFn },
+        };
+    }
+
+    fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
+        const self = @fieldParentPtr(Self, "stream", in_stream);
+        const size = math.min(dest.len, self.slice.len - self.pos);
+        const end = self.pos + size;
+
+        mem.copy(u8, dest[0..size], self.slice[self.pos..end]);
+        self.pos = end;
+
+        return size;
+    }
+};
+
+/// This is a simple OutStream that writes to a slice, and returns an error
+/// when it runs out of space.
+pub const SliceOutStream = struct {
+    pub const Error = error{OutOfSpace};
+    pub const Stream = OutStream(Error);
+
+    pub stream: Stream,
+
+    pos: usize,
+    slice: []u8,
+
+    pub fn init(slice: []u8) SliceOutStream {
+        return SliceOutStream{
+            .slice = slice,
+            .pos = 0,
+            .stream = Stream{ .writeFn = writeFn },
+        };
+    }
+
+    pub fn getWritten(self: *const SliceOutStream) []const u8 {
+        return self.slice[0..self.pos];
+    }
+
+    pub fn reset(self: *SliceOutStream) void {
+        self.pos = 0;
+    }
+
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+        const self = @fieldParentPtr(SliceOutStream, "stream", out_stream);
+
+        assert(self.pos <= self.slice.len);
+
+        const n =
+            if (self.pos + bytes.len <= self.slice.len)
+                bytes.len
+            else
+                self.slice.len - self.pos;
+
+        std.mem.copy(u8, self.slice[self.pos..self.pos + n], bytes[0..n]);
+        self.pos += n;
+
+        if (n < bytes.len) {
+            return Error.OutOfSpace;
+        }
+    }
+};
+
 pub fn BufferedOutStream(comptime Error: type) type {
     return BufferedOutStreamCustom(os.page_size, Error);
 }
@@ -362,28 +508,26 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
 
         pub stream: Stream,
 
-        unbuffered_out_stream: &Stream,
+        unbuffered_out_stream: *Stream,
 
         buffer: [buffer_size]u8,
         index: usize,
 
-        pub fn init(unbuffered_out_stream: &Stream) Self {
-            return Self {
+        pub fn init(unbuffered_out_stream: *Stream) Self {
+            return Self{
                 .unbuffered_out_stream = unbuffered_out_stream,
                 .buffer = undefined,
                 .index = 0,
-                .stream = Stream {
-                    .writeFn = writeFn,
-                },
+                .stream = Stream{ .writeFn = writeFn },
             };
         }
 
-        pub fn flush(self: &Self) !void {
+        pub fn flush(self: *Self) !void {
             try self.unbuffered_out_stream.write(self.buffer[0..self.index]);
             self.index = 0;
         }
 
-        fn writeFn(out_stream: &Stream, bytes: []const u8) !void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
             if (bytes.len >= self.buffer.len) {
@@ -395,7 +539,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             while (src_index < bytes.len) {
                 const dest_space_left = self.buffer.len - self.index;
                 const copy_amt = math.min(dest_space_left, bytes.len - src_index);
-                mem.copy(u8, self.buffer[self.index..], bytes[src_index..src_index + copy_amt]);
+                mem.copy(u8, self.buffer[self.index..], bytes[src_index .. src_index + copy_amt]);
                 self.index += copy_amt;
                 assert(self.index <= self.buffer.len);
                 if (self.index == self.buffer.len) {
@@ -409,43 +553,38 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
 
 /// Implementation of OutStream trait for Buffer
 pub const BufferOutStream = struct {
-    buffer: &Buffer,
+    buffer: *Buffer,
     stream: Stream,
 
     pub const Error = error{OutOfMemory};
     pub const Stream = OutStream(Error);
 
-    pub fn init(buffer: &Buffer) BufferOutStream {
-        return BufferOutStream {
+    pub fn init(buffer: *Buffer) BufferOutStream {
+        return BufferOutStream{
             .buffer = buffer,
-            .stream = Stream {
-                .writeFn = writeFn,
-            },
+            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
-    fn writeFn(out_stream: &Stream, bytes: []const u8) !void {
+    fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
         const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
         return self.buffer.append(bytes);
     }
 };
-
 
 pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
     file_stream: FileOutStream,
     buffered_stream: BufferedOutStream(FileOutStream.Error),
 
-    pub fn create(allocator: &mem.Allocator, dest_path: []const u8) !&BufferedAtomicFile {
+    pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
         // TODO with well defined copy elision we don't need this allocation
-        var self = try allocator.create(BufferedAtomicFile);
-        errdefer allocator.destroy(self);
-
-        *self = BufferedAtomicFile {
+        var self = try allocator.create(BufferedAtomicFile{
             .atomic_file = undefined,
             .file_stream = undefined,
             .buffered_stream = undefined,
-        };
+        });
+        errdefer allocator.destroy(self);
 
         self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.default_file_mode);
         errdefer self.atomic_file.deinit();
@@ -456,18 +595,18 @@ pub const BufferedAtomicFile = struct {
     }
 
     /// always call destroy, even after successful finish()
-    pub fn destroy(self: &BufferedAtomicFile) void {
+    pub fn destroy(self: *BufferedAtomicFile) void {
         const allocator = self.atomic_file.allocator;
         self.atomic_file.deinit();
         allocator.destroy(self);
     }
 
-    pub fn finish(self: &BufferedAtomicFile) !void {
+    pub fn finish(self: *BufferedAtomicFile) !void {
         try self.buffered_stream.flush();
         try self.atomic_file.finish();
     }
 
-    pub fn stream(self: &BufferedAtomicFile) &OutStream(FileOutStream.Error) {
+    pub fn stream(self: *BufferedAtomicFile) *OutStream(FileOutStream.Error) {
         return &self.buffered_stream.stream;
     }
 };
@@ -489,7 +628,7 @@ pub fn readLine(buf: []u8) !usize {
             '\r' => {
                 // trash the following \n
                 _ = stream.readByte() catch return error.EndOfFile;
-               return index;
+                return index;
             },
             '\n' => return index,
             else => {

@@ -50,7 +50,7 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignBitXor:           return "^=";
         case BinOpTypeAssignBitOr:            return "|=";
         case BinOpTypeAssignMergeErrorSets:   return "||=";
-        case BinOpTypeUnwrapMaybe:            return "??";
+        case BinOpTypeUnwrapOptional:         return "orelse";
         case BinOpTypeArrayCat:               return "++";
         case BinOpTypeArrayMult:              return "**";
         case BinOpTypeErrorUnion:             return "!";
@@ -66,9 +66,8 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpNegationWrap: return "-%";
         case PrefixOpBoolNot: return "!";
         case PrefixOpBinNot: return "~";
-        case PrefixOpDereference: return "*";
-        case PrefixOpMaybe: return "?";
-        case PrefixOpUnwrapMaybe: return "??";
+        case PrefixOpOptional: return "?";
+        case PrefixOpAddrOf: return "&";
     }
     zig_unreachable();
 }
@@ -186,8 +185,6 @@ static const char *node_type_str(NodeType node_type) {
             return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
-        case NodeTypeAddrOfExpr:
-            return "AddrOfExpr";
         case NodeTypeUse:
             return "Use";
         case NodeTypeBoolLiteral:
@@ -222,6 +219,10 @@ static const char *node_type_str(NodeType node_type) {
             return "AsmExpr";
         case NodeTypeFieldAccessExpr:
             return "FieldAccessExpr";
+        case NodeTypePtrDeref:
+            return "PtrDerefExpr";
+        case NodeTypeUnwrapOptional:
+            return "UnwrapOptional";
         case NodeTypeContainerDecl:
             return "ContainerDecl";
         case NodeTypeStructField:
@@ -250,6 +251,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Suspend";
         case NodeTypePromiseType:
             return "PromiseType";
+        case NodeTypePointerType:
+            return "PointerType";
     }
     zig_unreachable();
 }
@@ -615,41 +618,47 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "%s", prefix_op_str(op));
 
                 AstNode *child_node = node->data.prefix_op_expr.primary_expr;
-                bool new_grouped = child_node->type == NodeTypePrefixOpExpr || child_node->type == NodeTypeAddrOfExpr;
+                bool new_grouped = child_node->type == NodeTypePrefixOpExpr || child_node->type == NodeTypePointerType;
                 render_node_extra(ar, child_node, new_grouped);
                 if (!grouped) fprintf(ar->f, ")");
                 break;
             }
-        case NodeTypeAddrOfExpr:
+        case NodeTypePointerType:
             {
                 if (!grouped) fprintf(ar->f, "(");
-                fprintf(ar->f, "&");
-                if (node->data.addr_of_expr.align_expr != nullptr) {
+                const char *star = "[*]";
+                if (node->data.pointer_type.star_token != nullptr &&
+                    (node->data.pointer_type.star_token->id == TokenIdStar || node->data.pointer_type.star_token->id == TokenIdStarStar))
+                {
+                    star = "*";
+                }
+                fprintf(ar->f, "%s", star);
+                if (node->data.pointer_type.align_expr != nullptr) {
                     fprintf(ar->f, "align(");
-                    render_node_grouped(ar, node->data.addr_of_expr.align_expr);
-                    if (node->data.addr_of_expr.bit_offset_start != nullptr) {
-                        assert(node->data.addr_of_expr.bit_offset_end != nullptr);
+                    render_node_grouped(ar, node->data.pointer_type.align_expr);
+                    if (node->data.pointer_type.bit_offset_start != nullptr) {
+                        assert(node->data.pointer_type.bit_offset_end != nullptr);
 
                         Buf offset_start_buf = BUF_INIT;
                         buf_resize(&offset_start_buf, 0);
-                        bigint_append_buf(&offset_start_buf, node->data.addr_of_expr.bit_offset_start, 10);
+                        bigint_append_buf(&offset_start_buf, node->data.pointer_type.bit_offset_start, 10);
 
                         Buf offset_end_buf = BUF_INIT;
                         buf_resize(&offset_end_buf, 0);
-                        bigint_append_buf(&offset_end_buf, node->data.addr_of_expr.bit_offset_end, 10);
+                        bigint_append_buf(&offset_end_buf, node->data.pointer_type.bit_offset_end, 10);
 
                         fprintf(ar->f, ":%s:%s ", buf_ptr(&offset_start_buf), buf_ptr(&offset_end_buf));
                     }
                     fprintf(ar->f, ") ");
                 }
-                if (node->data.addr_of_expr.is_const) {
+                if (node->data.pointer_type.is_const) {
                     fprintf(ar->f, "const ");
                 }
-                if (node->data.addr_of_expr.is_volatile) {
+                if (node->data.pointer_type.is_volatile) {
                     fprintf(ar->f, "volatile ");
                 }
 
-                render_node_ungrouped(ar, node->data.addr_of_expr.op_expr);
+                render_node_ungrouped(ar, node->data.pointer_type.op_expr);
                 if (!grouped) fprintf(ar->f, ")");
                 break;
             }
@@ -668,7 +677,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, " ");
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
-                bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr && fn_ref_node->type != NodeTypeAddrOfExpr);
+                bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr && fn_ref_node->type != NodeTypePointerType);
                 render_node_extra(ar, fn_ref_node, grouped);
                 fprintf(ar->f, "(");
                 for (size_t i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
@@ -694,6 +703,20 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 render_node_ungrouped(ar, lhs);
                 fprintf(ar->f, ".");
                 print_symbol(ar, rhs);
+                break;
+            }
+        case NodeTypePtrDeref:
+            {
+                AstNode *lhs = node->data.ptr_deref_expr.target;
+                render_node_ungrouped(ar, lhs);
+                fprintf(ar->f, ".*");
+                break;
+            }
+        case NodeTypeUnwrapOptional:
+            {
+                AstNode *lhs = node->data.unwrap_optional.expr;
+                render_node_ungrouped(ar, lhs);
+                fprintf(ar->f, ".?");
                 break;
             }
         case NodeTypeUndefinedLiteral:
@@ -728,7 +751,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                         render_node_grouped(ar, field_node->data.struct_field.type);
                     }
                     if (field_node->data.struct_field.value != nullptr) {
-                        fprintf(ar->f, "= ");
+                        fprintf(ar->f, " = ");
                         render_node_grouped(ar, field_node->data.struct_field.value);
                     }
                     fprintf(ar->f, ",\n");
@@ -1089,9 +1112,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 fprintf(ar->f, "suspend");
                 if (node->data.suspend.block != nullptr) {
-                    fprintf(ar->f, " |");
-                    render_node_grouped(ar, node->data.suspend.promise_symbol);
-                    fprintf(ar->f, "| ");
                     render_node_grouped(ar, node->data.suspend.block);
                 }
                 break;

@@ -1,12 +1,11 @@
 // Test trailing comma syntax
+// zig fmt: off
 
 const struct_trailing_comma = struct { x: i32, y: i32, };
 const struct_no_comma = struct { x: i32, y: i32 };
-const struct_no_comma_void_type = struct { x: i32, y };
 const struct_fn_no_comma = struct { fn m() void {} y: i32 };
 
 const enum_no_comma = enum { A, B };
-const enum_no_comma_type = enum { A, B: i32 };
 
 fn container_init() void {
     const S = struct { x: i32, y: i32 };
@@ -36,16 +35,11 @@ fn switch_prongs(x: i32) void {
 
 const fn_no_comma = fn(i32, i32)void;
 const fn_trailing_comma = fn(i32, i32,)void;
-const fn_vararg_trailing_comma = fn(i32, i32, ...,)void;
 
 fn fn_calls() void {
     fn add(x: i32, y: i32,) i32 { x + y };
     _ = add(1, 2);
     _ = add(1, 2,);
-
-    fn swallow(x: ...,) void {};
-    _ = swallow(1,2,3,);
-    _ = swallow();
 }
 
 fn asm_lists() void {

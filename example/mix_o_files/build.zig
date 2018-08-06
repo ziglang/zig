@@ -1,12 +1,10 @@
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) void {
+pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addCExecutable("test");
-    exe.addCompileFlags([][]const u8 {
-        "-std=c99",
-    });
+    exe.addCompileFlags([][]const u8{"-std=c99"});
     exe.addSourceFile("test.c");
     exe.addObject(obj);
 

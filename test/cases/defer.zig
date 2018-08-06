@@ -5,9 +5,18 @@ var index: usize = undefined;
 
 fn runSomeErrorDefers(x: bool) !bool {
     index = 0;
-    defer {result[index] = 'a'; index += 1;}
-    errdefer {result[index] = 'b'; index += 1;}
-    defer {result[index] = 'c'; index += 1;}
+    defer {
+        result[index] = 'a';
+        index += 1;
+    }
+    errdefer {
+        result[index] = 'b';
+        index += 1;
+    }
+    defer {
+        result[index] = 'c';
+        index += 1;
+    }
     return if (x) x else error.FalseNotAllowed;
 }
 
@@ -40,4 +49,30 @@ fn testBreakContInDefer(x: usize) void {
         }
         assert(i == 5);
     }
+}
+
+test "defer and labeled break" {
+    var i = usize(0);
+
+    blk: {
+        defer i += 1;
+        break :blk;
+    }
+
+    assert(i == 1);
+}
+
+test "errdefer does not apply to fn inside fn" {
+    if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| assert(e == error.Bad);
+}
+
+fn testNestedFnErrDefer() error!void {
+    var a: i32 = 0;
+    errdefer a += 1;
+    const S = struct {
+        fn baz() error {
+            return error.Bad;
+        }
+    };
+    return S.baz();
 }

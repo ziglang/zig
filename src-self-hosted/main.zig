@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const event = std.event;
 const os = std.os;
 const io = std.io;
 const mem = std.mem;
@@ -13,246 +14,117 @@ const c = @import("c.zig");
 const introspect = @import("introspect.zig");
 const Args = arg.Args;
 const Flag = arg.Flag;
-const Module = @import("module.zig").Module;
+const EventLoopLocal = @import("compilation.zig").EventLoopLocal;
+const Compilation = @import("compilation.zig").Compilation;
 const Target = @import("target.zig").Target;
+const errmsg = @import("errmsg.zig");
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
-var stderr: &io.OutStream(io.FileOutStream.Error) = undefined;
-var stdout: &io.OutStream(io.FileOutStream.Error) = undefined;
+var stderr_file: os.File = undefined;
+var stderr: *io.OutStream(io.FileOutStream.Error) = undefined;
+var stdout: *io.OutStream(io.FileOutStream.Error) = undefined;
 
 const usage =
     \\usage: zig [command] [options]
     \\
     \\Commands:
     \\
-    \\  build                        Build project from build.zig
-    \\  build-exe   [source]         Create executable from source or object files
-    \\  build-lib   [source]         Create library from source or object files
-    \\  build-obj   [source]         Create object from source or assembly
-    \\  fmt         [source]         Parse file and render in canonical zig format
-    \\  run         [source]         Create executable and run immediately
-    \\  targets                      List available compilation targets
-    \\  test        [source]         Create and run a test build
-    \\  translate-c [source]         Convert c code to zig code
-    \\  version                      Print version number and exit
-    \\  zen                          Print zen of zig and exit
+    \\  build-exe  [source]      Create executable from source or object files
+    \\  build-lib  [source]      Create library from source or object files
+    \\  build-obj  [source]      Create object from source or assembly
+    \\  fmt        [source]      Parse file and render in canonical zig format
+    \\  libc       [paths_file]  Display native libc paths file or validate one
+    \\  targets                  List available compilation targets
+    \\  version                  Print version number and exit
+    \\  zen                      Print zen of zig and exit
     \\
     \\
-    ;
+;
 
 const Command = struct {
     name: []const u8,
-    exec: fn(&Allocator, []const []const u8) error!void,
+    exec: fn (*Allocator, []const []const u8) error!void,
 };
 
 pub fn main() !void {
-    var allocator = std.heap.c_allocator;
+    // This allocator needs to be thread-safe because we use it for the event.Loop
+    // which multiplexes coroutines onto kernel threads.
+    // libc allocator is guaranteed to have this property.
+    const allocator = std.heap.c_allocator;
 
     var stdout_file = try std.io.getStdOut();
     var stdout_out_stream = std.io.FileOutStream.init(&stdout_file);
     stdout = &stdout_out_stream.stream;
 
-    var stderr_file = try std.io.getStdErr();
+    stderr_file = try std.io.getStdErr();
     var stderr_out_stream = std.io.FileOutStream.init(&stderr_file);
     stderr = &stderr_out_stream.stream;
 
     const args = try os.argsAlloc(allocator);
-    defer os.argsFree(allocator, args);
+    // TODO I'm getting  unreachable code here, which shouldn't happen
+    //defer os.argsFree(allocator, args);
 
     if (args.len <= 1) {
+        try stderr.write("expected command argument\n\n");
         try stderr.write(usage);
         os.exit(1);
     }
 
-    const commands = []Command {
-        Command { .name = "build",       .exec = cmdBuild      },
-        Command { .name = "build-exe",   .exec = cmdBuildExe   },
-        Command { .name = "build-lib",   .exec = cmdBuildLib   },
-        Command { .name = "build-obj",   .exec = cmdBuildObj   },
-        Command { .name = "fmt",         .exec = cmdFmt        },
-        Command { .name = "run",         .exec = cmdRun        },
-        Command { .name = "targets",     .exec = cmdTargets    },
-        Command { .name = "test",        .exec = cmdTest       },
-        Command { .name = "translate-c", .exec = cmdTranslateC },
-        Command { .name = "version",     .exec = cmdVersion    },
-        Command { .name = "zen",         .exec = cmdZen        },
+    const commands = []Command{
+        Command{
+            .name = "build-exe",
+            .exec = cmdBuildExe,
+        },
+        Command{
+            .name = "build-lib",
+            .exec = cmdBuildLib,
+        },
+        Command{
+            .name = "build-obj",
+            .exec = cmdBuildObj,
+        },
+        Command{
+            .name = "fmt",
+            .exec = cmdFmt,
+        },
+        Command{
+            .name = "libc",
+            .exec = cmdLibC,
+        },
+        Command{
+            .name = "targets",
+            .exec = cmdTargets,
+        },
+        Command{
+            .name = "version",
+            .exec = cmdVersion,
+        },
+        Command{
+            .name = "zen",
+            .exec = cmdZen,
+        },
 
         // undocumented commands
-        Command { .name = "help",        .exec = cmdHelp       },
-        Command { .name = "internal",    .exec = cmdInternal   },
+        Command{
+            .name = "help",
+            .exec = cmdHelp,
+        },
+        Command{
+            .name = "internal",
+            .exec = cmdInternal,
+        },
     };
 
     for (commands) |command| {
         if (mem.eql(u8, command.name, args[1])) {
-            try command.exec(allocator, args[2..]);
-            return;
+            return command.exec(allocator, args[2..]);
         }
     }
 
     try stderr.print("unknown command: {}\n\n", args[1]);
     try stderr.write(usage);
+    os.exit(1);
 }
-
-// cmd:build ///////////////////////////////////////////////////////////////////////////////////////
-
-const usage_build =
-    \\usage: zig build <options>
-    \\
-    \\General Options:
-    \\   --help                       Print this help and exit
-    \\   --init                       Generate a build.zig template
-    \\   --build-file [file]          Override path to build.zig
-    \\   --cache-dir [path]           Override path to cache directory
-    \\   --verbose                    Print commands before executing them
-    \\   --prefix [path]              Override default install prefix
-    \\
-    \\Project-Specific Options:
-    \\
-    \\   Project-specific options become available when the build file is found.
-    \\
-    \\Advanced Options:
-    \\   --build-file [file]          Override path to build.zig
-    \\   --cache-dir [path]           Override path to cache directory
-    \\   --verbose-tokenize           Enable compiler debug output for tokenization
-    \\   --verbose-ast                Enable compiler debug output for parsing into an AST
-    \\   --verbose-link               Enable compiler debug output for linking
-    \\   --verbose-ir                 Enable compiler debug output for Zig IR
-    \\   --verbose-llvm-ir            Enable compiler debug output for LLVM IR
-    \\   --verbose-cimport            Enable compiler debug output for C imports
-    \\
-    \\
-    ;
-
-const args_build_spec = []Flag {
-    Flag.Bool("--help"),
-    Flag.Bool("--init"),
-    Flag.Arg1("--build-file"),
-    Flag.Arg1("--cache-dir"),
-    Flag.Bool("--verbose"),
-    Flag.Arg1("--prefix"),
-
-    Flag.Arg1("--build-file"),
-    Flag.Arg1("--cache-dir"),
-    Flag.Bool("--verbose-tokenize"),
-    Flag.Bool("--verbose-ast"),
-    Flag.Bool("--verbose-link"),
-    Flag.Bool("--verbose-ir"),
-    Flag.Bool("--verbose-llvm-ir"),
-    Flag.Bool("--verbose-cimport"),
-};
-
-const missing_build_file =
-    \\No 'build.zig' file found.
-    \\
-    \\Initialize a 'build.zig' template file with `zig build --init`,
-    \\or build an executable directly with `zig build-exe $FILENAME.zig`.
-    \\
-    \\See: `zig build --help` or `zig help` for more options.
-    \\
-    ;
-
-fn cmdBuild(allocator: &Allocator, args: []const []const u8) !void {
-    var flags = try Args.parse(allocator, args_build_spec, args);
-    defer flags.deinit();
-
-    if (flags.present("help")) {
-        try stderr.write(usage_build);
-        os.exit(0);
-    }
-
-    const zig_lib_dir = try introspect.resolveZigLibDir(allocator);
-    defer allocator.free(zig_lib_dir);
-
-    const zig_std_dir = try os.path.join(allocator, zig_lib_dir, "std");
-    defer allocator.free(zig_std_dir);
-
-    const special_dir = try os.path.join(allocator, zig_std_dir, "special");
-    defer allocator.free(special_dir);
-
-    const build_runner_path = try os.path.join(allocator, special_dir, "build_runner.zig");
-    defer allocator.free(build_runner_path);
-
-    const build_file = flags.single("build-file") ?? "build.zig";
-    const build_file_abs = try os.path.resolve(allocator, ".", build_file);
-    defer allocator.free(build_file_abs);
-
-    const build_file_exists = os.File.access(allocator, build_file_abs, os.default_file_mode) catch false;
-
-    if (flags.present("init")) {
-        if (build_file_exists) {
-            try stderr.print("build.zig already exists\n");
-            os.exit(1);
-        }
-
-        // need a new scope for proper defer scope finalization on exit
-        {
-            const build_template_path = try os.path.join(allocator, special_dir, "build_file_template.zig");
-            defer allocator.free(build_template_path);
-
-            try os.copyFile(allocator, build_template_path, build_file_abs);
-            try stderr.print("wrote build.zig template\n");
-        }
-
-        os.exit(0);
-    }
-
-    if (!build_file_exists) {
-        try stderr.write(missing_build_file);
-        os.exit(1);
-    }
-
-    // TODO: Invoke build.zig entrypoint directly?
-    var zig_exe_path = try os.selfExePath(allocator);
-    defer allocator.free(zig_exe_path);
-
-    var build_args = ArrayList([]const u8).init(allocator);
-    defer build_args.deinit();
-
-    const build_file_basename = os.path.basename(build_file_abs);
-    const build_file_dirname = os.path.dirname(build_file_abs);
-
-    var full_cache_dir: []u8 = undefined;
-    if (flags.single("cache-dir")) |cache_dir| {
-        full_cache_dir = try os.path.resolve(allocator, ".", cache_dir, full_cache_dir);
-    } else {
-        full_cache_dir = try os.path.join(allocator, build_file_dirname, "zig-cache");
-    }
-    defer allocator.free(full_cache_dir);
-
-    const path_to_build_exe = try os.path.join(allocator, full_cache_dir, "build");
-    defer allocator.free(path_to_build_exe);
-
-    try build_args.append(path_to_build_exe);
-    try build_args.append(zig_exe_path);
-    try build_args.append(build_file_dirname);
-    try build_args.append(full_cache_dir);
-
-    var proc = try os.ChildProcess.init(build_args.toSliceConst(), allocator);
-    defer proc.deinit();
-
-    var term = try proc.spawnAndWait();
-    switch (term) {
-        os.ChildProcess.Term.Exited => |status| {
-            if (status != 0) {
-                try stderr.print("{} exited with status {}\n", build_args.at(0), status);
-                os.exit(1);
-            }
-        },
-        os.ChildProcess.Term.Signal => |signal| {
-            try stderr.print("{} killed by signal {}\n", build_args.at(0), signal);
-            os.exit(1);
-        },
-        os.ChildProcess.Term.Stopped => |signal| {
-            try stderr.print("{} stopped by signal {}\n", build_args.at(0), signal);
-            os.exit(1);
-        },
-        os.ChildProcess.Term.Unknown => |status| {
-            try stderr.print("{} encountered unknown failure {}\n", build_args.at(0), status);
-            os.exit(1);
-        },
-    }
-}
-
-// cmd:build-exe ///////////////////////////////////////////////////////////////////////////////////
 
 const usage_build_generic =
     \\usage: zig build-exe <options> [file]
@@ -264,18 +136,20 @@ const usage_build_generic =
     \\  --color [auto|off|on]        Enable or disable colored error messages
     \\
     \\Compile Options:
+    \\  --libc [file]                Provide a file which specifies libc paths
     \\  --assembly [source]          Add assembly file to build
-    \\  --cache-dir [path]           Override the cache directory
     \\  --emit [filetype]            Emit a specific file format as compilation output
     \\  --enable-timing-info         Print timing diagnostics
-    \\  --libc-include-dir [path]    Directory where libc stdlib.h resides
     \\  --name [name]                Override output name
     \\  --output [file]              Override destination path
     \\  --output-h [file]            Override generated header file path
     \\  --pkg-begin [name] [path]    Make package available to import and push current pkg
     \\  --pkg-end                    Pop current pkg
-    \\  --release-fast               Build with optimizations on and safety off
-    \\  --release-safe               Build with optimizations on and safety on
+    \\  --mode [mode]                Set the build mode
+    \\    debug                      (default) optimizations off, safety on
+    \\    release-fast               optimizations on, safety off
+    \\    release-safe               optimizations on, safety on
+    \\    release-small              optimize for small binary, safety off
     \\  --static                     Output will be statically linked
     \\  --strip                      Exclude debug symbols
     \\  --target-arch [name]         Specify target architecture
@@ -294,12 +168,7 @@ const usage_build_generic =
     \\
     \\Link Options:
     \\  --ar-path [path]             Set the path to ar
-    \\  --dynamic-linker [path]      Set the path to ld.so
     \\  --each-lib-rpath             Add rpath for each used dynamic library
-    \\  --libc-lib-dir [path]        Directory where libc crt1.o resides
-    \\  --libc-static-lib-dir [path] Directory where libc crtbegin.o resides
-    \\  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides
-    \\  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides
     \\  --library [lib]              Link against lib
     \\  --forbid-library [lib]       Make it an error to link against lib
     \\  --library-path [dir]         Add a directory to the library search path
@@ -317,25 +186,36 @@ const usage_build_generic =
     \\  --ver-patch [ver]            Dynamic library semver patch version
     \\
     \\
-    ;
+;
 
-const args_build_generic = []Flag {
+const args_build_generic = []Flag{
     Flag.Bool("--help"),
-    Flag.Option("--color", []const []const u8 { "auto", "off", "on" }),
+    Flag.Option("--color", []const []const u8{
+        "auto",
+        "off",
+        "on",
+    }),
+    Flag.Option("--mode", []const []const u8{
+        "debug",
+        "release-fast",
+        "release-safe",
+        "release-small",
+    }),
 
     Flag.ArgMergeN("--assembly", 1),
-    Flag.Arg1("--cache-dir"),
-    Flag.Option("--emit", []const []const u8 { "asm", "bin", "llvm-ir" }),
+    Flag.Option("--emit", []const []const u8{
+        "asm",
+        "bin",
+        "llvm-ir",
+    }),
     Flag.Bool("--enable-timing-info"),
-    Flag.Arg1("--libc-include-dir"),
+    Flag.Arg1("--libc"),
     Flag.Arg1("--name"),
     Flag.Arg1("--output"),
     Flag.Arg1("--output-h"),
     // NOTE: Parsed manually after initial check
     Flag.ArgN("--pkg-begin", 2),
     Flag.Bool("--pkg-end"),
-    Flag.Bool("--release-fast"),
-    Flag.Bool("--release-safe"),
     Flag.Bool("--static"),
     Flag.Bool("--strip"),
     Flag.Arg1("--target-arch"),
@@ -353,12 +233,7 @@ const args_build_generic = []Flag {
     Flag.Arg1("-mllvm"),
 
     Flag.Arg1("--ar-path"),
-    Flag.Arg1("--dynamic-linker"),
     Flag.Bool("--each-lib-rpath"),
-    Flag.Arg1("--libc-lib-dir"),
-    Flag.Arg1("--libc-static-lib-dir"),
-    Flag.Arg1("--msvc-lib-dir"),
-    Flag.Arg1("--kernel32-lib-dir"),
     Flag.ArgMergeN("--library", 1),
     Flag.ArgMergeN("--forbid-library", 1),
     Flag.ArgMergeN("--library-path", 1),
@@ -377,49 +252,60 @@ const args_build_generic = []Flag {
     Flag.Arg1("--ver-patch"),
 };
 
-fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Module.Kind) !void {
+fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Compilation.Kind) !void {
     var flags = try Args.parse(allocator, args_build_generic, args);
     defer flags.deinit();
 
     if (flags.present("help")) {
-        try stderr.write(usage_build_generic);
+        try stdout.write(usage_build_generic);
         os.exit(0);
     }
 
-    var build_mode = builtin.Mode.Debug;
-    if (flags.present("release-fast")) {
-        build_mode = builtin.Mode.ReleaseFast;
-    } else if (flags.present("release-safe")) {
-        build_mode = builtin.Mode.ReleaseSafe;
-    }
-
-    var color = Module.ErrColor.Auto;
-    if (flags.single("color")) |color_flag| {
-        if (mem.eql(u8, color_flag, "auto")) {
-            color = Module.ErrColor.Auto;
-        } else if (mem.eql(u8, color_flag, "on")) {
-            color = Module.ErrColor.On;
-        } else if (mem.eql(u8, color_flag, "off")) {
-            color = Module.ErrColor.Off;
+    const build_mode = blk: {
+        if (flags.single("mode")) |mode_flag| {
+            if (mem.eql(u8, mode_flag, "debug")) {
+                break :blk builtin.Mode.Debug;
+            } else if (mem.eql(u8, mode_flag, "release-fast")) {
+                break :blk builtin.Mode.ReleaseFast;
+            } else if (mem.eql(u8, mode_flag, "release-safe")) {
+                break :blk builtin.Mode.ReleaseSafe;
+            } else if (mem.eql(u8, mode_flag, "release-small")) {
+                break :blk builtin.Mode.ReleaseSmall;
+            } else unreachable;
         } else {
-            unreachable;
+            break :blk builtin.Mode.Debug;
         }
-    }
+    };
 
-    var emit_type = Module.Emit.Binary;
-    if (flags.single("emit")) |emit_flag| {
-        if (mem.eql(u8, emit_flag, "asm")) {
-            emit_type = Module.Emit.Assembly;
-        } else if (mem.eql(u8, emit_flag, "bin")) {
-            emit_type = Module.Emit.Binary;
-        } else if (mem.eql(u8, emit_flag, "llvm-ir")) {
-            emit_type = Module.Emit.LlvmIr;
+    const color = blk: {
+        if (flags.single("color")) |color_flag| {
+            if (mem.eql(u8, color_flag, "auto")) {
+                break :blk errmsg.Color.Auto;
+            } else if (mem.eql(u8, color_flag, "on")) {
+                break :blk errmsg.Color.On;
+            } else if (mem.eql(u8, color_flag, "off")) {
+                break :blk errmsg.Color.Off;
+            } else unreachable;
         } else {
-            unreachable;
+            break :blk errmsg.Color.Auto;
         }
-    }
+    };
 
-    var cur_pkg = try Module.CliPkg.init(allocator, "", "", null); // TODO: Need a path, name?
+    const emit_type = blk: {
+        if (flags.single("emit")) |emit_flag| {
+            if (mem.eql(u8, emit_flag, "asm")) {
+                break :blk Compilation.Emit.Assembly;
+            } else if (mem.eql(u8, emit_flag, "bin")) {
+                break :blk Compilation.Emit.Binary;
+            } else if (mem.eql(u8, emit_flag, "llvm-ir")) {
+                break :blk Compilation.Emit.LlvmIr;
+            } else unreachable;
+        } else {
+            break :blk Compilation.Emit.Binary;
+        }
+    };
+
+    var cur_pkg = try CliPkg.init(allocator, "", "", null);
     defer cur_pkg.deinit();
 
     var i: usize = 0;
@@ -432,15 +318,16 @@ fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Mo
             i += 1;
             const new_pkg_path = args[i];
 
-            var new_cur_pkg = try Module.CliPkg.init(allocator, new_pkg_name, new_pkg_path, cur_pkg);
+            var new_cur_pkg = try CliPkg.init(allocator, new_pkg_name, new_pkg_path, cur_pkg);
             try cur_pkg.children.append(new_cur_pkg);
             cur_pkg = new_cur_pkg;
         } else if (mem.eql(u8, "--pkg-end", arg_name)) {
-            if (cur_pkg.parent == null) {
+            if (cur_pkg.parent) |parent| {
+                cur_pkg = parent;
+            } else {
                 try stderr.print("encountered --pkg-end with no matching --pkg-begin\n");
                 os.exit(1);
             }
-            cur_pkg = ??cur_pkg.parent;
         }
     }
 
@@ -449,138 +336,117 @@ fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Mo
         os.exit(1);
     }
 
-    var in_file: ?[]const u8 = undefined;
-    switch (flags.positionals.len) {
-        0 => {
-            try stderr.write("--name [name] not provided and unable to infer\n");
-            os.exit(1);
-        },
-        1 => {
-            in_file = flags.positionals.at(0);
-        },
+    const provided_name = flags.single("name");
+    const root_source_file = switch (flags.positionals.len) {
+        0 => null,
+        1 => flags.positionals.at(0),
         else => {
-            try stderr.write("only one zig input file is accepted during build\n");
+            try stderr.print("unexpected extra parameter: {}\n", flags.positionals.at(1));
             os.exit(1);
         },
-    }
-
-    const basename = os.path.basename(??in_file);
-    var it = mem.split(basename, ".");
-    const root_name = it.next() ?? {
-        try stderr.write("file name cannot be empty\n");
-        os.exit(1);
     };
 
-    const asm_a= flags.many("assembly");
-    const obj_a = flags.many("object");
-    if (in_file == null and (obj_a == null or (??obj_a).len == 0) and (asm_a == null or (??asm_a).len == 0)) {
+    const root_name = if (provided_name) |n| n else blk: {
+        if (root_source_file) |file| {
+            const basename = os.path.basename(file);
+            var it = mem.split(basename, ".");
+            break :blk it.next() orelse basename;
+        } else {
+            try stderr.write("--name [name] not provided and unable to infer\n");
+            os.exit(1);
+        }
+    };
+
+    const is_static = flags.present("static");
+
+    const assembly_files = flags.many("assembly");
+    const link_objects = flags.many("object");
+    if (root_source_file == null and link_objects.len == 0 and assembly_files.len == 0) {
         try stderr.write("Expected source file argument or at least one --object or --assembly argument\n");
         os.exit(1);
     }
 
-    if (out_type == Module.Kind.Obj and (obj_a != null and (??obj_a).len != 0)) {
+    if (out_type == Compilation.Kind.Obj and link_objects.len != 0) {
         try stderr.write("When building an object file, --object arguments are invalid\n");
         os.exit(1);
     }
 
-    const zig_root_source_file = in_file;
-
-    const full_cache_dir = os.path.resolve(allocator, ".", flags.single("cache-dir") ?? "zig-cache"[0..]) catch {
-        os.exit(1);
-    };
-    defer allocator.free(full_cache_dir);
-
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
     defer allocator.free(zig_lib_dir);
 
-    var module =
-        try Module.create(
-            allocator,
-            root_name,
-            zig_root_source_file,
-            Target.Native,
-            out_type,
-            build_mode,
-            zig_lib_dir,
-            full_cache_dir
-        );
-    defer module.destroy();
+    var override_libc: LibCInstallation = undefined;
 
-    module.version_major = try std.fmt.parseUnsigned(u32, flags.single("ver-major") ?? "0", 10);
-    module.version_minor = try std.fmt.parseUnsigned(u32, flags.single("ver-minor") ?? "0", 10);
-    module.version_patch = try std.fmt.parseUnsigned(u32, flags.single("ver-patch") ?? "0", 10);
+    var loop: event.Loop = undefined;
+    try loop.initMultiThreaded(allocator);
+    defer loop.deinit();
 
-    module.is_test = false;
+    var event_loop_local = try EventLoopLocal.init(&loop);
+    defer event_loop_local.deinit();
 
-    if (flags.single("linker-script")) |linker_script| {
-        module.linker_script = linker_script;
+    var comp = try Compilation.create(
+        &event_loop_local,
+        root_name,
+        root_source_file,
+        Target.Native,
+        out_type,
+        build_mode,
+        is_static,
+        zig_lib_dir,
+    );
+    defer comp.destroy();
+
+    if (flags.single("libc")) |libc_path| {
+        parseLibcPaths(loop.allocator, &override_libc, libc_path);
+        comp.override_libc = &override_libc;
     }
 
-    module.each_lib_rpath = flags.present("each-lib-rpath");
+    for (flags.many("library")) |lib| {
+        _ = try comp.addLinkLib(lib, true);
+    }
+
+    comp.version_major = try std.fmt.parseUnsigned(u32, flags.single("ver-major") orelse "0", 10);
+    comp.version_minor = try std.fmt.parseUnsigned(u32, flags.single("ver-minor") orelse "0", 10);
+    comp.version_patch = try std.fmt.parseUnsigned(u32, flags.single("ver-patch") orelse "0", 10);
+
+    comp.is_test = false;
+
+    comp.linker_script = flags.single("linker-script");
+    comp.each_lib_rpath = flags.present("each-lib-rpath");
 
     var clang_argv_buf = ArrayList([]const u8).init(allocator);
     defer clang_argv_buf.deinit();
-    if (flags.many("mllvm")) |mllvm_flags| {
-        for (mllvm_flags) |mllvm| {
-            try clang_argv_buf.append("-mllvm");
-            try clang_argv_buf.append(mllvm);
-        }
 
-        module.llvm_argv = mllvm_flags;
-        module.clang_argv = clang_argv_buf.toSliceConst();
+    const mllvm_flags = flags.many("mllvm");
+    for (mllvm_flags) |mllvm| {
+        try clang_argv_buf.append("-mllvm");
+        try clang_argv_buf.append(mllvm);
     }
 
-    module.strip = flags.present("strip");
-    module.is_static = flags.present("static");
+    comp.llvm_argv = mllvm_flags;
+    comp.clang_argv = clang_argv_buf.toSliceConst();
 
-    if (flags.single("libc-lib-dir")) |libc_lib_dir| {
-        module.libc_lib_dir = libc_lib_dir;
-    }
-    if (flags.single("libc-static-lib-dir")) |libc_static_lib_dir| {
-        module.libc_static_lib_dir = libc_static_lib_dir;
-    }
-    if (flags.single("libc-include-dir")) |libc_include_dir| {
-        module.libc_include_dir = libc_include_dir;
-    }
-    if (flags.single("msvc-lib-dir")) |msvc_lib_dir| {
-        module.msvc_lib_dir = msvc_lib_dir;
-    }
-    if (flags.single("kernel32-lib-dir")) |kernel32_lib_dir| {
-        module.kernel32_lib_dir = kernel32_lib_dir;
-    }
-    if (flags.single("dynamic-linker")) |dynamic_linker| {
-        module.dynamic_linker = dynamic_linker;
-    }
+    comp.strip = flags.present("strip");
 
-    module.verbose_tokenize = flags.present("verbose-tokenize");
-    module.verbose_ast_tree = flags.present("verbose-ast-tree");
-    module.verbose_ast_fmt = flags.present("verbose-ast-fmt");
-    module.verbose_link = flags.present("verbose-link");
-    module.verbose_ir = flags.present("verbose-ir");
-    module.verbose_llvm_ir = flags.present("verbose-llvm-ir");
-    module.verbose_cimport = flags.present("verbose-cimport");
+    comp.verbose_tokenize = flags.present("verbose-tokenize");
+    comp.verbose_ast_tree = flags.present("verbose-ast-tree");
+    comp.verbose_ast_fmt = flags.present("verbose-ast-fmt");
+    comp.verbose_link = flags.present("verbose-link");
+    comp.verbose_ir = flags.present("verbose-ir");
+    comp.verbose_llvm_ir = flags.present("verbose-llvm-ir");
+    comp.verbose_cimport = flags.present("verbose-cimport");
 
-    module.err_color = color;
-
-    if (flags.many("library-path")) |lib_dirs| {
-        module.lib_dirs = lib_dirs;
-    }
-
-    if (flags.many("framework")) |frameworks| {
-        module.darwin_frameworks = frameworks;
-    }
-
-    if (flags.many("rpath")) |rpath_list| {
-        module.rpath_list = rpath_list;
-    }
+    comp.err_color = color;
+    comp.lib_dirs = flags.many("library-path");
+    comp.darwin_frameworks = flags.many("framework");
+    comp.rpath_list = flags.many("rpath");
 
     if (flags.single("output-h")) |output_h| {
-        module.out_h_path = output_h;
+        comp.out_h_path = output_h;
     }
 
-    module.windows_subsystem_windows = flags.present("mwindows");
-    module.windows_subsystem_console = flags.present("mconsole");
-    module.linker_rdynamic = flags.present("rdynamic");
+    comp.windows_subsystem_windows = flags.present("mwindows");
+    comp.windows_subsystem_console = flags.present("mconsole");
+    comp.linker_rdynamic = flags.present("rdynamic");
 
     if (flags.single("mmacosx-version-min") != null and flags.single("mios-version-min") != null) {
         try stderr.write("-mmacosx-version-min and -mios-version-min options not allowed together\n");
@@ -588,47 +454,55 @@ fn buildOutputType(allocator: &Allocator, args: []const []const u8, out_type: Mo
     }
 
     if (flags.single("mmacosx-version-min")) |ver| {
-        module.darwin_version_min = Module.DarwinVersionMin { .MacOS = ver };
+        comp.darwin_version_min = Compilation.DarwinVersionMin{ .MacOS = ver };
     }
     if (flags.single("mios-version-min")) |ver| {
-        module.darwin_version_min = Module.DarwinVersionMin { .Ios = ver };
+        comp.darwin_version_min = Compilation.DarwinVersionMin{ .Ios = ver };
     }
 
-    module.emit_file_type = emit_type;
-    if (flags.many("object")) |objects| {
-        module.link_objects = objects;
+    comp.emit_file_type = emit_type;
+    comp.assembly_files = assembly_files;
+    comp.link_out_file = flags.single("output");
+    comp.link_objects = link_objects;
+
+    try comp.build();
+    const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
+    defer cancel process_build_events_handle;
+    loop.run();
+}
+
+async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
+    // TODO directly awaiting async should guarantee memory allocation elision
+    const build_event = await (async comp.events.get() catch unreachable);
+
+    switch (build_event) {
+        Compilation.Event.Ok => {
+            return;
+        },
+        Compilation.Event.Error => |err| {
+            std.debug.warn("build failed: {}\n", @errorName(err));
+            os.exit(1);
+        },
+        Compilation.Event.Fail => |msgs| {
+            for (msgs) |msg| {
+                defer msg.destroy();
+                msg.printToFile(&stderr_file, color) catch os.exit(1);
+            }
+        },
     }
-    if (flags.many("assembly")) |assembly_files| {
-        module.assembly_files = assembly_files;
-    }
-
-    try module.build();
-    try module.link(flags.single("out-file") ?? null);
-
-    if (flags.present("print-timing-info")) {
-        // codegen_print_timing_info(g, stderr);
-    }
-
-    try stderr.print("building {}: {}\n", @tagName(out_type), in_file);
 }
 
-fn cmdBuildExe(allocator: &Allocator, args: []const []const u8) !void {
-    try buildOutputType(allocator, args, Module.Kind.Exe);
+fn cmdBuildExe(allocator: *Allocator, args: []const []const u8) !void {
+    return buildOutputType(allocator, args, Compilation.Kind.Exe);
 }
 
-// cmd:build-lib ///////////////////////////////////////////////////////////////////////////////////
-
-fn cmdBuildLib(allocator: &Allocator, args: []const []const u8) !void {
-    try buildOutputType(allocator, args, Module.Kind.Lib);
+fn cmdBuildLib(allocator: *Allocator, args: []const []const u8) !void {
+    return buildOutputType(allocator, args, Compilation.Kind.Lib);
 }
 
-// cmd:build-obj ///////////////////////////////////////////////////////////////////////////////////
-
-fn cmdBuildObj(allocator: &Allocator, args: []const []const u8) !void {
-    try buildOutputType(allocator, args, Module.Kind.Obj);
+fn cmdBuildObj(allocator: *Allocator, args: []const []const u8) !void {
+    return buildOutputType(allocator, args, Compilation.Kind.Obj);
 }
-
-// cmd:fmt /////////////////////////////////////////////////////////////////////////////////////////
 
 const usage_fmt =
     \\usage: zig fmt [file]...
@@ -637,23 +511,153 @@ const usage_fmt =
     \\
     \\Options:
     \\   --help                 Print this help and exit
-    \\   --keep-backups         Retain backup entries for every file
+    \\   --color [auto|off|on]  Enable or disable colored error messages
+    \\   --stdin                Format code from stdin
     \\
     \\
-    ;
+;
 
-const args_fmt_spec = []Flag {
+const args_fmt_spec = []Flag{
     Flag.Bool("--help"),
-    Flag.Bool("--keep-backups"),
+    Flag.Option("--color", []const []const u8{
+        "auto",
+        "off",
+        "on",
+    }),
+    Flag.Bool("--stdin"),
 };
 
-fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
+const Fmt = struct {
+    seen: std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8),
+    queue: std.LinkedList([]const u8),
+    any_error: bool,
+
+    // file_path must outlive Fmt
+    fn addToQueue(self: *Fmt, file_path: []const u8) !void {
+        const new_node = try self.seen.allocator.create(std.LinkedList([]const u8).Node{
+            .prev = undefined,
+            .next = undefined,
+            .data = file_path,
+        });
+
+        if (try self.seen.put(file_path, {})) |_| return;
+
+        self.queue.append(new_node);
+    }
+
+    fn addDirToQueue(self: *Fmt, file_path: []const u8) !void {
+        var dir = try std.os.Dir.open(self.seen.allocator, file_path);
+        defer dir.close();
+        while (try dir.next()) |entry| {
+            if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
+                const full_path = try os.path.join(self.seen.allocator, file_path, entry.name);
+                try self.addToQueue(full_path);
+            }
+        }
+    }
+};
+
+fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {
+    libc.parse(allocator, libc_paths_file, stderr) catch |err| {
+        stderr.print(
+            "Unable to parse libc path file '{}': {}.\n" ++
+                "Try running `zig libc` to see an example for the native target.\n",
+            libc_paths_file,
+            @errorName(err),
+        ) catch os.exit(1);
+        os.exit(1);
+    };
+}
+
+fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
+    switch (args.len) {
+        0 => {},
+        1 => {
+            var libc_installation: LibCInstallation = undefined;
+            parseLibcPaths(allocator, &libc_installation, args[0]);
+            return;
+        },
+        else => {
+            try stderr.print("unexpected extra parameter: {}\n", args[1]);
+            os.exit(1);
+        },
+    }
+
+    var loop: event.Loop = undefined;
+    try loop.initMultiThreaded(allocator);
+    defer loop.deinit();
+
+    var event_loop_local = try EventLoopLocal.init(&loop);
+    defer event_loop_local.deinit();
+
+    const handle = try async<loop.allocator> findLibCAsync(&event_loop_local);
+    defer cancel handle;
+
+    loop.run();
+}
+
+async fn findLibCAsync(event_loop_local: *EventLoopLocal) void {
+    const libc = (await (async event_loop_local.getNativeLibC() catch unreachable)) catch |err| {
+        stderr.print("unable to find libc: {}\n", @errorName(err)) catch os.exit(1);
+        os.exit(1);
+    };
+    libc.render(stdout) catch os.exit(1);
+}
+
+fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);
     defer flags.deinit();
 
     if (flags.present("help")) {
-        try stderr.write(usage_fmt);
+        try stdout.write(usage_fmt);
         os.exit(0);
+    }
+
+    const color = blk: {
+        if (flags.single("color")) |color_flag| {
+            if (mem.eql(u8, color_flag, "auto")) {
+                break :blk errmsg.Color.Auto;
+            } else if (mem.eql(u8, color_flag, "on")) {
+                break :blk errmsg.Color.On;
+            } else if (mem.eql(u8, color_flag, "off")) {
+                break :blk errmsg.Color.Off;
+            } else unreachable;
+        } else {
+            break :blk errmsg.Color.Auto;
+        }
+    };
+
+    if (flags.present("stdin")) {
+        if (flags.positionals.len != 0) {
+            try stderr.write("cannot use --stdin with positional arguments\n");
+            os.exit(1);
+        }
+
+        var stdin_file = try io.getStdIn();
+        var stdin = io.FileInStream.init(&stdin_file);
+
+        const source_code = try stdin.stream.readAllAlloc(allocator, @maxValue(usize));
+        defer allocator.free(source_code);
+
+        var tree = std.zig.parse(allocator, source_code) catch |err| {
+            try stderr.print("error parsing stdin: {}\n", err);
+            os.exit(1);
+        };
+        defer tree.deinit();
+
+        var error_it = tree.errors.iterator(0);
+        while (error_it.next()) |parse_error| {
+            const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, &tree, "<stdin>");
+            defer msg.destroy();
+
+            try msg.printToFile(&stderr_file, color);
+        }
+        if (tree.errors.len != 0) {
+            os.exit(1);
+        }
+
+        _ = try std.zig.render(allocator, stdout, &tree);
+        return;
     }
 
     if (flags.positionals.len == 0) {
@@ -661,58 +665,79 @@ fn cmdFmt(allocator: &Allocator, args: []const []const u8) !void {
         os.exit(1);
     }
 
+    var fmt = Fmt{
+        .seen = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator),
+        .queue = std.LinkedList([]const u8).init(),
+        .any_error = false,
+    };
+
     for (flags.positionals.toSliceConst()) |file_path| {
+        try fmt.addToQueue(file_path);
+    }
+
+    while (fmt.queue.popFirst()) |node| {
+        const file_path = node.data;
+
         var file = try os.File.openRead(allocator, file_path);
         defer file.close();
 
-        const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
-            try stderr.print("unable to open '{}': {}", file_path, err);
-            continue;
+        const source_code = io.readFileAlloc(allocator, file_path) catch |err| switch (err) {
+            error.IsDir => {
+                try fmt.addDirToQueue(file_path);
+                continue;
+            },
+            else => {
+                try stderr.print("unable to open '{}': {}\n", file_path, err);
+                fmt.any_error = true;
+                continue;
+            },
         };
         defer allocator.free(source_code);
 
-        var tokenizer = std.zig.Tokenizer.init(source_code);
-        var parser = std.zig.Parser.init(&tokenizer, allocator, file_path);
-        defer parser.deinit();
-
-        var tree = parser.parse() catch |err| {
+        var tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing file '{}': {}\n", file_path, err);
+            fmt.any_error = true;
             continue;
         };
         defer tree.deinit();
 
-        var original_file_backup = try Buffer.init(allocator, file_path);
-        defer original_file_backup.deinit();
-        try original_file_backup.append(".backup");
+        var error_it = tree.errors.iterator(0);
+        while (error_it.next()) |parse_error| {
+            const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, &tree, file_path);
+            defer msg.destroy();
 
-        try os.rename(allocator, file_path, original_file_backup.toSliceConst());
-
-        try stderr.print("{}\n", file_path);
-
-        // TODO: BufferedAtomicFile has some access problems.
-        var out_file = try os.File.openWrite(allocator, file_path);
-        defer out_file.close();
-
-        var out_file_stream = io.FileOutStream.init(&out_file);
-        try parser.renderSource(out_file_stream.stream, tree.root_node);
-
-        if (!flags.present("keep-backups")) {
-            try os.deleteFile(allocator, original_file_backup.toSliceConst());
+            try msg.printToFile(&stderr_file, color);
         }
+        if (tree.errors.len != 0) {
+            fmt.any_error = true;
+            continue;
+        }
+
+        const baf = try io.BufferedAtomicFile.create(allocator, file_path);
+        defer baf.destroy();
+
+        const anything_changed = try std.zig.render(allocator, baf.stream(), &tree);
+        if (anything_changed) {
+            try stderr.print("{}\n", file_path);
+            try baf.finish();
+        }
+    }
+
+    if (fmt.any_error) {
+        os.exit(1);
     }
 }
 
 // cmd:targets /////////////////////////////////////////////////////////////////////////////////////
 
-fn cmdTargets(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("Architectures:\n");
     {
         comptime var i: usize = 0;
         inline while (i < @memberCount(builtin.Arch)) : (i += 1) {
             comptime const arch_tag = @memberName(builtin.Arch, i);
             // NOTE: Cannot use empty string, see #918.
-            comptime const native_str =
-                if (comptime mem.eql(u8, arch_tag, @tagName(builtin.arch))) " (native)\n" else "\n";
+            comptime const native_str = if (comptime mem.eql(u8, arch_tag, @tagName(builtin.arch))) " (native)\n" else "\n";
 
             try stdout.print("  {}{}", arch_tag, native_str);
         }
@@ -725,8 +750,7 @@ fn cmdTargets(allocator: &Allocator, args: []const []const u8) !void {
         inline while (i < @memberCount(builtin.Os)) : (i += 1) {
             comptime const os_tag = @memberName(builtin.Os, i);
             // NOTE: Cannot use empty string, see #918.
-            comptime const native_str =
-                if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
+            comptime const native_str = if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
 
             try stdout.print("  {}{}", os_tag, native_str);
         }
@@ -739,175 +763,22 @@ fn cmdTargets(allocator: &Allocator, args: []const []const u8) !void {
         inline while (i < @memberCount(builtin.Environ)) : (i += 1) {
             comptime const environ_tag = @memberName(builtin.Environ, i);
             // NOTE: Cannot use empty string, see #918.
-            comptime const native_str =
-                if (comptime mem.eql(u8, environ_tag, @tagName(builtin.environ))) " (native)\n" else "\n";
+            comptime const native_str = if (comptime mem.eql(u8, environ_tag, @tagName(builtin.environ))) " (native)\n" else "\n";
 
             try stdout.print("  {}{}", environ_tag, native_str);
         }
     }
 }
 
-// cmd:version /////////////////////////////////////////////////////////////////////////////////////
-
-fn cmdVersion(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print("{}\n", std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
 }
 
-// cmd:test ////////////////////////////////////////////////////////////////////////////////////////
+const args_test_spec = []Flag{Flag.Bool("--help")};
 
-const usage_test =
-    \\usage: zig test [file]...
-    \\
-    \\Options:
-    \\   --help                 Print this help and exit
-    \\
-    \\
-    ;
-
-const args_test_spec = []Flag {
-    Flag.Bool("--help"),
-};
-
-
-fn cmdTest(allocator: &Allocator, args: []const []const u8) !void {
-    var flags = try Args.parse(allocator, args_build_spec, args);
-    defer flags.deinit();
-
-    if (flags.present("help")) {
-        try stderr.write(usage_test);
-        os.exit(0);
-    }
-
-    if (flags.positionals.len != 1) {
-        try stderr.write("expected exactly one zig source file\n");
-        os.exit(1);
-    }
-
-    // compile the test program into the cache and run
-
-    // NOTE: May be overlap with buildOutput, take the shared part out.
-    try stderr.print("testing file {}\n", flags.positionals.at(0));
+fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
+    try stdout.write(usage);
 }
-
-// cmd:run /////////////////////////////////////////////////////////////////////////////////////////
-
-// Run should be simple and not expose the full set of arguments provided by build-exe. If specific
-// build requirements are need, the user should `build-exe` then `run` manually.
-const usage_run =
-    \\usage: zig run [file] -- <runtime args>
-    \\
-    \\Options:
-    \\   --help                 Print this help and exit
-    \\
-    \\
-    ;
-
-const args_run_spec = []Flag {
-    Flag.Bool("--help"),
-};
-
-
-fn cmdRun(allocator: &Allocator, args: []const []const u8) !void {
-    var compile_args = args;
-    var runtime_args: []const []const u8 = []const []const u8 {};
-
-    for (args) |argv, i| {
-        if (mem.eql(u8, argv, "--")) {
-            compile_args = args[0..i];
-            runtime_args = args[i+1..];
-            break;
-        }
-    }
-    var flags = try Args.parse(allocator, args_run_spec, compile_args);
-    defer flags.deinit();
-
-    if (flags.present("help")) {
-        try stderr.write(usage_run);
-        os.exit(0);
-    }
-
-    if (flags.positionals.len != 1) {
-        try stderr.write("expected exactly one zig source file\n");
-        os.exit(1);
-    }
-
-    try stderr.print("runtime args:\n");
-    for (runtime_args) |cargs| {
-        try stderr.print("{}\n", cargs);
-    }
-}
-
-// cmd:translate-c /////////////////////////////////////////////////////////////////////////////////
-
-const usage_translate_c =
-    \\usage: zig translate-c [file]
-    \\
-    \\Options:
-    \\  --help                       Print this help and exit
-    \\  --enable-timing-info         Print timing diagnostics
-    \\  --output [path]              Output file to write generated zig file (default: stdout)
-    \\
-    \\
-    ;
-
-const args_translate_c_spec = []Flag {
-    Flag.Bool("--help"),
-    Flag.Bool("--enable-timing-info"),
-    Flag.Arg1("--libc-include-dir"),
-    Flag.Arg1("--output"),
-};
-
-fn cmdTranslateC(allocator: &Allocator, args: []const []const u8) !void {
-    var flags = try Args.parse(allocator, args_translate_c_spec, args);
-    defer flags.deinit();
-
-    if (flags.present("help")) {
-        try stderr.write(usage_translate_c);
-        os.exit(0);
-    }
-
-    if (flags.positionals.len != 1) {
-        try stderr.write("expected exactly one c source file\n");
-        os.exit(1);
-    }
-
-    // set up codegen
-
-    const zig_root_source_file = null;
-
-    // NOTE: translate-c shouldn't require setting up the full codegen instance as it does in
-    // the C++ compiler.
-
-    // codegen_create(g);
-    // codegen_set_out_name(g, null);
-    // codegen_translate_c(g, flags.positional.at(0))
-
-    var output_stream = stdout;
-    if (flags.single("output")) |output_file| {
-        var file = try os.File.openWrite(allocator, output_file);
-        defer file.close();
-
-        var file_stream = io.FileOutStream.init(&file);
-        // TODO: Not being set correctly, still stdout
-        output_stream = &file_stream.stream;
-    }
-
-    // ast_render(g, output_stream, g->root_import->root, 4);
-    try output_stream.write("pub const example = 10;\n");
-
-    if (flags.present("enable-timing-info")) {
-        // codegen_print_timing_info(g, stdout);
-        try stderr.write("printing timing info for translate-c\n");
-    }
-}
-
-// cmd:help ////////////////////////////////////////////////////////////////////////////////////////
-
-fn cmdHelp(allocator: &Allocator, args: []const []const u8) !void {
-    try stderr.write(usage);
-}
-
-// cmd:zen /////////////////////////////////////////////////////////////////////////////////////////
 
 const info_zen =
     \\
@@ -924,13 +795,11 @@ const info_zen =
     \\ * Together we serve end users.
     \\
     \\
-    ;
+;
 
-fn cmdZen(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdZen(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(info_zen);
 }
-
-// cmd:internal ////////////////////////////////////////////////////////////////////////////////////
 
 const usage_internal =
     \\usage: zig internal [subcommand]
@@ -939,17 +808,18 @@ const usage_internal =
     \\  build-info                   Print static compiler build-info
     \\
     \\
-    ;
+;
 
-fn cmdInternal(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
     if (args.len == 0) {
         try stderr.write(usage_internal);
         os.exit(1);
     }
 
-    const sub_commands = []Command {
-        Command { .name = "build-info", .exec = cmdInternalBuildInfo },
-    };
+    const sub_commands = []Command{Command{
+        .name = "build-info",
+        .exec = cmdInternalBuildInfo,
+    }};
 
     for (sub_commands) |sub_command| {
         if (mem.eql(u8, sub_command.name, args[0])) {
@@ -962,7 +832,7 @@ fn cmdInternal(allocator: &Allocator, args: []const []const u8) !void {
     try stderr.write(usage_internal);
 }
 
-fn cmdInternalBuildInfo(allocator: &Allocator, args: []const []const u8) !void {
+fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print(
         \\ZIG_CMAKE_BINARY_DIR {}
         \\ZIG_CXX_COMPILER     {}
@@ -973,7 +843,7 @@ fn cmdInternalBuildInfo(allocator: &Allocator, args: []const []const u8) !void {
         \\ZIG_C_HEADER_FILES   {}
         \\ZIG_DIA_GUIDS_LIB    {}
         \\
-        ,
+    ,
         std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
         std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
         std.cstr.toSliceConst(c.ZIG_LLVM_CONFIG_EXE),
@@ -984,3 +854,27 @@ fn cmdInternalBuildInfo(allocator: &Allocator, args: []const []const u8) !void {
         std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
     );
 }
+
+const CliPkg = struct {
+    name: []const u8,
+    path: []const u8,
+    children: ArrayList(*CliPkg),
+    parent: ?*CliPkg,
+
+    pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
+        var pkg = try allocator.create(CliPkg{
+            .name = name,
+            .path = path,
+            .children = ArrayList(*CliPkg).init(allocator),
+            .parent = parent,
+        });
+        return pkg;
+    }
+
+    pub fn deinit(self: *CliPkg) void {
+        for (self.children.toSliceConst()) |child| {
+            child.deinit();
+        }
+        self.children.deinit();
+    }
+};

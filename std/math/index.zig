@@ -19,6 +19,18 @@ pub const f32_max = 3.40282346638528859812e+38;
 pub const f32_epsilon = 1.1920928955078125e-07;
 pub const f32_toint = 1.0 / f32_epsilon;
 
+pub const f16_true_min = 0.000000059604644775390625; // 2**-24
+pub const f16_min = 0.00006103515625; // 2**-14
+pub const f16_max = 65504;
+pub const f16_epsilon = 0.0009765625; // 2**-10
+pub const f16_toint = 1.0 / f16_epsilon;
+
+pub const nan_u16 = u16(0x7C01);
+pub const nan_f16 = @bitCast(f16, nan_u16);
+
+pub const inf_u16 = u16(0x7C00);
+pub const inf_f16 = @bitCast(f16, inf_u16);
+
 pub const nan_u32 = u32(0x7F800001);
 pub const nan_f32 = @bitCast(f32, nan_u32);
 
@@ -44,15 +56,20 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
 pub fn forceEval(value: var) void {
     const T = @typeOf(value);
     switch (T) {
+        f16 => {
+            var x: f16 = undefined;
+            const p = @ptrCast(*volatile f16, &x);
+            p.* = x;
+        },
         f32 => {
             var x: f32 = undefined;
-            const p = @ptrCast(&volatile f32, &x);
-            *p = x;
+            const p = @ptrCast(*volatile f32, &x);
+            p.* = x;
         },
         f64 => {
             var x: f64 = undefined;
-            const p = @ptrCast(&volatile f64, &x);
-            *p = x;
+            const p = @ptrCast(*volatile f64, &x);
+            p.* = x;
         },
         else => {
             @compileError("forceEval not implemented for " ++ @typeName(T));
@@ -129,6 +146,11 @@ pub const cos = @import("cos.zig").cos;
 pub const sin = @import("sin.zig").sin;
 pub const tan = @import("tan.zig").tan;
 
+pub const complex = @import("complex/index.zig");
+pub const Complex = complex.Complex;
+
+pub const big = @import("big/index.zig");
+
 test "math" {
     _ = @import("nan.zig");
     _ = @import("isnan.zig");
@@ -172,8 +194,37 @@ test "math" {
     _ = @import("sin.zig");
     _ = @import("cos.zig");
     _ = @import("tan.zig");
+
+    _ = @import("complex/index.zig");
+
+    _ = @import("big/index.zig");
 }
 
+pub fn floatMantissaBits(comptime T: type) comptime_int {
+    assert(@typeId(T) == builtin.TypeId.Float);
+
+    return switch (T.bit_count) {
+        16 => 10,
+        32 => 23,
+        64 => 52,
+        80 => 64,
+        128 => 112,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
+}
+
+pub fn floatExponentBits(comptime T: type) comptime_int {
+    assert(@typeId(T) == builtin.TypeId.Float);
+
+    return switch (T.bit_count) {
+        16 => 5,
+        32 => 8,
+        64 => 11,
+        80 => 15,
+        128 => 15,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
+}
 
 pub fn min(x: var, y: var) @typeOf(x + y) {
     return if (x < y) x else y;
@@ -219,7 +270,7 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 /// A negative shift amount results in a right shift.
 pub fn shl(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
-    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else Log2Int(T)(abs_shift_amt);
+    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
     if (@typeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
@@ -243,7 +294,7 @@ test "math.shl" {
 /// A negative shift amount results in a lefft shift.
 pub fn shr(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
-    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else Log2Int(T)(abs_shift_amt);
+    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
     if (@typeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
@@ -275,10 +326,10 @@ pub fn rotr(comptime T: type, x: T, r: var) T {
 }
 
 test "math.rotr" {
-    assert(rotr(u8, 0b00000001, usize(0))  == 0b00000001);
-    assert(rotr(u8, 0b00000001, usize(9))  == 0b10000000);
-    assert(rotr(u8, 0b00000001, usize(8))  == 0b00000001);
-    assert(rotr(u8, 0b00000001, usize(4))  == 0b00010000);
+    assert(rotr(u8, 0b00000001, usize(0)) == 0b00000001);
+    assert(rotr(u8, 0b00000001, usize(9)) == 0b10000000);
+    assert(rotr(u8, 0b00000001, usize(8)) == 0b00000001);
+    assert(rotr(u8, 0b00000001, usize(4)) == 0b00010000);
     assert(rotr(u8, 0b00000001, isize(-1)) == 0b00000010);
 }
 
@@ -294,16 +345,22 @@ pub fn rotl(comptime T: type, x: T, r: var) T {
 }
 
 test "math.rotl" {
-    assert(rotl(u8, 0b00000001, usize(0))  == 0b00000001);
-    assert(rotl(u8, 0b00000001, usize(9))  == 0b00000010);
-    assert(rotl(u8, 0b00000001, usize(8))  == 0b00000001);
-    assert(rotl(u8, 0b00000001, usize(4))  == 0b00010000);
+    assert(rotl(u8, 0b00000001, usize(0)) == 0b00000001);
+    assert(rotl(u8, 0b00000001, usize(9)) == 0b00000010);
+    assert(rotl(u8, 0b00000001, usize(8)) == 0b00000001);
+    assert(rotl(u8, 0b00000001, usize(4)) == 0b00010000);
     assert(rotl(u8, 0b00000001, isize(-1)) == 0b10000000);
 }
 
-
 pub fn Log2Int(comptime T: type) type {
-    return @IntType(false, log2(T.bit_count));
+    // comptime ceil log2
+    comptime var count = 0;
+    comptime var s = T.bit_count - 1;
+    inline while (s != 0) : (s >>= 1) {
+        count += 1;
+    }
+
+    return @IntType(false, count);
 }
 
 test "math overflow functions" {
@@ -318,14 +375,14 @@ fn testOverflow() void {
     assert((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-
 pub fn absInt(x: var) !@typeOf(x) {
     const T = @typeOf(x);
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
-    if (x == @minValue(@typeOf(x)))
+
+    if (x == @minValue(@typeOf(x))) {
         return error.Overflow;
-    {
+    } else {
         @setRuntimeSafety(false);
         return if (x < 0) -x else x;
     }
@@ -344,10 +401,8 @@ pub const absFloat = @import("fabs.zig").fabs;
 
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
-        return error.Overflow;
+    if (denominator == 0) return error.DivisionByZero;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
     return @divTrunc(numerator, denominator);
 }
 
@@ -367,10 +422,8 @@ fn testDivTrunc() void {
 
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
-        return error.Overflow;
+    if (denominator == 0) return error.DivisionByZero;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
     return @divFloor(numerator, denominator);
 }
 
@@ -390,13 +443,10 @@ fn testDivFloor() void {
 
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
-        return error.Overflow;
+    if (denominator == 0) return error.DivisionByZero;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
     const result = @divTrunc(numerator, denominator);
-    if (result * denominator != numerator)
-        return error.UnexpectedRemainder;
+    if (result * denominator != numerator) return error.UnexpectedRemainder;
     return result;
 }
 
@@ -418,10 +468,8 @@ fn testDivExact() void {
 
 pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (denominator < 0)
-        return error.NegativeDenominator;
+    if (denominator == 0) return error.DivisionByZero;
+    if (denominator < 0) return error.NegativeDenominator;
     return @mod(numerator, denominator);
 }
 
@@ -443,10 +491,8 @@ fn testMod() void {
 
 pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0)
-        return error.DivisionByZero;
-    if (denominator < 0)
-        return error.NegativeDenominator;
+    if (denominator == 0) return error.DivisionByZero;
+    if (denominator < 0) return error.NegativeDenominator;
     return @rem(numerator, denominator);
 }
 
@@ -470,10 +516,9 @@ fn testRem() void {
 /// Result is an unsigned integer.
 pub fn absCast(x: var) @IntType(false, @typeOf(x).bit_count) {
     const uint = @IntType(false, @typeOf(x).bit_count);
-    if (x >= 0)
-        return uint(x);
+    if (x >= 0) return @intCast(uint, x);
 
-    return uint(-(x + 1)) + 1;
+    return @intCast(uint, -(x + 1)) + 1;
 }
 
 test "math.absCast" {
@@ -490,17 +535,14 @@ test "math.absCast" {
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
 pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
-    if (@typeOf(x).is_signed)
-        return negate(x);
+    if (@typeOf(x).is_signed) return negate(x);
 
     const int = @IntType(true, @typeOf(x).bit_count);
-    if (x > -@minValue(int))
-        return error.Overflow;
+    if (x > -@minValue(int)) return error.Overflow;
 
-    if (x == -@minValue(int))
-        return @minValue(int);
+    if (x == -@minValue(int)) return @minValue(int);
 
-    return -int(x);
+    return -@intCast(int, x);
 }
 
 test "math.negateCast" {
@@ -513,7 +555,7 @@ test "math.negateCast" {
     if (negateCast(u32(@maxValue(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
 }
 
-/// Cast an integer to a different integer type. If the value doesn't fit, 
+/// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
 pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
@@ -523,7 +565,7 @@ pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     } else if (@minValue(@typeOf(x)) < @minValue(T) and x < @minValue(T)) {
         return error.Overflow;
     } else {
-        return T(x);
+        return @intCast(T, x);
     }
 }
 
@@ -537,11 +579,22 @@ test "math.cast" {
     assert(@typeOf(try cast(u8, u32(255))) == u8);
 }
 
+pub const AlignCastError = error{UnalignedMemory};
+
+/// Align cast a pointer but return an error if it's the wrong alignment
+pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alignCast(alignment, ptr)) {
+    const addr = @ptrToInt(ptr);
+    if (addr % alignment != 0) {
+        return error.UnalignedMemory;
+    }
+    return @alignCast(alignment, ptr);
+}
+
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     var x = value;
 
     comptime var i = 1;
-    inline while(T.bit_count > i) : (i *= 2) {
+    inline while (T.bit_count > i) : (i *= 2) {
         x |= (x >> i);
     }
 
@@ -553,6 +606,32 @@ test "math.floorPowerOfTwo" {
     comptime testFloorPowerOfTwo();
 }
 
+pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
+    assert(x != 0);
+    return @intCast(Log2Int(T), T.bit_count - 1 - @clz(x));
+}
+
+pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {
+    assert(x != 0);
+    const log2_val = log2_int(T, x);
+    if (T(1) << log2_val == x)
+        return log2_val;
+    return log2_val + 1;
+}
+
+test "std.math.log2_int_ceil" {
+    assert(log2_int_ceil(u32, 1) == 0);
+    assert(log2_int_ceil(u32, 2) == 1);
+    assert(log2_int_ceil(u32, 3) == 2);
+    assert(log2_int_ceil(u32, 4) == 2);
+    assert(log2_int_ceil(u32, 5) == 3);
+    assert(log2_int_ceil(u32, 6) == 3);
+    assert(log2_int_ceil(u32, 7) == 3);
+    assert(log2_int_ceil(u32, 8) == 3);
+    assert(log2_int_ceil(u32, 9) == 4);
+    assert(log2_int_ceil(u32, 10) == 4);
+}
+
 fn testFloorPowerOfTwo() void {
     assert(floorPowerOfTwo(u32, 63) == 32);
     assert(floorPowerOfTwo(u32, 64) == 64);
@@ -560,4 +639,14 @@ fn testFloorPowerOfTwo() void {
     assert(floorPowerOfTwo(u4, 7) == 4);
     assert(floorPowerOfTwo(u4, 8) == 8);
     assert(floorPowerOfTwo(u4, 9) == 8);
+}
+
+pub fn lossyCast(comptime T: type, value: var) T {
+    switch (@typeInfo(@typeOf(value))) {
+        builtin.TypeId.Int => return @intToFloat(T, value),
+        builtin.TypeId.Float => return @floatCast(T, value),
+        builtin.TypeId.ComptimeInt => return T(value),
+        builtin.TypeId.ComptimeFloat => return T(value),
+        else => @compileError("bad type"),
+    }
 }

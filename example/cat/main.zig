@@ -7,7 +7,7 @@ const allocator = std.debug.global_allocator;
 
 pub fn main() !void {
     var args_it = os.args();
-    const exe = try unwrapArg(??args_it.next(allocator));
+    const exe = try unwrapArg(args_it.next(allocator).?);
     var catted_anything = false;
     var stdout_file = try io.getStdOut();
 
@@ -41,7 +41,7 @@ fn usage(exe: []const u8) !void {
     return error.Invalid;
 }
 
-fn cat_file(stdout: &os.File, file: &os.File) !void {
+fn cat_file(stdout: *os.File, file: *os.File) !void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {

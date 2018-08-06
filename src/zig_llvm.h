@@ -22,6 +22,9 @@
 #define ZIG_EXTERN_C
 #endif
 
+// ATTENTION: If you modify this file, be sure to update the corresponding
+// extern function declarations in the self-hosted compiler.
+
 struct ZigLLVMDIType;
 struct ZigLLVMDIBuilder;
 struct ZigLLVMDICompileUnit;
@@ -39,7 +42,7 @@ struct ZigLLVMInsertionPoint;
 ZIG_EXTERN_C void ZigLLVMInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
 ZIG_EXTERN_C void ZigLLVMInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
 
-/// Caller must free memory.
+/// Caller must free memory with LLVMDisposeMessage
 ZIG_EXTERN_C char *ZigLLVMGetHostCPUName(void);
 ZIG_EXTERN_C char *ZigLLVMGetNativeFeatures(void);
 
@@ -52,7 +55,7 @@ enum ZigLLVM_EmitOutputType {
 };
 
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char *filename, enum ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug);
+        const char *filename, enum ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug, bool is_small);
 
 ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref);
 
@@ -66,7 +69,7 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LL
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
-        LLVMAtomicOrdering failure_ordering);
+        LLVMAtomicOrdering failure_ordering, bool is_weak);
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
         const char *name);
@@ -139,6 +142,7 @@ ZIG_EXTERN_C unsigned ZigLLVMTag_DW_enumeration_type(void);
 ZIG_EXTERN_C unsigned ZigLLVMTag_DW_union_type(void);
 
 ZIG_EXTERN_C struct ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
+ZIG_EXTERN_C void ZigLLVMDisposeDIBuilder(struct ZigLLVMDIBuilder *dbuilder);
 ZIG_EXTERN_C void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module);
 

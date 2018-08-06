@@ -1,1 +1,2 @@
 *.zig text eol=lf
+langref.html.in text eol=lf

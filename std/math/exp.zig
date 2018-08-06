@@ -6,6 +6,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 
 pub fn exp(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -17,16 +18,18 @@ pub fn exp(x: var) @typeOf(x) {
 }
 
 fn exp32(x_: f32) f32 {
-    const half = []f32 { 0.5, -0.5 };
+    @setFloatMode(this, builtin.FloatMode.Strict);
+
+    const half = []f32{ 0.5, -0.5 };
     const ln2hi = 6.9314575195e-1;
     const ln2lo = 1.4286067653e-6;
-    const invln2  = 1.4426950216e+0;
+    const invln2 = 1.4426950216e+0;
     const P1 = 1.6666625440e-1;
     const P2 = -2.7667332906e-3;
 
     var x = x_;
     var hx = @bitCast(u32, x);
-    const sign = i32(hx >> 31);
+    const sign = @intCast(i32, hx >> 31);
     hx &= 0x7FFFFFFF;
 
     if (math.isNan(x)) {
@@ -44,7 +47,7 @@ fn exp32(x_: f32) f32 {
             return x * 0x1.0p127;
         }
         if (sign != 0) {
-            math.forceEval(-0x1.0p-149 / x);   // overflow
+            math.forceEval(-0x1.0p-149 / x); // overflow
             // x <= -103.972084
             if (hx >= 0x42CFF1B5) {
                 return 0;
@@ -60,13 +63,12 @@ fn exp32(x_: f32) f32 {
     if (hx > 0x3EB17218) {
         // |x| > 1.5 * ln2
         if (hx > 0x3F851592) {
-            k = i32(invln2 * x + half[usize(sign)]);
-        }
-        else {
+            k = @floatToInt(i32, invln2 * x + half[@intCast(usize, sign)]);
+        } else {
             k = 1 - sign - sign;
         }
 
-        const fk = f32(k);
+        const fk = @intToFloat(f32, k);
         hi = x - fk * ln2hi;
         lo = fk * ln2lo;
         x = hi - lo;
@@ -76,8 +78,7 @@ fn exp32(x_: f32) f32 {
         k = 0;
         hi = x;
         lo = 0;
-    }
-    else {
+    } else {
         math.forceEval(0x1.0p127 + x); // inexact
         return 1 + x;
     }
@@ -94,20 +95,22 @@ fn exp32(x_: f32) f32 {
 }
 
 fn exp64(x_: f64) f64 {
-    const half = []const f64 { 0.5, -0.5 };
+    @setFloatMode(this, builtin.FloatMode.Strict);
+
+    const half = []const f64{ 0.5, -0.5 };
     const ln2hi: f64 = 6.93147180369123816490e-01;
     const ln2lo: f64 = 1.90821492927058770002e-10;
     const invln2: f64 = 1.44269504088896338700e+00;
-    const P1: f64   =  1.66666666666666019037e-01;
-    const P2: f64   = -2.77777777770155933842e-03;
-    const P3: f64   =  6.61375632143793436117e-05;
-    const P4: f64   = -1.65339022054652515390e-06;
-    const P5: f64   =  4.13813679705723846039e-08;
+    const P1: f64 = 1.66666666666666019037e-01;
+    const P2: f64 = -2.77777777770155933842e-03;
+    const P3: f64 = 6.61375632143793436117e-05;
+    const P4: f64 = -1.65339022054652515390e-06;
+    const P5: f64 = 4.13813679705723846039e-08;
 
     var x = x_;
     var ux = @bitCast(u64, x);
     var hx = ux >> 32;
-    const sign = i32(hx >> 31);
+    const sign = @intCast(i32, hx >> 31);
     hx &= 0x7FFFFFFF;
 
     if (math.isNan(x)) {
@@ -145,13 +148,12 @@ fn exp64(x_: f64) f64 {
     if (hx > 0x3EB17218) {
         // |x| >= 1.5 * ln2
         if (hx > 0x3FF0A2B2) {
-            k = i32(invln2 * x + half[usize(sign)]);
-        }
-        else {
+            k = @floatToInt(i32, invln2 * x + half[@intCast(usize, sign)]);
+        } else {
             k = 1 - sign - sign;
         }
 
-        const dk = f64(k);
+        const dk = @intToFloat(f64, k);
         hi = x - dk * ln2hi;
         lo = dk * ln2lo;
         x = hi - lo;
@@ -161,8 +163,7 @@ fn exp64(x_: f64) f64 {
         k = 0;
         hi = x;
         lo = 0;
-    }
-    else {
+    } else {
         // inexact if x != 0
         // math.forceEval(0x1.0p1023 + x);
         return 1 + x;

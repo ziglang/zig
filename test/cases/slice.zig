@@ -1,7 +1,7 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
-const x = @intToPtr(&i32, 0x1000)[0..0x500];
+const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
     assert(@ptrToInt(x.ptr) == 0x1000);
@@ -18,7 +18,11 @@ test "slice child property" {
 }
 
 test "runtime safety lets us slice from len..len" {
-    var an_array = []u8{1, 2, 3};
+    var an_array = []u8{
+        1,
+        2,
+        3,
+    };
     assert(mem.eql(u8, sliceFromLenToLen(an_array[0..], 3, 3), ""));
 }
 
@@ -27,7 +31,7 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 }
 
 test "implicitly cast array of size 0 to slice" {
-    var msg = []u8 {};
+    var msg = []u8{};
     assertLenIsZero(msg);
 }
 

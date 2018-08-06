@@ -74,27 +74,27 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                     '\n' => return error.CorruptPasswordFile,
                     else => {
                         const digit = switch (byte) {
-                            '0' ... '9' => byte - '0',
+                            '0'...'9' => byte - '0',
                             else => return error.CorruptPasswordFile,
                         };
-                        if (@mulWithOverflow(u32, uid, 10, &uid)) return error.CorruptPasswordFile;
-                        if (@addWithOverflow(u32, uid, digit, &uid)) return error.CorruptPasswordFile;
+                        if (@mulWithOverflow(u32, uid, 10, *uid)) return error.CorruptPasswordFile;
+                        if (@addWithOverflow(u32, uid, digit, *uid)) return error.CorruptPasswordFile;
                     },
                 },
                 State.ReadGroupId => switch (byte) {
                     '\n', ':' => {
-                        return UserInfo {
+                        return UserInfo{
                             .uid = uid,
                             .gid = gid,
                         };
                     },
                     else => {
                         const digit = switch (byte) {
-                            '0' ... '9' => byte - '0',
+                            '0'...'9' => byte - '0',
                             else => return error.CorruptPasswordFile,
                         };
-                        if (@mulWithOverflow(u32, gid, 10, &gid)) return error.CorruptPasswordFile;
-                        if (@addWithOverflow(u32, gid, digit, &gid)) return error.CorruptPasswordFile;
+                        if (@mulWithOverflow(u32, gid, 10, *gid)) return error.CorruptPasswordFile;
+                        if (@addWithOverflow(u32, gid, digit, *gid)) return error.CorruptPasswordFile;
                     },
                 },
             }
