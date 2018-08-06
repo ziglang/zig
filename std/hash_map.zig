@@ -441,9 +441,9 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         builtin.TypeId.Int => |info| {
             const unsigned_x = @bitCast(@IntType(false, info.bits), key);
             if (info.bits <= HashInt.bit_count) {
-                return HashInt(unsigned_x) *% comptime rng.scalar(HashInt);
+                return HashInt(unsigned_x) ^ comptime rng.scalar(HashInt);
             } else {
-                return @truncate(HashInt, unsigned_x *% comptime rng.scalar(@typeOf(unsigned_x)));
+                return @truncate(HashInt, unsigned_x ^ comptime rng.scalar(@typeOf(unsigned_x)));
             }
         },
 
