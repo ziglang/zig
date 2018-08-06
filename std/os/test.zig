@@ -41,11 +41,11 @@ fn testThreadIdFn(thread_id: *os.Thread.Id) void {
 test "std.os.Thread.getCurrentId" {
     var thread_current_id: os.Thread.Id = undefined;
     const thread = try os.spawnThread(&thread_current_id, testThreadIdFn);
+    const thread_id = thread.handle();
     thread.wait();
     switch (builtin.os) {
         builtin.Os.windows => assert(os.Thread.getCurrentId() != thread_current_id),
         else => {
-            const thread_id = thread.handle();
             assert(thread_current_id == thread_id);
         },
     }

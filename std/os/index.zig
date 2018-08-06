@@ -2519,6 +2519,7 @@ pub const Thread = struct {
 
     /// Represents a kernel thread handle.
     /// May be an integer or a pointer depending on the platform.
+    /// On Linux and POSIX, this is the same as Id.
     pub const Handle = if (use_pthreads)
         c.pthread_t
     else switch (builtin.os) {
@@ -2557,6 +2558,7 @@ pub const Thread = struct {
 
     /// Returns the ID of the calling thread.
     /// Makes a syscall every time the function is called.
+    /// On Linux and POSIX, this Id is the same as a Handle.
     pub fn getCurrentId() Id {
         if (use_pthreads) {
             return c.pthread_self();
@@ -2569,7 +2571,8 @@ pub const Thread = struct {
     }
 
     /// Returns the handle of this thread.
-    pub fn handle(self: Thread) Thread.Handle {
+    /// On Linux and POSIX, this is the same as Id.
+    pub fn handle(self: Thread) Handle {
         return self.data.handle;
     }
 
