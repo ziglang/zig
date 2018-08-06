@@ -2517,8 +2517,9 @@ pub const Thread = struct {
 
     pub const use_pthreads = is_posix and builtin.link_libc;
 
-    /// An type representing a kernel thread ID.
-    pub const Id = if (use_pthreads)
+    /// Represents a kernel thread handle.
+    /// May be an integer or a pointer depending on the platform.
+    pub const Handle = if (use_pthreads)
         c.pthread_t
     else switch (builtin.os) {
         builtin.Os.linux => i32,
@@ -2526,20 +2527,28 @@ pub const Thread = struct {
         else => @compileError("Unsupported OS"),
     };
 
+    /// Represents a unique ID per thread.
+    /// May be an integer or pointer depending on the platform.
+    /// On Linux and POSIX, this is the same as Handle.
+    pub const Id = switch (builtin.os) {
+        builtin.Os.windows => windows.DWORD,
+        else => Handle,
+    };
+
     pub const Data = if (use_pthreads)
         struct {
-            handle: Thread.Id,
+            handle: Thread.Handle,
             stack_addr: usize,
             stack_len: usize,
         }
     else switch (builtin.os) {
         builtin.Os.linux => struct {
-            handle: Thread.Id,
+            handle: Thread.Handle,
             stack_addr: usize,
             stack_len: usize,
         },
         builtin.Os.windows => struct {
-            handle: Thread.Id,
+            handle: Thread.Handle,
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
@@ -2548,19 +2557,19 @@ pub const Thread = struct {
 
     /// Returns the ID of the calling thread.
     /// Makes a syscall every time the function is called.
-    pub fn getCurrentId() Thread.Id {
+    pub fn getCurrentId() Id {
         if (use_pthreads) {
             return c.pthread_self();
         } else
             return switch (builtin.os) {
             builtin.Os.linux => linux.gettid(),
-            builtin.Os.windows => windows.GetCurrentThread(),
+            builtin.Os.windows => windows.GetCurrentThreadId(),
             else => @compileError("Unsupported OS"),
         };
     }
 
-    /// Returns the ID of this thread.
-    pub fn id(self: Thread) Thread.Id {
+    /// Returns the handle of this thread.
+    pub fn handle(self: Thread) Thread.Handle {
         return self.data.handle;
     }
 
