@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 //////////////////////////
 
 pub const Message = struct {
-    sender: MailboxId,
+sender: MailboxId,
     receiver: MailboxId,
     code:     usize,
     args:     [5]usize,
@@ -152,7 +152,7 @@ pub fn subscribeIRQ(irq: u8, mailbox_id: *const MailboxId) void {
 }
 
 pub fn inb(port: u16) u8 {
-    return u8(syscall1(Syscall.inb, port));
+    return @intCast(u8, syscall1(Syscall.inb, port));
 }
 
 pub fn outb(port: u16, value: u8) void {
@@ -160,7 +160,7 @@ pub fn outb(port: u16, value: u8) void {
 }
 
 pub fn map(v_addr: usize, p_addr: usize, size: usize, writable: bool) bool {
-    return syscall4(Syscall.map, v_addr, p_addr, size, usize(writable)) != 0;
+    return syscall4(Syscall.map, v_addr, p_addr, size, @boolToInt(writable)) != 0;
 }
 
 pub fn createThread(function: fn () void) u16 {
