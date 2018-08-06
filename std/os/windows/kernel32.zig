@@ -63,6 +63,9 @@ pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out
 
 pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPSTR) DWORD;
 
+pub extern "kernel32" stdcallcc fn GetCurrentThread() HANDLE;
+pub extern "kernel32" stdcallcc fn GetCurrentThreadId() DWORD;
+
 pub extern "kernel32" stdcallcc fn GetEnvironmentStringsA() ?[*]u8;
 
 pub extern "kernel32" stdcallcc fn GetEnvironmentVariableA(lpName: LPCSTR, lpBuffer: LPSTR, nSize: DWORD) DWORD;

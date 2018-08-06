@@ -160,7 +160,7 @@ test "os.getRandomBytes" {
     try getRandomBytes(buf_b[0..]);
 
     // Check if random (not 100% conclusive)
-    assert( !mem.eql(u8, buf_a, buf_b) );
+    assert(!mem.eql(u8, buf_a, buf_b));
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
@@ -2516,25 +2516,65 @@ pub const Thread = struct {
     data: Data,
 
     pub const use_pthreads = is_posix and builtin.link_libc;
+
+    /// Represents a kernel thread handle.
+    /// May be an integer or a pointer depending on the platform.
+    /// On Linux and POSIX, this is the same as Id.
+    pub const Handle = if (use_pthreads)
+        c.pthread_t
+    else switch (builtin.os) {
+        builtin.Os.linux => i32,
+        builtin.Os.windows => windows.HANDLE,
+        else => @compileError("Unsupported OS"),
+    };
+
+    /// Represents a unique ID per thread.
+    /// May be an integer or pointer depending on the platform.
+    /// On Linux and POSIX, this is the same as Handle.
+    pub const Id = switch (builtin.os) {
+        builtin.Os.windows => windows.DWORD,
+        else => Handle,
+    };
+
     pub const Data = if (use_pthreads)
         struct {
-            handle: c.pthread_t,
+            handle: Thread.Handle,
             stack_addr: usize,
             stack_len: usize,
         }
     else switch (builtin.os) {
         builtin.Os.linux => struct {
-            pid: i32,
+            handle: Thread.Handle,
             stack_addr: usize,
             stack_len: usize,
         },
         builtin.Os.windows => struct {
-            handle: windows.HANDLE,
+            handle: Thread.Handle,
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
         else => @compileError("Unsupported OS"),
     };
+
+    /// Returns the ID of the calling thread.
+    /// Makes a syscall every time the function is called.
+    /// On Linux and POSIX, this Id is the same as a Handle.
+    pub fn getCurrentId() Id {
+        if (use_pthreads) {
+            return c.pthread_self();
+        } else
+            return switch (builtin.os) {
+            builtin.Os.linux => linux.gettid(),
+            builtin.Os.windows => windows.GetCurrentThreadId(),
+            else => @compileError("Unsupported OS"),
+        };
+    }
+
+    /// Returns the handle of this thread.
+    /// On Linux and POSIX, this is the same as Id.
+    pub fn handle(self: Thread) Handle {
+        return self.data.handle;
+    }
 
     pub fn wait(self: *const Thread) void {
         if (use_pthreads) {
@@ -2550,9 +2590,9 @@ pub const Thread = struct {
         } else switch (builtin.os) {
             builtin.Os.linux => {
                 while (true) {
-                    const pid_value = @atomicLoad(i32, &self.data.pid, builtin.AtomicOrder.SeqCst);
+                    const pid_value = @atomicLoad(i32, &self.data.handle, builtin.AtomicOrder.SeqCst);
                     if (pid_value == 0) break;
-                    const rc = linux.futex_wait(@ptrToInt(&self.data.pid), linux.FUTEX_WAIT, pid_value, null);
+                    const rc = linux.futex_wait(@ptrToInt(&self.data.handle), linux.FUTEX_WAIT, pid_value, null);
                     switch (linux.getErrno(rc)) {
                         0 => continue,
                         posix.EINTR => continue,
@@ -2734,7 +2774,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         // use linux API directly.  TODO use posix.CLONE_SETTLS and initialize thread local storage correctly
         const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND | posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
         const newtls: usize = 0;
-        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.pid, newtls, &thread_ptr.data.pid);
+        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return thread_ptr,
