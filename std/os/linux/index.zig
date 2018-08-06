@@ -947,6 +947,10 @@ pub fn getpid() i32 {
     return @bitCast(i32, @truncate(u32, syscall0(SYS_getpid)));
 }
 
+pub fn gettid() i32 {
+    return @bitCast(i32, @truncate(u32, syscall0(SYS_gettid)));
+}
+
 pub fn sigprocmask(flags: u32, noalias set: *const sigset_t, noalias oldset: ?*sigset_t) usize {
     return syscall4(SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG / 8);
 }

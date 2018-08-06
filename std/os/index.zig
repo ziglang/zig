@@ -160,7 +160,7 @@ test "os.getRandomBytes" {
     try getRandomBytes(buf_b[0..]);
 
     // Check if random (not 100% conclusive)
-    assert( !mem.eql(u8, buf_a, buf_b) );
+    assert(!mem.eql(u8, buf_a, buf_b));
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
@@ -2547,22 +2547,20 @@ pub const Thread = struct {
     };
 
     /// Returns the ID of the calling thread.
-    pub fn currentId() Thread.Id {
-        // TODO: As-is, this function is potentially expensive (making a
-        // syscall on every call).  Once we have support for thread-local
-        // storage (https://github.com/ziglang/zig/issues/924), we could
-        // memoize it.
+    /// Makes a syscall every time the function is called.
+    pub fn getCurrentId() Thread.Id {
         if (use_pthreads) {
             return c.pthread_self();
-        } else return switch (builtin.os) {
-            builtin.Os.linux => linux.getpid(),
+        } else
+            return switch (builtin.os) {
+            builtin.Os.linux => linux.gettid(),
             builtin.Os.windows => windows.GetCurrentThread(),
             else => @compileError("Unsupported OS"),
         };
     }
 
     /// Returns the ID of this thread.
-    pub fn id(self: *const Thread) Thread.Id {
+    pub fn id(self: Thread) Thread.Id {
         return self.data.handle;
     }
 

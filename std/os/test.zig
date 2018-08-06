@@ -34,16 +34,16 @@ test "access file" {
     try os.deleteTree(a, "os_test_tmp");
 }
 
-fn testThreadIdFn(threadId: *os.Thread.Id) void {
-    threadId.* = os.Thread.currentId();
+fn testThreadIdFn(thread_id: *os.Thread.Id) void {
+    thread_id.* = os.Thread.getCurrentId();
 }
 
-test "std.os.Thread.currentId" {
-    var threadCurrentId: os.Thread.Id = undefined;
-    const thread = try os.spawnThread(&threadCurrentId, testThreadIdFn);
-    const threadId = thread.id();
+test "std.os.Thread.getCurrentId" {
+    var thread_current_id: os.Thread.Id = undefined;
+    const thread = try os.spawnThread(&thread_current_id, testThreadIdFn);
+    const thread_id = thread.id();
     thread.wait();
-    assert(threadCurrentId == threadId);
+    assert(thread_current_id == thread_id);
 }
 
 test "spawn threads" {
