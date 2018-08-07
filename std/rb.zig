@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const mem = @import("std").mem; // For mem.Compare
 
 const Color = enum(u1) {
     Black,
@@ -6,12 +7,6 @@ const Color = enum(u1) {
 };
 const Red = Color.Red;
 const Black = Color.Black;
-
-const Compare = enum {
-    LessThan,
-    Equal,
-    GreaterThan,
-};
 
 const ReplaceError = error {
     NotEqual,
@@ -134,7 +129,7 @@ pub const Node = struct {
 
 pub const Tree = struct {
     root: ?*Node,
-    compare_fn: fn(*Node, *Node) Compare,
+    compare_fn: fn(*Node, *Node) mem.Compare,
 
     pub fn first(tree: *Tree) ?*Node {
         var node: *Node = tree.root orelse return null;
@@ -385,7 +380,7 @@ pub const Tree = struct {
         var new = newconst;
 
         // I assume this can get optimized out if the caller already knows.
-        if (tree.compare_fn(old, new) != Compare.Equal) return ReplaceError.NotEqual;
+        if (tree.compare_fn(old, new) != mem.Compare.Equal) return ReplaceError.NotEqual;
 
         if (old.get_parent()) |parent| {
             parent.set_child(new, parent.left == old);
@@ -400,7 +395,7 @@ pub const Tree = struct {
         new.* = old.*;
     }
 
-    pub fn init(tree: *Tree, f: fn(*Node, *Node) Compare) void {
+    pub fn init(tree: *Tree, f: fn(*Node, *Node) mem.Compare) void {
         tree.root = null;
         tree.compare_fn = f;
     }
@@ -465,15 +460,15 @@ fn do_lookup(key: *Node, tree: *Tree, pparent: *?*Node, is_left: *bool) ?*Node {
     is_left.* = false;
 
     while (maybe_node) |node| {
-        var res: Compare = tree.compare_fn(node, key);
-        if (res == Compare.Equal) {
+        var res: mem.Compare = tree.compare_fn(node, key);
+        if (res == mem.Compare.Equal) {
             return node;
         }
         pparent.* = node;
-        if (res == Compare.GreaterThan) {
+        if (res == mem.Compare.GreaterThan) {
             is_left.* = true;
             maybe_node = node.left;
-        } else if (res == Compare.LessThan) {
+        } else if (res == mem.Compare.LessThan) {
             is_left.* = false;
             maybe_node = node.right;
         } else {
@@ -492,16 +487,16 @@ fn testGetNumber(node: *Node) *testNumber {
     return @fieldParentPtr(testNumber, "node", node);
 }
 
-fn testCompare(l: *Node, r: *Node) Compare {
+fn testCompare(l: *Node, r: *Node) mem.Compare {
     var left = testGetNumber(l);
     var right = testGetNumber(r);
 
     if (left.value < right.value) {
-        return Compare.LessThan;
+        return mem.Compare.LessThan;
     } else if (left.value == right.value) {
-        return Compare.Equal;
+        return mem.Compare.Equal;
     } else if (left.value > right.value) {
-        return Compare.GreaterThan;
+        return mem.Compare.GreaterThan;
     }
     unreachable;
 }

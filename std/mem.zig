@@ -135,6 +135,12 @@ pub const Allocator = struct {
     }
 };
 
+const Compare = enum {
+    LessThan,
+    Equal,
+    GreaterThan,
+};
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// dest.ptr must be <= src.ptr.
