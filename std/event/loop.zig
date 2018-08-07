@@ -375,16 +375,31 @@ pub const Loop = struct {
 
     /// resume_node must live longer than the promise that it holds a reference to.
     /// flags must contain EPOLLET
-    pub fn linuxAddFd(self: *Loop, fd: i32, resume_node: *ResumeNode, flags: u32) !void {
-        assert(flags & posix.EPOLLET == posix.EPOLLET);
+    pub fn addEvHandle(self: *Loop, fd: i32, resume_node: *ResumeNode, flags: EventFlagType) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
-        try self.linuxModFd(
-            fd,
-            posix.EPOLL_CTL_ADD,
-            flags,
-            resume_node,
-        );
+        switch (builtin.os) {
+            builtin.Os.linux => {
+                // flags must contain EPOLLET
+                var ev_flags = posix.EPOLLET;
+                if (flags & EventFlags.READ != 0)
+                    ev_flags |= posix.EPOLLIN;
+                if (flags & EventFlags.WRITE != 0)
+                  ev_flags |= posix.EPOLLOUT;
+                if (flags & EventFlags.EXCEPT != 0)
+                  ev_flags |= posix.EPOLLERR;
+
+                try self.linuxModFd(
+                    fd,
+                    posix.EPOLL_CTL_ADD,
+                    ev_flags,
+                    resume_node,
+                );
+            },
+            else => {
+              return os.LinuxEpollCtlError.Unexpected;
+            }
+        }
     }
 
     pub fn linuxModFd(self: *Loop, fd: i32, op: u32, flags: u32, resume_node: *ResumeNode) !void {
@@ -396,8 +411,13 @@ pub const Loop = struct {
         try os.linuxEpollCtl(self.os_data.epollfd, op, fd, &ev);
     }
 
-    pub fn linuxRemoveFd(self: *Loop, fd: i32) void {
-        self.linuxRemoveFdNoCounter(fd);
+    pub fn removeEvHandle(self: *Loop, fd: i32) void {
+        switch (builtin.os) {
+            builtin.Os.linux => {
+                self.linuxRemoveFdNoCounter(fd);
+            },
+            else => unreachable,
+        }
         self.finishOneEvent();
     }
 
@@ -405,15 +425,15 @@ pub const Loop = struct {
         os.linuxEpollCtl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
     }
 
-    pub async fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
-        defer self.linuxRemoveFd(fd);
+    pub async fn waitEvHandle(self: *Loop, fd: i32, flags: u32) !void {
+        defer self.removeEvHandle(fd);
         suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
             var resume_node = ResumeNode{
                 .id = ResumeNode.Id.Basic,
                 .handle = @handle(),
             };
-            try self.linuxAddFd(fd, &resume_node, flags);
+            try self.addEvHandle(fd, &resume_node, flags);
         }
     }
 
