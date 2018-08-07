@@ -921,6 +921,12 @@ static void construct_linker_job_macho(LinkJob *lj) {
         zig_panic("TODO");
     }
 
+    // Always include CoreFoundation
+    // Is There a Better Way? 
+    // https://github.com/ziglang/zig/issues/1349
+    lj->args.append("-framework");
+    lj->args.append("CoreFoundation");
+
     for (size_t i = 0; i < g->darwin_frameworks.length; i += 1) {
         lj->args.append("-framework");
         lj->args.append(buf_ptr(g->darwin_frameworks.at(i)));
