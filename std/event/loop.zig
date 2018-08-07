@@ -22,6 +22,19 @@ pub const Loop = struct {
     available_eventfd_resume_nodes: std.atomic.Stack(ResumeNode.EventFd),
     eventfd_resume_nodes: []std.atomic.Stack(ResumeNode.EventFd).Node,
 
+    pub const OsEventHandle = switch (builtin.os) {
+        builtin.Os.windows => windows.HANDLE,
+        else => i32, //Assume posixesque
+    };
+    // Type for EventFlags based off of u32
+    // TODO create some sort of SET type??
+    pub const EventFlagType = u32; 
+    pub const EventFlags = struct {
+        pub const READ = EventFlagType(1<<0);
+        pub const WRITE = EventFlagType(1<<1);
+        pub const EXCEPT = EventFlagType(1<<2);
+    };
+
     pub const NextTickNode = std.atomic.Queue(promise).Node;
 
     pub const ResumeNode = struct {
