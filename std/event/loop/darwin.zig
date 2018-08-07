@@ -390,7 +390,7 @@ pub const Loop = struct {
                   ev_flags |= posix.EPOLLERR;
 
                 try self.linuxModFd(
-                    fd,
+                    handle,
                     posix.EPOLL_CTL_ADD,
                     ev_flags,
                     resume_node,
@@ -408,13 +408,13 @@ pub const Loop = struct {
             .events = flags,
             .data = os.linux.epoll_data{ .ptr = @ptrToInt(resume_node) },
         };
-        try os.linuxEpollCtl(self.os_data.epollfd, op, fd, &ev);
+        try os.linuxEpollCtl(self.os_data.epollfd, op, handle, &ev);
     }
 
     pub fn removeEvHandle(self: *Loop, handle: OsEventHandle) void {
         switch (builtin.os) {
             builtin.Os.linux => {
-                self.linuxRemoveFdNoCounter(fd);
+                self.linuxRemoveFdNoCounter(handle);
             },
             else => unreachable,
         }
@@ -422,7 +422,7 @@ pub const Loop = struct {
     }
 
     fn linuxRemoveFdNoCounter(self: *Loop, handle: OsEventHandle) void {
-        os.linuxEpollCtl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
+        os.linuxEpollCtl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, handle, undefined) catch {};
     }
 
     pub async fn waitEvHandle(self: *Loop, handle: OsEventHandle, flags: u32) !void {
@@ -433,7 +433,7 @@ pub const Loop = struct {
                 .id = ResumeNode.Id.Basic,
                 .handle = @handle(),
             };
-            try self.addEvHandle(fd, &resume_node, flags);
+            try self.addEvHandle(handle, &resume_node, flags);
         }
     }
 
