@@ -373,14 +373,14 @@ test "iterator hash map" {
     assert((try reset_map.put(3, 33)) == null);
 
     var keys = []i32{
-        1,
-        2,
         3,
+        2,
+        1,
     };
     var values = []i32{
-        11,
-        22,
         33,
+        22,
+        11,
     };
 
     var it = reset_map.iterator();
