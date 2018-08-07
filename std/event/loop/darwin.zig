@@ -10,7 +10,53 @@ const posix = os.posix;
 const c = std.c;
 
 extern fn cf_callback(uservalue: ?*c_void) void {
-    std.debug.warn("CALLED BACK\n");
+    //std.debug.warn("CALLED BACK\n");
+
+    var self: *Loop = @ptrCast(*Loop, @alignCast(8, uservalue));
+
+    while (self.os_data.fs_queue.get()) |node| {
+        switch (node.data.msg) {
+            @TagType(fs.Request.Msg).End => {
+              c.CFRunLoop.CFRunLoopStop( self.os_data.cf_loop );
+              return;
+            },
+            @TagType(fs.Request.Msg).PWriteV => |*msg| {
+                msg.result = os.posix_pwritev(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+            },
+            @TagType(fs.Request.Msg).PReadV => |*msg| {
+                msg.result = os.posix_preadv(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+            },
+            @TagType(fs.Request.Msg).OpenRead => |*msg| {
+                const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
+                msg.result = os.posixOpenC(msg.path.ptr, flags, 0);
+            },
+            @TagType(fs.Request.Msg).OpenRW => |*msg| {
+                const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
+                msg.result = os.posixOpenC(msg.path.ptr, flags, msg.mode);
+            },
+            @TagType(fs.Request.Msg).Close => |*msg| os.close(msg.fd),
+            @TagType(fs.Request.Msg).WriteFile => |*msg| blk: {
+                const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT |
+                    posix.O_CLOEXEC | posix.O_TRUNC;
+                const fd = os.posixOpenC(msg.path.ptr, flags, msg.mode) catch |err| {
+                    msg.result = err;
+                    break :blk;
+                };
+                defer os.close(fd);
+                msg.result = os.posixWrite(fd, msg.contents);
+            },
+        }
+        switch (node.data.finish) {
+            @TagType(fs.Request.Finish).TickNode => |*tick_node| self.onNextTick(tick_node),
+            @TagType(fs.Request.Finish).DeallocCloseOperation => |close_op| {
+                self.allocator.destroy(close_op);
+            },
+            @TagType(fs.Request.Finish).NoAction => {},
+        }
+        self.finishOneEvent();
+    }
+
+
 }
 
 pub fn ptr(p: var) t: {
@@ -414,7 +460,6 @@ pub const Loop = struct {
 
         //Notify Using CFRunLoop and friends
         if (self.os_data.cf_loop) |cf_loop| {
-            std.debug.warn("has loop\n");
             c.CFRunLoop.CFRunLoopSourceSignal( self.os_data.cf_signal_source );
             c.CFRunLoop.CFRunLoopWakeUp( cf_loop );
         }
@@ -427,50 +472,8 @@ pub const Loop = struct {
                                       , self.os_data.cf_signal_source
                                       , c.CFRunLoop.kCFRunLoopDefaultMode );
 
-
-        var processed_count: i32 = 0; // we let this wrap
-        while (self.os_data.fs_queue.get()) |node| {
-            processed_count +%= 1;
-            switch (node.data.msg) {
-                @TagType(fs.Request.Msg).End => return,
-                @TagType(fs.Request.Msg).PWriteV => |*msg| {
-                    msg.result = os.posix_pwritev(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
-                },
-                @TagType(fs.Request.Msg).PReadV => |*msg| {
-                    msg.result = os.posix_preadv(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
-                },
-                @TagType(fs.Request.Msg).OpenRead => |*msg| {
-                    const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
-                    msg.result = os.posixOpenC(msg.path.ptr, flags, 0);
-                },
-                @TagType(fs.Request.Msg).OpenRW => |*msg| {
-                    const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
-                    msg.result = os.posixOpenC(msg.path.ptr, flags, msg.mode);
-                },
-                @TagType(fs.Request.Msg).Close => |*msg| os.close(msg.fd),
-                @TagType(fs.Request.Msg).WriteFile => |*msg| blk: {
-                    const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT |
-                        posix.O_CLOEXEC | posix.O_TRUNC;
-                    const fd = os.posixOpenC(msg.path.ptr, flags, msg.mode) catch |err| {
-                        msg.result = err;
-                        break :blk;
-                    };
-                    defer os.close(fd);
-                    msg.result = os.posixWrite(fd, msg.contents);
-                },
-            }
-            switch (node.data.finish) {
-                @TagType(fs.Request.Finish).TickNode => |*tick_node| self.onNextTick(tick_node),
-                @TagType(fs.Request.Finish).DeallocCloseOperation => |close_op| {
-                    self.allocator.destroy(close_op);
-                },
-                @TagType(fs.Request.Finish).NoAction => {},
-            }
-            self.finishOneEvent();
-        }
-
-
-        std.debug.warn("loop activated\n");
+        //Do One
+        cf_callback( @ptrCast(?*c_void, self) );
 
         c.CFRunLoop.CFRunLoopRun();
 
