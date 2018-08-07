@@ -426,7 +426,7 @@ pub const Loop = struct {
     }
 
     pub async fn waitEvHandle(self: *Loop, handle: OsEventHandle, flags: u32) !void {
-        defer self.removeEvHandle(fd);
+        defer self.removeEvHandle(handle);
         suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
             var resume_node = ResumeNode{
