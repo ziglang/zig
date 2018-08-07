@@ -402,7 +402,7 @@ pub const Loop = struct {
         }
     }
 
-    pub fn linuxModFd(self: *Loop, handle: OsEventHandle, op: u32, flags: u32, resume_node: *ResumeNode) !void {
+    fn linuxModFd(self: *Loop, handle: OsEventHandle, op: u32, flags: u32, resume_node: *ResumeNode) !void {
         assert(flags & posix.EPOLLET == posix.EPOLLET);
         var ev = os.linux.epoll_event{
             .events = flags,
