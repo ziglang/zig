@@ -246,23 +246,64 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
     }
 }
 
+/// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
 pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u64) !usize {
-    while (true) {
-        const rc = posix.preadv(fd, iov, count, offset);
-        const err = posix.getErrno(rc);
-        switch (err) {
-            0 => return rc,
-            posix.EINTR => continue,
-            posix.EINVAL => unreachable,
-            posix.EFAULT => unreachable,
-            posix.EAGAIN => return error.WouldBlock,
-            posix.EBADF => return error.FileClosed,
-            posix.EIO => return error.InputOutput,
-            posix.EISDIR => return error.IsDir,
-            posix.ENOBUFS => return error.SystemResources,
-            posix.ENOMEM => return error.SystemResources,
-            else => return unexpectedErrorPosix(err),
-        }
+    switch (builtin.os) {
+        builtin.Os.macosx => {
+            // Darwin does not have preadv but it does have pread.
+            var off: usize = 0;
+            var iov_i: usize = 0;
+            var inner_off: usize = 0;
+            while (true) {
+                const v = iov[iov_i];
+                const rc = darwin.pread(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
+                const err = darwin.getErrno(rc);
+                switch (err) {
+                    0 => {
+                        off += rc;
+                        inner_off += rc;
+                        if (inner_off == v.iov_len) {
+                            iov_i += 1;
+                            inner_off = 0;
+                            if (iov_i == count) {
+                                return off;
+                            }
+                        }
+                        if (rc == 0) return off; // EOF
+                        continue;
+                    },
+                    posix.EINTR => continue,
+                    posix.EINVAL => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.ESPIPE => unreachable, // fd is not seekable
+                    posix.EAGAIN => return error.WouldBlock,
+                    posix.EBADF => return error.FileClosed,
+                    posix.EIO => return error.InputOutput,
+                    posix.EISDIR => return error.IsDir,
+                    posix.ENOBUFS => return error.SystemResources,
+                    posix.ENOMEM => return error.SystemResources,
+                    else => return unexpectedErrorPosix(err),
+                }
+            }
+        },
+        builtin.Os.linux, builtin.Os.freebsd => while (true) {
+            const rc = posix.preadv(fd, iov, count, offset);
+            const err = posix.getErrno(rc);
+            switch (err) {
+                0 => return rc,
+                posix.EINTR => continue,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => unreachable,
+                posix.EAGAIN => return error.WouldBlock,
+                posix.EBADF => return error.FileClosed,
+                posix.EIO => return error.InputOutput,
+                posix.EISDIR => return error.IsDir,
+                posix.ENOBUFS => return error.SystemResources,
+                posix.ENOMEM => return error.SystemResources,
+                else => return unexpectedErrorPosix(err),
+            }
+        },
+        else => @compileError("Unsupported OS"),
     }
 }
 
@@ -311,25 +352,67 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
 }
 
 pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, offset: u64) PosixWriteError!void {
-    while (true) {
-        const rc = posix.pwritev(fd, iov, count, offset);
-        const err = posix.getErrno(rc);
-        switch (err) {
-            0 => return,
-            posix.EINTR => continue,
-            posix.EINVAL => unreachable,
-            posix.EFAULT => unreachable,
-            posix.EAGAIN => return PosixWriteError.WouldBlock,
-            posix.EBADF => return PosixWriteError.FileClosed,
-            posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
-            posix.EDQUOT => return PosixWriteError.DiskQuota,
-            posix.EFBIG => return PosixWriteError.FileTooBig,
-            posix.EIO => return PosixWriteError.InputOutput,
-            posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
-            posix.EPERM => return PosixWriteError.AccessDenied,
-            posix.EPIPE => return PosixWriteError.BrokenPipe,
-            else => return unexpectedErrorPosix(err),
-        }
+    switch (builtin.os) {
+        builtin.Os.macosx => {
+            // Darwin does not have pwritev but it does have pwrite.
+            var off: usize = 0;
+            var iov_i: usize = 0;
+            var inner_off: usize = 0;
+            while (true) {
+                const v = iov[iov_i];
+                const rc = darwin.pwrite(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
+                const err = darwin.getErrno(rc);
+                switch (err) {
+                    0 => {
+                        off += rc;
+                        inner_off += rc;
+                        if (inner_off == v.iov_len) {
+                            iov_i += 1;
+                            inner_off = 0;
+                            if (iov_i == count) {
+                                return;
+                            }
+                        }
+                        continue;
+                    },
+                    posix.EINTR => continue,
+                    posix.ESPIPE => unreachable, // fd is not seekable
+                    posix.EINVAL => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.EAGAIN => return PosixWriteError.WouldBlock,
+                    posix.EBADF => return PosixWriteError.FileClosed,
+                    posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+                    posix.EDQUOT => return PosixWriteError.DiskQuota,
+                    posix.EFBIG => return PosixWriteError.FileTooBig,
+                    posix.EIO => return PosixWriteError.InputOutput,
+                    posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+                    posix.EPERM => return PosixWriteError.AccessDenied,
+                    posix.EPIPE => return PosixWriteError.BrokenPipe,
+                    else => return unexpectedErrorPosix(err),
+                }
+            }
+        },
+        builtin.Os.linux => while (true) {
+            const rc = posix.pwritev(fd, iov, count, offset);
+            const err = posix.getErrno(rc);
+            switch (err) {
+                0 => return,
+                posix.EINTR => continue,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => unreachable,
+                posix.EAGAIN => return PosixWriteError.WouldBlock,
+                posix.EBADF => return PosixWriteError.FileClosed,
+                posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+                posix.EDQUOT => return PosixWriteError.DiskQuota,
+                posix.EFBIG => return PosixWriteError.FileTooBig,
+                posix.EIO => return PosixWriteError.InputOutput,
+                posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+                posix.EPERM => return PosixWriteError.AccessDenied,
+                posix.EPIPE => return PosixWriteError.BrokenPipe,
+                else => return unexpectedErrorPosix(err),
+            }
+        },
+        else => @compileError("Unsupported OS"),
     }
 }
 

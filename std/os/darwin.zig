@@ -646,12 +646,20 @@ pub fn read(fd: i32, buf: [*]u8, nbyte: usize) usize {
     return errnoWrap(c.read(fd, @ptrCast(*c_void, buf), nbyte));
 }
 
+pub fn pread(fd: i32, buf: [*]u8, nbyte: usize, offset: u64) usize {
+    return errnoWrap(c.pread(fd, @ptrCast(*c_void, buf), nbyte, offset));
+}
+
 pub fn stat(noalias path: [*]const u8, noalias buf: *stat) usize {
     return errnoWrap(c.stat(path, buf));
 }
 
 pub fn write(fd: i32, buf: [*]const u8, nbyte: usize) usize {
     return errnoWrap(c.write(fd, @ptrCast(*const c_void, buf), nbyte));
+}
+
+pub fn pwrite(fd: i32, buf: [*]const u8, nbyte: usize, offset: u64) usize {
+    return errnoWrap(c.pwrite(fd, @ptrCast(*const c_void, buf), nbyte, offset));
 }
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {

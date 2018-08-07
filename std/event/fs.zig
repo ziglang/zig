@@ -27,7 +27,7 @@ pub const Request = struct {
 
         pub const PWriteV = struct {
             fd: os.FileHandle,
-            iov: []os.linux.iovec_const,
+            iov: []os.posix.iovec_const,
             offset: usize,
             result: Error!void,
 
@@ -36,7 +36,7 @@ pub const Request = struct {
 
         pub const PReadV = struct {
             fd: os.FileHandle,
-            iov: []os.linux.iovec,
+            iov: []os.posix.iovec,
             offset: usize,
             result: Error!usize,
 
@@ -83,11 +83,11 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
         resume @handle();
     }
 
-    const iovecs = try loop.allocator.alloc(os.linux.iovec_const, data.len);
+    const iovecs = try loop.allocator.alloc(os.posix.iovec_const, data.len);
     defer loop.allocator.free(iovecs);
 
     for (data) |buf, i| {
-        iovecs[i] = os.linux.iovec_const{
+        iovecs[i] = os.posix.iovec_const{
             .iov_base = buf.ptr,
             .iov_len = buf.len,
         };
@@ -116,7 +116,7 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
     };
 
     suspend {
-        loop.linuxFsRequest(&req_node);
+        loop.posixFsRequest(&req_node);
     }
 
     return req_node.data.msg.PWriteV.result;
@@ -132,11 +132,11 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
         resume @handle();
     }
 
-    const iovecs = try loop.allocator.alloc(os.linux.iovec, data.len);
+    const iovecs = try loop.allocator.alloc(os.posix.iovec, data.len);
     defer loop.allocator.free(iovecs);
 
     for (data) |buf, i| {
-        iovecs[i] = os.linux.iovec{
+        iovecs[i] = os.posix.iovec{
             .iov_base = buf.ptr,
             .iov_len = buf.len,
         };
@@ -165,7 +165,7 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
     };
 
     suspend {
-        loop.linuxFsRequest(&req_node);
+        loop.posixFsRequest(&req_node);
     }
 
     return req_node.data.msg.PReadV.result;
@@ -201,7 +201,7 @@ pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.
     };
 
     suspend {
-        loop.linuxFsRequest(&req_node);
+        loop.posixFsRequest(&req_node);
     }
 
     return req_node.data.msg.OpenRead.result;
@@ -243,7 +243,7 @@ pub async fn openReadWrite(
     };
 
     suspend {
-        loop.linuxFsRequest(&req_node);
+        loop.posixFsRequest(&req_node);
     }
 
     return req_node.data.msg.OpenRW.result;
@@ -280,7 +280,7 @@ pub const CloseOperation = struct {
     /// Defer this after creating.
     pub fn deinit(self: *CloseOperation) void {
         if (self.have_fd) {
-            self.loop.linuxFsRequest(&self.close_req_node);
+            self.loop.posixFsRequest(&self.close_req_node);
         } else {
             self.loop.allocator.destroy(self);
         }
@@ -330,7 +330,7 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
     };
 
     suspend {
-        loop.linuxFsRequest(&req_node);
+        loop.posixFsRequest(&req_node);
     }
 
     return req_node.data.msg.WriteFile.result;

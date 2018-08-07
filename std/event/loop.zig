@@ -127,11 +127,6 @@ pub const Loop = struct {
                         .finish = fs.Request.Finish.NoAction,
                     },
                 };
-                self.os_data.fs_thread = try os.spawnThread(self, linuxFsRun);
-                errdefer {
-                    self.linuxFsRequest(&self.os_data.fs_end_request);
-                    self.os_data.fs_thread.wait();
-                }
 
                 errdefer {
                     while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
@@ -168,6 +163,12 @@ pub const Loop = struct {
                     &self.os_data.final_eventfd_event,
                 );
 
+                self.os_data.fs_thread = try os.spawnThread(self, posixFsRun);
+                errdefer {
+                    self.posixFsRequest(&self.os_data.fs_end_request);
+                    self.os_data.fs_thread.wait();
+                }
+
                 var extra_thread_index: usize = 0;
                 errdefer {
                     // writing 8 bytes to an eventfd cannot fail
@@ -185,10 +186,25 @@ pub const Loop = struct {
                 self.os_data.kqfd = try os.bsdKQueue();
                 errdefer os.close(self.os_data.kqfd);
 
+                self.os_data.fs_kqfd = try os.bsdKQueue();
+                errdefer os.close(self.os_data.fs_kqfd);
+
+                self.os_data.fs_queue = std.atomic.Queue(fs.Request).init();
+                // we need another thread for the file system because Darwin does not have an async
+                // file system I/O API.
+                self.os_data.fs_end_request = fs.RequestNode{
+                    .prev = undefined,
+                    .next = undefined,
+                    .data = fs.Request{
+                        .msg = fs.Request.Msg.End,
+                        .finish = fs.Request.Finish.NoAction,
+                    },
+                };
+
                 self.os_data.kevents = try self.allocator.alloc(posix.Kevent, extra_thread_count);
                 errdefer self.allocator.free(self.os_data.kevents);
 
-                const eventlist = ([*]posix.Kevent)(undefined)[0..0];
+                const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
 
                 for (self.eventfd_resume_nodes) |*eventfd_node, i| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
@@ -207,12 +223,11 @@ pub const Loop = struct {
                                 .udata = @ptrToInt(&eventfd_node.data.base),
                             },
                         },
-                        .prev = undefined,
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                     const kevent_array = (*[1]posix.Kevent)(&eventfd_node.data.kevent);
-                    _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
+                    _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null);
                     eventfd_node.data.kevent.flags = posix.EV_CLEAR | posix.EV_ENABLE;
                     eventfd_node.data.kevent.fflags = posix.NOTE_TRIGGER;
                     // this one is for waiting for events
@@ -236,14 +251,38 @@ pub const Loop = struct {
                     .data = 0,
                     .udata = @ptrToInt(&self.final_resume_node),
                 };
-                const kevent_array = (*[1]posix.Kevent)(&self.os_data.final_kevent);
-                _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
+                const final_kev_arr = (*[1]posix.Kevent)(&self.os_data.final_kevent);
+                _ = try os.bsdKEvent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
                 self.os_data.final_kevent.flags = posix.EV_ENABLE;
                 self.os_data.final_kevent.fflags = posix.NOTE_TRIGGER;
 
+                self.os_data.fs_kevent_wake = posix.Kevent{
+                    .ident = extra_thread_count + 1,
+                    .filter = posix.EVFILT_USER,
+                    .flags = posix.EV_ADD,
+                    .fflags = posix.NOTE_TRIGGER,
+                    .data = 0,
+                    .udata = undefined,
+                };
+
+                self.os_data.fs_kevent_wait = posix.Kevent{
+                    .ident = extra_thread_count + 1,
+                    .filter = posix.EVFILT_USER,
+                    .flags = posix.EV_ADD|posix.EV_CLEAR,
+                    .fflags = 0,
+                    .data = 0,
+                    .udata = undefined,
+                };
+
+                self.os_data.fs_thread = try os.spawnThread(self, posixFsRun);
+                errdefer {
+                    self.posixFsRequest(&self.os_data.fs_end_request);
+                    self.os_data.fs_thread.wait();
+                }
+
                 var extra_thread_index: usize = 0;
                 errdefer {
-                    _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null) catch unreachable;
+                    _ = os.bsdKEvent(self.os_data.kqfd, final_kev_arr, empty_kevs, null) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
@@ -312,6 +351,7 @@ pub const Loop = struct {
             builtin.Os.macosx => {
                 self.allocator.free(self.os_data.kevents);
                 os.close(self.os_data.kqfd);
+                os.close(self.os_data.fs_kqfd);
             },
             builtin.Os.windows => {
                 os.close(self.os_data.io_port);
@@ -375,8 +415,8 @@ pub const Loop = struct {
             switch (builtin.os) {
                 builtin.Os.macosx => {
                     const kevent_array = (*[1]posix.Kevent)(&eventfd_node.kevent);
-                    const eventlist = ([*]posix.Kevent)(undefined)[0..0];
-                    _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null) catch {
+                    const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
+                    _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
                         self.next_tick_queue.unget(next_tick_node);
                         self.available_eventfd_resume_nodes.push(resume_stack_node);
                         return;
@@ -493,16 +533,17 @@ pub const Loop = struct {
             // cause all the threads to stop
             switch (builtin.os) {
                 builtin.Os.linux => {
-                    self.linuxFsRequest(&self.os_data.fs_end_request);
+                    self.posixFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
                     os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     return;
                 },
                 builtin.Os.macosx => {
+                    self.posixFsRequest(&self.os_data.fs_end_request);
                     const final_kevent = (*[1]posix.Kevent)(&self.os_data.final_kevent);
-                    const eventlist = ([*]posix.Kevent)(undefined)[0..0];
+                    const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
                     // cannot fail because we already added it and this just enables it
-                    _ = os.bsdKEvent(self.os_data.kqfd, final_kevent, eventlist, null) catch unreachable;
+                    _ = os.bsdKEvent(self.os_data.kqfd, final_kevent, empty_kevs, null) catch unreachable;
                     return;
                 },
                 builtin.Os.windows => {
@@ -576,6 +617,7 @@ pub const Loop = struct {
                             self.finishOneEvent();
                         }
                     }
+                    break;
                 },
                 builtin.Os.windows => {
                     var completion_key: usize = undefined;
@@ -610,19 +652,29 @@ pub const Loop = struct {
         }
     }
 
-    fn linuxFsRequest(self: *Loop, request_node: *fs.RequestNode) void {
-        self.beginOneEvent(); // finished in linuxFsRun after processing the msg
+    fn posixFsRequest(self: *Loop, request_node: *fs.RequestNode) void {
+        self.beginOneEvent(); // finished in posixFsRun after processing the msg
         self.os_data.fs_queue.put(request_node);
-        _ = @atomicRmw(i32, &self.os_data.fs_queue_len, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst); // let this wrap
-        const rc = os.linux.futex_wake(@ptrToInt(&self.os_data.fs_queue_len), os.linux.FUTEX_WAKE, 1);
-        switch (os.linux.getErrno(rc)) {
-            0 => {},
-            posix.EINVAL => unreachable,
-            else => unreachable,
+        switch (builtin.os) {
+            builtin.Os.macosx => {
+                const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wake);
+                const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
+                _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
+            },
+            builtin.Os.linux => {
+                _ = @atomicRmw(i32, &self.os_data.fs_queue_len, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst); // let this wrap
+                const rc = os.linux.futex_wake(@ptrToInt(&self.os_data.fs_queue_len), os.linux.FUTEX_WAKE, 1);
+                switch (os.linux.getErrno(rc)) {
+                    0 => {},
+                    posix.EINVAL => unreachable,
+                    else => unreachable,
+                }
+            },
+            else => @compileError("Unsupported OS"),
         }
     }
 
-    fn linuxFsRun(self: *Loop) void {
+    fn posixFsRun(self: *Loop) void {
         var processed_count: i32 = 0; // we let this wrap
         while (true) {
             while (self.os_data.fs_queue.get()) |node| {
@@ -664,12 +716,22 @@ pub const Loop = struct {
                 }
                 self.finishOneEvent();
             }
-            const rc = os.linux.futex_wait(@ptrToInt(&self.os_data.fs_queue_len), os.linux.FUTEX_WAIT, processed_count, null);
-            switch (os.linux.getErrno(rc)) {
-                0 => continue,
-                posix.EINTR => continue,
-                posix.EAGAIN => continue,
-                else => unreachable,
+            switch (builtin.os) {
+                builtin.Os.linux => {
+                    const rc = os.linux.futex_wait(@ptrToInt(&self.os_data.fs_queue_len), os.linux.FUTEX_WAIT, processed_count, null);
+                    switch (os.linux.getErrno(rc)) {
+                        0 => continue,
+                        posix.EINTR => continue,
+                        posix.EAGAIN => continue,
+                        else => unreachable,
+                    }
+                },
+                builtin.Os.macosx => {
+                    const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wait);
+                    var out_kevs: [1]posix.Kevent = undefined;
+                    _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
+                },
+                else => @compileError("Unsupported OS"),
             }
         }
     }
@@ -696,6 +758,12 @@ pub const Loop = struct {
         kqfd: i32,
         final_kevent: posix.Kevent,
         kevents: []posix.Kevent,
+        fs_kevent_wake: posix.Kevent,
+        fs_kevent_wait: posix.Kevent,
+        fs_thread: *os.Thread,
+        fs_kqfd: i32,
+        fs_queue: std.atomic.Queue(fs.Request),
+        fs_end_request: fs.RequestNode,
     };
 };
 
