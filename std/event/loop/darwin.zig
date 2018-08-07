@@ -684,7 +684,7 @@ pub const Loop = struct {
         }
     }
 
-    fn posixFsRequest(self: *Loop, request_node: *fs.RequestNode) void {
+    pub fn posixFsRequest(self: *Loop, request_node: *fs.RequestNode) void {
         self.beginOneEvent(); // finished in posixFsRun after processing the msg
         self.os_data.fs_queue.put(request_node);
         switch (builtin.os) {
