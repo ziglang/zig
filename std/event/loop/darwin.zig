@@ -288,6 +288,9 @@ pub const Loop = struct {
     fn deinitOsData(self: *Loop) void {
         self.allocator.free(self.os_data.kevents);
         os.close(self.os_data.kqfd);
+        if (self.os_data.cf_signal_source) |s| {
+            c.CFRunLoop.CFRelease(@ptrCast(?*c_void, s));
+        }
         //OLD os.close(self.os_data.fs_kqfd);
     }
 
@@ -477,7 +480,9 @@ pub const Loop = struct {
 
         c.CFRunLoop.CFRunLoopRun();
 
-        c.CFRunLoop.CFRelease(@ptrCast(?*c_void, self.os_data.cf_signal_source));
+        c.CFRunLoop.CFRunLoopRemoveSource(self.os_data.cf_loop
+                                         , self.os_data.cf_signal_source
+                                         , c.CFRunLoop.kCFRunLoopDefaultMode );
 
             //OLD const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wait);
             //OLD var out_kevs: [1]posix.Kevent = undefined;
