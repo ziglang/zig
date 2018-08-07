@@ -9,6 +9,33 @@ const os = std.os;
 const posix = os.posix;
 const windows = os.windows;
 
+// 06:52 <kristate> andrewrk: thinking about breaking-up the loop into separate
+//       files for each platform. importing event.loop will import the correct
+//       implementation for each OS and we will test the unified API in several test
+//       blocks inside of event.loop -- there is just too much custom code between the
+//       platforms and with threads, I want to make sure we get this right.
+// 06:53 <kristate> andrewrk: it's not as bad as you might imagine. only downside
+//       is if we find a bug in one implementation, we will have to make sure to track
+//       it down for each other files -- BUT, if we add the appropriate test case for
+//       that bug, we should be able to run against all implementations and if the bug
+//       does not show, then so be it 
+// 06:54 <kristate> andrewrk: I think that this is going to be important as we go
+//       forward -- defining the interface as tests in an index file, and then making
+//       sure the tests pass in each implementation
+// 07:20 <andrewrk> kristate, I implemented the darwin file system stuff (not the
+//       watching yet) in my async-fs branch
+// 07:20 <andrewrk> I went the other direction with it - not having different
+//       files
+// 07:20 <kristate> andrewrk: yes, I see that -- but when we add FS watching in,
+//       things will get messy with CFLoopRun
+// 07:20 <andrewrk> I think it's better to have the same function definitions and
+//       types in one file, and that can switch out and import os-specific files if
+//       necessary
+// 07:23 <andrewrk> kristate, I see, alright my mind is open to your way
+// 07:23 <andrewrk> sorry I gotta get some sleep, I'll be back in ~8 hours 
+// 07:24 <kristate> okay, yeah -- please rest well. I will try to get something
+//       hacked out with FS watch
+
 pub use switch (builtin.os) {
     builtin.Os.linux => @import("loop/linux.zig"),
     builtin.Os.macosx => @import("loop/darwin.zig"),
