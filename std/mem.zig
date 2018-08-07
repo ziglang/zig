@@ -135,6 +135,12 @@ pub const Allocator = struct {
     }
 };
 
+const Compare = enum {
+    LessThan,
+    Equal,
+    GreaterThan,
+};
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// dest.ptr must be <= src.ptr.
@@ -169,16 +175,46 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
         d.* = value;
 }
 
-/// Returns true if lhs < rhs, false otherwise
-pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
+pub fn compare(comptime T: type, lhs: []const T, rhs: []const T) Compare {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        if (lhs[i] == rhs[i]) continue;
-        return lhs[i] < rhs[i];
+        if (lhs[i] == rhs[i]) {
+            continue;
+        } else if (lhs[i] < rhs[i]) {
+            return Compare.LessThan;
+        } else if (lhs[i] > rhs[i]) {
+            return Compare.GreaterThan;
+        } else {
+            unreachable;
+        }
     }
 
-    return lhs.len < rhs.len;
+    if (lhs.len == rhs.len) {
+        return Compare.Equal;
+    } else if (lhs.len < rhs.len) {
+        return Compare.LessThan;
+    } else if (lhs.len > rhs.len) {
+        return Compare.GreaterThan;
+    }
+    unreachable;
+}
+
+test "mem.compare" {
+    assert(compare(u8, "abcd", "bee") == Compare.LessThan);
+    assert(compare(u8, "abc", "abc") == Compare.Equal);
+    assert(compare(u8, "abc", "abc0") == Compare.LessThan);
+    assert(compare(u8, "", "") == Compare.Equal);
+    assert(compare(u8, "", "a") == Compare.LessThan);
+}
+
+/// Returns true if lhs < rhs, false otherwise
+pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
+    var result = compare(T, lhs, rhs);
+    if (result == Compare.LessThan) {
+        return true;
+    } else
+        return false;
 }
 
 test "mem.lessThan" {
