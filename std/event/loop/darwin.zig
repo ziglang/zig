@@ -375,7 +375,7 @@ pub const Loop = struct {
 
     /// resume_node must live longer than the promise that it holds a reference to.
     /// flags must contain EPOLLET
-    pub fn addEvHandle(self: *Loop, fd: i32, resume_node: *ResumeNode, flags: EventFlagType) !void {
+    pub fn addEvHandle(self: *Loop, handle: OsEventHandle, resume_node: *ResumeNode, flags: EventFlagType) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
         switch (builtin.os) {
@@ -402,7 +402,7 @@ pub const Loop = struct {
         }
     }
 
-    pub fn linuxModFd(self: *Loop, fd: i32, op: u32, flags: u32, resume_node: *ResumeNode) !void {
+    pub fn linuxModFd(self: *Loop, handle: OsEventHandle, op: u32, flags: u32, resume_node: *ResumeNode) !void {
         assert(flags & posix.EPOLLET == posix.EPOLLET);
         var ev = os.linux.epoll_event{
             .events = flags,
@@ -411,7 +411,7 @@ pub const Loop = struct {
         try os.linuxEpollCtl(self.os_data.epollfd, op, fd, &ev);
     }
 
-    pub fn removeEvHandle(self: *Loop, fd: i32) void {
+    pub fn removeEvHandle(self: *Loop, handle: OsEventHandle) void {
         switch (builtin.os) {
             builtin.Os.linux => {
                 self.linuxRemoveFdNoCounter(fd);
@@ -421,11 +421,11 @@ pub const Loop = struct {
         self.finishOneEvent();
     }
 
-    fn linuxRemoveFdNoCounter(self: *Loop, fd: i32) void {
+    fn linuxRemoveFdNoCounter(self: *Loop, handle: OsEventHandle) void {
         os.linuxEpollCtl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
     }
 
-    pub async fn waitEvHandle(self: *Loop, fd: i32, flags: u32) !void {
+    pub async fn waitEvHandle(self: *Loop, handle: OsEventHandle, flags: u32) !void {
         defer self.removeEvHandle(fd);
         suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
