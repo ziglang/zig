@@ -1,3 +1,7 @@
+pub const CFRunLoop = @cImport({
+    @cInclude("CoreFoundation/CFRunLoop.h");
+});
+
 extern "c" fn __error() *c_int;
 pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
 

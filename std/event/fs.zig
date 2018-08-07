@@ -531,9 +531,9 @@ pub fn Watch(comptime V: type) type {
                     os.linux.EINVAL => unreachable,
                     os.linux.EFAULT => unreachable,
                     os.linux.EAGAIN => {
-                        (await (async loop.linuxWaitFd(
+                        (await (async loop.waitEvHandle(
                             inotify_fd,
-                            os.linux.EPOLLET | os.linux.EPOLLIN,
+                            event.Loop.EventFlags.READ,
                         ) catch unreachable)) catch |err| {
                             const transformed_err = switch (err) {
                                 error.InvalidFileDescriptor => unreachable,
