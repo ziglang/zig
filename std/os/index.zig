@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
-const is_posix = switch (builtin.os) {
+pub const is_posix = switch (builtin.os) {
     builtin.Os.linux, builtin.Os.macosx => true,
     else => false,
 };

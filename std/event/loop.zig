@@ -16,6 +16,35 @@ pub use switch (builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
+test "std.event.Loop - test API" {
+  _ = Loop.NextTickNode;
+  _ = Loop.ResumeNode;
+  _ = Loop.ResumeNode;
+  _ = Loop.OsEventHandle;
+  _ = Loop.EventFlagType;
+  _ = Loop.EventFlags.READ;
+  _ = Loop.EventFlags.WRITE;
+  _ = Loop.EventFlags.EXCEPT;
+  _ = Loop.initSingleThreaded;
+  _ = Loop.initMultiThreaded;
+
+  _ = Loop.addEvHandle;
+  _ = Loop.removeEvHandle;
+  _ = Loop.waitEvHandle;
+  _ = Loop.onNextTick;
+  _ = Loop.cancelOnNextTick;
+  _ = Loop.run;
+  _ = Loop.call;
+  _ = Loop.yield;
+  _ = Loop.beginOneEvent;
+  _ = Loop.finishOneEvent;
+
+  //Test Posix functions
+  if (comptime os.is_posix) {
+    _ = Loop.posixFsRequest;
+  }
+}
+
 test "std.event.Loop - basic" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
