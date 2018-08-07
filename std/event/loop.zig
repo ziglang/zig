@@ -617,7 +617,6 @@ pub const Loop = struct {
                             self.finishOneEvent();
                         }
                     }
-                    break;
                 },
                 builtin.Os.windows => {
                     var completion_key: usize = undefined;
