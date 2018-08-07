@@ -826,6 +826,7 @@ a +%= b</code></pre></td>
           <td>Wrapping Addition.
             <ul>
               <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>See also {#link|@addWithOverflow#}.</li>
             </ul>
           </td>
           <td>
