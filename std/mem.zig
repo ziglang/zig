@@ -135,7 +135,7 @@ pub const Allocator = struct {
     }
 };
 
-const Compare = enum {
+pub const Compare = enum {
     LessThan,
     Equal,
     GreaterThan,
