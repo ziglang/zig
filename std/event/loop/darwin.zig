@@ -7,7 +7,20 @@ const AtomicOrder = builtin.AtomicOrder;
 const fs = std.event.fs;
 const os = std.os;
 const posix = os.posix;
-const windows = os.windows;
+const c = std.c;
+
+extern fn cf_callback(uservalue: ?*c_void) void {
+    std.debug.warn("CALLED BACK\n");
+}
+
+pub fn ptr(p: var) t: {
+    const T = @typeOf(p);
+    const info = @typeInfo(@typeOf(p)).Pointer;
+    break :t if (info.is_const) ?[*]const info.child else ?[*]info.child;
+} {
+    return @ptrCast(@typeInfo(@typeOf(this)).Fn.return_type.?, p);
+}
+
 
 pub const Loop = struct {
     allocator: *mem.Allocator,
@@ -112,8 +125,15 @@ pub const Loop = struct {
         self.os_data.kqfd = try os.bsdKQueue();
         errdefer os.close(self.os_data.kqfd);
 
-        self.os_data.fs_kqfd = try os.bsdKQueue();
-        errdefer os.close(self.os_data.fs_kqfd);
+        //OLD self.os_data.fs_kqfd = try os.bsdKQueue();
+        //OLD errdefer os.close(self.os_data.fs_kqfd);
+
+        var ctx: c.CFRunLoop.CFRunLoopSourceContext = undefined;
+
+        ctx.info = @ptrCast(?*c_void, self);
+        ctx.perform = cf_callback;
+
+        self.os_data.cf_signal_source = c.CFRunLoop.CFRunLoopSourceCreate(null, 0, ptr(&ctx));
 
         self.os_data.fs_queue = std.atomic.Queue(fs.Request).init();
         // we need another thread for the file system because Darwin does not have an async
@@ -222,7 +242,7 @@ pub const Loop = struct {
     fn deinitOsData(self: *Loop) void {
         self.allocator.free(self.os_data.kevents);
         os.close(self.os_data.kqfd);
-        os.close(self.os_data.fs_kqfd);
+        //OLD os.close(self.os_data.fs_kqfd);
     }
 
     /// resume_node must live longer than the promise that it holds a reference to.
@@ -387,58 +407,78 @@ pub const Loop = struct {
         self.beginOneEvent(); // finished in posixFsRun after processing the msg
         self.os_data.fs_queue.put(request_node);
         //
-        const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wake);
-        const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
-        _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
+        //OLD const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wake);
+        //OLD const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
+        //OLD _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
         //
+
+        //Notify Using CFRunLoop and friends
+        if (self.os_data.cf_loop) |cf_loop| {
+            std.debug.warn("has loop\n");
+            c.CFRunLoop.CFRunLoopSourceSignal( self.os_data.cf_signal_source );
+            c.CFRunLoop.CFRunLoopWakeUp( cf_loop );
+        }
     }
 
     fn posixFsRun(self: *Loop) void {
+        self.os_data.cf_loop = c.CFRunLoop.CFRunLoopGetCurrent();
+
+        c.CFRunLoop.CFRunLoopAddSource( self.os_data.cf_loop
+                                      , self.os_data.cf_signal_source
+                                      , c.CFRunLoop.kCFRunLoopDefaultMode );
+
+
         var processed_count: i32 = 0; // we let this wrap
-        while (true) {
-            while (self.os_data.fs_queue.get()) |node| {
-                processed_count +%= 1;
-                switch (node.data.msg) {
-                    @TagType(fs.Request.Msg).End => return,
-                    @TagType(fs.Request.Msg).PWriteV => |*msg| {
-                        msg.result = os.posix_pwritev(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
-                    },
-                    @TagType(fs.Request.Msg).PReadV => |*msg| {
-                        msg.result = os.posix_preadv(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
-                    },
-                    @TagType(fs.Request.Msg).OpenRead => |*msg| {
-                        const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
-                        msg.result = os.posixOpenC(msg.path.ptr, flags, 0);
-                    },
-                    @TagType(fs.Request.Msg).OpenRW => |*msg| {
-                        const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
-                        msg.result = os.posixOpenC(msg.path.ptr, flags, msg.mode);
-                    },
-                    @TagType(fs.Request.Msg).Close => |*msg| os.close(msg.fd),
-                    @TagType(fs.Request.Msg).WriteFile => |*msg| blk: {
-                        const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT |
-                            posix.O_CLOEXEC | posix.O_TRUNC;
-                        const fd = os.posixOpenC(msg.path.ptr, flags, msg.mode) catch |err| {
-                            msg.result = err;
-                            break :blk;
-                        };
-                        defer os.close(fd);
-                        msg.result = os.posixWrite(fd, msg.contents);
-                    },
-                }
-                switch (node.data.finish) {
-                    @TagType(fs.Request.Finish).TickNode => |*tick_node| self.onNextTick(tick_node),
-                    @TagType(fs.Request.Finish).DeallocCloseOperation => |close_op| {
-                        self.allocator.destroy(close_op);
-                    },
-                    @TagType(fs.Request.Finish).NoAction => {},
-                }
-                self.finishOneEvent();
+        while (self.os_data.fs_queue.get()) |node| {
+            processed_count +%= 1;
+            switch (node.data.msg) {
+                @TagType(fs.Request.Msg).End => return,
+                @TagType(fs.Request.Msg).PWriteV => |*msg| {
+                    msg.result = os.posix_pwritev(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+                },
+                @TagType(fs.Request.Msg).PReadV => |*msg| {
+                    msg.result = os.posix_preadv(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+                },
+                @TagType(fs.Request.Msg).OpenRead => |*msg| {
+                    const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
+                    msg.result = os.posixOpenC(msg.path.ptr, flags, 0);
+                },
+                @TagType(fs.Request.Msg).OpenRW => |*msg| {
+                    const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
+                    msg.result = os.posixOpenC(msg.path.ptr, flags, msg.mode);
+                },
+                @TagType(fs.Request.Msg).Close => |*msg| os.close(msg.fd),
+                @TagType(fs.Request.Msg).WriteFile => |*msg| blk: {
+                    const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT |
+                        posix.O_CLOEXEC | posix.O_TRUNC;
+                    const fd = os.posixOpenC(msg.path.ptr, flags, msg.mode) catch |err| {
+                        msg.result = err;
+                        break :blk;
+                    };
+                    defer os.close(fd);
+                    msg.result = os.posixWrite(fd, msg.contents);
+                },
             }
-            const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wait);
-            var out_kevs: [1]posix.Kevent = undefined;
-            _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
+            switch (node.data.finish) {
+                @TagType(fs.Request.Finish).TickNode => |*tick_node| self.onNextTick(tick_node),
+                @TagType(fs.Request.Finish).DeallocCloseOperation => |close_op| {
+                    self.allocator.destroy(close_op);
+                },
+                @TagType(fs.Request.Finish).NoAction => {},
+            }
+            self.finishOneEvent();
         }
+
+
+        std.debug.warn("loop activated\n");
+
+        c.CFRunLoop.CFRunLoopRun();
+
+        c.CFRunLoop.CFRelease(@ptrCast(?*c_void, self.os_data.cf_signal_source));
+
+            //OLD const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wait);
+            //OLD var out_kevs: [1]posix.Kevent = undefined;
+            //OLD _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
     }
 
     const OsData = struct {
@@ -451,5 +491,10 @@ pub const Loop = struct {
         fs_kqfd: i32,
         fs_queue: std.atomic.Queue(fs.Request),
         fs_end_request: fs.RequestNode,
+
+        /////// CFLoop
+        cf_loop: c.CFRunLoop.CFRunLoopRef,
+        cf_signal_source: c.CFRunLoop.CFRunLoopSourceRef,
+
     };
 };
