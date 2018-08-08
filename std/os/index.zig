@@ -2512,6 +2512,49 @@ pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
     }
 }
 
+pub const PosixFcntlError = error{
+    /// EACCES: Operation is prohibited by locks held by other processes.
+    PermissionDenied,
+
+    /// EAGAIN: The operation is prohibited because the file has been memory-
+    /// mapped by another process.
+    SystemResources,
+
+    /// EBUSY: cmd is F_SETPIPE_SZ and the new pipe capacity specified in arg
+    /// is smaller than the amount of buffer space currently used to
+    /// store data in the pipe.
+    /// OR cmd is F_ADD_SEALS, arg includes F_SEAL_WRITE, and there
+    /// exists a writable, shared mapping on the file referred to by fd.
+    FileBusy,
+
+    Unexpected,
+};
+
+pub fn posixFcntl(fd: i32, cmd: i32, a: ...) PosixFcntlError!i32 {
+    while (true) {
+        const rc = switch (comptime a.len) {
+          0 => posix.fcntlZero(fd, cmd),
+          1 => posix.fcntlOne(fd, cmd, a[0]),
+          2 => posix.fcntlTwo(fd, cmd, a[0], a[1]),
+          else => @compileError("posixFcntl only supports up to two arguments at this time"),
+        };
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return @intCast(i32, rc),
+            else => return unexpectedErrorPosix(err),
+
+            posix.EACCES => return PosixFcntlError.PermissionDenied,
+            posix.EAGAIN => return PosixFcntlError.SystemResources,
+            posix.EBADF => unreachable,
+            posix.EBUSY => return PosixFcntlError.FileBusy,
+            posix.EDEADLK => unreachable, // It was detected that cmd would cause a deadlock.
+            posix.EFAULT => unreachable, // The address pointed to by optval or optlen is not in a valid part of the process address space.
+            posix.EINTR => continue,
+            posix.EINVAL => unreachable,
+        }
+    }
+}
+
 pub const Thread = struct {
     data: Data,
 
