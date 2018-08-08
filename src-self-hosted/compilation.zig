@@ -758,32 +758,28 @@ pub const Compilation = struct {
             // First, get an item from the watch channel, waiting on the channel.
             var group = event.Group(BuildError!void).init(self.loop);
             {
-                const ev = await (async self.fs_watch.channel.get() catch unreachable);
-                const root_scope = switch (ev) {
-                    fs.Watch(*Scope.Root).Event.CloseWrite => |x| x,
-                    fs.Watch(*Scope.Root).Event.Err => |err| {
-                        build_result = err;
-                        continue;
-                    },
+                const ev = (await (async self.fs_watch.channel.get() catch unreachable)) catch |err| {
+                    build_result = err;
+                    continue;
                 };
+                const root_scope = ev.data;
                 group.call(rebuildFile, self, root_scope) catch |err| {
                     build_result = err;
                     continue;
                 };
             }
             // Next, get all the items from the channel that are buffered up.
-            while (await (async self.fs_watch.channel.getOrNull() catch unreachable)) |ev| {
-                const root_scope = switch (ev) {
-                    fs.Watch(*Scope.Root).Event.CloseWrite => |x| x,
-                    fs.Watch(*Scope.Root).Event.Err => |err| {
+            while (await (async self.fs_watch.channel.getOrNull() catch unreachable)) |ev_or_err| {
+                if (ev_or_err) |ev| {
+                    const root_scope = ev.data;
+                    group.call(rebuildFile, self, root_scope) catch |err| {
                         build_result = err;
                         continue;
-                    },
-                };
-                group.call(rebuildFile, self, root_scope) catch |err| {
+                    };
+                } else |err| {
                     build_result = err;
                     continue;
-                };
+                }
             }
             build_result = await (async group.wait() catch unreachable);
         }

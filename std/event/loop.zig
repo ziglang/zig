@@ -52,6 +52,20 @@ pub const Loop = struct {
             base: ResumeNode,
             kevent: posix.Kevent,
         };
+
+        pub const Basic = switch (builtin.os) {
+            builtin.Os.macosx => struct {
+                base: ResumeNode,
+                kev: posix.Kevent,
+            },
+            builtin.Os.linux => struct {
+                base: ResumeNode,
+            },
+            builtin.Os.windows => struct {
+                base: ResumeNode,
+            },
+            else => @compileError("unsupported OS"),
+        };
     };
 
     /// After initialization, call run().
@@ -379,28 +393,37 @@ pub const Loop = struct {
         defer self.linuxRemoveFd(fd);
         suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
-            var resume_node = ResumeNode{
-                .id = ResumeNode.Id.Basic,
-                .handle = @handle(),
+            var resume_node = ResumeNode.Basic{
+                .base = ResumeNode{
+                    .id = ResumeNode.Id.Basic,
+                    .handle = @handle(),
+                },
             };
-            try self.linuxAddFd(fd, &resume_node, flags);
+            try self.linuxAddFd(fd, &resume_node.base, flags);
         }
     }
 
-    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) !void {
-        defer self.bsdRemoveKev(ident, filter);
+    pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) !posix.Kevent {
+        // TODO #1194
         suspend {
-            // TODO explicitly put this memory in the coroutine frame #1194
-            var resume_node = ResumeNode{
+            resume @handle();
+        }
+        var resume_node = ResumeNode.Basic{
+            .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
                 .handle = @handle(),
-            };
+            },
+            .kev = undefined,
+        };
+        defer self.bsdRemoveKev(ident, filter);
+        suspend {
             try self.bsdAddKev(&resume_node, ident, filter, fflags);
         }
+        return resume_node.kev;
     }
 
     /// resume_node must live longer than the promise that it holds a reference to.
-    pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode, ident: usize, filter: i16, fflags: u32) !void {
+    pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, fflags: u32) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
         var kev = posix.Kevent{
@@ -409,7 +432,7 @@ pub const Loop = struct {
             .flags = posix.EV_ADD|posix.EV_ENABLE|posix.EV_CLEAR,
             .fflags = fflags,
             .data = 0,
-            .udata = @ptrToInt(resume_node),
+            .udata = @ptrToInt(&resume_node.base),
         };
         const kevent_array = (*[1]posix.Kevent)(&kev);
         const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
@@ -632,7 +655,10 @@ pub const Loop = struct {
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {
-                            ResumeNode.Id.Basic => {},
+                            ResumeNode.Id.Basic => {
+                                const basic_node = @fieldParentPtr(ResumeNode.Basic, "base", resume_node);
+                                basic_node.kev = ev;
+                            },
                             ResumeNode.Id.Stop => return,
                             ResumeNode.Id.EventFd => {
                                 const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);

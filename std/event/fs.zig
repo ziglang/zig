@@ -358,9 +358,20 @@ pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize)
     }
 }
 
+pub const WatchEventId = enum {
+    CloseWrite,
+    Delete,
+};
+
+pub const WatchEventError = error{
+    UserResourceLimitReached,
+    SystemResources,
+    AccessDenied,
+};
+
 pub fn Watch(comptime V: type) type {
     return struct {
-        channel: *event.Channel(Event),
+        channel: *event.Channel(Event.Error!Event),
         os_data: OsData,
 
         const OsData = switch (builtin.os) {
@@ -395,19 +406,16 @@ pub fn Watch(comptime V: type) type {
             file_table: OsData.FileTable,
         };
 
-        pub const Event = union(enum) {
-            CloseWrite: V,
-            Err: Error,
+        pub const Event = struct {
+            id: Id,
+            data: V,
 
-            pub const Error = error{
-                UserResourceLimitReached,
-                SystemResources,
-                AccessDenied,
-            };
+            pub const Id = WatchEventId;
+            pub const Error = WatchEventError;
         };
 
         pub fn create(loop: *event.Loop, event_buf_count: usize) !*Self {
-            const channel = try event.Channel(Self.Event).create(loop, event_buf_count);
+            const channel = try event.Channel(Self.Event.Error!Self.Event).create(loop, event_buf_count);
             errdefer channel.destroy();
 
             switch (builtin.os) {
@@ -519,19 +527,32 @@ pub fn Watch(comptime V: type) type {
             }
 
             while (true) {
-                (await (async self.channel.loop.bsdWaitKev(
-                    @intCast(usize, close_op.getHandle()), posix.EVFILT_VNODE, posix.NOTE_WRITE,
-                ) catch unreachable)) catch |err| switch (err) {
+                if (await (async self.channel.loop.bsdWaitKev(
+                    @intCast(usize, close_op.getHandle()),
+                    posix.EVFILT_VNODE,
+                    posix.NOTE_WRITE | posix.NOTE_DELETE,
+                ) catch unreachable)) |kev| {
+                    // TODO handle EV_ERROR
+                    if (kev.fflags & posix.NOTE_DELETE != 0) {
+                        await (async self.channel.put(Self.Event{
+                            .id = Event.Id.Delete,
+                            .data = value_copy,
+                        }) catch unreachable);
+                    } else if (kev.fflags & posix.NOTE_WRITE != 0) {
+                        await (async self.channel.put(Self.Event{
+                            .id = Event.Id.CloseWrite,
+                            .data = value_copy,
+                        }) catch unreachable);
+                    }
+                } else |err| switch (err) {
                     error.EventNotFound => unreachable,
                     error.ProcessNotFound => unreachable,
                     error.AccessDenied, error.SystemResources => {
                         // TODO https://github.com/ziglang/zig/issues/769
                         const casted_err = @errSetCast(error{AccessDenied,SystemResources}, err);
-                        await (async self.channel.put(Self.Event{ .Err = casted_err }) catch unreachable);
+                        await (async self.channel.put(casted_err) catch unreachable);
                     },
-                };
-
-                await (async self.channel.put(Self.Event{ .CloseWrite = value_copy }) catch unreachable);
+                }
             }
         }
 
@@ -582,7 +603,7 @@ pub fn Watch(comptime V: type) type {
             @panic("TODO");
         }
 
-        async fn linuxEventPutter(inotify_fd: i32, channel: *event.Channel(Event), out_watch: **Self) void {
+        async fn linuxEventPutter(inotify_fd: i32, channel: *event.Channel(Event.Error!Event), out_watch: **Self) void {
             // TODO https://github.com/ziglang/zig/issues/1194
             suspend {
                 resume @handle();
@@ -743,9 +764,9 @@ async fn testFsWatch(loop: *event.Loop) !void {
     }
 
     ev_consumed = true;
-    switch (await ev) {
-        Watch(void).Event.CloseWrite => {},
-        Watch(void).Event.Err => |err| return err,
+    switch ((try await ev).id) {
+        WatchEventId.CloseWrite => {},
+        WatchEventId.Delete => @panic("wrong event"),
     }
 
     const contents_updated = try await try async readFile(loop, file_path, 1024 * 1024);
@@ -753,4 +774,6 @@ async fn testFsWatch(loop: *event.Loop) !void {
         \\line 1
         \\lorem ipsum
     ));
+
+    // TODO test deleting the file and then re-adding it. we should get events for both
 }
