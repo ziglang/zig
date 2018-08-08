@@ -301,7 +301,7 @@ pub const Loop = struct {
                     windows.INVALID_HANDLE_VALUE,
                     null,
                     undefined,
-                    undefined,
+                    @maxValue(windows.DWORD),
                 );
                 errdefer os.close(self.os_data.io_port);
 
@@ -315,7 +315,6 @@ pub const Loop = struct {
                             // this one is for sending events
                             .completion_key = @ptrToInt(&eventfd_node.data.base),
                         },
-                        .prev = undefined,
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
@@ -528,7 +527,12 @@ pub const Loop = struct {
 
         self.workerRun();
 
-        self.os_data.fs_thread.wait();
+        switch (builtin.os) {
+            builtin.Os.linux,
+            builtin.Os.macosx,
+            => self.os_data.fs_thread.wait(),
+            else => {},
+        }
 
         for (self.extra_threads) |extra_thread| {
             extra_thread.wait();
@@ -794,15 +798,7 @@ pub const Loop = struct {
     }
 
     const OsData = switch (builtin.os) {
-        builtin.Os.linux => struct {
-            epollfd: i32,
-            final_eventfd: i32,
-            final_eventfd_event: os.linux.epoll_event,
-            fs_thread: *os.Thread,
-            fs_queue_item: u8,
-            fs_queue: std.atomic.Queue(fs.Request),
-            fs_end_request: fs.RequestNode,
-        },
+        builtin.Os.linux => LinuxOsData,
         builtin.Os.macosx => MacOsData,
         builtin.Os.windows => struct {
             io_port: windows.HANDLE,
@@ -818,6 +814,16 @@ pub const Loop = struct {
         fs_kevent_wait: posix.Kevent,
         fs_thread: *os.Thread,
         fs_kqfd: i32,
+        fs_queue: std.atomic.Queue(fs.Request),
+        fs_end_request: fs.RequestNode,
+    };
+
+    const LinuxOsData = struct {
+        epollfd: i32,
+        final_eventfd: i32,
+        final_eventfd_event: os.linux.epoll_event,
+        fs_thread: *os.Thread,
+        fs_queue_item: u8,
         fs_queue: std.atomic.Queue(fs.Request),
         fs_end_request: fs.RequestNode,
     };

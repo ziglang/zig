@@ -5,6 +5,8 @@ const assert = std.debug.assert;
 const os = std.os;
 const mem = std.mem;
 const posix = os.posix;
+const windows = os.windows;
+const Loop = event.Loop;
 
 pub const RequestNode = std.atomic.Queue(Request).Node;
 
@@ -13,7 +15,7 @@ pub const Request = struct {
     finish: Finish,
 
     pub const Finish = union(enum) {
-        TickNode: event.Loop.NextTickNode,
+        TickNode: Loop.NextTickNode,
         DeallocCloseOperation: *CloseOperation,
         NoAction,
     };
@@ -71,7 +73,77 @@ pub const Request = struct {
 };
 
 /// data - just the inner references - must live until pwritev promise completes.
-pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) !void {
+pub async fn pwritev(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) !void {
+    switch (builtin.os) {
+        builtin.Os.macosx,
+        builtin.Os.linux,
+        => return await (async pwritevPosix(loop, fd, data, offset) catch unreachable),
+        builtin.Os.windows,
+        => return await (async pwritevWindows(loop, fd, data, offset) catch unreachable),
+        else => @compileError("Unsupported OS"),
+    }
+}
+
+/// data - just the inner references - must live until pwritev promise completes.
+pub async fn pwritevWindows(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) !void {
+    if (data.len == 0) return;
+    if (data.len == 1) return await (async pwriteWindows(loop, fd, data[0], offset) catch unreachable);
+
+    const data_copy = std.mem.dupe(loop.allocator, []const u8, data);
+    defer loop.allocator.free(data_copy);
+
+    var off = offset;
+    for (data_copy) |buf| {
+        try await (async pwriteWindows(loop, fd, buf, off) catch unreachable);
+        off += buf.len;
+    }
+}
+
+pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, offset: u64) os.WindowsWriteError!void {
+    // workaround for https://github.com/ziglang/zig/issues/1194
+    suspend {
+        resume @handle();
+    }
+
+    var resume_node = Loop.ResumeNode.Basic{
+        .base = Loop.ResumeNode{
+            .id = Loop.ResumeNode.Id.Basic,
+            .handle = @handle(),
+        },
+    };
+    const completion_key = @ptrToInt(&resume_node.base);
+    _ = try os.windowsCreateIoCompletionPort(fd, loop.os_data.io_port, completion_key, undefined);
+    var overlapped = windows.OVERLAPPED{
+        .Internal = 0,
+        .InternalHigh = 0,
+        .Offset = @truncate(u32, offset),
+        .OffsetHigh = @truncate(u32, offset >> 32),
+        .hEvent = null,
+    };
+    errdefer {
+        _ = windows.CancelIoEx(fd, &overlapped);
+    }
+    suspend {
+        _ = windows.WriteFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &overlapped);
+    }
+    var bytes_transferred: windows.DWORD = undefined;
+    if (windows.GetOverlappedResult(fd, &overlapped, &bytes_transferred, windows.FALSE) == 0) {
+        const err = windows.GetLastError();
+        return switch (err) {
+            windows.ERROR.IO_PENDING => unreachable,
+            windows.ERROR.INVALID_USER_BUFFER => error.SystemResources,
+            windows.ERROR.NOT_ENOUGH_MEMORY => error.SystemResources,
+            windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
+            windows.ERROR.NOT_ENOUGH_QUOTA => error.SystemResources,
+            windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
+            else => os.unexpectedErrorWindows(err),
+        };
+    }
+}
+
+
+/// data - just the inner references - must live until pwritev promise completes.
+pub async fn pwritevPosix(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) !void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -100,7 +172,7 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, data: []const []const
                 },
             },
             .finish = Request.Finish{
-                .TickNode = event.Loop.NextTickNode{
+                .TickNode = Loop.NextTickNode{
                     .prev = null,
                     .next = null,
                     .data = @handle(),
@@ -118,8 +190,8 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, data: []const []const
     return req_node.data.msg.PWriteV.result;
 }
 
-/// data - just the inner references - must live until pwritev promise completes.
-pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, data: []const []u8, offset: usize) !usize {
+/// data - just the inner references - must live until preadv promise completes.
+pub async fn preadv(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: usize) !usize {
     //const data_dupe = try mem.dupe(loop.allocator, []const u8, data);
     //defer loop.allocator.free(data_dupe);
 
@@ -151,7 +223,7 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, data: []const []u8, of
                 },
             },
             .finish = Request.Finish{
-                .TickNode = event.Loop.NextTickNode{
+                .TickNode = Loop.NextTickNode{
                     .prev = null,
                     .next = null,
                     .data = @handle(),
@@ -169,8 +241,8 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, data: []const []u8, of
     return req_node.data.msg.PReadV.result;
 }
 
-pub async fn open(
-    loop: *event.Loop,
+pub async fn openPosix(
+    loop: *Loop,
     path: []const u8,
     flags: u32,
     mode: os.File.Mode,
@@ -196,7 +268,7 @@ pub async fn open(
                 },
             },
             .finish = Request.Finish{
-                .TickNode = event.Loop.NextTickNode{
+                .TickNode = Loop.NextTickNode{
                     .prev = null,
                     .next = null,
                     .data = @handle(),
@@ -214,19 +286,47 @@ pub async fn open(
     return req_node.data.msg.Open.result;
 }
 
-pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.FileHandle {
+pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHandle {
     const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
-    return await (async open(loop, path, flags, 0) catch unreachable);
+    return await (async openPosix(loop, path, flags, os.File.default_mode) catch unreachable);
+}
+
+/// Creates if does not exist. Truncates the file if it exists.
+/// Uses the default mode.
+pub async fn openWrite(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHandle {
+    return await (async openWriteMode(loop, path, os.File.default_mode) catch unreachable);
+}
+
+/// Creates if does not exist. Truncates the file if it exists.
+pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os.File.OpenError!os.FileHandle {
+    switch (builtin.os) {
+        builtin.Os.macosx,
+        builtin.Os.linux,
+        => {
+            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
+            return await (async openPosix(loop, path, flags, os.File.default_mode) catch unreachable);
+        },
+        builtin.Os.windows,
+        => return os.windowsOpen(
+            loop.allocator,
+            path,
+            windows.GENERIC_WRITE,
+            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            windows.CREATE_ALWAYS,
+            windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+        ),
+        else => @compileError("Unsupported OS"),
+    }
 }
 
 /// Creates if does not exist. Does not truncate.
 pub async fn openReadWrite(
-    loop: *event.Loop,
+    loop: *Loop,
     path: []const u8,
     mode: os.File.Mode,
 ) os.File.OpenError!os.FileHandle {
     const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
-    return await (async open(loop, path, flags, mode) catch unreachable);
+    return await (async openPosix(loop, path, flags, mode) catch unreachable);
 }
 
 /// This abstraction helps to close file handles in defer expressions
@@ -236,24 +336,46 @@ pub async fn openReadWrite(
 /// If you call `setHandle` then finishing will close the fd; otherwise finishing
 /// will deallocate the `CloseOperation`.
 pub const CloseOperation = struct {
-    loop: *event.Loop,
-    have_fd: bool,
-    close_req_node: RequestNode,
+    loop: *Loop,
+    os_data: OsData,
 
-    pub fn start(loop: *event.Loop) (error{OutOfMemory}!*CloseOperation) {
+    const OsData = switch (builtin.os) {
+        builtin.Os.linux,
+        builtin.Os.macosx,
+        => struct {
+            have_fd: bool,
+            close_req_node: RequestNode,
+        },
+        builtin.Os.windows,
+        => struct {
+            handle: ?os.FileHandle,
+        },
+        else => @compileError("Unsupported OS"),
+    };
+
+    pub fn start(loop: *Loop) (error{OutOfMemory}!*CloseOperation) {
         const self = try loop.allocator.createOne(CloseOperation);
         self.* = CloseOperation{
             .loop = loop,
-            .have_fd = false,
-            .close_req_node = RequestNode{
-                .prev = null,
-                .next = null,
-                .data = Request{
-                    .msg = Request.Msg{
-                        .Close = Request.Msg.Close{ .fd = undefined },
+            .os_data = switch (builtin.os) {
+                builtin.Os.linux,
+                builtin.Os.macosx,
+                => OsData{
+                    .have_fd = false,
+                    .close_req_node = RequestNode{
+                        .prev = null,
+                        .next = null,
+                        .data = Request{
+                            .msg = Request.Msg{
+                                .Close = Request.Msg.Close{ .fd = undefined },
+                            },
+                            .finish = Request.Finish{ .DeallocCloseOperation = self },
+                        },
                     },
-                    .finish = Request.Finish{ .DeallocCloseOperation = self },
                 },
+                builtin.Os.windows,
+                => OsData{ .handle = null },
+                else => @compileError("Unsupported OS"),
             },
         };
         return self;
@@ -261,36 +383,109 @@ pub const CloseOperation = struct {
 
     /// Defer this after creating.
     pub fn finish(self: *CloseOperation) void {
-        if (self.have_fd) {
-            self.loop.posixFsRequest(&self.close_req_node);
-        } else {
-            self.loop.allocator.destroy(self);
+        switch (builtin.os) {
+            builtin.Os.linux,
+            builtin.Os.macosx,
+            => {
+                if (self.have_fd) {
+                    self.loop.posixFsRequest(&self.close_req_node);
+                } else {
+                    self.loop.allocator.destroy(self);
+                }
+            },
+            builtin.Os.windows,
+            => {
+                if (self.handle) |handle| {
+                    os.close(handle);
+                }
+                self.loop.allocator.destroy(self);
+            },
+            else => @compileError("Unsupported OS"),
         }
     }
 
     pub fn setHandle(self: *CloseOperation, handle: os.FileHandle) void {
-        self.close_req_node.data.msg.Close.fd = handle;
-        self.have_fd = true;
+        switch (builtin.os) {
+            builtin.Os.linux,
+            builtin.Os.macosx,
+            => {
+                self.close_req_node.data.msg.Close.fd = handle;
+                self.have_fd = true;
+            },
+            builtin.Os.windows,
+            => {
+                self.handle = handle;
+            },
+            else => @compileError("Unsupported OS"),
+        }
     }
 
     /// Undo a `setHandle`.
     pub fn clearHandle(self: *CloseOperation) void {
-        self.have_fd = false;
+        switch (builtin.os) {
+            builtin.Os.linux,
+            builtin.Os.macosx,
+            => {
+                self.have_fd = false;
+            },
+            builtin.Os.windows,
+            => {
+                self.handle = null;
+            },
+            else => @compileError("Unsupported OS"),
+        }
     }
 
     pub fn getHandle(self: *CloseOperation) os.FileHandle {
-        assert(self.have_fd);
-        return self.close_req_node.data.msg.Close.fd;
+        switch (builtin.os) {
+            builtin.Os.linux,
+            builtin.Os.macosx,
+            => {
+                assert(self.have_fd);
+                return self.close_req_node.data.msg.Close.fd;
+            },
+            builtin.Os.windows,
+            => {
+                return self.handle.?;
+            },
+            else => @compileError("Unsupported OS"),
+        }
     }
 };
 
 /// contents must remain alive until writeFile completes.
-pub async fn writeFile(loop: *event.Loop, path: []const u8, contents: []const u8) !void {
+/// TODO make this atomic or provide writeFileAtomic and rename this one to writeFileTruncate
+pub async fn writeFile(loop: *Loop, path: []const u8, contents: []const u8) !void {
     return await (async writeFileMode(loop, path, contents, os.File.default_mode) catch unreachable);
 }
 
 /// contents must remain alive until writeFile completes.
-pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []const u8, mode: os.File.Mode) !void {
+pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: os.File.Mode) !void {
+    switch (builtin.os) {
+        builtin.Os.linux,
+        builtin.Os.macosx,
+        => return await (async writeFileModeThread(loop, path, contents, mode) catch unreachable),
+        builtin.Os.windows,
+        => return await (async writeFileWindows(loop, path, contents) catch unreachable),
+        else => @compileError("Unsupported OS"),
+    }
+}
+
+async fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !void {
+    const handle = try os.windowsOpen(
+        loop.allocator,
+        path,
+        windows.GENERIC_WRITE,
+        windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+        windows.CREATE_ALWAYS,
+        windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+    );
+    defer os.close(handle);
+
+    try await (async pwriteWindows(loop, handle, contents, 0) catch unreachable);
+}
+
+async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8, mode: os.File.Mode) !void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -312,7 +507,7 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
                 },
             },
             .finish = Request.Finish{
-                .TickNode = event.Loop.NextTickNode{
+                .TickNode = Loop.NextTickNode{
                     .prev = null,
                     .next = null,
                     .data = @handle(),
@@ -333,7 +528,7 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
 /// The promise resumes when the last data has been confirmed written, but before the file handle
 /// is closed.
 /// Caller owns returned memory.
-pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize) ![]u8 {
+pub async fn readFile(loop: *Loop, file_path: []const u8, max_size: usize) ![]u8 {
     var close_op = try CloseOperation.start(loop);
     defer close_op.finish();
 
@@ -417,7 +612,7 @@ pub fn Watch(comptime V: type) type {
             pub const Error = WatchEventError;
         };
 
-        pub fn create(loop: *event.Loop, event_buf_count: usize) !*Self {
+        pub fn create(loop: *Loop, event_buf_count: usize) !*Self {
             const channel = try event.Channel(Self.Event.Error!Self.Event).create(loop, event_buf_count);
             errdefer channel.destroy();
 
@@ -482,7 +677,7 @@ pub fn Watch(comptime V: type) type {
 
             const flags = posix.O_SYMLINK | posix.O_EVTONLY;
             const mode = 0;
-            const fd = try await (async open(self.channel.loop, resolved_path, flags, mode) catch unreachable);
+            const fd = try await (async openPosix(self.channel.loop, resolved_path, flags, mode) catch unreachable);
             close_op.setHandle(fd);
 
             var put_data: *OsData.Put = undefined;
@@ -722,7 +917,7 @@ test "write a file, watch it, write it again" {
     try os.makePath(allocator, test_tmp_dir);
     defer os.deleteTree(allocator, test_tmp_dir) catch {};
 
-    var loop: event.Loop = undefined;
+    var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
@@ -734,11 +929,11 @@ test "write a file, watch it, write it again" {
     return result;
 }
 
-async fn testFsWatchCantFail(loop: *event.Loop, result: *(error!void)) void {
+async fn testFsWatchCantFail(loop: *Loop, result: *(error!void)) void {
     result.* = await async testFsWatch(loop) catch unreachable;
 }
 
-async fn testFsWatch(loop: *event.Loop) !void {
+async fn testFsWatch(loop: *Loop) !void {
     const file_path = try os.path.join(loop.allocator, test_tmp_dir, "file.txt");
     defer loop.allocator.free(file_path);
 

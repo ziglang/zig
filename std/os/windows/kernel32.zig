@@ -1,5 +1,8 @@
 use @import("index.zig");
 
+
+pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
+
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateDirectoryA(
@@ -91,6 +94,9 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
     dwFlags: DWORD,
 ) DWORD;
 
+
+pub extern "kernel32" stdcallcc fn GetOverlappedResult(hFile: HANDLE, lpOverlapped: *OVERLAPPED, lpNumberOfBytesTransferred: *DWORD, bWait: BOOL) BOOL;
+
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 pub extern "kernel32" stdcallcc fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: LPDWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) BOOL;
 
@@ -150,11 +156,13 @@ pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMillis
 
 pub extern "kernel32" stdcallcc fn WriteFile(
     in_hFile: HANDLE,
-    in_lpBuffer: *const c_void,
+    in_lpBuffer: [*]const u8,
     in_nNumberOfBytesToWrite: DWORD,
     out_lpNumberOfBytesWritten: ?*DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
 ) BOOL;
+
+pub extern "kernel32" stdcallcc fn WriteFileEx(hFile: HANDLE, lpBuffer: [*]const u8, nNumberOfBytesToWrite: DWORD, lpOverlapped: LPOVERLAPPED, lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE) BOOL;
 
 //TODO: call unicode versions instead of relying on ANSI code page
 pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: LPCSTR) ?HMODULE;
