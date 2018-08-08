@@ -23,7 +23,10 @@ pub const runtime_safety = switch (builtin.mode) {
 var stderr_file: os.File = undefined;
 var stderr_file_out_stream: io.FileOutStream = undefined;
 var stderr_stream: ?*io.OutStream(io.FileOutStream.Error) = null;
+var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
+    const held = stderr_mutex.acquire();
+    defer held.release();
     const stderr = getStderrStream() catch return;
     stderr.print(fmt, args) catch return;
 }
@@ -672,14 +675,10 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, comptime T: type
 
 const ParseFormValueError = error{
     EndOfStream,
-    Io,
-    BadFd,
-    Unexpected,
     InvalidDebugInfo,
     EndOfFile,
-    IsDir,
     OutOfMemory,
-};
+} || std.os.File.ReadError;
 
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) ParseFormValueError!FormValue {
     return switch (form_id) {

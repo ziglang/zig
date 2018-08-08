@@ -29,6 +29,17 @@ pub fn Group(comptime ReturnType: type) type {
             };
         }
 
+        /// Cancel all the outstanding promises. Can be called even if wait was already called.
+        pub fn deinit(self: *Self) void {
+            while (self.coro_stack.pop()) |node| {
+                cancel node.data;
+            }
+            while (self.alloc_stack.pop()) |node| {
+                cancel node.data;
+                self.lock.loop.allocator.destroy(node);
+            }
+        }
+
         /// Add a promise to the group. Thread-safe.
         pub fn add(self: *Self, handle: promise->ReturnType) (error{OutOfMemory}!void) {
             const node = try self.lock.loop.allocator.create(Stack.Node{
@@ -88,7 +99,7 @@ pub fn Group(comptime ReturnType: type) type {
                     await node.data;
                 } else {
                     (await node.data) catch |err| {
-                        self.cancelAll();
+                        self.deinit();
                         return err;
                     };
                 }
@@ -100,23 +111,10 @@ pub fn Group(comptime ReturnType: type) type {
                     await handle;
                 } else {
                     (await handle) catch |err| {
-                        self.cancelAll();
+                        self.deinit();
                         return err;
                     };
                 }
-            }
-        }
-
-        /// Cancel all the outstanding promises. May only be called if wait was never called.
-        /// TODO These should be `cancelasync` not `cancel`.
-        /// See https://github.com/ziglang/zig/issues/1261
-        pub fn cancelAll(self: *Self) void {
-            while (self.coro_stack.pop()) |node| {
-                cancel node.data;
-            }
-            while (self.alloc_stack.pop()) |node| {
-                cancel node.data;
-                self.lock.loop.allocator.destroy(node);
             }
         }
     };

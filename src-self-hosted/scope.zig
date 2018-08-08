@@ -36,6 +36,7 @@ pub const Scope = struct {
                 Id.Defer => @fieldParentPtr(Defer, "base", base).destroy(comp),
                 Id.DeferExpr => @fieldParentPtr(DeferExpr, "base", base).destroy(comp),
                 Id.Var => @fieldParentPtr(Var, "base", base).destroy(comp),
+                Id.AstTree => @fieldParentPtr(AstTree, "base", base).destroy(comp),
             }
         }
     }
@@ -62,6 +63,8 @@ pub const Scope = struct {
                 Id.CompTime,
                 Id.Var,
                 => scope = scope.parent.?,
+
+                Id.AstTree => unreachable,
             }
         }
     }
@@ -82,6 +85,8 @@ pub const Scope = struct {
                 Id.Root,
                 Id.Var,
                 => scope = scope.parent orelse return null,
+
+                Id.AstTree => unreachable,
             }
         }
     }
@@ -97,6 +102,7 @@ pub const Scope = struct {
 
     pub const Id = enum {
         Root,
+        AstTree,
         Decls,
         Block,
         FnDef,
@@ -108,13 +114,12 @@ pub const Scope = struct {
 
     pub const Root = struct {
         base: Scope,
-        tree: *ast.Tree,
         realpath: []const u8,
+        decls: *Decls,
 
         /// Creates a Root scope with 1 reference
         /// Takes ownership of realpath
-        /// Takes ownership of tree, will deinit and destroy when done.
-        pub fn create(comp: *Compilation, tree: *ast.Tree, realpath: []u8) !*Root {
+        pub fn create(comp: *Compilation, realpath: []u8) !*Root {
             const self = try comp.gpa().createOne(Root);
             self.* = Root{
                 .base = Scope{
@@ -122,41 +127,65 @@ pub const Scope = struct {
                     .parent = null,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
-                .tree = tree,
                 .realpath = realpath,
+                .decls = undefined,
             };
-
+            errdefer comp.gpa().destroy(self);
+            self.decls = try Decls.create(comp, &self.base);
             return self;
         }
 
         pub fn destroy(self: *Root, comp: *Compilation) void {
+            // TODO comp.fs_watch.removeFile(self.realpath);
+            self.decls.base.deref(comp);
+            comp.gpa().free(self.realpath);
+            comp.gpa().destroy(self);
+        }
+    };
+
+    pub const AstTree = struct {
+        base: Scope,
+        tree: *ast.Tree,
+
+        /// Creates a scope with 1 reference
+        /// Takes ownership of tree, will deinit and destroy when done.
+        pub fn create(comp: *Compilation, tree: *ast.Tree, root_scope: *Root) !*AstTree {
+            const self = try comp.gpa().createOne(AstTree);
+            self.* = AstTree{
+                .base = undefined,
+                .tree = tree,
+            };
+            self.base.init(Id.AstTree, &root_scope.base);
+
+            return self;
+        }
+
+        pub fn destroy(self: *AstTree, comp: *Compilation) void {
             comp.gpa().free(self.tree.source);
             self.tree.deinit();
             comp.gpa().destroy(self.tree);
-            comp.gpa().free(self.realpath);
             comp.gpa().destroy(self);
+        }
+
+        pub fn root(self: *AstTree) *Root {
+            return self.base.findRoot();
         }
     };
 
     pub const Decls = struct {
         base: Scope,
 
-        /// The lock must be respected for writing. However once name_future resolves,
-        /// readers can freely access it.
-        table: event.Locked(Decl.Table),
-
-        /// Once this future is resolved, the table is complete and available for unlocked
-        /// read-only access. It does not mean all the decls are resolved; it means only that
-        /// the table has all the names. Each decl in the table has its own resolution state.
-        name_future: event.Future(void),
+        /// This table remains Write Locked when the names are incomplete or possibly outdated.
+        /// So if a reader manages to grab a lock, it can be sure that the set of names is complete
+        /// and correct.
+        table: event.RwLocked(Decl.Table),
 
         /// Creates a Decls scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope) !*Decls {
             const self = try comp.gpa().createOne(Decls);
             self.* = Decls{
                 .base = undefined,
-                .table = event.Locked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
-                .name_future = event.Future(void).init(comp.loop),
+                .table = event.RwLocked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
             };
             self.base.init(Id.Decls, parent);
             return self;
@@ -165,11 +194,6 @@ pub const Scope = struct {
         pub fn destroy(self: *Decls, comp: *Compilation) void {
             self.table.deinit();
             comp.gpa().destroy(self);
-        }
-
-        pub async fn getTableReadOnly(self: *Decls) *Decl.Table {
-            _ = await (async self.name_future.get() catch unreachable);
-            return &self.table.private_data;
         }
     };
 

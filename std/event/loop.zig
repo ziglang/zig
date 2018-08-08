@@ -2,10 +2,12 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
-const posix = std.os.posix;
-const windows = std.os.windows;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
+const fs = std.event.fs;
+const os = std.os;
+const posix = os.posix;
+const windows = os.windows;
 
 pub const Loop = struct {
     allocator: *mem.Allocator,
@@ -13,7 +15,7 @@ pub const Loop = struct {
     os_data: OsData,
     final_resume_node: ResumeNode,
     pending_event_count: usize,
-    extra_threads: []*std.os.Thread,
+    extra_threads: []*os.Thread,
 
     // pre-allocated eventfds. all permanently active.
     // this is how we send promises to be resumed on other threads.
@@ -65,7 +67,7 @@ pub const Loop = struct {
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
-        const core_count = try std.os.cpuCount(allocator);
+        const core_count = try os.cpuCount(allocator);
         return self.initInternal(allocator, core_count);
     }
 
@@ -92,7 +94,7 @@ pub const Loop = struct {
         );
         errdefer self.allocator.free(self.eventfd_resume_nodes);
 
-        self.extra_threads = try self.allocator.alloc(*std.os.Thread, extra_thread_count);
+        self.extra_threads = try self.allocator.alloc(*os.Thread, extra_thread_count);
         errdefer self.allocator.free(self.extra_threads);
 
         try self.initOsData(extra_thread_count);
@@ -104,17 +106,35 @@ pub const Loop = struct {
         self.allocator.free(self.extra_threads);
     }
 
-    const InitOsDataError = std.os.LinuxEpollCreateError || mem.Allocator.Error || std.os.LinuxEventFdError ||
-        std.os.SpawnThreadError || std.os.LinuxEpollCtlError || std.os.BsdKEventError ||
-        std.os.WindowsCreateIoCompletionPortError;
+    const InitOsDataError = os.LinuxEpollCreateError || mem.Allocator.Error || os.LinuxEventFdError ||
+        os.SpawnThreadError || os.LinuxEpollCtlError || os.BsdKEventError ||
+        os.WindowsCreateIoCompletionPortError;
 
     const wakeup_bytes = []u8{0x1} ** 8;
 
     fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
         switch (builtin.os) {
             builtin.Os.linux => {
+                self.os_data.fs_queue = std.atomic.Queue(fs.Request).init();
+                self.os_data.fs_queue_len = 0;
+                // we need another thread for the file system because Linux does not have an async
+                // file system I/O API.
+                self.os_data.fs_end_request = fs.RequestNode{
+                    .prev = undefined,
+                    .next = undefined,
+                    .data = fs.Request{
+                        .msg = fs.Request.Msg.End,
+                        .finish = fs.Request.Finish.NoAction,
+                    },
+                };
+                self.os_data.fs_thread = try os.spawnThread(self, linuxFsRun);
                 errdefer {
-                    while (self.available_eventfd_resume_nodes.pop()) |node| std.os.close(node.data.eventfd);
+                    self.linuxFsRequest(&self.os_data.fs_end_request);
+                    self.os_data.fs_thread.wait();
+                }
+
+                errdefer {
+                    while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
                 }
                 for (self.eventfd_resume_nodes) |*eventfd_node| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
@@ -123,7 +143,7 @@ pub const Loop = struct {
                                 .id = ResumeNode.Id.EventFd,
                                 .handle = undefined,
                             },
-                            .eventfd = try std.os.linuxEventFd(1, posix.EFD_CLOEXEC | posix.EFD_NONBLOCK),
+                            .eventfd = try os.linuxEventFd(1, posix.EFD_CLOEXEC | posix.EFD_NONBLOCK),
                             .epoll_op = posix.EPOLL_CTL_ADD,
                         },
                         .next = undefined,
@@ -131,17 +151,17 @@ pub const Loop = struct {
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                 }
 
-                self.os_data.epollfd = try std.os.linuxEpollCreate(posix.EPOLL_CLOEXEC);
-                errdefer std.os.close(self.os_data.epollfd);
+                self.os_data.epollfd = try os.linuxEpollCreate(posix.EPOLL_CLOEXEC);
+                errdefer os.close(self.os_data.epollfd);
 
-                self.os_data.final_eventfd = try std.os.linuxEventFd(0, posix.EFD_CLOEXEC | posix.EFD_NONBLOCK);
-                errdefer std.os.close(self.os_data.final_eventfd);
+                self.os_data.final_eventfd = try os.linuxEventFd(0, posix.EFD_CLOEXEC | posix.EFD_NONBLOCK);
+                errdefer os.close(self.os_data.final_eventfd);
 
                 self.os_data.final_eventfd_event = posix.epoll_event{
                     .events = posix.EPOLLIN,
                     .data = posix.epoll_data{ .ptr = @ptrToInt(&self.final_resume_node) },
                 };
-                try std.os.linuxEpollCtl(
+                try os.linuxEpollCtl(
                     self.os_data.epollfd,
                     posix.EPOLL_CTL_ADD,
                     self.os_data.final_eventfd,
@@ -151,19 +171,19 @@ pub const Loop = struct {
                 var extra_thread_index: usize = 0;
                 errdefer {
                     // writing 8 bytes to an eventfd cannot fail
-                    std.os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                    os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
                     }
                 }
                 while (extra_thread_index < extra_thread_count) : (extra_thread_index += 1) {
-                    self.extra_threads[extra_thread_index] = try std.os.spawnThread(self, workerRun);
+                    self.extra_threads[extra_thread_index] = try os.spawnThread(self, workerRun);
                 }
             },
             builtin.Os.macosx => {
-                self.os_data.kqfd = try std.os.bsdKQueue();
-                errdefer std.os.close(self.os_data.kqfd);
+                self.os_data.kqfd = try os.bsdKQueue();
+                errdefer os.close(self.os_data.kqfd);
 
                 self.os_data.kevents = try self.allocator.alloc(posix.Kevent, extra_thread_count);
                 errdefer self.allocator.free(self.os_data.kevents);
@@ -187,11 +207,12 @@ pub const Loop = struct {
                                 .udata = @ptrToInt(&eventfd_node.data.base),
                             },
                         },
+                        //.prev = undefined,
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                     const kevent_array = (*[1]posix.Kevent)(&eventfd_node.data.kevent);
-                    _ = try std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
+                    _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
                     eventfd_node.data.kevent.flags = posix.EV_CLEAR | posix.EV_ENABLE;
                     eventfd_node.data.kevent.fflags = posix.NOTE_TRIGGER;
                     // this one is for waiting for events
@@ -216,30 +237,30 @@ pub const Loop = struct {
                     .udata = @ptrToInt(&self.final_resume_node),
                 };
                 const kevent_array = (*[1]posix.Kevent)(&self.os_data.final_kevent);
-                _ = try std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
+                _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null);
                 self.os_data.final_kevent.flags = posix.EV_ENABLE;
                 self.os_data.final_kevent.fflags = posix.NOTE_TRIGGER;
 
                 var extra_thread_index: usize = 0;
                 errdefer {
-                    _ = std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null) catch unreachable;
+                    _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
                     }
                 }
                 while (extra_thread_index < extra_thread_count) : (extra_thread_index += 1) {
-                    self.extra_threads[extra_thread_index] = try std.os.spawnThread(self, workerRun);
+                    self.extra_threads[extra_thread_index] = try os.spawnThread(self, workerRun);
                 }
             },
             builtin.Os.windows => {
-                self.os_data.io_port = try std.os.windowsCreateIoCompletionPort(
+                self.os_data.io_port = try os.windowsCreateIoCompletionPort(
                     windows.INVALID_HANDLE_VALUE,
                     null,
                     undefined,
                     undefined,
                 );
-                errdefer std.os.close(self.os_data.io_port);
+                errdefer os.close(self.os_data.io_port);
 
                 for (self.eventfd_resume_nodes) |*eventfd_node, i| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
@@ -251,6 +272,7 @@ pub const Loop = struct {
                             // this one is for sending events
                             .completion_key = @ptrToInt(&eventfd_node.data.base),
                         },
+                        .prev = undefined,
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
@@ -262,7 +284,7 @@ pub const Loop = struct {
                     while (i < extra_thread_index) : (i += 1) {
                         while (true) {
                             const overlapped = @intToPtr(?*windows.OVERLAPPED, 0x1);
-                            std.os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, @ptrToInt(&self.final_resume_node), overlapped) catch continue;
+                            os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, @ptrToInt(&self.final_resume_node), overlapped) catch continue;
                             break;
                         }
                     }
@@ -272,7 +294,7 @@ pub const Loop = struct {
                     }
                 }
                 while (extra_thread_index < extra_thread_count) : (extra_thread_index += 1) {
-                    self.extra_threads[extra_thread_index] = try std.os.spawnThread(self, workerRun);
+                    self.extra_threads[extra_thread_index] = try os.spawnThread(self, workerRun);
                 }
             },
             else => {},
@@ -282,62 +304,63 @@ pub const Loop = struct {
     fn deinitOsData(self: *Loop) void {
         switch (builtin.os) {
             builtin.Os.linux => {
-                std.os.close(self.os_data.final_eventfd);
-                while (self.available_eventfd_resume_nodes.pop()) |node| std.os.close(node.data.eventfd);
-                std.os.close(self.os_data.epollfd);
+                os.close(self.os_data.final_eventfd);
+                while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
+                os.close(self.os_data.epollfd);
                 self.allocator.free(self.eventfd_resume_nodes);
             },
             builtin.Os.macosx => {
                 self.allocator.free(self.os_data.kevents);
-                std.os.close(self.os_data.kqfd);
+                os.close(self.os_data.kqfd);
             },
             builtin.Os.windows => {
-                std.os.close(self.os_data.io_port);
+                os.close(self.os_data.io_port);
             },
             else => {},
         }
     }
 
     /// resume_node must live longer than the promise that it holds a reference to.
-    pub fn addFd(self: *Loop, fd: i32, resume_node: *ResumeNode) !void {
-        _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
-        errdefer {
-            self.finishOneEvent();
-        }
-        try self.modFd(
+    /// flags must contain EPOLLET
+    pub fn linuxAddFd(self: *Loop, fd: i32, resume_node: *ResumeNode, flags: u32) !void {
+        assert(flags & posix.EPOLLET == posix.EPOLLET);
+        self.beginOneEvent();
+        errdefer self.finishOneEvent();
+        try self.linuxModFd(
             fd,
             posix.EPOLL_CTL_ADD,
-            std.os.linux.EPOLLIN | std.os.linux.EPOLLOUT | std.os.linux.EPOLLET,
+            flags,
             resume_node,
         );
     }
 
-    pub fn modFd(self: *Loop, fd: i32, op: u32, events: u32, resume_node: *ResumeNode) !void {
-        var ev = std.os.linux.epoll_event{
-            .events = events,
-            .data = std.os.linux.epoll_data{ .ptr = @ptrToInt(resume_node) },
+    pub fn linuxModFd(self: *Loop, fd: i32, op: u32, flags: u32, resume_node: *ResumeNode) !void {
+        assert(flags & posix.EPOLLET == posix.EPOLLET);
+        var ev = os.linux.epoll_event{
+            .events = flags,
+            .data = os.linux.epoll_data{ .ptr = @ptrToInt(resume_node) },
         };
-        try std.os.linuxEpollCtl(self.os_data.epollfd, op, fd, &ev);
+        try os.linuxEpollCtl(self.os_data.epollfd, op, fd, &ev);
     }
 
-    pub fn removeFd(self: *Loop, fd: i32) void {
-        self.removeFdNoCounter(fd);
+    pub fn linuxRemoveFd(self: *Loop, fd: i32) void {
+        self.linuxRemoveFdNoCounter(fd);
         self.finishOneEvent();
     }
 
-    fn removeFdNoCounter(self: *Loop, fd: i32) void {
-        std.os.linuxEpollCtl(self.os_data.epollfd, std.os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
+    fn linuxRemoveFdNoCounter(self: *Loop, fd: i32) void {
+        os.linuxEpollCtl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
     }
 
-    pub async fn waitFd(self: *Loop, fd: i32) !void {
-        defer self.removeFd(fd);
+    pub async fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
+        defer self.linuxRemoveFd(fd);
         suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
             var resume_node = ResumeNode{
                 .id = ResumeNode.Id.Basic,
                 .handle = @handle(),
             };
-            try self.addFd(fd, &resume_node);
+            try self.linuxAddFd(fd, &resume_node, flags);
         }
     }
 
@@ -353,7 +376,7 @@ pub const Loop = struct {
                 builtin.Os.macosx => {
                     const kevent_array = (*[1]posix.Kevent)(&eventfd_node.kevent);
                     const eventlist = ([*]posix.Kevent)(undefined)[0..0];
-                    _ = std.os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null) catch {
+                    _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, eventlist, null) catch {
                         self.next_tick_queue.unget(next_tick_node);
                         self.available_eventfd_resume_nodes.push(resume_stack_node);
                         return;
@@ -361,9 +384,9 @@ pub const Loop = struct {
                 },
                 builtin.Os.linux => {
                     // the pending count is already accounted for
-                    const epoll_events = posix.EPOLLONESHOT | std.os.linux.EPOLLIN | std.os.linux.EPOLLOUT |
-                        std.os.linux.EPOLLET;
-                    self.modFd(
+                    const epoll_events = posix.EPOLLONESHOT | os.linux.EPOLLIN | os.linux.EPOLLOUT |
+                        os.linux.EPOLLET;
+                    self.linuxModFd(
                         eventfd_node.eventfd,
                         eventfd_node.epoll_op,
                         epoll_events,
@@ -379,7 +402,7 @@ pub const Loop = struct {
                     // the consumer code can decide whether to read the completion key.
                     // it has to do this for normal I/O, so we match that behavior here.
                     const overlapped = @intToPtr(?*windows.OVERLAPPED, 0x1);
-                    std.os.windowsPostQueuedCompletionStatus(
+                    os.windowsPostQueuedCompletionStatus(
                         self.os_data.io_port,
                         undefined,
                         eventfd_node.completion_key,
@@ -397,15 +420,24 @@ pub const Loop = struct {
 
     /// Bring your own linked list node. This means it can't fail.
     pub fn onNextTick(self: *Loop, node: *NextTickNode) void {
-        _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+        self.beginOneEvent(); // finished in dispatch()
         self.next_tick_queue.put(node);
         self.dispatch();
+    }
+
+    pub fn cancelOnNextTick(self: *Loop, node: *NextTickNode) void {
+        if (self.next_tick_queue.remove(node)) {
+            self.finishOneEvent();
+        }
     }
 
     pub fn run(self: *Loop) void {
         self.finishOneEvent(); // the reference we start with
 
         self.workerRun();
+
+        //self.os_data.fs_thread.wait();
+
         for (self.extra_threads) |extra_thread| {
             extra_thread.wait();
         }
@@ -420,6 +452,7 @@ pub const Loop = struct {
                 suspend {
                     handle.* = @handle();
                     var my_tick_node = Loop.NextTickNode{
+                        .prev = undefined,
                         .next = undefined,
                         .data = @handle(),
                     };
@@ -441,6 +474,7 @@ pub const Loop = struct {
     pub async fn yield(self: *Loop) void {
         suspend {
             var my_tick_node = Loop.NextTickNode{
+                .prev = undefined,
                 .next = undefined,
                 .data = @handle(),
             };
@@ -448,20 +482,27 @@ pub const Loop = struct {
         }
     }
 
-    fn finishOneEvent(self: *Loop) void {
-        if (@atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst) == 1) {
+    /// call finishOneEvent when done
+    pub fn beginOneEvent(self: *Loop) void {
+        _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+    }
+
+    pub fn finishOneEvent(self: *Loop) void {
+        const prev = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+        if (prev == 1) {
             // cause all the threads to stop
             switch (builtin.os) {
                 builtin.Os.linux => {
+                    self.linuxFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
-                    std.os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                    os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     return;
                 },
                 builtin.Os.macosx => {
                     const final_kevent = (*[1]posix.Kevent)(&self.os_data.final_kevent);
                     const eventlist = ([*]posix.Kevent)(undefined)[0..0];
                     // cannot fail because we already added it and this just enables it
-                    _ = std.os.bsdKEvent(self.os_data.kqfd, final_kevent, eventlist, null) catch unreachable;
+                    _ = os.bsdKEvent(self.os_data.kqfd, final_kevent, eventlist, null) catch unreachable;
                     return;
                 },
                 builtin.Os.windows => {
@@ -469,7 +510,7 @@ pub const Loop = struct {
                     while (i < self.extra_threads.len + 1) : (i += 1) {
                         while (true) {
                             const overlapped = @intToPtr(?*windows.OVERLAPPED, 0x1);
-                            std.os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, @ptrToInt(&self.final_resume_node), overlapped) catch continue;
+                            os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, @ptrToInt(&self.final_resume_node), overlapped) catch continue;
                             break;
                         }
                     }
@@ -492,8 +533,8 @@ pub const Loop = struct {
             switch (builtin.os) {
                 builtin.Os.linux => {
                     // only process 1 event so we don't steal from other threads
-                    var events: [1]std.os.linux.epoll_event = undefined;
-                    const count = std.os.linuxEpollWait(self.os_data.epollfd, events[0..], -1);
+                    var events: [1]os.linux.epoll_event = undefined;
+                    const count = os.linuxEpollWait(self.os_data.epollfd, events[0..], -1);
                     for (events[0..count]) |ev| {
                         const resume_node = @intToPtr(*ResumeNode, ev.data.ptr);
                         const handle = resume_node.handle;
@@ -516,7 +557,7 @@ pub const Loop = struct {
                 },
                 builtin.Os.macosx => {
                     var eventlist: [1]posix.Kevent = undefined;
-                    const count = std.os.bsdKEvent(self.os_data.kqfd, self.os_data.kevents, eventlist[0..], null) catch unreachable;
+                    const count = os.bsdKEvent(self.os_data.kqfd, self.os_data.kevents, eventlist[0..], null) catch unreachable;
                     for (eventlist[0..count]) |ev| {
                         const resume_node = @intToPtr(*ResumeNode, ev.udata);
                         const handle = resume_node.handle;
@@ -541,9 +582,9 @@ pub const Loop = struct {
                     while (true) {
                         var nbytes: windows.DWORD = undefined;
                         var overlapped: ?*windows.OVERLAPPED = undefined;
-                        switch (std.os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, &overlapped, windows.INFINITE)) {
-                            std.os.WindowsWaitResult.Aborted => return,
-                            std.os.WindowsWaitResult.Normal => {},
+                        switch (os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, &overlapped, windows.INFINITE)) {
+                            os.WindowsWaitResult.Aborted => return,
+                            os.WindowsWaitResult.Normal => {},
                         }
                         if (overlapped != null) break;
                     }
@@ -569,11 +610,79 @@ pub const Loop = struct {
         }
     }
 
+    fn linuxFsRequest(self: *Loop, request_node: *fs.RequestNode) void {
+        self.beginOneEvent(); // finished in linuxFsRun after processing the msg
+        self.os_data.fs_queue.put(request_node);
+        _ = @atomicRmw(i32, &self.os_data.fs_queue_len, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst); // let this wrap
+        const rc = os.linux.futex_wake(@ptrToInt(&self.os_data.fs_queue_len), os.linux.FUTEX_WAKE, 1);
+        switch (os.linux.getErrno(rc)) {
+            0 => {},
+            posix.EINVAL => unreachable,
+            else => unreachable,
+        }
+    }
+
+    fn linuxFsRun(self: *Loop) void {
+        var processed_count: i32 = 0; // we let this wrap
+        while (true) {
+            while (self.os_data.fs_queue.get()) |node| {
+                processed_count +%= 1;
+                switch (node.data.msg) {
+                    @TagType(fs.Request.Msg).End => return,
+                    @TagType(fs.Request.Msg).PWriteV => |*msg| {
+                        msg.result = os.posix_pwritev(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+                    },
+                    @TagType(fs.Request.Msg).PReadV => |*msg| {
+                        msg.result = os.posix_preadv(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+                    },
+                    @TagType(fs.Request.Msg).OpenRead => |*msg| {
+                        const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
+                        msg.result = os.posixOpenC(msg.path.ptr, flags, 0);
+                    },
+                    @TagType(fs.Request.Msg).OpenRW => |*msg| {
+                        const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
+                        msg.result = os.posixOpenC(msg.path.ptr, flags, msg.mode);
+                    },
+                    @TagType(fs.Request.Msg).Close => |*msg| os.close(msg.fd),
+                    @TagType(fs.Request.Msg).WriteFile => |*msg| blk: {
+                        const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT |
+                            posix.O_CLOEXEC | posix.O_TRUNC;
+                        const fd = os.posixOpenC(msg.path.ptr, flags, msg.mode) catch |err| {
+                            msg.result = err;
+                            break :blk;
+                        };
+                        defer os.close(fd);
+                        msg.result = os.posixWrite(fd, msg.contents);
+                    },
+                }
+                switch (node.data.finish) {
+                    @TagType(fs.Request.Finish).TickNode => |*tick_node| self.onNextTick(tick_node),
+                    @TagType(fs.Request.Finish).DeallocCloseOperation => |close_op| {
+                        self.allocator.destroy(close_op);
+                    },
+                    @TagType(fs.Request.Finish).NoAction => {},
+                }
+                self.finishOneEvent();
+            }
+            const rc = os.linux.futex_wait(@ptrToInt(&self.os_data.fs_queue_len), os.linux.FUTEX_WAIT, processed_count, null);
+            switch (os.linux.getErrno(rc)) {
+                0 => continue,
+                posix.EINTR => continue,
+                posix.EAGAIN => continue,
+                else => unreachable,
+            }
+        }
+    }
+
     const OsData = switch (builtin.os) {
         builtin.Os.linux => struct {
             epollfd: i32,
             final_eventfd: i32,
-            final_eventfd_event: std.os.linux.epoll_event,
+            final_eventfd_event: os.linux.epoll_event,
+            fs_thread: *os.Thread,
+            fs_queue_len: i32, // we let this wrap
+            fs_queue: std.atomic.Queue(fs.Request),
+            fs_end_request: fs.RequestNode,
         },
         builtin.Os.macosx => MacOsData,
         builtin.Os.windows => struct {

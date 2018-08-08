@@ -17,7 +17,15 @@ pub const Decl = struct {
     resolution: event.Future(Compilation.BuildError!void),
     parent_scope: *Scope,
 
+    // TODO when we destroy the decl, deref the tree scope
+    tree_scope: *Scope.AstTree,
+
     pub const Table = std.HashMap([]const u8, *Decl, mem.hash_slice_u8, mem.eql_slice_u8);
+
+    pub fn cast(base: *Decl, comptime T: type) ?*T {
+        if (base.id != @field(Id, @typeName(T))) return null;
+        return @fieldParentPtr(T, "base", base);
+    }
 
     pub fn isExported(base: *const Decl, tree: *ast.Tree) bool {
         switch (base.id) {
@@ -95,4 +103,3 @@ pub const Decl = struct {
         base: Decl,
     };
 };
-

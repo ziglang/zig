@@ -5,10 +5,11 @@ pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("buffer.zig").BufferOutStream;
 pub const HashMap = @import("hash_map.zig").HashMap;
+pub const AutoHashMap = @import("hash_map.zig").AutoHashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
-pub const IntrusiveLinkedList = @import("linked_list.zig").IntrusiveLinkedList;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
+pub const Mutex = @import("mutex.zig").Mutex;
 
 pub const atomic = @import("atomic/index.zig");
 pub const base64 = @import("base64.zig");
@@ -49,6 +50,7 @@ test "std" {
     _ = @import("hash_map.zig");
     _ = @import("linked_list.zig");
     _ = @import("segmented_list.zig");
+    _ = @import("mutex.zig");
 
     _ = @import("base64.zig");
     _ = @import("build.zig");

@@ -4,18 +4,8 @@ const assert = debug.assert;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-/// Generic non-intrusive doubly linked list.
-pub fn LinkedList(comptime T: type) type {
-    return BaseLinkedList(T, void, "");
-}
-
-/// Generic intrusive doubly linked list.
-pub fn IntrusiveLinkedList(comptime ParentType: type, comptime field_name: []const u8) type {
-    return BaseLinkedList(void, ParentType, field_name);
-}
-
 /// Generic doubly linked list.
-fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_name: []const u8) type {
+pub fn LinkedList(comptime T: type) type {
     return struct {
         const Self = this;
 
@@ -25,22 +15,12 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
             next: ?*Node,
             data: T,
 
-            pub fn init(value: *const T) Node {
+            pub fn init(data: T) Node {
                 return Node{
                     .prev = null,
                     .next = null,
-                    .data = value.*,
+                    .data = data,
                 };
-            }
-
-            pub fn initIntrusive() Node {
-                // TODO: when #678 is solved this can become `init`.
-                return Node.init({});
-            }
-
-            pub fn toData(node: *Node) *ParentType {
-                comptime assert(isIntrusive());
-                return @fieldParentPtr(ParentType, field_name, node);
             }
         };
 
@@ -58,10 +38,6 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
                 .last = null,
                 .len = 0,
             };
-        }
-
-        fn isIntrusive() bool {
-            return ParentType != void or field_name.len != 0;
         }
 
         /// Insert a new node after an existing one.
@@ -192,7 +168,6 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Returns:
         ///     A pointer to the new node.
         pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
-            comptime assert(!isIntrusive());
             return allocator.create(Node(undefined));
         }
 
@@ -202,7 +177,6 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///     node: Pointer to the node to deallocate.
         ///     allocator: Dynamic memory allocator.
         pub fn destroyNode(list: *Self, node: *Node, allocator: *Allocator) void {
-            comptime assert(!isIntrusive());
             allocator.destroy(node);
         }
 
@@ -214,8 +188,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn createNode(list: *Self, data: *const T, allocator: *Allocator) !*Node {
-            comptime assert(!isIntrusive());
+        pub fn createNode(list: *Self, data: T, allocator: *Allocator) !*Node {
             var node = try list.allocateNode(allocator);
             node.* = Node.init(data);
             return node;
@@ -272,71 +245,5 @@ test "basic linked list test" {
 
     assert(list.first.?.data == 2);
     assert(list.last.?.data == 4);
-    assert(list.len == 2);
-}
-
-const ElementList = IntrusiveLinkedList(Element, "link");
-const Element = struct {
-    value: u32,
-    link: IntrusiveLinkedList(Element, "link").Node,
-};
-
-test "basic intrusive linked list test" {
-    const allocator = debug.global_allocator;
-    var list = ElementList.init();
-
-    var one = Element{
-        .value = 1,
-        .link = ElementList.Node.initIntrusive(),
-    };
-    var two = Element{
-        .value = 2,
-        .link = ElementList.Node.initIntrusive(),
-    };
-    var three = Element{
-        .value = 3,
-        .link = ElementList.Node.initIntrusive(),
-    };
-    var four = Element{
-        .value = 4,
-        .link = ElementList.Node.initIntrusive(),
-    };
-    var five = Element{
-        .value = 5,
-        .link = ElementList.Node.initIntrusive(),
-    };
-
-    list.append(&two.link); // {2}
-    list.append(&five.link); // {2, 5}
-    list.prepend(&one.link); // {1, 2, 5}
-    list.insertBefore(&five.link, &four.link); // {1, 2, 4, 5}
-    list.insertAfter(&two.link, &three.link); // {1, 2, 3, 4, 5}
-
-    // Traverse forwards.
-    {
-        var it = list.first;
-        var index: u32 = 1;
-        while (it) |node| : (it = node.next) {
-            assert(node.toData().value == index);
-            index += 1;
-        }
-    }
-
-    // Traverse backwards.
-    {
-        var it = list.last;
-        var index: u32 = 1;
-        while (it) |node| : (it = node.prev) {
-            assert(node.toData().value == (6 - index));
-            index += 1;
-        }
-    }
-
-    var first = list.popFirst(); // {2, 3, 4, 5}
-    var last = list.pop(); // {2, 3, 4}
-    list.remove(&three.link); // {2, 4}
-
-    assert(list.first.?.toData().value == 2);
-    assert(list.last.?.toData().value == 4);
     assert(list.len == 2);
 }

@@ -50,7 +50,7 @@ pub const TestContext = struct {
         errdefer self.event_loop_local.deinit();
 
         self.group = std.event.Group(error!void).init(&self.loop);
-        errdefer self.group.cancelAll();
+        errdefer self.group.deinit();
 
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         errdefer allocator.free(self.zig_lib_dir);
@@ -212,9 +212,10 @@ pub const TestContext = struct {
             Compilation.Event.Fail => |msgs| {
                 assertOrPanic(msgs.len != 0);
                 for (msgs) |msg| {
-                    if (mem.endsWith(u8, msg.getRealPath(), path) and mem.eql(u8, msg.text, text)) {
-                        const first_token = msg.getTree().tokens.at(msg.span.first);
-                        const last_token = msg.getTree().tokens.at(msg.span.first);
+                    if (mem.endsWith(u8, msg.realpath, path) and mem.eql(u8, msg.text, text)) {
+                        const span = msg.getSpan();
+                        const first_token = msg.getTree().tokens.at(span.first);
+                        const last_token = msg.getTree().tokens.at(span.first);
                         const start_loc = msg.getTree().tokenLocationPtr(0, first_token);
                         if (start_loc.line + 1 == line and start_loc.column + 1 == column) {
                             return;
