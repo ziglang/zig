@@ -702,9 +702,7 @@ pub const Loop = struct {
                         },
                     }
                     resume handle;
-                    if (resume_node_id == ResumeNode.Id.EventFd) {
-                        self.finishOneEvent();
-                    }
+                    self.finishOneEvent();
                 },
                 else => @compileError("unsupported OS"),
             }

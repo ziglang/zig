@@ -131,9 +131,9 @@ pub extern "kernel32" stdcallcc fn QueryPerformanceFrequency(lpFrequency: *LARGE
 
 pub extern "kernel32" stdcallcc fn ReadFile(
     in_hFile: HANDLE,
-    out_lpBuffer: *c_void,
+    out_lpBuffer: [*]u8,
     in_nNumberOfBytesToRead: DWORD,
-    out_lpNumberOfBytesRead: *DWORD,
+    out_lpNumberOfBytesRead: ?*DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
 ) BOOL;
 
