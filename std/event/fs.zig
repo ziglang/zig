@@ -1,8 +1,10 @@
+const builtin = @import("builtin");
 const std = @import("../index.zig");
 const event = std.event;
 const assert = std.debug.assert;
 const os = std.os;
 const mem = std.mem;
+const posix = os.posix;
 
 pub const RequestNode = std.atomic.Queue(Request).Node;
 
@@ -19,8 +21,7 @@ pub const Request = struct {
     pub const Msg = union(enum) {
         PWriteV: PWriteV,
         PReadV: PReadV,
-        OpenRead: OpenRead,
-        OpenRW: OpenRW,
+        Open: Open,
         Close: Close,
         WriteFile: WriteFile,
         End, // special - means the fs thread should exit
@@ -43,19 +44,12 @@ pub const Request = struct {
             pub const Error = os.File.ReadError;
         };
 
-        pub const OpenRead = struct {
+        pub const Open = struct {
             /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
             path: []const u8,
-            result: Error!os.FileHandle,
-
-            pub const Error = os.File.OpenError;
-        };
-
-        pub const OpenRW = struct {
-            /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
-            path: []const u8,
-            result: Error!os.FileHandle,
+            flags: u32,
             mode: os.File.Mode,
+            result: Error!os.FileHandle,
 
             pub const Error = os.File.OpenError;
         };
@@ -77,7 +71,7 @@ pub const Request = struct {
 };
 
 /// data - just the inner references - must live until pwritev promise completes.
-pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: []const []const u8) !void {
+pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) !void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -94,8 +88,8 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
     }
 
     var req_node = RequestNode{
-        .prev = undefined,
-        .next = undefined,
+        .prev = null,
+        .next = null,
         .data = Request{
             .msg = Request.Msg{
                 .PWriteV = Request.Msg.PWriteV{
@@ -107,13 +101,15 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
-                    .prev = undefined,
-                    .next = undefined,
+                    .prev = null,
+                    .next = null,
                     .data = @handle(),
                 },
             },
         },
     };
+
+    errdefer loop.posixFsCancel(&req_node);
 
     suspend {
         loop.posixFsRequest(&req_node);
@@ -123,7 +119,7 @@ pub async fn pwritev(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: 
 }
 
 /// data - just the inner references - must live until pwritev promise completes.
-pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: []const []u8) !usize {
+pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, data: []const []u8, offset: usize) !usize {
     //const data_dupe = try mem.dupe(loop.allocator, []const u8, data);
     //defer loop.allocator.free(data_dupe);
 
@@ -143,8 +139,8 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
     }
 
     var req_node = RequestNode{
-        .prev = undefined,
-        .next = undefined,
+        .prev = null,
+        .next = null,
         .data = Request{
             .msg = Request.Msg{
                 .PReadV = Request.Msg.PReadV{
@@ -156,13 +152,15 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
-                    .prev = undefined,
-                    .next = undefined,
+                    .prev = null,
+                    .next = null,
                     .data = @handle(),
                 },
             },
         },
     };
+
+    errdefer loop.posixFsCancel(&req_node);
 
     suspend {
         loop.posixFsRequest(&req_node);
@@ -171,47 +169,8 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, offset: usize, data: [
     return req_node.data.msg.PReadV.result;
 }
 
-pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.FileHandle {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
-
-    const path_with_null = try std.cstr.addNullByte(loop.allocator, path);
-    defer loop.allocator.free(path_with_null);
-
-    var req_node = RequestNode{
-        .prev = undefined,
-        .next = undefined,
-        .data = Request{
-            .msg = Request.Msg{
-                .OpenRead = Request.Msg.OpenRead{
-                    .path = path_with_null[0..path.len],
-                    .result = undefined,
-                },
-            },
-            .finish = Request.Finish{
-                .TickNode = event.Loop.NextTickNode{
-                    .prev = undefined,
-                    .next = undefined,
-                    .data = @handle(),
-                },
-            },
-        },
-    };
-
-    suspend {
-        loop.posixFsRequest(&req_node);
-    }
-
-    return req_node.data.msg.OpenRead.result;
-}
-
-/// Creates if does not exist. Does not truncate.
-pub async fn openReadWrite(
-    loop: *event.Loop,
-    path: []const u8,
-    mode: os.File.Mode,
+pub async fn open(
+    loop: *event.Loop, path: []const u8, flags: u32, mode: os.File.Mode,
 ) os.File.OpenError!os.FileHandle {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
@@ -222,50 +181,70 @@ pub async fn openReadWrite(
     defer loop.allocator.free(path_with_null);
 
     var req_node = RequestNode{
-        .prev = undefined,
-        .next = undefined,
+        .prev = null,
+        .next = null,
         .data = Request{
             .msg = Request.Msg{
-                .OpenRW = Request.Msg.OpenRW{
+                .Open = Request.Msg.Open{
                     .path = path_with_null[0..path.len],
+                    .flags = flags,
                     .mode = mode,
                     .result = undefined,
                 },
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
-                    .prev = undefined,
-                    .next = undefined,
+                    .prev = null,
+                    .next = null,
                     .data = @handle(),
                 },
             },
         },
     };
 
+    errdefer loop.posixFsCancel(&req_node);
+
     suspend {
         loop.posixFsRequest(&req_node);
     }
 
-    return req_node.data.msg.OpenRW.result;
+    return req_node.data.msg.Open.result;
+}
+
+pub async fn openRead(loop: *event.Loop, path: []const u8) os.File.OpenError!os.FileHandle {
+    const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
+    return await (async open(loop, path, flags, 0) catch unreachable);
+}
+
+/// Creates if does not exist. Does not truncate.
+pub async fn openReadWrite(
+    loop: *event.Loop,
+    path: []const u8,
+    mode: os.File.Mode,
+) os.File.OpenError!os.FileHandle {
+    const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
+    return await (async open(loop, path, flags, mode) catch unreachable);
 }
 
 /// This abstraction helps to close file handles in defer expressions
 /// without the possibility of failure and without the use of suspend points.
 /// Start a `CloseOperation` before opening a file, so that you can defer
-/// `CloseOperation.deinit`.
+/// `CloseOperation.finish`.
+/// If you call `setHandle` then finishing will close the fd; otherwise finishing
+/// will deallocate the `CloseOperation`.
 pub const CloseOperation = struct {
     loop: *event.Loop,
     have_fd: bool,
     close_req_node: RequestNode,
 
-    pub fn create(loop: *event.Loop) (error{OutOfMemory}!*CloseOperation) {
+    pub fn start(loop: *event.Loop) (error{OutOfMemory}!*CloseOperation) {
         const self = try loop.allocator.createOne(CloseOperation);
         self.* = CloseOperation{
             .loop = loop,
             .have_fd = false,
             .close_req_node = RequestNode{
-                .prev = undefined,
-                .next = undefined,
+                .prev = null,
+                .next = null,
                 .data = Request{
                     .msg = Request.Msg{
                         .Close = Request.Msg.Close{ .fd = undefined },
@@ -278,7 +257,7 @@ pub const CloseOperation = struct {
     }
 
     /// Defer this after creating.
-    pub fn deinit(self: *CloseOperation) void {
+    pub fn finish(self: *CloseOperation) void {
         if (self.have_fd) {
             self.loop.posixFsRequest(&self.close_req_node);
         } else {
@@ -289,6 +268,16 @@ pub const CloseOperation = struct {
     pub fn setHandle(self: *CloseOperation, handle: os.FileHandle) void {
         self.close_req_node.data.msg.Close.fd = handle;
         self.have_fd = true;
+    }
+
+    /// Undo a `setHandle`.
+    pub fn clearHandle(self: *CloseOperation) void {
+        self.have_fd = false;
+    }
+
+    pub fn getHandle(self: *CloseOperation) os.FileHandle {
+        assert(self.have_fd);
+        return self.close_req_node.data.msg.Close.fd;
     }
 };
 
@@ -308,8 +297,8 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
     defer loop.allocator.free(path_with_null);
 
     var req_node = RequestNode{
-        .prev = undefined,
-        .next = undefined,
+        .prev = null,
+        .next = null,
         .data = Request{
             .msg = Request.Msg{
                 .WriteFile = Request.Msg.WriteFile{
@@ -321,13 +310,15 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
             },
             .finish = Request.Finish{
                 .TickNode = event.Loop.NextTickNode{
-                    .prev = undefined,
-                    .next = undefined,
+                    .prev = null,
+                    .next = null,
                     .data = @handle(),
                 },
             },
         },
     };
+
+    errdefer loop.posixFsCancel(&req_node);
 
     suspend {
         loop.posixFsRequest(&req_node);
@@ -340,8 +331,8 @@ pub async fn writeFileMode(loop: *event.Loop, path: []const u8, contents: []cons
 /// is closed.
 /// Caller owns returned memory.
 pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize) ![]u8 {
-    var close_op = try CloseOperation.create(loop);
-    defer close_op.deinit();
+    var close_op = try CloseOperation.start(loop);
+    defer close_op.finish();
 
     const path_with_null = try std.cstr.addNullByte(loop.allocator, file_path);
     defer loop.allocator.free(path_with_null);
@@ -356,7 +347,7 @@ pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize)
         try list.ensureCapacity(list.len + os.page_size);
         const buf = list.items[list.len..];
         const buf_array = [][]u8{buf};
-        const amt = try await (async preadv(loop, fd, list.len, buf_array) catch unreachable);
+        const amt = try await (async preadv(loop, fd, buf_array, list.len) catch unreachable);
         list.len += amt;
         if (list.len > max_size) {
             return error.FileTooBig;
@@ -370,19 +361,38 @@ pub async fn readFile(loop: *event.Loop, file_path: []const u8, max_size: usize)
 pub fn Watch(comptime V: type) type {
     return struct {
         channel: *event.Channel(Event),
-        putter: promise,
-        wd_table: WdTable,
-        table_lock: event.Lock,
-        inotify_fd: i32,
+        os_data: OsData,
+
+        const OsData = switch (builtin.os) {
+            builtin.Os.macosx => struct{
+                file_table: FileTable,
+                table_lock: event.Lock,
+
+                const FileTable = std.AutoHashMap([]const u8, *Put);
+                const Put = struct {
+                    putter: promise,
+                    value_ptr: *V,
+                };
+            },
+            builtin.Os.linux => struct {
+                putter: promise,
+                inotify_fd: i32,
+                wd_table: WdTable,
+                table_lock: event.Lock,
+
+                const FileTable = std.AutoHashMap([]const u8, V);
+            },
+            else => @compileError("Unsupported OS"),
+        };
 
         const WdTable = std.AutoHashMap(i32, Dir);
-        const FileTable = std.AutoHashMap([]const u8, V);
+        const FileToHandle = std.AutoHashMap([]const u8, promise);
 
         const Self = this;
 
         const Dir = struct {
             dirname: []const u8,
-            file_table: FileTable,
+            file_table: OsData.FileTable,
         };
 
         pub const Event = union(enum) {
@@ -392,26 +402,140 @@ pub fn Watch(comptime V: type) type {
             pub const Error = error{
                 UserResourceLimitReached,
                 SystemResources,
+                AccessDenied,
             };
         };
 
         pub fn create(loop: *event.Loop, event_buf_count: usize) !*Self {
-            const inotify_fd = try os.linuxINotifyInit1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
-            errdefer os.close(inotify_fd);
-
             const channel = try event.Channel(Self.Event).create(loop, event_buf_count);
             errdefer channel.destroy();
 
-            var result: *Self = undefined;
-            _ = try async<loop.allocator> eventPutter(inotify_fd, channel, &result);
-            return result;
+            switch (builtin.os) {
+                builtin.Os.linux => {
+                    const inotify_fd = try os.linuxINotifyInit1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
+                    errdefer os.close(inotify_fd);
+
+                    var result: *Self = undefined;
+                    _ = try async<loop.allocator> linuxEventPutter(inotify_fd, channel, &result);
+                    return result;
+                },
+                builtin.Os.macosx => {
+                    const self = try loop.allocator.createOne(Self);
+                    errdefer loop.allocator.destroy(self);
+
+                    self.* = Self{
+                        .channel = channel,
+                        .os_data = OsData{
+                            .table_lock = event.Lock.init(loop),
+                            .file_table = OsData.FileTable.init(loop.allocator),
+                        },
+                    };
+                    return self;
+                },
+                else => @compileError("Unsupported OS"),
+            }
         }
 
         pub fn destroy(self: *Self) void {
-            cancel self.putter;
+            switch (builtin.os) {
+                builtin.Os.macosx => {
+                    self.os_data.table_lock.deinit();
+                    var it = self.os_data.file_table.iterator();
+                    while (it.next()) |entry| {
+                        cancel entry.value.putter;
+                        self.channel.loop.allocator.free(entry.key);
+                    }
+                    self.channel.destroy();
+                },
+                builtin.Os.linux => cancel self.os_data.putter,
+                else => @compileError("Unsupported OS"),
+            }
         }
 
         pub async fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
+            switch (builtin.os) {
+                builtin.Os.macosx => return await (async addFileMacosx(self, file_path, value) catch unreachable),
+                builtin.Os.linux => return await (async addFileLinux(self, file_path, value) catch unreachable),
+                else => @compileError("Unsupported OS"),
+            }
+        }
+
+        async fn addFileMacosx(self: *Self, file_path: []const u8, value: V) !?V {
+            const resolved_path = try os.path.resolve(self.channel.loop.allocator, file_path);
+            var resolved_path_consumed = false;
+            defer if (!resolved_path_consumed) self.channel.loop.allocator.free(resolved_path);
+
+            var close_op = try CloseOperation.start(self.channel.loop);
+            var close_op_consumed = false;
+            defer if (!close_op_consumed) close_op.finish();
+
+            const flags = posix.O_SYMLINK|posix.O_EVTONLY;
+            const mode = 0;
+            const fd = try await (async open(self.channel.loop, resolved_path, flags, mode) catch unreachable);
+            close_op.setHandle(fd);
+            
+            var put_data: *OsData.Put = undefined;
+            const putter = try async self.kqPutEvents(close_op, value, &put_data);
+            close_op_consumed = true;
+            errdefer cancel putter;
+
+            const result = blk: {
+                const held = await (async self.os_data.table_lock.acquire() catch unreachable);
+                defer held.release();
+
+                const gop = try self.os_data.file_table.getOrPut(resolved_path);
+                if (gop.found_existing) {
+                    const prev_value = gop.kv.value.value_ptr.*;
+                    cancel gop.kv.value.putter;
+                    gop.kv.value = put_data;
+                    break :blk prev_value;
+                } else {
+                    resolved_path_consumed = true;
+                    gop.kv.value = put_data;
+                    break :blk null;
+                }
+            };
+
+            return result;
+        }
+
+        async fn kqPutEvents(self: *Self, close_op: *CloseOperation, value: V, out_put: **OsData.Put) void {
+            // TODO https://github.com/ziglang/zig/issues/1194
+            suspend {
+                resume @handle();
+            }
+
+            var value_copy = value;
+            var put = OsData.Put{
+                .putter = @handle(),
+                .value_ptr = &value_copy,
+            };
+            out_put.* = &put;
+            self.channel.loop.beginOneEvent();
+
+            defer {
+                close_op.finish();
+                self.channel.loop.finishOneEvent();
+            }
+
+            while (true) {
+                (await (async self.channel.loop.bsdWaitKev(
+                    @intCast(usize, close_op.getHandle()), posix.EVFILT_VNODE, posix.NOTE_WRITE,
+                ) catch unreachable)) catch |err| switch (err) {
+                    error.EventNotFound => unreachable,
+                    error.ProcessNotFound => unreachable,
+                    error.AccessDenied, error.SystemResources => {
+                        // TODO https://github.com/ziglang/zig/issues/769
+                        const casted_err = @errSetCast(error{AccessDenied,SystemResources}, err);
+                        await (async self.channel.put(Self.Event{ .Err = casted_err }) catch unreachable);
+                    },
+                };
+
+                await (async self.channel.put(Self.Event{ .CloseWrite = value_copy }) catch unreachable);
+            }
+        }
+
+        async fn addFileLinux(self: *Self, file_path: []const u8, value: V) !?V {
             const dirname = os.path.dirname(file_path) orelse ".";
             const dirname_with_null = try std.cstr.addNullByte(self.channel.loop.allocator, dirname);
             var dirname_with_null_consumed = false;
@@ -423,20 +547,20 @@ pub fn Watch(comptime V: type) type {
             defer if (!basename_with_null_consumed) self.channel.loop.allocator.free(basename_with_null);
 
             const wd = try os.linuxINotifyAddWatchC(
-                self.inotify_fd,
+                self.os_data.inotify_fd,
                 dirname_with_null.ptr,
                 os.linux.IN_CLOSE_WRITE | os.linux.IN_ONLYDIR | os.linux.IN_EXCL_UNLINK,
             );
             // wd is either a newly created watch or an existing one.
 
-            const held = await (async self.table_lock.acquire() catch unreachable);
+            const held = await (async self.os_data.table_lock.acquire() catch unreachable);
             defer held.release();
 
-            const gop = try self.wd_table.getOrPut(wd);
+            const gop = try self.os_data.wd_table.getOrPut(wd);
             if (!gop.found_existing) {
                 gop.kv.value = Dir{
                     .dirname = dirname_with_null,
-                    .file_table = FileTable.init(self.channel.loop.allocator),
+                    .file_table = OsData.FileTable.init(self.channel.loop.allocator),
                 };
                 dirname_with_null_consumed = true;
             }
@@ -458,7 +582,7 @@ pub fn Watch(comptime V: type) type {
             @panic("TODO");
         }
 
-        async fn eventPutter(inotify_fd: i32, channel: *event.Channel(Event), out_watch: **Self) void {
+        async fn linuxEventPutter(inotify_fd: i32, channel: *event.Channel(Event), out_watch: **Self) void {
             // TODO https://github.com/ziglang/zig/issues/1194
             suspend {
                 resume @handle();
@@ -467,27 +591,27 @@ pub fn Watch(comptime V: type) type {
             const loop = channel.loop;
 
             var watch = Self{
-                .putter = @handle(),
                 .channel = channel,
-                .wd_table = WdTable.init(loop.allocator),
-                .table_lock = event.Lock.init(loop),
-                .inotify_fd = inotify_fd,
+                .os_data = OsData{
+                    .putter = @handle(),
+                    .inotify_fd = inotify_fd,
+                    .wd_table = WdTable.init(loop.allocator),
+                    .table_lock = event.Lock.init(loop),
+                },
             };
             out_watch.* = &watch;
 
             loop.beginOneEvent();
 
             defer {
-                watch.table_lock.deinit();
-                {
-                    var wd_it = watch.wd_table.iterator();
-                    while (wd_it.next()) |wd_entry| {
-                        var file_it = wd_entry.value.file_table.iterator();
-                        while (file_it.next()) |file_entry| {
-                            loop.allocator.free(file_entry.key);
-                        }
-                        loop.allocator.free(wd_entry.value.dirname);
+                watch.os_data.table_lock.deinit();
+                var wd_it = watch.os_data.wd_table.iterator();
+                while (wd_it.next()) |wd_entry| {
+                    var file_it = wd_entry.value.file_table.iterator();
+                    while (file_it.next()) |file_entry| {
+                        loop.allocator.free(file_entry.key);
                     }
+                    loop.allocator.free(wd_entry.value.dirname);
                 }
                 loop.finishOneEvent();
                 os.close(inotify_fd);
@@ -511,10 +635,10 @@ pub fn Watch(comptime V: type) type {
                                 const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);
                                 const basename_with_null = basename_ptr[0 .. std.cstr.len(basename_ptr) + 1];
                                 const user_value = blk: {
-                                    const held = await (async watch.table_lock.acquire() catch unreachable);
+                                    const held = await (async watch.os_data.table_lock.acquire() catch unreachable);
                                     defer held.release();
 
-                                    const dir = &watch.wd_table.get(ev.wd).?.value;
+                                    const dir = &watch.os_data.wd_table.get(ev.wd).?.value;
                                     if (dir.file_table.get(basename_with_null)) |entry| {
                                         break :blk entry.value;
                                     } else {
@@ -572,7 +696,7 @@ test "write a file, watch it, write it again" {
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    var result: error!void = undefined;
+    var result: error!void = error.ResultNeverWritten;
     const handle = try async<allocator> testFsWatchCantFail(&loop, &result);
     defer cancel handle;
 
@@ -615,7 +739,7 @@ async fn testFsWatch(loop: *event.Loop) !void {
     {
         defer os.close(fd);
 
-        try await try async pwritev(loop, fd, line2_offset, []const []const u8{"lorem ipsum"});
+        try await try async pwritev(loop, fd, []const []const u8{"lorem ipsum"}, line2_offset);
     }
 
     ev_consumed = true;
