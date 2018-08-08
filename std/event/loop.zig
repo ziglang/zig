@@ -54,10 +54,7 @@ pub const Loop = struct {
         };
 
         pub const Basic = switch (builtin.os) {
-            builtin.Os.macosx => struct {
-                base: ResumeNode,
-                kev: posix.Kevent,
-            },
+            builtin.Os.macosx => MacOsBasic,
             builtin.Os.linux => struct {
                 base: ResumeNode,
             },
@@ -65,6 +62,11 @@ pub const Loop = struct {
                 base: ResumeNode,
             },
             else => @compileError("unsupported OS"),
+        };
+
+        const MacOsBasic = struct {
+            base: ResumeNode,
+            kev: posix.Kevent,
         };
     };
 
@@ -261,7 +263,7 @@ pub const Loop = struct {
                 self.os_data.fs_kevent_wake = posix.Kevent{
                     .ident = 0,
                     .filter = posix.EVFILT_USER,
-                    .flags = posix.EV_ADD|posix.EV_ENABLE,
+                    .flags = posix.EV_ADD | posix.EV_ENABLE,
                     .fflags = posix.NOTE_TRIGGER,
                     .data = 0,
                     .udata = undefined,
@@ -270,7 +272,7 @@ pub const Loop = struct {
                 self.os_data.fs_kevent_wait = posix.Kevent{
                     .ident = 0,
                     .filter = posix.EVFILT_USER,
-                    .flags = posix.EV_ADD|posix.EV_CLEAR,
+                    .flags = posix.EV_ADD | posix.EV_CLEAR,
                     .fflags = 0,
                     .data = 0,
                     .udata = undefined,
@@ -429,7 +431,7 @@ pub const Loop = struct {
         var kev = posix.Kevent{
             .ident = ident,
             .filter = filter,
-            .flags = posix.EV_ADD|posix.EV_ENABLE|posix.EV_CLEAR,
+            .flags = posix.EV_ADD | posix.EV_ENABLE | posix.EV_CLEAR,
             .fflags = fflags,
             .data = 0,
             .udata = @ptrToInt(&resume_node.base),

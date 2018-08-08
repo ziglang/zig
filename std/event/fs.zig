@@ -170,7 +170,10 @@ pub async fn preadv(loop: *event.Loop, fd: os.FileHandle, data: []const []u8, of
 }
 
 pub async fn open(
-    loop: *event.Loop, path: []const u8, flags: u32, mode: os.File.Mode,
+    loop: *event.Loop,
+    path: []const u8,
+    flags: u32,
+    mode: os.File.Mode,
 ) os.File.OpenError!os.FileHandle {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
@@ -375,7 +378,7 @@ pub fn Watch(comptime V: type) type {
         os_data: OsData,
 
         const OsData = switch (builtin.os) {
-            builtin.Os.macosx => struct{
+            builtin.Os.macosx => struct {
                 file_table: FileTable,
                 table_lock: event.Lock,
 
@@ -477,11 +480,11 @@ pub fn Watch(comptime V: type) type {
             var close_op_consumed = false;
             defer if (!close_op_consumed) close_op.finish();
 
-            const flags = posix.O_SYMLINK|posix.O_EVTONLY;
+            const flags = posix.O_SYMLINK | posix.O_EVTONLY;
             const mode = 0;
             const fd = try await (async open(self.channel.loop, resolved_path, flags, mode) catch unreachable);
             close_op.setHandle(fd);
-            
+
             var put_data: *OsData.Put = undefined;
             const putter = try async self.kqPutEvents(close_op, value, &put_data);
             close_op_consumed = true;
@@ -549,7 +552,10 @@ pub fn Watch(comptime V: type) type {
                     error.ProcessNotFound => unreachable,
                     error.AccessDenied, error.SystemResources => {
                         // TODO https://github.com/ziglang/zig/issues/769
-                        const casted_err = @errSetCast(error{AccessDenied,SystemResources}, err);
+                        const casted_err = @errSetCast(error{
+                            AccessDenied,
+                            SystemResources,
+                        }, err);
                         await (async self.channel.put(casted_err) catch unreachable);
                     },
                 }
@@ -667,7 +673,10 @@ pub fn Watch(comptime V: type) type {
                                     }
                                 };
                                 if (user_value) |v| {
-                                    await (async channel.put(Self.Event{ .CloseWrite = v }) catch unreachable);
+                                    await (async channel.put(Event{
+                                        .id = WatchEventId.CloseWrite,
+                                        .data = v,
+                                    }) catch unreachable);
                                 }
                             }
                         }
@@ -691,7 +700,7 @@ pub fn Watch(comptime V: type) type {
                                 error.FileDescriptorIncompatibleWithEpoll => unreachable,
                                 error.Unexpected => unreachable,
                             };
-                            await (async channel.put(Self.Event{ .Err = transformed_err }) catch unreachable);
+                            await (async channel.put(transformed_err) catch unreachable);
                         };
                     },
                     else => unreachable,
