@@ -58,7 +58,7 @@ pub const File = struct {
                 allocator,
                 path,
                 windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+                windows.FILE_SHARE_WRITE,
                 windows.CREATE_ALWAYS,
                 windows.FILE_ATTRIBUTE_NORMAL,
             );
