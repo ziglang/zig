@@ -741,6 +741,21 @@ pub fn fork() usize {
     return errnoWrap(c.fork());
 }
 
+///fcntl with zero parameters
+pub fn fcntlZero(fildes: i32, cmd: i32) usize {
+    return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd)));
+}
+
+///fcntl with one parameter
+pub fn fcntlOne(fildes: i32, cmd: i32, arg: var) usize {
+    return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), arg));
+}
+
+///fcntl with two parameters
+pub fn fcntlTwo(fildes: i32, cmd: i32, arg_a: var, arg_b: var) usize {
+    return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), arg_a, arg_b));
+}
+
 pub fn access(path: [*]const u8, mode: u32) usize {
     return errnoWrap(c.access(path, mode));
 }
