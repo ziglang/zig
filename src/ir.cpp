@@ -20591,7 +20591,7 @@ static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstr
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_operand = ir_implicit_cast(ira, operand, operand_type);
-    if (type_is_invalid(casted_ptr->value.type))
+    if (type_is_invalid(casted_operand->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
     AtomicOrder ordering;
