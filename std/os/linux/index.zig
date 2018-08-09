@@ -659,6 +659,24 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
+pub fn varToSyscall(p: var) usize {
+    switch (@typeInfo(@typeOf(p))) {
+        builtin.TypeId.Int,
+        builtin.TypeId.ComptimeInt => {
+            if (@alignOf(@typeOf(p)) == @sizeOf(usize)) {
+                return p;
+            } else {
+                return @bitCast(usize, isize( p ));
+            }
+        },
+        builtin.TypeId.Pointer => {
+            return @ptrToInt( p );
+        },
+        else => unreachable,
+    }
+    return 0;
+}
+
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) usize {
     const signed_r = @bitCast(isize, r);
@@ -1253,6 +1271,17 @@ pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
     return syscall4(SYS_timerfd_settime, @intCast(usize, fd), @intCast(usize, flags), @ptrToInt(new_value), @ptrToInt(old_value));
 }
+
+pub fn fcntl(fildes: i32, cmd: i32, args: ...) usize {
+    switch (args.len) {
+        0 => return syscall2(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd)),
+        1 => return syscall3(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(args[0])),
+        2 => return syscall4(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(args[0]), varToSyscall(args[1])),
+        3 => return syscall5(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(args[0]), varToSyscall(args[1]), varToSyscall(args[2])),
+        else => @compileError("fcntl only supports up to 5 arguments"),
+    }
+}
+
 
 pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
 pub const _LINUX_CAPABILITY_U32S_1 = 1;

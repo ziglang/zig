@@ -568,6 +568,71 @@ pub const SOCK_RDM: c_int = 4;
 pub const SOCK_SEQPACKET: c_int = 5;
 pub const SOCK_MAXADDRLEN: c_int = 255;
 
+// Constants used for fcntl(2)
+
+// command values
+pub const F_DUPFD = 0; // duplicate file descriptor
+pub const F_GETFD = 1; // get file descriptor flags
+pub const F_SETFD = 2; // set file descriptor flags
+pub const F_GETFL = 3; // get file status flags
+pub const F_SETFL = 4; // set file status flags
+pub const F_GETOWN = 5; // get SIGIO/SIGURG proc/pgrp
+pub const F_SETOWN = 6; // set SIGIO/SIGURG proc/pgrp
+pub const F_GETLK = 7; // get record locking information
+pub const F_SETLK = 8; // set record locking information
+pub const F_SETLKW = 9; // F_SETLK; wait if blocked
+pub const F_FLUSH_DATA = 4; 
+pub const F_CHKCLEAN = 41; // Used for regression test
+pub const F_PREALLOCATE = 42; // Preallocate storage
+pub const F_SETSIZE = 43; // Truncate a file without zeroing space 
+pub const F_RDADVISE = 44; // Issue an advisory read async with no copy to user
+pub const F_RDAHEAD = 45; // turn read ahead off/on for this fd
+pub const F_READBOOTSTRAP = 46; // Read bootstrap from disk
+pub const F_WRITEBOOTSTRAP = 47; // Write bootstrap on disk
+pub const F_NOCACHE = 48; // turn data caching off/on for this fd
+pub const F_LOG2PHYS = 49; // file offset to device offset
+pub const F_GETPATH = 50; // return the full path of the fd
+pub const F_FULLFSYNC = 51; // fsync + ask the drive to flush to the media
+pub const F_PATHPKG_CHECK = 52; // find which component (if any) is a package
+pub const F_FREEZE_FS = 53; // "freeze" all fs operations
+pub const F_THAW_FS = 54; // "thaw" all fs operations
+pub const F_GLOBAL_NOCACHE = 55; // turn data caching off/on (globally) for this file
+pub const F_ADDSIGS = 59; // add detached signatures
+pub const F_MARKDEPENDENCY = 60; // this process hosts the device supporting the fs backing this fd
+pub const F_ADDFILESIGS = 61; // add signature from same file (used by dyld for shared libs)
+pub const F_NODIRECT = 62; // used in conjunction with F_NOCACHE to indicate that DIRECT, synchonous writes
+                          // should not be used (i.e. its ok to temporaily create cached pages)
+
+pub const F_GETPROTECTIONCLASS = 63; // Get the protection class of a file from the EA, returns int
+pub const F_SETPROTECTIONCLASS = 64; // Set the protection class of a file for the EA, requires int
+pub const F_LOG2PHYS_EXT = 65; // file offset to device offset, extended
+pub const F_GETLKPID = 66; // get record locking information, per-process
+pub const F_SETBACKINGSTORE = 0; // Mark the file as being the backing store for another filesystem
+pub const F_GETPATH_MTMINFO = 1; // return the full path of the FD, but error in specific mtmd circumstances
+// F_GETENCRYPTEDDATA == 72 was removed from darwin
+pub const F_SETNOSIGPIPE = 73; // No SIGPIPE generated on EPIPE
+pub const F_GETNOSIGPIPE = 74; // Status of SIGPIPE for this fd
+pub const F_TRANSCODEKEY = 75; // For some cases, we need to rewrap the key for AKS/MKB
+pub const F_SINGLE_WRITER = 76; // file being written to a by single writer... if throttling enabled, writes
+                               // may be broken into smaller chunks with throttling in between
+pub const F_GETPROTECTIONLEVEL = 77; // Get the protection version number for this filesystem
+
+pub const FCNTL_FS_SPECIFIC_BASE = 0x00010000;
+
+// file descriptor flags (F_GETFD, F_SETFD)
+pub const FD_CLOEXEC = 1; // close-on-exec flag
+
+// record locking flags (F_GETLK, F_SETLK, F_SETLKW)
+pub const F_RDLCK = 1; // shared or read lock
+pub const F_UNLCK = 2; // unlock
+pub const F_WRLCK = 3; // exclusive or write lock
+pub const F_WAIT = 0x010; // Wait until lock is granted
+pub const F_FLOCK = 0x020; // Use flock(2) semantics for lock
+pub const F_POSIX = 0x040; // Use POSIX semantics for lock
+pub const F_PROV = 0x080; // Non-coalesced provisional lock
+pub const F_WAKE1_SAFE = 0x100; // its safe to only wake one waiter
+pub const F_ABORT = 0x200; // lock attempt aborted (force umount)
+
 fn wstatus(x: i32) i32 {
     return x & 0o177;
 }
@@ -674,6 +739,16 @@ pub fn waitpid(pid: i32, status: *i32, options: u32) usize {
 
 pub fn fork() usize {
     return errnoWrap(c.fork());
+}
+
+pub fn fcntl(fildes: i32, cmd: i32, args: ...) usize {
+    switch (args.len) {
+        0 => return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd))),
+        1 => return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), args[0])),
+        2 => return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), args[0], args[1])),
+        3 => return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), args[0], args[1], args[2])),
+        else => @compileError("fcntl only supports up to 5 arguments"),
+    }
 }
 
 pub fn access(path: [*]const u8, mode: u32) usize {

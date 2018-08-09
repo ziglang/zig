@@ -2943,3 +2943,18 @@ pub fn bsdKEvent(
         }
     }
 }
+
+test "os.posix.fcntl" {
+  // Only test on POSIX systems
+  if (!is_posix)
+    return error.SkipZigTest;
+
+  // Simple Test of F_GETFD and F_SETFD
+  var rc = posix.fcntl(0, posix.F_GETFD);
+  var err = posix.getErrno(rc);
+  assert(err == 0);
+
+  rc = posix.fcntl(0, posix.F_SETFD, rc);
+  err = posix.getErrno(rc);
+  assert(err == 0);
+}
