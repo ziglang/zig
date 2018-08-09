@@ -1270,17 +1270,17 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_va
 
 /// fcntl with zero parameters
 pub fn fcntl0(fildes: i32, cmd: i32) usize {
-    return syscall2(SYS_fcntl, @intCast(usize, isize(fildes)), @bitCast(usize, isize(cmd)));
+    return syscall2(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd));
 }
 
 /// fcntl with one parameter
 pub fn fcntl1(fildes: i32, cmd: i32, arg: var) usize {
-    return syscall3(SYS_fcntl, @intCast(usize, isize(fildes)), @bitCast(usize, isize(cmd)), arg);
+    return syscall3(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(arg) );
 }
 
 /// fcntl with two parameters
 pub fn fcntl2(fildes: i32, cmd: i32, arg_a: var, arg_b: var) usize {
-    return syscall4(SYS_fcntl, @intCast(usize, isize(fildes)), @bitCast(usize, isize(cmd)), arg_a, arg_b);
+    return syscall4(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(arg_a), varToSyscall(arg_b));
 }
 
 pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
