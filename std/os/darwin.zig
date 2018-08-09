@@ -741,19 +741,14 @@ pub fn fork() usize {
     return errnoWrap(c.fork());
 }
 
-///fcntl with zero parameters
-pub fn fcntl0(fildes: i32, cmd: i32) usize {
-    return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd)));
-}
-
-///fcntl with one parameter
-pub fn fcntl1(fildes: i32, cmd: i32, arg: var) usize {
-    return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), arg));
-}
-
-///fcntl with two parameters
-pub fn fcntl2(fildes: i32, cmd: i32, arg_a: var, arg_b: var) usize {
-    return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), arg_a, arg_b));
+pub fn fcntl(fildes: i32, cmd: i32, args: ...) usize {
+    switch (args.len) {
+        0 => return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd))),
+        1 => return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), args[0])),
+        2 => return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), args[0], args[1])),
+        3 => return errnoWrap(c.fcntl(@bitCast(c_int, fildes), @bitCast(c_int, cmd), args[0], args[1], args[2])),
+        else => @compileError("fcntl only supports up to 5 arguments"),
+    }
 }
 
 pub fn access(path: [*]const u8, mode: u32) usize {
