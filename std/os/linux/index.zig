@@ -663,7 +663,11 @@ pub fn varToSyscall(p: var) usize {
     switch (@typeInfo(@typeOf(p))) {
         builtin.TypeId.Int,
         builtin.TypeId.ComptimeInt => {
-            return @bitCast(usize, isize( p ));
+            if (@alignOf(@typeOf(p)) == @sizeOf(usize)) {
+                return p;
+            } else {
+                return @bitCast(usize, isize( p ));
+            }
         },
         builtin.TypeId.Pointer => {
             return @ptrToInt( p );
