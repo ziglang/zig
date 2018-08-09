@@ -2555,7 +2555,7 @@ pub fn posixFcntl(fd: i32, cmd: i32, a: ...) PosixFcntlError!i32 {
 test "os.posixFcntl" {
   // Only test on POSIX systems
   if (!is_posix)
-    return error.ZigSkipTest;
+    return error.SkipZigTest;
 
   // Simple Test of F_GETFD and F_SETFD
   var flags = try posixFcntl(0, posix.F_GETFD);
