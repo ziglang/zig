@@ -188,6 +188,7 @@ pub const Utf8View = struct {
         return Utf8View{ .bytes = s };
     }
 
+    /// TODO: https://github.com/ziglang/zig/issues/425
     pub fn initComptime(comptime s: []const u8) Utf8View {
         if (comptime init(s)) |r| {
             return r;
@@ -199,7 +200,7 @@ pub const Utf8View = struct {
         }
     }
 
-    pub fn iterator(s: *const Utf8View) Utf8Iterator {
+    pub fn iterator(s: Utf8View) Utf8Iterator {
         return Utf8Iterator{
             .bytes = s.bytes,
             .i = 0,
@@ -529,4 +530,21 @@ test "utf16leToUtf8" {
         const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
+}
+
+/// TODO support codepoints bigger than 16 bits
+/// TODO type for null terminated pointer
+pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16 {
+    var result = std.ArrayList(u16).init(allocator);
+    // optimistically guess that it will not require surrogate pairs
+    try result.ensureCapacity(utf8.len + 1);
+
+    const view = try Utf8View.init(utf8);
+    var it = view.iterator();
+    while (it.nextCodepoint()) |codepoint| {
+        try result.append(@intCast(u16, codepoint)); // TODO surrogate pairs
+    }
+
+    try result.append(0);
+    return result.toOwnedSlice();
 }

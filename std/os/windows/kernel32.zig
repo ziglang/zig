@@ -11,7 +11,17 @@ pub extern "kernel32" stdcallcc fn CreateDirectoryA(
 ) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateFileA(
-    lpFileName: LPCSTR,
+    lpFileName: [*]const u8, // TODO null terminated pointer type
+    dwDesiredAccess: DWORD,
+    dwShareMode: DWORD,
+    lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
+    dwCreationDisposition: DWORD,
+    dwFlagsAndAttributes: DWORD,
+    hTemplateFile: ?HANDLE,
+) HANDLE;
+
+pub extern "kernel32" stdcallcc fn CreateFileW(
+    lpFileName: [*]const u16, // TODO null terminated pointer type
     dwDesiredAccess: DWORD,
     dwShareMode: DWORD,
     lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
@@ -129,6 +139,17 @@ pub extern "kernel32" stdcallcc fn QueryPerformanceCounter(lpPerformanceCount: *
 
 pub extern "kernel32" stdcallcc fn QueryPerformanceFrequency(lpFrequency: *LARGE_INTEGER) BOOL;
 
+pub extern "kernel32" stdcallcc fn ReadDirectoryChangesW(
+    hDirectory: HANDLE,
+    lpBuffer: [*]align(@alignOf(FILE_NOTIFY_INFORMATION)) u8,
+    nBufferLength: DWORD,
+    bWatchSubtree: BOOL,
+    dwNotifyFilter: DWORD,
+    lpBytesReturned: ?*DWORD,
+    lpOverlapped: ?*OVERLAPPED,
+    lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE,
+) BOOL;
+
 pub extern "kernel32" stdcallcc fn ReadFile(
     in_hFile: HANDLE,
     out_lpBuffer: [*]u8,
@@ -168,3 +189,30 @@ pub extern "kernel32" stdcallcc fn WriteFileEx(hFile: HANDLE, lpBuffer: [*]const
 pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: LPCSTR) ?HMODULE;
 
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
+
+
+pub const FILE_NOTIFY_INFORMATION = extern struct {
+    NextEntryOffset: DWORD,
+    Action: DWORD,
+    FileNameLength: DWORD,
+    FileName: [1]WCHAR,
+};
+
+pub const FILE_ACTION_ADDED = 0x00000001;
+pub const FILE_ACTION_REMOVED = 0x00000002;
+pub const FILE_ACTION_MODIFIED = 0x00000003;
+pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
+pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
+
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn(DWORD, DWORD, *OVERLAPPED) void;
+
+pub const FILE_LIST_DIRECTORY = 1;
+
+pub const FILE_NOTIFY_CHANGE_CREATION = 64;
+pub const FILE_NOTIFY_CHANGE_SIZE = 8;
+pub const FILE_NOTIFY_CHANGE_SECURITY = 256;
+pub const FILE_NOTIFY_CHANGE_LAST_ACCESS = 32;
+pub const FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
+pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
+pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
+pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;

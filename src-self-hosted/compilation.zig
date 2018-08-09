@@ -288,6 +288,7 @@ pub const Compilation = struct {
         InvalidDarwinVersionString,
         UnsupportedLinkArchitecture,
         UserResourceLimitReached,
+        InvalidUtf8,
     };
 
     pub const Event = union(enum) {
