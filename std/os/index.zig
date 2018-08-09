@@ -2533,9 +2533,9 @@ pub const PosixFcntlError = error{
 pub fn posixFcntl(fd: i32, cmd: i32, a: ...) PosixFcntlError!i32 {
     while (true) {
         const rc = switch (comptime a.len) {
-          0 => posix.fcntlZero(fd, cmd),
-          1 => posix.fcntlOne(fd, cmd, a[0]),
-          2 => posix.fcntlTwo(fd, cmd, a[0], a[1]),
+          0 => posix.fcntl0(fd, cmd),
+          1 => posix.fcntl1(fd, cmd, a[0]),
+          2 => posix.fcntl2(fd, cmd, a[0], a[1]),
           else => @compileError("posixFcntl only supports up to two arguments at this time"),
         };
         const err = posix.getErrno(rc);

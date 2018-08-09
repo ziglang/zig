@@ -1255,17 +1255,17 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_va
 }
 
 /// fcntl with zero parameters
-pub fn fcntlZero(fildes: i32, cmd: i32) usize {
+pub fn fcntl0(fildes: i32, cmd: i32) usize {
     return syscall2(SYS_fcntl, @intCast(c_int, fd), @bitCast(c_int, cmd));
 }
 
 /// fcntl with one parameter
-pub fn fcntlOne(fildes: i32, cmd: i32, arg: var) usize {
+pub fn fcnt1(fildes: i32, cmd: i32, arg: var) usize {
     return syscall3(SYS_fcntl, @intCast(c_int, fd), @bitCast(c_int, cmd), arg);
 }
 
 /// fcntl with two parameters
-pub fn fcntlTwo(fildes: i32, cmd: i32, arg_a: var, arg_b: var) usize {
+pub fn fcntl2(fildes: i32, cmd: i32, arg_a: var, arg_b: var) usize {
     return syscall4(SYS_fcntl, @intCast(c_int, fd), @bitCast(c_int, cmd), arg_a, arg_b);
 }
 
