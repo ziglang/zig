@@ -2520,11 +2520,8 @@ pub const PosixFcntlError = error{
     /// mapped by another process.
     SystemResources,
 
-    /// EBUSY: cmd is F_SETPIPE_SZ and the new pipe capacity specified in arg
-    /// is smaller than the amount of buffer space currently used to
-    /// store data in the pipe.
-    /// OR cmd is F_ADD_SEALS, arg includes F_SEAL_WRITE, and there
-    /// exists a writable, shared mapping on the file referred to by fd.
+    /// EBUSY: The file or resource operated on was deemed busy by the OS.
+    /// Please check your operating system manual for specifics.
     FileBusy,
 
     Unexpected,
