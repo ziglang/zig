@@ -1268,20 +1268,16 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_va
     return syscall4(SYS_timerfd_settime, @intCast(usize, fd), @intCast(usize, flags), @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
-/// fcntl with zero parameters
-pub fn fcntl0(fildes: i32, cmd: i32) usize {
-    return syscall2(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd));
+pub fn fcntl(fildes: i32, cmd: i32, args: ...) usize {
+    switch (args.len) {
+        0 => return syscall2(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd)),
+        1 => return syscall3(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(args[0])),
+        2 => return syscall4(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(args[0]), varToSyscall(args[1])),
+        3 => return syscall5(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(args[0]), varToSyscall(args[1]), varToSyscall(args[2])),
+        else => @compileError("fcntl only supports up to 5 arguments"),
+    }
 }
 
-/// fcntl with one parameter
-pub fn fcntl1(fildes: i32, cmd: i32, arg: var) usize {
-    return syscall3(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(arg) );
-}
-
-/// fcntl with two parameters
-pub fn fcntl2(fildes: i32, cmd: i32, arg_a: var, arg_b: var) usize {
-    return syscall4(SYS_fcntl, varToSyscall(fildes), varToSyscall(cmd), varToSyscall(arg_a), varToSyscall(arg_b));
-}
 
 pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
 pub const _LINUX_CAPABILITY_U32S_1 = 1;
