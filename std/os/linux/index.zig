@@ -659,6 +659,20 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
+pub fn varToSyscall(p: var) usize {
+    switch (@typeInfo(@typeOf(p))) {
+        builtin.TypeId.Int,
+        builtin.TypeId.ComptimeInt => {
+            return @bitCast(usize, isize( p ));
+        },
+        builtin.TypeId.Pointer => {
+            return @ptrToInt( p );
+        },
+        else => unreachable,
+    }
+    return 0;
+}
+
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) usize {
     const signed_r = @bitCast(isize, r);
