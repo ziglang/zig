@@ -2555,6 +2555,17 @@ pub fn posixFcntl(fd: i32, cmd: i32, a: ...) PosixFcntlError!i32 {
     }
 }
 
+test "os.posixFcntl" {
+  // Only test on POSIX systems
+  if (!is_posix)
+    return error.ZigSkipTest;
+
+  // Simple Test of F_GETFD and F_SETFD
+  var flags = try posixFcntl(0, posix.F_GETFD);
+  _ = try posixFcntl(0, posix.F_SETFD, flags);
+
+}
+
 pub const Thread = struct {
     data: Data,
 
