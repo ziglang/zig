@@ -686,6 +686,7 @@ pub const Loop = struct {
                         switch (os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, &overlapped, windows.INFINITE)) {
                             os.WindowsWaitResult.Aborted => return,
                             os.WindowsWaitResult.Normal => {},
+                            os.WindowsWaitResult.Cancelled => continue,
                         }
                         if (overlapped != null) break;
                     }

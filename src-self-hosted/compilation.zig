@@ -545,14 +545,15 @@ pub const Compilation = struct {
         try comp.initTypes();
         defer comp.primitive_type_table.deinit();
 
+        comp.main_loop_handle = async comp.mainLoop() catch unreachable;
         // Set this to indicate that initialization completed successfully.
         // from here on out we must not return an error.
         // This must occur before the first suspend/await.
-        comp.main_loop_handle = async comp.mainLoop() catch unreachable;
         out_comp.* = &comp;
+        // This suspend is resumed by destroy()
         suspend;
-
         // From here on is cleanup.
+
         await (async comp.deinit_group.wait() catch unreachable);
 
         if (comp.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {

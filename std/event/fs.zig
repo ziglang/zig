@@ -1117,6 +1117,9 @@ pub fn Watch(comptime V: type) type {
                     // TODO only 1 beginOneEvent for the whole coroutine
                     self.channel.loop.beginOneEvent();
                     errdefer self.channel.loop.finishOneEvent();
+                    errdefer {
+                        _ = windows.CancelIoEx(dir_handle, &overlapped);
+                    }
                     suspend {
                         _ = windows.ReadDirectoryChangesW(
                             dir_handle,

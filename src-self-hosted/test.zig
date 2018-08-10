@@ -43,7 +43,7 @@ pub const TestContext = struct {
             .file_index = std.atomic.Int(usize).init(0),
         };
 
-        try self.loop.initMultiThreaded(allocator);
+        try self.loop.initSingleThreaded(allocator);
         errdefer self.loop.deinit();
 
         self.zig_compiler = try ZigCompiler.init(&self.loop);
