@@ -1,5 +1,8 @@
 use @import("index.zig");
 
+
+pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
+
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateDirectoryA(
@@ -8,7 +11,17 @@ pub extern "kernel32" stdcallcc fn CreateDirectoryA(
 ) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateFileA(
-    lpFileName: LPCSTR,
+    lpFileName: [*]const u8, // TODO null terminated pointer type
+    dwDesiredAccess: DWORD,
+    dwShareMode: DWORD,
+    lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
+    dwCreationDisposition: DWORD,
+    dwFlagsAndAttributes: DWORD,
+    hTemplateFile: ?HANDLE,
+) HANDLE;
+
+pub extern "kernel32" stdcallcc fn CreateFileW(
+    lpFileName: [*]const u16, // TODO null terminated pointer type
     dwDesiredAccess: DWORD,
     dwShareMode: DWORD,
     lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
@@ -94,6 +107,9 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
     dwFlags: DWORD,
 ) DWORD;
 
+
+pub extern "kernel32" stdcallcc fn GetOverlappedResult(hFile: HANDLE, lpOverlapped: *OVERLAPPED, lpNumberOfBytesTransferred: *DWORD, bWait: BOOL) BOOL;
+
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 pub extern "kernel32" stdcallcc fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: LPDWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) BOOL;
 
@@ -104,7 +120,6 @@ pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: S
 pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
 pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void, dwBytes: SIZE_T) ?*c_void;
 pub extern "kernel32" stdcallcc fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) SIZE_T;
-pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) BOOL;
 pub extern "kernel32" stdcallcc fn HeapCompact(hHeap: HANDLE, dwFlags: DWORD) SIZE_T;
 pub extern "kernel32" stdcallcc fn HeapSummary(hHeap: HANDLE, dwFlags: DWORD, lpSummary: LPHEAP_SUMMARY) BOOL;
 
@@ -113,6 +128,8 @@ pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) ?HANDLE;
 pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) ?*c_void;
 
 pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) BOOL;
+
+pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: ?*const c_void) BOOL;
 
 pub extern "kernel32" stdcallcc fn MoveFileExA(
     lpExistingFileName: LPCSTR,
@@ -126,11 +143,22 @@ pub extern "kernel32" stdcallcc fn QueryPerformanceCounter(lpPerformanceCount: *
 
 pub extern "kernel32" stdcallcc fn QueryPerformanceFrequency(lpFrequency: *LARGE_INTEGER) BOOL;
 
+pub extern "kernel32" stdcallcc fn ReadDirectoryChangesW(
+    hDirectory: HANDLE,
+    lpBuffer: [*]align(@alignOf(FILE_NOTIFY_INFORMATION)) u8,
+    nBufferLength: DWORD,
+    bWatchSubtree: BOOL,
+    dwNotifyFilter: DWORD,
+    lpBytesReturned: ?*DWORD,
+    lpOverlapped: ?*OVERLAPPED,
+    lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE,
+) BOOL;
+
 pub extern "kernel32" stdcallcc fn ReadFile(
     in_hFile: HANDLE,
-    out_lpBuffer: *c_void,
+    out_lpBuffer: [*]u8,
     in_nNumberOfBytesToRead: DWORD,
-    out_lpNumberOfBytesRead: *DWORD,
+    out_lpNumberOfBytesRead: ?*DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
 ) BOOL;
 
@@ -153,13 +181,42 @@ pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMillis
 
 pub extern "kernel32" stdcallcc fn WriteFile(
     in_hFile: HANDLE,
-    in_lpBuffer: *const c_void,
+    in_lpBuffer: [*]const u8,
     in_nNumberOfBytesToWrite: DWORD,
     out_lpNumberOfBytesWritten: ?*DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
 ) BOOL;
 
+pub extern "kernel32" stdcallcc fn WriteFileEx(hFile: HANDLE, lpBuffer: [*]const u8, nNumberOfBytesToWrite: DWORD, lpOverlapped: LPOVERLAPPED, lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE) BOOL;
+
 //TODO: call unicode versions instead of relying on ANSI code page
 pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: LPCSTR) ?HMODULE;
 
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
+
+
+pub const FILE_NOTIFY_INFORMATION = extern struct {
+    NextEntryOffset: DWORD,
+    Action: DWORD,
+    FileNameLength: DWORD,
+    FileName: [1]WCHAR,
+};
+
+pub const FILE_ACTION_ADDED = 0x00000001;
+pub const FILE_ACTION_REMOVED = 0x00000002;
+pub const FILE_ACTION_MODIFIED = 0x00000003;
+pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
+pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
+
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn(DWORD, DWORD, *OVERLAPPED) void;
+
+pub const FILE_LIST_DIRECTORY = 1;
+
+pub const FILE_NOTIFY_CHANGE_CREATION = 64;
+pub const FILE_NOTIFY_CHANGE_SIZE = 8;
+pub const FILE_NOTIFY_CHANGE_SECURITY = 256;
+pub const FILE_NOTIFY_CHANGE_LAST_ACCESS = 32;
+pub const FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
+pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
+pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
+pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;

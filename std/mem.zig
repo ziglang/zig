@@ -577,7 +577,7 @@ pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
         }
     }
 
-    return buf[0..buf_index];
+    return allocator.shrink(u8, buf, buf_index);
 }
 
 test "mem.join" {

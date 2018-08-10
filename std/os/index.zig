@@ -38,16 +38,6 @@ pub const path = @import("path.zig");
 pub const File = @import("file.zig").File;
 pub const time = @import("time.zig");
 
-pub const FileMode = switch (builtin.os) {
-    Os.windows => void,
-    else => u32,
-};
-
-pub const default_file_mode = switch (builtin.os) {
-    Os.windows => {},
-    else => 0o666,
-};
-
 pub const page_size = 4 * 1024;
 
 pub const UserInfo = @import("get_user_id.zig").UserInfo;
@@ -256,6 +246,67 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
     }
 }
 
+/// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
+pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u64) !usize {
+    switch (builtin.os) {
+        builtin.Os.macosx => {
+            // Darwin does not have preadv but it does have pread.
+            var off: usize = 0;
+            var iov_i: usize = 0;
+            var inner_off: usize = 0;
+            while (true) {
+                const v = iov[iov_i];
+                const rc = darwin.pread(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
+                const err = darwin.getErrno(rc);
+                switch (err) {
+                    0 => {
+                        off += rc;
+                        inner_off += rc;
+                        if (inner_off == v.iov_len) {
+                            iov_i += 1;
+                            inner_off = 0;
+                            if (iov_i == count) {
+                                return off;
+                            }
+                        }
+                        if (rc == 0) return off; // EOF
+                        continue;
+                    },
+                    posix.EINTR => continue,
+                    posix.EINVAL => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.ESPIPE => unreachable, // fd is not seekable
+                    posix.EAGAIN => return error.WouldBlock,
+                    posix.EBADF => return error.FileClosed,
+                    posix.EIO => return error.InputOutput,
+                    posix.EISDIR => return error.IsDir,
+                    posix.ENOBUFS => return error.SystemResources,
+                    posix.ENOMEM => return error.SystemResources,
+                    else => return unexpectedErrorPosix(err),
+                }
+            }
+        },
+        builtin.Os.linux, builtin.Os.freebsd => while (true) {
+            const rc = posix.preadv(fd, iov, count, offset);
+            const err = posix.getErrno(rc);
+            switch (err) {
+                0 => return rc,
+                posix.EINTR => continue,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => unreachable,
+                posix.EAGAIN => return error.WouldBlock,
+                posix.EBADF => return error.FileClosed,
+                posix.EIO => return error.InputOutput,
+                posix.EISDIR => return error.IsDir,
+                posix.ENOBUFS => return error.SystemResources,
+                posix.ENOMEM => return error.SystemResources,
+                else => return unexpectedErrorPosix(err),
+            }
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
 pub const PosixWriteError = error{
     WouldBlock,
     FileClosed,
@@ -297,6 +348,71 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
             };
         }
         index += rc;
+    }
+}
+
+pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, offset: u64) PosixWriteError!void {
+    switch (builtin.os) {
+        builtin.Os.macosx => {
+            // Darwin does not have pwritev but it does have pwrite.
+            var off: usize = 0;
+            var iov_i: usize = 0;
+            var inner_off: usize = 0;
+            while (true) {
+                const v = iov[iov_i];
+                const rc = darwin.pwrite(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
+                const err = darwin.getErrno(rc);
+                switch (err) {
+                    0 => {
+                        off += rc;
+                        inner_off += rc;
+                        if (inner_off == v.iov_len) {
+                            iov_i += 1;
+                            inner_off = 0;
+                            if (iov_i == count) {
+                                return;
+                            }
+                        }
+                        continue;
+                    },
+                    posix.EINTR => continue,
+                    posix.ESPIPE => unreachable, // fd is not seekable
+                    posix.EINVAL => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.EAGAIN => return PosixWriteError.WouldBlock,
+                    posix.EBADF => return PosixWriteError.FileClosed,
+                    posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+                    posix.EDQUOT => return PosixWriteError.DiskQuota,
+                    posix.EFBIG => return PosixWriteError.FileTooBig,
+                    posix.EIO => return PosixWriteError.InputOutput,
+                    posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+                    posix.EPERM => return PosixWriteError.AccessDenied,
+                    posix.EPIPE => return PosixWriteError.BrokenPipe,
+                    else => return unexpectedErrorPosix(err),
+                }
+            }
+        },
+        builtin.Os.linux => while (true) {
+            const rc = posix.pwritev(fd, iov, count, offset);
+            const err = posix.getErrno(rc);
+            switch (err) {
+                0 => return,
+                posix.EINTR => continue,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => unreachable,
+                posix.EAGAIN => return PosixWriteError.WouldBlock,
+                posix.EBADF => return PosixWriteError.FileClosed,
+                posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+                posix.EDQUOT => return PosixWriteError.DiskQuota,
+                posix.EFBIG => return PosixWriteError.FileTooBig,
+                posix.EIO => return PosixWriteError.InputOutput,
+                posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+                posix.EPERM => return PosixWriteError.AccessDenied,
+                posix.EPIPE => return PosixWriteError.BrokenPipe,
+                else => return unexpectedErrorPosix(err),
+            }
+        },
+        else => @compileError("Unsupported OS"),
     }
 }
 
@@ -853,7 +969,7 @@ pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []con
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
-pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: FileMode) !void {
+pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
     var in_file = try os.File.openRead(allocator, source_path);
     defer in_file.close();
 
@@ -879,7 +995,7 @@ pub const AtomicFile = struct {
 
     /// dest_path must remain valid for the lifetime of AtomicFile
     /// call finish to atomically replace dest_path with contents
-    pub fn init(allocator: *Allocator, dest_path: []const u8, mode: FileMode) !AtomicFile {
+    pub fn init(allocator: *Allocator, dest_path: []const u8, mode: File.Mode) !AtomicFile {
         const dirname = os.path.dirname(dest_path);
 
         var rand_buf: [12]u8 = undefined;
@@ -2941,5 +3057,46 @@ pub fn bsdKEvent(
             posix.ESRCH => return BsdKEventError.ProcessNotFound,
             else => unreachable,
         }
+    }
+}
+
+pub fn linuxINotifyInit1(flags: u32) !i32 {
+    const rc = linux.inotify_init1(flags);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        posix.EINVAL => unreachable,
+        posix.EMFILE => return error.ProcessFdQuotaExceeded,
+        posix.ENFILE => return error.SystemFdQuotaExceeded,
+        posix.ENOMEM => return error.SystemResources,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub fn linuxINotifyAddWatchC(inotify_fd: i32, pathname: [*]const u8, mask: u32) !i32 {
+    const rc = linux.inotify_add_watch(inotify_fd, pathname, mask);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        posix.EACCES => return error.AccessDenied,
+        posix.EBADF => unreachable,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOSPC => return error.UserResourceLimitReached,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub fn linuxINotifyRmWatch(inotify_fd: i32, wd: i32) !void {
+    const rc = linux.inotify_rm_watch(inotify_fd, wd);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return rc,
+        posix.EBADF => unreachable,
+        posix.EINVAL => unreachable,
+        else => unreachable,
     }
 }

@@ -67,8 +67,9 @@ pub const INVALID_FILE_ATTRIBUTES = DWORD(@maxValue(DWORD));
 pub const OVERLAPPED = extern struct {
     Internal: ULONG_PTR,
     InternalHigh: ULONG_PTR,
-    Pointer: PVOID,
-    hEvent: HANDLE,
+    Offset: DWORD,
+    OffsetHigh: DWORD,
+    hEvent: ?HANDLE,
 };
 pub const LPOVERLAPPED = *OVERLAPPED;
 
@@ -350,3 +351,15 @@ pub const E_ACCESSDENIED = @bitCast(c_long, c_ulong(0x80070005));
 pub const E_HANDLE = @bitCast(c_long, c_ulong(0x80070006));
 pub const E_OUTOFMEMORY = @bitCast(c_long, c_ulong(0x8007000E));
 pub const E_INVALIDARG = @bitCast(c_long, c_ulong(0x80070057));
+
+pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
+pub const FILE_FLAG_NO_BUFFERING = 0x20000000;
+pub const FILE_FLAG_OPEN_NO_RECALL = 0x00100000;
+pub const FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
+pub const FILE_FLAG_OVERLAPPED = 0x40000000;
+pub const FILE_FLAG_POSIX_SEMANTICS = 0x0100000;
+pub const FILE_FLAG_RANDOM_ACCESS = 0x10000000;
+pub const FILE_FLAG_SESSION_AWARE = 0x00800000;
+pub const FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
+pub const FILE_FLAG_WRITE_THROUGH = 0x80000000;

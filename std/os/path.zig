@@ -506,7 +506,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
         result_index += 1;
     }
 
-    return result[0..result_index];
+    return allocator.shrink(u8, result, result_index);
 }
 
 /// This function is like a series of `cd` statements executed one after another.

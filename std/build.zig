@@ -424,60 +424,69 @@ pub const Builder = struct {
         return mode;
     }
 
-    pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) bool {
-        if (self.user_input_options.put(name, UserInputOption{
-            .name = name,
-            .value = UserValue{ .Scalar = value },
-            .used = false,
-        }) catch unreachable) |*prev_value| {
-            // option already exists
-            switch (prev_value.value) {
-                UserValue.Scalar => |s| {
-                    // turn it into a list
-                    var list = ArrayList([]const u8).init(self.allocator);
-                    list.append(s) catch unreachable;
-                    list.append(value) catch unreachable;
-                    _ = self.user_input_options.put(name, UserInputOption{
-                        .name = name,
-                        .value = UserValue{ .List = list },
-                        .used = false,
-                    }) catch unreachable;
-                },
-                UserValue.List => |*list| {
-                    // append to the list
-                    list.append(value) catch unreachable;
-                    _ = self.user_input_options.put(name, UserInputOption{
-                        .name = name,
-                        .value = UserValue{ .List = list.* },
-                        .used = false,
-                    }) catch unreachable;
-                },
-                UserValue.Flag => {
-                    warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
-                    return true;
-                },
-            }
+    pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) !bool {
+        const gop = try self.user_input_options.getOrPut(name);
+        if (!gop.found_existing) {
+            gop.kv.value = UserInputOption{
+                .name = name,
+                .value = UserValue{ .Scalar = value },
+                .used = false,
+            };
+            return false;
+        }
+
+        // option already exists
+        switch (gop.kv.value.value) {
+            UserValue.Scalar => |s| {
+                // turn it into a list
+                var list = ArrayList([]const u8).init(self.allocator);
+                list.append(s) catch unreachable;
+                list.append(value) catch unreachable;
+                _ = self.user_input_options.put(name, UserInputOption{
+                    .name = name,
+                    .value = UserValue{ .List = list },
+                    .used = false,
+                }) catch unreachable;
+            },
+            UserValue.List => |*list| {
+                // append to the list
+                list.append(value) catch unreachable;
+                _ = self.user_input_options.put(name, UserInputOption{
+                    .name = name,
+                    .value = UserValue{ .List = list.* },
+                    .used = false,
+                }) catch unreachable;
+            },
+            UserValue.Flag => {
+                warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
+                return true;
+            },
         }
         return false;
     }
 
-    pub fn addUserInputFlag(self: *Builder, name: []const u8) bool {
-        if (self.user_input_options.put(name, UserInputOption{
-            .name = name,
-            .value = UserValue{ .Flag = {} },
-            .used = false,
-        }) catch unreachable) |*prev_value| {
-            switch (prev_value.value) {
-                UserValue.Scalar => |s| {
-                    warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
-                    return true;
-                },
-                UserValue.List => {
-                    warn("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
-                    return true;
-                },
-                UserValue.Flag => {},
-            }
+    pub fn addUserInputFlag(self: *Builder, name: []const u8) !bool {
+        const gop = try self.user_input_options.getOrPut(name);
+        if (!gop.found_existing) {
+            gop.kv.value = UserInputOption{
+                .name = name,
+                .value = UserValue{ .Flag = {} },
+                .used = false,
+            };
+            return false;
+        }
+
+        // option already exists
+        switch (gop.kv.value.value) {
+            UserValue.Scalar => |s| {
+                warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
+                return true;
+            },
+            UserValue.List => {
+                warn("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
+                return true;
+            },
+            UserValue.Flag => {},
         }
         return false;
     }
@@ -603,10 +612,10 @@ pub const Builder = struct {
     }
 
     fn copyFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
-        return self.copyFileMode(source_path, dest_path, os.default_file_mode);
+        return self.copyFileMode(source_path, dest_path, os.File.default_mode);
     }
 
-    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.FileMode) !void {
+    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.File.Mode) !void {
         if (self.verbose) {
             warn("cp {} {}\n", source_path, dest_path);
         }

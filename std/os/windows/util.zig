@@ -36,20 +36,19 @@ pub fn windowsClose(handle: windows.HANDLE) void {
 pub const WriteError = error{
     SystemResources,
     OperationAborted,
-    IoPending,
     BrokenPipe,
     Unexpected,
 };
 
 pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) WriteError!void {
-    if (windows.WriteFile(handle, @ptrCast(*const c_void, bytes.ptr), @intCast(u32, bytes.len), null, null) == 0) {
+    if (windows.WriteFile(handle, bytes.ptr, @intCast(u32, bytes.len), null, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.INVALID_USER_BUFFER => WriteError.SystemResources,
             windows.ERROR.NOT_ENOUGH_MEMORY => WriteError.SystemResources,
             windows.ERROR.OPERATION_ABORTED => WriteError.OperationAborted,
             windows.ERROR.NOT_ENOUGH_QUOTA => WriteError.SystemResources,
-            windows.ERROR.IO_PENDING => WriteError.IoPending,
+            windows.ERROR.IO_PENDING => unreachable,
             windows.ERROR.BROKEN_PIPE => WriteError.BrokenPipe,
             else => os.unexpectedErrorWindows(err),
         };
@@ -221,6 +220,7 @@ pub fn windowsCreateIoCompletionPort(file_handle: windows.HANDLE, existing_compl
     const handle = windows.CreateIoCompletionPort(file_handle, existing_completion_port, completion_key, concurrent_thread_count) orelse {
         const err = windows.GetLastError();
         switch (err) {
+            windows.ERROR.INVALID_PARAMETER => unreachable,
             else => return os.unexpectedErrorWindows(err),
         }
     };
@@ -238,21 +238,24 @@ pub fn windowsPostQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_
     }
 }
 
-pub const WindowsWaitResult = error{
+pub const WindowsWaitResult = enum{
     Normal,
     Aborted,
+    Cancelled,
 };
 
 pub fn windowsGetQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_transferred_count: *windows.DWORD, lpCompletionKey: *usize, lpOverlapped: *?*windows.OVERLAPPED, dwMilliseconds: windows.DWORD) WindowsWaitResult {
     if (windows.GetQueuedCompletionStatus(completion_port, bytes_transferred_count, lpCompletionKey, lpOverlapped, dwMilliseconds) == windows.FALSE) {
-        if (std.debug.runtime_safety) {
-            const err = windows.GetLastError();
-            if (err != windows.ERROR.ABANDONED_WAIT_0) {
-                std.debug.warn("err: {}\n", err);
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.ABANDONED_WAIT_0 => return WindowsWaitResult.Aborted,
+            windows.ERROR.OPERATION_ABORTED => return WindowsWaitResult.Cancelled,
+            else => {
+                if (std.debug.runtime_safety) {
+                    std.debug.panic("unexpected error: {}\n", err);
+                }
             }
-            assert(err == windows.ERROR.ABANDONED_WAIT_0);
         }
-        return WindowsWaitResult.Aborted;
     }
     return WindowsWaitResult.Normal;
 }
