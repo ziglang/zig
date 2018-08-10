@@ -1056,6 +1056,7 @@ pub fn Watch(comptime V: type) type {
                     .table_lock = event.Lock.init(self.channel.loop),
                     .putter = undefined,
                 };
+                gop.kv.value = dir;
                 assert((try dir.file_table.put(basename_utf16le_no_null, value_copy)) == null);
                 basename_utf16le_null_consumed = true;
 
