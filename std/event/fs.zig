@@ -113,6 +113,8 @@ pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, off
         },
     };
     const completion_key = @ptrToInt(&resume_node.base);
+    // TODO support concurrent async ops on the file handle
+    // we can do this by ignoring completion key and using @fieldParentPtr with the *Overlapped
     _ = try os.windowsCreateIoCompletionPort(fd, loop.os_data.io_port, completion_key, undefined);
     var overlapped = windows.OVERLAPPED{
         .Internal = 0,
@@ -247,6 +249,8 @@ pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u6
         },
     };
     const completion_key = @ptrToInt(&resume_node.base);
+    // TODO support concurrent async ops on the file handle
+    // we can do this by ignoring completion key and using @fieldParentPtr with the *Overlapped
     _ = try os.windowsCreateIoCompletionPort(fd, loop.os_data.io_port, completion_key, undefined);
     var overlapped = windows.OVERLAPPED{
         .Internal = 0,
@@ -831,8 +835,7 @@ pub fn Watch(comptime V: type) type {
                 var it = self.os_data.dir_table.iterator();
                 while (it.next()) |entry| {
                     allocator.free(entry.key);
-                    // TODO why does freeing this memory crash the test?
-                    //allocator.destroy(entry.value);
+                    allocator.destroy(entry.value);
                 }
                 self.os_data.dir_table.deinit();
                 self.channel.destroy();
@@ -1100,13 +1103,15 @@ pub fn Watch(comptime V: type) type {
             };
             var event_buf: [4096]u8 align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) = undefined;
 
+            // TODO handle this error not in the channel but in the setup
+            _ = os.windowsCreateIoCompletionPort(
+                dir_handle, self.channel.loop.os_data.io_port, completion_key, undefined,
+            ) catch |err| {
+                await (async self.channel.put(err) catch unreachable);
+                return;
+            };
+
             while (true) {
-                _ = os.windowsCreateIoCompletionPort(
-                    dir_handle, self.channel.loop.os_data.io_port, completion_key, undefined,
-                ) catch |err| {
-                    await (async self.channel.put(err) catch unreachable);
-                    return;
-                };
                 {
                     // TODO only 1 beginOneEvent for the whole coroutine
                     self.channel.loop.beginOneEvent();
@@ -1343,7 +1348,6 @@ async fn testFsWatch(loop: *Loop) !void {
         WatchEventId.CloseWrite => {},
         WatchEventId.Delete => @panic("wrong event"),
     }
-
     const contents_updated = try await try async readFile(loop, file_path, 1024 * 1024);
     assert(mem.eql(u8, contents_updated,
         \\line 1

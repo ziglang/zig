@@ -220,6 +220,7 @@ pub fn windowsCreateIoCompletionPort(file_handle: windows.HANDLE, existing_compl
     const handle = windows.CreateIoCompletionPort(file_handle, existing_completion_port, completion_key, concurrent_thread_count) orelse {
         const err = windows.GetLastError();
         switch (err) {
+            windows.ERROR.INVALID_PARAMETER => unreachable,
             else => return os.unexpectedErrorWindows(err),
         }
     };
