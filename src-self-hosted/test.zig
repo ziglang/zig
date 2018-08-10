@@ -6,7 +6,7 @@ const Compilation = @import("compilation.zig").Compilation;
 const introspect = @import("introspect.zig");
 const assertOrPanic = std.debug.assertOrPanic;
 const errmsg = @import("errmsg.zig");
-const EventLoopLocal = @import("compilation.zig").EventLoopLocal;
+const ZigCompiler = @import("compilation.zig").ZigCompiler;
 
 var ctx: TestContext = undefined;
 
@@ -25,7 +25,7 @@ const allocator = std.heap.c_allocator;
 
 pub const TestContext = struct {
     loop: std.event.Loop,
-    event_loop_local: EventLoopLocal,
+    zig_compiler: ZigCompiler,
     zig_lib_dir: []u8,
     file_index: std.atomic.Int(usize),
     group: std.event.Group(error!void),
@@ -37,7 +37,7 @@ pub const TestContext = struct {
         self.* = TestContext{
             .any_err = {},
             .loop = undefined,
-            .event_loop_local = undefined,
+            .zig_compiler = undefined,
             .zig_lib_dir = undefined,
             .group = undefined,
             .file_index = std.atomic.Int(usize).init(0),
@@ -46,8 +46,8 @@ pub const TestContext = struct {
         try self.loop.initMultiThreaded(allocator);
         errdefer self.loop.deinit();
 
-        self.event_loop_local = try EventLoopLocal.init(&self.loop);
-        errdefer self.event_loop_local.deinit();
+        self.zig_compiler = try ZigCompiler.init(&self.loop);
+        errdefer self.zig_compiler.deinit();
 
         self.group = std.event.Group(error!void).init(&self.loop);
         errdefer self.group.deinit();
@@ -62,7 +62,7 @@ pub const TestContext = struct {
     fn deinit(self: *TestContext) void {
         std.os.deleteTree(allocator, tmp_dir_name) catch {};
         allocator.free(self.zig_lib_dir);
-        self.event_loop_local.deinit();
+        self.zig_compiler.deinit();
         self.loop.deinit();
     }
 
@@ -97,7 +97,7 @@ pub const TestContext = struct {
         try std.io.writeFile(allocator, file1_path, source);
 
         var comp = try Compilation.create(
-            &self.event_loop_local,
+            &self.zig_compiler,
             "test",
             file1_path,
             Target.Native,
@@ -108,7 +108,7 @@ pub const TestContext = struct {
         );
         errdefer comp.destroy();
 
-        try comp.build();
+        comp.start();
 
         try self.group.call(getModuleEvent, comp, source, path, line, column, msg);
     }
@@ -131,7 +131,7 @@ pub const TestContext = struct {
         try std.io.writeFile(allocator, file1_path, source);
 
         var comp = try Compilation.create(
-            &self.event_loop_local,
+            &self.zig_compiler,
             "test",
             file1_path,
             Target.Native,
@@ -144,7 +144,7 @@ pub const TestContext = struct {
 
         _ = try comp.addLinkLib("c", true);
         comp.link_out_file = output_file;
-        try comp.build();
+        comp.start();
 
         try self.group.call(getModuleEventSuccess, comp, output_file, expected_output);
     }

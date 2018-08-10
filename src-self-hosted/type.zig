@@ -184,8 +184,8 @@ pub const Type = struct {
         if (await (async base.abi_alignment.start() catch unreachable)) |ptr| return ptr.*;
 
         {
-            const held = try comp.event_loop_local.getAnyLlvmContext();
-            defer held.release(comp.event_loop_local);
+            const held = try comp.zig_compiler.getAnyLlvmContext();
+            defer held.release(comp.zig_compiler);
 
             const llvm_context = held.node.data;
 

@@ -14,7 +14,7 @@ const c = @import("c.zig");
 const introspect = @import("introspect.zig");
 const Args = arg.Args;
 const Flag = arg.Flag;
-const EventLoopLocal = @import("compilation.zig").EventLoopLocal;
+const ZigCompiler = @import("compilation.zig").ZigCompiler;
 const Compilation = @import("compilation.zig").Compilation;
 const Target = @import("target.zig").Target;
 const errmsg = @import("errmsg.zig");
@@ -373,6 +373,16 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         os.exit(1);
     }
 
+    var clang_argv_buf = ArrayList([]const u8).init(allocator);
+    defer clang_argv_buf.deinit();
+
+    const mllvm_flags = flags.many("mllvm");
+    for (mllvm_flags) |mllvm| {
+        try clang_argv_buf.append("-mllvm");
+        try clang_argv_buf.append(mllvm);
+    }
+    try ZigCompiler.setLlvmArgv(allocator, mllvm_flags);
+
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
     defer allocator.free(zig_lib_dir);
 
@@ -382,11 +392,11 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    var event_loop_local = try EventLoopLocal.init(&loop);
-    defer event_loop_local.deinit();
+    var zig_compiler = try ZigCompiler.init(&loop);
+    defer zig_compiler.deinit();
 
     var comp = try Compilation.create(
-        &event_loop_local,
+        &zig_compiler,
         root_name,
         root_source_file,
         Target.Native,
@@ -415,16 +425,6 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.linker_script = flags.single("linker-script");
     comp.each_lib_rpath = flags.present("each-lib-rpath");
 
-    var clang_argv_buf = ArrayList([]const u8).init(allocator);
-    defer clang_argv_buf.deinit();
-
-    const mllvm_flags = flags.many("mllvm");
-    for (mllvm_flags) |mllvm| {
-        try clang_argv_buf.append("-mllvm");
-        try clang_argv_buf.append(mllvm);
-    }
-
-    comp.llvm_argv = mllvm_flags;
     comp.clang_argv = clang_argv_buf.toSliceConst();
 
     comp.strip = flags.present("strip");
@@ -467,7 +467,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.link_out_file = flags.single("output");
     comp.link_objects = link_objects;
 
-    try comp.build();
+    comp.start();
     const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
     defer cancel process_build_events_handle;
     loop.run();
@@ -572,17 +572,17 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    var event_loop_local = try EventLoopLocal.init(&loop);
-    defer event_loop_local.deinit();
+    var zig_compiler = try ZigCompiler.init(&loop);
+    defer zig_compiler.deinit();
 
-    const handle = try async<loop.allocator> findLibCAsync(&event_loop_local);
+    const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
     defer cancel handle;
 
     loop.run();
 }
 
-async fn findLibCAsync(event_loop_local: *EventLoopLocal) void {
-    const libc = (await (async event_loop_local.getNativeLibC() catch unreachable)) catch |err| {
+async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
+    const libc = (await (async zig_compiler.getNativeLibC() catch unreachable)) catch |err| {
         stderr.print("unable to find libc: {}\n", @errorName(err)) catch os.exit(1);
         os.exit(1);
     };

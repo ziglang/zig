@@ -35,7 +35,7 @@ const fs = event.fs;
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 /// Data that is local to the event loop.
-pub const EventLoopLocal = struct {
+pub const ZigCompiler = struct {
     loop: *event.Loop,
     llvm_handle_pool: std.atomic.Stack(llvm.ContextRef),
     lld_lock: event.Lock,
@@ -47,7 +47,7 @@ pub const EventLoopLocal = struct {
 
     var lazy_init_targets = std.lazyInit(void);
 
-    fn init(loop: *event.Loop) !EventLoopLocal {
+    fn init(loop: *event.Loop) !ZigCompiler {
         lazy_init_targets.get() orelse {
             Target.initializeAll();
             lazy_init_targets.resolve();
@@ -57,7 +57,7 @@ pub const EventLoopLocal = struct {
         try std.os.getRandomBytes(seed_bytes[0..]);
         const seed = std.mem.readInt(seed_bytes, u64, builtin.Endian.Big);
 
-        return EventLoopLocal{
+        return ZigCompiler{
             .loop = loop,
             .lld_lock = event.Lock.init(loop),
             .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
@@ -67,7 +67,7 @@ pub const EventLoopLocal = struct {
     }
 
     /// Must be called only after EventLoop.run completes.
-    fn deinit(self: *EventLoopLocal) void {
+    fn deinit(self: *ZigCompiler) void {
         self.lld_lock.deinit();
         while (self.llvm_handle_pool.pop()) |node| {
             c.LLVMContextDispose(node.data);
@@ -77,7 +77,7 @@ pub const EventLoopLocal = struct {
 
     /// Gets an exclusive handle on any LlvmContext.
     /// Caller must release the handle when done.
-    pub fn getAnyLlvmContext(self: *EventLoopLocal) !LlvmHandle {
+    pub fn getAnyLlvmContext(self: *ZigCompiler) !LlvmHandle {
         if (self.llvm_handle_pool.pop()) |node| return LlvmHandle{ .node = node };
 
         const context_ref = c.LLVMContextCreate() orelse return error.OutOfMemory;
@@ -92,24 +92,36 @@ pub const EventLoopLocal = struct {
         return LlvmHandle{ .node = node };
     }
 
-    pub async fn getNativeLibC(self: *EventLoopLocal) !*LibCInstallation {
+    pub async fn getNativeLibC(self: *ZigCompiler) !*LibCInstallation {
         if (await (async self.native_libc.start() catch unreachable)) |ptr| return ptr;
         try await (async self.native_libc.data.findNative(self.loop) catch unreachable);
         self.native_libc.resolve();
         return &self.native_libc.data;
+    }
+
+    /// Must be called only once, ever. Sets global state.
+    pub fn setLlvmArgv(allocator: *Allocator, llvm_argv: []const []const u8) !void {
+        if (llvm_argv.len != 0) {
+            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, [][]const []const u8{
+                [][]const u8{"zig (LLVM option parsing)"},
+                llvm_argv,
+            });
+            defer c_compatible_args.deinit();
+            c.ZigLLVMParseCommandLineOptions(llvm_argv.len + 1, c_compatible_args.ptr);
+        }
     }
 };
 
 pub const LlvmHandle = struct {
     node: *std.atomic.Stack(llvm.ContextRef).Node,
 
-    pub fn release(self: LlvmHandle, event_loop_local: *EventLoopLocal) void {
-        event_loop_local.llvm_handle_pool.push(self.node);
+    pub fn release(self: LlvmHandle, zig_compiler: *ZigCompiler) void {
+        zig_compiler.llvm_handle_pool.push(self.node);
     }
 };
 
 pub const Compilation = struct {
-    event_loop_local: *EventLoopLocal,
+    zig_compiler: *ZigCompiler,
     loop: *event.Loop,
     name: Buffer,
     llvm_triple: Buffer,
@@ -137,7 +149,6 @@ pub const Compilation = struct {
     linker_rdynamic: bool,
 
     clang_argv: []const []const u8,
-    llvm_argv: []const []const u8,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
     assembly_files: []const []const u8,
@@ -217,6 +228,8 @@ pub const Compilation = struct {
     deinit_group: event.Group(void),
 
     destroy_handle: promise,
+    main_loop_handle: promise,
+    main_loop_future: event.Future(void),
 
     have_err_ret_tracing: bool,
 
@@ -325,7 +338,7 @@ pub const Compilation = struct {
     };
 
     pub fn create(
-        event_loop_local: *EventLoopLocal,
+        zig_compiler: *ZigCompiler,
         name: []const u8,
         root_src_path: ?[]const u8,
         target: Target,
@@ -334,12 +347,45 @@ pub const Compilation = struct {
         is_static: bool,
         zig_lib_dir: []const u8,
     ) !*Compilation {
-        const loop = event_loop_local.loop;
-        const comp = try event_loop_local.loop.allocator.createOne(Compilation);
-        comp.* = Compilation{
+        var optional_comp: ?*Compilation = null;
+        const handle = try async<zig_compiler.loop.allocator> createAsync(
+            &optional_comp,
+            zig_compiler,
+            name,
+            root_src_path,
+            target,
+            kind,
+            build_mode,
+            is_static,
+            zig_lib_dir,
+        );
+        return optional_comp orelse if (getAwaitResult(
+            zig_compiler.loop.allocator,
+            handle,
+        )) |_| unreachable else |err| err;
+    }
+
+    async fn createAsync(
+        out_comp: *?*Compilation,
+        zig_compiler: *ZigCompiler,
+        name: []const u8,
+        root_src_path: ?[]const u8,
+        target: Target,
+        kind: Kind,
+        build_mode: builtin.Mode,
+        is_static: bool,
+        zig_lib_dir: []const u8,
+    ) !void {
+        // workaround for https://github.com/ziglang/zig/issues/1194
+        suspend {
+            resume @handle();
+        }
+
+        const loop = zig_compiler.loop;
+        var comp = Compilation{
             .loop = loop,
             .arena_allocator = std.heap.ArenaAllocator.init(loop.allocator),
-            .event_loop_local = event_loop_local,
+            .zig_compiler = zig_compiler,
             .events = undefined,
             .root_src_path = root_src_path,
             .target = target,
@@ -349,6 +395,9 @@ pub const Compilation = struct {
             .zig_lib_dir = zig_lib_dir,
             .zig_std_dir = undefined,
             .tmp_dir = event.Future(BuildError![]u8).init(loop),
+            .destroy_handle = @handle(),
+            .main_loop_handle = undefined,
+            .main_loop_future = event.Future(void).init(loop),
 
             .name = undefined,
             .llvm_triple = undefined,
@@ -373,7 +422,6 @@ pub const Compilation = struct {
             .is_static = is_static,
             .linker_rdynamic = false,
             .clang_argv = [][]const u8{},
-            .llvm_argv = [][]const u8{},
             .lib_dirs = [][]const u8{},
             .rpath_list = [][]const u8{},
             .assembly_files = [][]const u8{},
@@ -381,7 +429,7 @@ pub const Compilation = struct {
             .fn_link_set = event.Locked(FnLinkSet).init(loop, FnLinkSet.init()),
             .windows_subsystem_windows = false,
             .windows_subsystem_console = false,
-            .link_libs_list = ArrayList(*LinkLib).init(comp.arena()),
+            .link_libs_list = undefined,
             .libc_link_lib = null,
             .err_color = errmsg.Color.Auto,
             .darwin_frameworks = [][]const u8{},
@@ -420,19 +468,20 @@ pub const Compilation = struct {
             .std_package = undefined,
 
             .override_libc = null,
-            .destroy_handle = undefined,
             .have_err_ret_tracing = false,
-            .primitive_type_table = TypeTable.init(comp.arena()),
+            .primitive_type_table = undefined,
 
             .fs_watch = undefined,
         };
-        errdefer {
+        comp.link_libs_list = ArrayList(*LinkLib).init(comp.arena());
+        comp.primitive_type_table = TypeTable.init(comp.arena());
+
+        defer {
             comp.int_type_table.private_data.deinit();
             comp.array_type_table.private_data.deinit();
             comp.ptr_type_table.private_data.deinit();
             comp.fn_type_table.private_data.deinit();
             comp.arena_allocator.deinit();
-            comp.loop.allocator.destroy(comp);
         }
 
         comp.name = try Buffer.init(comp.arena(), name);
@@ -452,8 +501,8 @@ pub const Compilation = struct {
         // As a workaround we do not use target native features on Windows.
         var target_specific_cpu_args: ?[*]u8 = null;
         var target_specific_cpu_features: ?[*]u8 = null;
-        errdefer llvm.DisposeMessage(target_specific_cpu_args);
-        errdefer llvm.DisposeMessage(target_specific_cpu_features);
+        defer llvm.DisposeMessage(target_specific_cpu_args);
+        defer llvm.DisposeMessage(target_specific_cpu_features);
         if (target == Target.Native and !target.isWindows()) {
             target_specific_cpu_args = llvm.GetHostCPUName() orelse return error.OutOfMemory;
             target_specific_cpu_features = llvm.GetNativeFeatures() orelse return error.OutOfMemory;
@@ -468,16 +517,16 @@ pub const Compilation = struct {
             reloc_mode,
             llvm.CodeModelDefault,
         ) orelse return error.OutOfMemory;
-        errdefer llvm.DisposeTargetMachine(comp.target_machine);
+        defer llvm.DisposeTargetMachine(comp.target_machine);
 
         comp.target_data_ref = llvm.CreateTargetDataLayout(comp.target_machine) orelse return error.OutOfMemory;
-        errdefer llvm.DisposeTargetData(comp.target_data_ref);
+        defer llvm.DisposeTargetData(comp.target_data_ref);
 
         comp.target_layout_str = llvm.CopyStringRepOfTargetData(comp.target_data_ref) orelse return error.OutOfMemory;
-        errdefer llvm.DisposeMessage(comp.target_layout_str);
+        defer llvm.DisposeMessage(comp.target_layout_str);
 
         comp.events = try event.Channel(Event).create(comp.loop, 0);
-        errdefer comp.events.destroy();
+        defer comp.events.destroy();
 
         if (root_src_path) |root_src| {
             const dirname = std.os.path.dirname(root_src) orelse ".";
@@ -491,13 +540,25 @@ pub const Compilation = struct {
         }
 
         comp.fs_watch = try fs.Watch(*Scope.Root).create(loop, 16);
-        errdefer comp.fs_watch.destroy();
+        defer comp.fs_watch.destroy();
 
         try comp.initTypes();
+        defer comp.primitive_type_table.deinit();
 
-        comp.destroy_handle = try async<loop.allocator> comp.internalDeinit();
+        // Set this to indicate that initialization completed successfully.
+        // from here on out we must not return an error.
+        // This must occur before the first suspend/await.
+        comp.main_loop_handle = async comp.mainLoop() catch unreachable;
+        out_comp.* = &comp;
+        suspend;
 
-        return comp;
+        // From here on is cleanup.
+        await (async comp.deinit_group.wait() catch unreachable);
+
+        if (comp.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
+            // TODO evented I/O?
+            os.deleteTree(comp.arena(), tmp_dir) catch {};
+        } else |_| {};
     }
 
     /// it does ref the result because it could be an arbitrary integer size
@@ -683,49 +744,19 @@ pub const Compilation = struct {
         assert((try comp.primitive_type_table.put(comp.u8_type.base.name, &comp.u8_type.base)) == null);
     }
 
-    /// This function can safely use async/await, because it manages Compilation's lifetime,
-    /// and EventLoopLocal.deinit will not be called until the event.Loop.run() completes.
-    async fn internalDeinit(self: *Compilation) void {
-        suspend;
-
-        await (async self.deinit_group.wait() catch unreachable);
-        if (self.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
-            // TODO evented I/O?
-            os.deleteTree(self.arena(), tmp_dir) catch {};
-        } else |_| {};
-
-        self.fs_watch.destroy();
-        self.events.destroy();
-
-        llvm.DisposeMessage(self.target_layout_str);
-        llvm.DisposeTargetData(self.target_data_ref);
-        llvm.DisposeTargetMachine(self.target_machine);
-
-        self.primitive_type_table.deinit();
-
-        self.arena_allocator.deinit();
-        self.gpa().destroy(self);
-    }
-
     pub fn destroy(self: *Compilation) void {
+        cancel self.main_loop_handle;
         resume self.destroy_handle;
     }
 
-    pub fn build(self: *Compilation) !void {
-        if (self.llvm_argv.len != 0) {
-            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(self.arena(), [][]const []const u8{
-                [][]const u8{"zig (LLVM option parsing)"},
-                self.llvm_argv,
-            });
-            defer c_compatible_args.deinit();
-            // TODO this sets global state
-            c.ZigLLVMParseCommandLineOptions(self.llvm_argv.len + 1, c_compatible_args.ptr);
-        }
-
-        _ = try async<self.gpa()> self.buildAsync();
+    fn start(self: *Compilation) void {
+        self.main_loop_future.resolve();
     }
 
-    async fn buildAsync(self: *Compilation) void {
+    async fn mainLoop(self: *Compilation) void {
+        // wait until start() is called
+        _ = await (async self.main_loop_future.get() catch unreachable);
+
         var build_result = await (async self.initialCompile() catch unreachable);
 
         while (true) {
@@ -1131,7 +1162,7 @@ pub const Compilation = struct {
     async fn startFindingNativeLibC(self: *Compilation) void {
         await (async self.loop.yield() catch unreachable);
         // we don't care if it fails, we're just trying to kick off the future resolution
-        _ = (await (async self.event_loop_local.getNativeLibC() catch unreachable)) catch return;
+        _ = (await (async self.zig_compiler.getNativeLibC() catch unreachable)) catch return;
     }
 
     /// General Purpose Allocator. Must free when done.
@@ -1189,7 +1220,7 @@ pub const Compilation = struct {
         var rand_bytes: [9]u8 = undefined;
 
         {
-            const held = await (async self.event_loop_local.prng.acquire() catch unreachable);
+            const held = await (async self.zig_compiler.prng.acquire() catch unreachable);
             defer held.release();
 
             held.value.random.bytes(rand_bytes[0..]);
@@ -1423,4 +1454,15 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const fn_proto_val = try Value.FnProto.create(comp, fn_type, symbol_name);
     fn_decl.value = Decl.Fn.Val{ .FnProto = fn_proto_val };
     symbol_name_consumed = true;
+}
+
+// TODO these are hacks which should probably be solved by the language
+fn getAwaitResult(allocator: *Allocator, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
+    var result: ?@typeInfo(@typeOf(handle)).Promise.child.? = null;
+    cancel (async<allocator> getAwaitResultAsync(handle, &result) catch unreachable);
+    return result.?;
+}
+
+async fn getAwaitResultAsync(handle: var, out: *?@typeInfo(@typeOf(handle)).Promise.child.?) void {
+    out.* = await handle;
 }
