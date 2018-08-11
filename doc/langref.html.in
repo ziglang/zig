@@ -3878,7 +3878,8 @@ test "float widening" {
       {#header_close#}
 
       {#header_open|Peer Type Resolution#}
-      <p>TODO</p>
+      <p>Zig resolves the ultimate type for each expression, function <code>fn</code> declaration and <code>switch</code> at <code>comptime</code>.</p>
+      <p>TODO: example</p>
       {#header_close#}
       {#header_close#}
 
