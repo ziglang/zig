@@ -24,6 +24,10 @@ pub const HmacMd5 = hmac.HmacMd5;
 pub const HmacSha1 = hmac.Sha1;
 pub const HmacSha256 = hmac.Sha256;
 
+const import_chaCha20 = @import("chacha20.zig");
+pub const chaCha20IETF = import_chaCha20.chaCha20IETF;
+pub const chaCha20With64BitNonce = import_chaCha20.chaCha20With64BitNonce;
+
 test "crypto" {
     _ = @import("md5.zig");
     _ = @import("sha1.zig");
@@ -31,4 +35,5 @@ test "crypto" {
     _ = @import("sha3.zig");
     _ = @import("blake2.zig");
     _ = @import("hmac.zig");
+    _ = @import("chacha20.zig");
 }
