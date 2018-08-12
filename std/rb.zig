@@ -1,5 +1,6 @@
-const assert = @import("std").debug.assert;
-const mem = @import("std").mem; // For mem.Compare
+const std = @import("index.zig");
+const assert = std.debug.assert;
+const mem = std.mem; // For mem.Compare
 
 const Color = enum(u1) {
     Black,
@@ -129,8 +130,9 @@ pub const Node = struct {
 
 pub const Tree = struct {
     root: ?*Node,
-    compare_fn: fn(*Node, *Node) mem.Compare,
+    compareFn: fn(*Node, *Node) mem.Compare,
 
+    /// If you have a need for a version that caches this, please file a bug.
     pub fn first(tree: *Tree) ?*Node {
         var node: *Node = tree.root orelse return null;
 
@@ -380,7 +382,7 @@ pub const Tree = struct {
         var new = newconst;
 
         // I assume this can get optimized out if the caller already knows.
-        if (tree.compare_fn(old, new) != mem.Compare.Equal) return ReplaceError.NotEqual;
+        if (tree.compareFn(old, new) != mem.Compare.Equal) return ReplaceError.NotEqual;
 
         if (old.get_parent()) |parent| {
             parent.set_child(new, parent.left == old);
@@ -397,7 +399,7 @@ pub const Tree = struct {
 
     pub fn init(tree: *Tree, f: fn(*Node, *Node) mem.Compare) void {
         tree.root = null;
-        tree.compare_fn = f;
+        tree.compareFn = f;
     }
 };
 
@@ -460,7 +462,7 @@ fn do_lookup(key: *Node, tree: *Tree, pparent: *?*Node, is_left: *bool) ?*Node {
     is_left.* = false;
 
     while (maybe_node) |node| {
-        var res: mem.Compare = tree.compare_fn(node, key);
+        var res: mem.Compare = tree.compareFn(node, key);
         if (res == mem.Compare.Equal) {
             return node;
         }
@@ -501,7 +503,7 @@ fn testCompare(l: *Node, r: *Node) mem.Compare {
     unreachable;
 }
 
-test "populate, remove, and replace, depulicate keys" {
+test "rb" {
     var tree: Tree = undefined;
     var ns: [10]testNumber = undefined;
     ns[0].value = 42;
