@@ -458,7 +458,9 @@ static const char *decl_name(const Decl *decl) {
 static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int) {
     AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
-    bigint_init_data(node->data.int_literal.bigint, aps_int.getRawData(), aps_int.getNumWords(), aps_int.isNegative());
+    const int64_t signed_value = aps_int.getExtValue();
+    const uint64_t digits = std::abs(signed_value);
+    bigint_init_data(node->data.int_literal.bigint, &digits, aps_int.getNumWords(), aps_int.isNegative());
     return node;
 
 }
