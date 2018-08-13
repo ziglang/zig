@@ -1358,4 +1358,30 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     );
+
+    cases.add("correctly translate enum init values",
+        \\enum EnumWithInits {
+        \\    VAL1 = 0,
+        \\    VAL2 = 1,
+        \\    VAL3 = 2,
+        \\    VAL4 = 3,
+        \\    VAL5 = -1,
+        \\    VAL6 = -2,
+        \\    VAL7 = -3,
+        \\    VAL8 = -4,
+        \\    VAL9 = VAL2 + VAL8,
+        \\};
+    ,
+        \\pub const enum_EnumWithInits = extern enum {
+        \\    VAL1 = 0,
+        \\    VAL2 = 1,
+        \\    VAL3 = 2,
+        \\    VAL4 = 3,
+        \\    VAL5 = -1,
+        \\    VAL6 = -2,
+        \\    VAL7 = -3,
+        \\    VAL8 = -4,
+        \\    VAL9 = -3,
+        \\};
+    );
 }
