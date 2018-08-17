@@ -1369,7 +1369,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    VAL6 = -2,
         \\    VAL7 = -3,
         \\    VAL8 = -4,
-        \\    VAL9 = VAL1 + VAL3,
+        \\    VAL9 = VAL2 + VAL8,
         \\};
     ,
         \\pub const enum_EnumWithInits = extern enum {
@@ -1381,7 +1381,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    VAL6 = -2,
         \\    VAL7 = -3,
         \\    VAL8 = -4,
-        \\    VAL9 = 2,
+        \\    VAL9 = -3,
         \\};
     );
 }
