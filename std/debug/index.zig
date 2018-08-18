@@ -42,6 +42,54 @@ pub fn getStderrStream() !*io.OutStream(io.FileOutStream.Error) {
     }
 }
 
+// Stop-gap until macho library is built-out
+fn writeOutMacOS(allocator: *mem.Allocator) !void {
+
+    var args = ArrayList([]const u8).init(allocator);
+    defer args.deinit();
+
+    const self_exe_path = try os.selfExePath(allocator);
+    defer allocator.free(self_exe_path);
+
+    args.append("xcrun") catch unreachable;
+    args.append("atos") catch unreachable;
+
+    var buf = try allocator.alloc(u8, 32);
+    defer allocator.free( buf );
+
+    args.append( try std.fmt.bufPrint(buf, "-p{}", std.c.getpid() ) ) catch unreachable;
+
+    var fp = @ptrToInt(@frameAddress());
+    while (fp != 0) : (fp = @intToPtr(*const usize, fp).*) {
+        const return_address = @intToPtr(*const usize, fp + @sizeOf(usize)).*;
+        var tmp = try allocator.alloc(u8, 32);
+        defer allocator.free( tmp );
+        args.append( try std.fmt.bufPrint(tmp, "{x}", return_address) ) catch unreachable;
+    }
+
+    const child = os.ChildProcess.init(args.toSliceConst(), allocator) catch unreachable;
+    defer child.deinit();
+
+    child.stdin_behavior = os.ChildProcess.StdIo.Ignore;
+
+    child.spawn() catch |err| panic(
+        \\Unable to spawn atos: {}
+        \\Do you have xcode tools installed?
+        \\Please try: xcode-select --install
+        , @errorName(err)
+    );
+
+    const term = child.wait() catch |err| {
+        panic(
+            \\Unable to spawn atos: {}
+            \\Do you have xcode tools installed?
+            \\Please try: xcode-select --install
+            , @errorName(err)
+        );
+    };
+
+}
+
 var self_debug_info: ?*ElfStackTrace = null;
 pub fn getSelfDebugInfo() !*ElfStackTrace {
     if (self_debug_info) |info| {
@@ -198,6 +246,10 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_
         addr_state = AddressState{ .LookingForStartAddress = addr };
     } else {
         addr_state = AddressState.NotLookingForStartAddress;
+    }
+
+    if (builtin.os == builtin.Os.macosx) {
+      return try writeOutMacOS(allocator);
     }
 
     var fp = @ptrToInt(@frameAddress());
