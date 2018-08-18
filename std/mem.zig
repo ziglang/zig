@@ -175,6 +175,24 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
         d.* = value;
 }
 
+pub fn secureZero(comptime T: type, s: []T) void {
+    // NOTE: We do not use a volatile slice cast here since LLVM cannot
+    // see that it can be replaced by a memset.
+    const ptr = @ptrCast([*]volatile u8, s.ptr);
+    const len = s.len * @sizeOf(T);
+    @memset(ptr, 0, len);
+}
+
+test "mem.secureZero" {
+    var a = []u8{0xfe} ** 8;
+    var b = []u8{0xfe} ** 8;
+
+    set(u8, a[0..], 0);
+    secureZero(u8, b[0..]);
+
+    assert(eql(u8, a[0..], b[0..]));
+}
+
 pub fn compare(comptime T: type, lhs: []const T, rhs: []const T) Compare {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
