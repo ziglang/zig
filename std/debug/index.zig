@@ -132,6 +132,8 @@ var panicking: u8 = 0; // TODO make this a bool
 pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: ...) noreturn {
     @setCold(true);
 
+    const stderr = getStderrStream() catch os.abort();
+    stderr.print(format ++ "\n", args) catch os.abort();
     if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
         // Panicked during a panic.
 
@@ -140,8 +142,6 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         // which first called panic can finish printing a stack trace.
         os.abort();
     }
-    const stderr = getStderrStream() catch os.abort();
-    stderr.print(format ++ "\n", args) catch os.abort();
     if (trace) |t| {
         dumpStackTrace(t);
     }
