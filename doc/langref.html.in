@@ -5528,7 +5528,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       <p>Returns the field type of a struct or union.</p>
       {#header_close#}
       {#header_open|@memcpy#}
-      <pre><code class="zig">@memcpy(noalias dest: *u8, noalias source: *const u8, byte_count: usize)</code></pre>
+      <pre><code class="zig">@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize)</code></pre>
       <p>
       This function copies bytes from one region of memory to another. <code>dest</code> and
       <code>source</code> are both pointers and must not overlap.
@@ -5546,7 +5546,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
 mem.copy(u8, dest[0...byte_count], source[0...byte_count]);</code></pre>
       {#header_close#}
       {#header_open|@memset#}
-      <pre><code class="zig">@memset(dest: *u8, c: u8, byte_count: usize)</code></pre>
+      <pre><code class="zig">@memset(dest: [*]u8, c: u8, byte_count: usize)</code></pre>
       <p>
       This function sets a region of memory to <code>c</code>. <code>dest</code> is a pointer.
       </p>
