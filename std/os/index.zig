@@ -1149,22 +1149,22 @@ pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
 
     var end_index: usize = resolved_path.len;
     while (true) {
-        makeDir(allocator, resolved_path[0..end_index]) catch |err| {
-            if (err == error.PathAlreadyExists) {
+        makeDir(allocator, resolved_path[0..end_index]) catch |err| switch (err) {
+            error.PathAlreadyExists => {
                 // TODO stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
                 // could cause an infinite loop
                 if (end_index == resolved_path.len) return;
-            } else if (err == error.FileNotFound) {
+            },
+            error.FileNotFound => {
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
                     if (os.path.isSep(resolved_path[end_index])) break;
                 }
                 continue;
-            } else {
-                return err;
-            }
+            },
+            else => return err,
         };
         if (end_index == resolved_path.len) return;
         // march end_index forward until next path component
