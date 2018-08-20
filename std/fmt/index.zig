@@ -146,6 +146,40 @@ pub fn formatType(
         builtin.TypeId.Promise => {
             return format(context, Errors, output, "promise@{x}", @ptrToInt(value));
         },
+        builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
+            const has_cust_fmt = comptime cf: {
+                const info = @typeInfo(T);
+                const defs = switch (info) {
+                    builtin.TypeId.Struct => |s| s.defs,
+                    builtin.TypeId.Union => |u| u.defs,
+                    builtin.TypeId.Enum => |e| e.defs,
+                    else => unreachable,
+                };
+
+                for (defs) |def| {
+                    if (mem.eql(u8, def.name, "format")) {
+                        break :cf true;
+                    }
+                }
+                break :cf false;
+            };
+
+            if (has_cust_fmt) return value.format(fmt, context, Errors, output);
+            try output(context, @typeName(T));
+            comptime var field_i = 0;
+            inline while (field_i < @memberCount(T)) : (field_i += 1) {
+                if (field_i == 0) {
+                    try output(context, "{ .");
+                } else {
+                    try output(context, ", .");
+                }
+                try output(context, @memberName(T, field_i));
+                try output(context, " = ");
+                try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output);
+            }
+            try output(context, " }");
+            return;
+        },
         builtin.TypeId.Pointer => |ptr_info| switch (ptr_info.size) {
             builtin.TypeInfo.Pointer.Size.One => switch (@typeInfo(ptr_info.child)) {
                 builtin.TypeId.Array => |info| {
@@ -155,25 +189,7 @@ pub fn formatType(
                     return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-                    const has_cust_fmt = comptime cf: {
-                        const info = @typeInfo(T.Child);
-                        const defs = switch (info) {
-                            builtin.TypeId.Struct => |s| s.defs,
-                            builtin.TypeId.Union => |u| u.defs,
-                            builtin.TypeId.Enum => |e| e.defs,
-                            else => unreachable,
-                        };
-
-                        for (defs) |def| {
-                            if (mem.eql(u8, def.name, "format")) {
-                                break :cf true;
-                            }
-                        }
-                        break :cf false;
-                    };
-
-                    if (has_cust_fmt) return value.format(fmt, context, Errors, output);
-                    return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+                    return formatType(value.*, fmt, context, Errors, output);
                 },
                 else => return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value)),
             },
@@ -911,14 +927,12 @@ test "fmt.format" {
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
     try testFmt("file size: 66.06MB\n", "file size: {B2}\n", usize(63 * 1024 * 1024));
     {
-        // Dummy field because of https://github.com/ziglang/zig/issues/557.
         const Struct = struct {
-            unused: u8,
+            field: u8,
         };
-        var buf1: [32]u8 = undefined;
-        const value = Struct{ .unused = 42 };
-        const result = try bufPrint(buf1[0..], "pointer: {}\n", &value);
-        assert(mem.startsWith(u8, result, "pointer: Struct@"));
+        const value = Struct{ .field = 42 };
+        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", value);
+        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", &value);
     }
     {
         var buf1: [32]u8 = undefined;
@@ -941,6 +955,7 @@ test "fmt.format" {
     {
         // This fails on release due to a minor rounding difference.
         // --release-fast outputs 9.999960000000001e-40 vs. the expected.
+        // TODO fix this, it should be the same in Debug and ReleaseFast
         if (builtin.mode == builtin.Mode.Debug) {
             var buf1: [32]u8 = undefined;
             const value: f64 = 9.999960e-40;
@@ -1133,23 +1148,23 @@ test "fmt.format" {
             y: f32,
 
             pub fn format(
-                self: *SelfType,
+                self: SelfType,
                 comptime fmt: []const u8,
                 context: var,
                 comptime Errors: type,
                 output: fn (@typeOf(context), []const u8) Errors!void,
             ) Errors!void {
-                if (fmt.len > 0) {
-                    if (fmt.len > 1) unreachable;
-                    switch (fmt[0]) {
+                switch (fmt.len) {
+                    0 => return std.fmt.format(context, Errors, output, "({.3},{.3})", self.x, self.y),
+                    1 => switch (fmt[0]) {
                         //point format
                         'p' => return std.fmt.format(context, Errors, output, "({.3},{.3})", self.x, self.y),
                         //dimension format
                         'd' => return std.fmt.format(context, Errors, output, "{.3}x{.3}", self.x, self.y),
                         else => unreachable,
-                    }
+                    },
+                    else => unreachable,
                 }
-                return std.fmt.format(context, Errors, output, "({.3},{.3})", self.x, self.y);
             }
         };
 
@@ -1160,6 +1175,10 @@ test "fmt.format" {
         };
         try testFmt("point: (10.200,2.220)\n", "point: {}\n", &value);
         try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", &value);
+
+        // same thing but not passing a pointer
+        try testFmt("point: (10.200,2.220)\n", "point: {}\n", value);
+        try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", value);
     }
 }
 
