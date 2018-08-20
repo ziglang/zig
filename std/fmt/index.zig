@@ -146,6 +146,9 @@ pub fn formatType(
         builtin.TypeId.Promise => {
             return format(context, Errors, output, "promise@{x}", @ptrToInt(value));
         },
+        builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
+            return formatType(&value, fmt, context, Errors, output);
+        },
         builtin.TypeId.Pointer => |ptr_info| switch (ptr_info.size) {
             builtin.TypeInfo.Pointer.Size.One => switch (@typeInfo(ptr_info.child)) {
                 builtin.TypeId.Array => |info| {
