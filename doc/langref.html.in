@@ -809,6 +809,8 @@ a += b</code></pre></td>
           <td>Addition.
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+              <li>See also {#link|@addWithOverflow#}.</li>
             </ul>
           </td>
           <td>
@@ -826,6 +828,7 @@ a +%= b</code></pre></td>
           <td>Wrapping Addition.
             <ul>
               <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@addWithOverflow#}.</li>
             </ul>
           </td>
@@ -845,6 +848,8 @@ a -= b</code></pre></td>
           <td>Subtraction.
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+              <li>See also {#link|@subWithOverflow#}.</li>
             </ul>
           </td>
           <td>
@@ -862,6 +867,8 @@ a -%= b</code></pre></td>
           <td>Wrapping Subtraction.
             <ul>
               <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+              <li>See also {#link|@subWithOverflow#}.</li>
             </ul>
           </td>
           <td>
@@ -915,6 +922,8 @@ a *= b</code></pre></td>
           <td>Multiplication.
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+              <li>See also {#link|@mulWithOverflow#}.</li>
             </ul>
           </td>
           <td>
@@ -932,6 +941,8 @@ a *%= b</code></pre></td>
           <td>Wrapping Multiplication.
             <ul>
               <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+              <li>See also {#link|@mulWithOverflow#}.</li>
             </ul>
           </td>
           <td>
@@ -957,6 +968,7 @@ a /= b</code></pre></td>
                 {#link|@divFloor#}, or
                 {#link|@divExact#} instead of <code>/</code>.
               </li>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
           </td>
           <td>
@@ -980,6 +992,7 @@ a %= b</code></pre></td>
                 {#link|@rem#} or
                 {#link|@mod#} instead of <code>%</code>.
               </li>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
           </td>
           <td>
@@ -996,6 +1009,7 @@ a &lt;&lt;= b</code></pre></td>
           </td>
           <td>Bit Shift Left.
             <ul>
+              <li><code>b</code> must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as <code>a</code>.</li>
               <li>See also {#link|@shlExact#}.</li>
               <li>See also {#link|@shlWithOverflow#}.</li>
             </ul>
@@ -1014,6 +1028,7 @@ a &gt;&gt;= b</code></pre></td>
           </td>
           <td>Bit Shift Right.
             <ul>
+              <li><code>b</code> must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as <code>a</code>.</li>
               <li>See also {#link|@shrExact#}.</li>
             </ul>
           </td>
@@ -1030,6 +1045,9 @@ a &amp;= b</code></pre></td>
             </ul>
           </td>
           <td>Bitwise AND.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+            </ul>
           </td>
           <td>
             <pre><code class="zig">0b011 &amp; 0b101 == 0b001</code></pre>
@@ -1044,6 +1062,9 @@ a |= b</code></pre></td>
             </ul>
           </td>
           <td>Bitwise OR.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+            </ul>
           </td>
           <td>
             <pre><code class="zig">0b010 | 0b100 == 0b110</code></pre>
@@ -1058,6 +1079,9 @@ a ^= b</code></pre></td>
             </ul>
           </td>
           <td>Bitwise XOR.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+            </ul>
           </td>
           <td>
             <pre><code class="zig">0b011 ^ 0b101 == 0b110</code></pre>
@@ -1187,6 +1211,7 @@ unwrapped == 1234</code></pre>
           </td>
           <td>
             Returns <code>true</code> if a and b are equal, otherwise returns <code>false</code>.
+            Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
             <pre><code class="zig">(1 == 1) == true</code></pre>
@@ -1219,6 +1244,7 @@ value == null</code></pre>
           </td>
           <td>
             Returns <code>false</code> if a and b are equal, otherwise returns <code>true</code>.
+            Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
             <pre><code class="zig">(1 != 1) == false</code></pre>
@@ -1234,6 +1260,7 @@ value == null</code></pre>
           </td>
           <td>
             Returns <code>true</code> if a is greater than b, otherwise returns <code>false</code>.
+            Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
             <pre><code class="zig">(2 &gt; 1) == true</code></pre>
@@ -1249,6 +1276,7 @@ value == null</code></pre>
           </td>
           <td>
             Returns <code>true</code> if a is greater than or equal to b, otherwise returns <code>false</code>.
+            Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
             <pre><code class="zig">(2 &gt;= 1) == true</code></pre>
@@ -1264,6 +1292,7 @@ value == null</code></pre>
           </td>
           <td>
             Returns <code>true</code> if a is less than b, otherwise returns <code>false</code>.
+            Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
             <pre><code class="zig">(1 &lt; 2) == true</code></pre>
@@ -1279,6 +1308,7 @@ value == null</code></pre>
           </td>
           <td>
             Returns <code>true</code> if a is less than or equal to b, otherwise returns <code>false</code>.
+            Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
             <pre><code class="zig">(1 &lt;= 2) == true</code></pre>
@@ -3878,7 +3908,106 @@ test "float widening" {
       {#header_close#}
 
       {#header_open|Peer Type Resolution#}
-      <p>TODO</p>
+      <p>Peer Type Resolution occurs in these places:</p>
+      <ul>
+        <li>{#link|switch#} expressions</li>
+        <li>{#link|if#} expressions</li>
+        <li>{#link|while#} expressions</li>
+        <li>{#link|for#} expressions</li>
+        <li>Multiple break statements in a block</li>
+        <li>Some {#link|binary operations|Table of Operators#}</li>
+      </ul>
+      <p>
+      This kind of type resolution chooses a type that all peer types can implicitly cast into. Here are
+      some examples:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
+
+test "peer resolve int widening" {
+    var a: i8 = 12;
+    var b: i16 = 34;
+    var c = a + b;
+    assert(c == 46);
+    assert(@typeOf(c) == i16);
+}
+
+test "peer resolve arrays of different size to const slice" {
+    assert(mem.eql(u8, boolToStr(true), "true"));
+    assert(mem.eql(u8, boolToStr(false), "false"));
+    comptime assert(mem.eql(u8, boolToStr(true), "true"));
+    comptime assert(mem.eql(u8, boolToStr(false), "false"));
+}
+fn boolToStr(b: bool) []const u8 {
+    return if (b) "true" else "false";
+}
+
+test "peer resolve array and const slice" {
+    testPeerResolveArrayConstSlice(true);
+    comptime testPeerResolveArrayConstSlice(true);
+}
+fn testPeerResolveArrayConstSlice(b: bool) void {
+    const value1 = if (b) "aoeu" else ([]const u8)("zz");
+    const value2 = if (b) ([]const u8)("zz") else "aoeu";
+    assert(mem.eql(u8, value1, "aoeu"));
+    assert(mem.eql(u8, value2, "zz"));
+}
+
+test "peer type resolution: ?T and T" {
+    assert(peerTypeTAndOptionalT(true, false).? == 0);
+    assert(peerTypeTAndOptionalT(false, false).? == 3);
+    comptime {
+        assert(peerTypeTAndOptionalT(true, false).? == 0);
+        assert(peerTypeTAndOptionalT(false, false).? == 3);
+    }
+}
+fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
+    if (c) {
+        return if (b) null else usize(0);
+    }
+
+    return usize(3);
+}
+
+test "peer type resolution: [0]u8 and []const u8" {
+    assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+    assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+    comptime {
+        assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+        assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+    }
+}
+fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
+    if (a) {
+        return []const u8{};
+    }
+
+    return slice[0..1];
+}
+test "peer type resolution: [0]u8, []const u8, and error![]u8" {
+    {
+        var data = "hi";
+        const slice = data[0..];
+        assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+    }
+    comptime {
+        var data = "hi";
+        const slice = data[0..];
+        assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+    }
+}
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) error![]u8 {
+    if (a) {
+        return []u8{};
+    }
+
+    return slice[0..1];
+}
+      {#code_end#}
       {#header_close#}
       {#header_close#}
 
@@ -4706,10 +4835,7 @@ async fn testSuspendBlock() void {
       <p>
       {#link|Await#} counts as a suspend point.
       </p>
-      {#header_open|Breaking from Suspend Blocks#}
-      <p>
-      Suspend blocks support labeled break, just like {#link|while#} and {#link|for#}.
-      </p>
+      {#header_open|Resuming from Suspend Blocks#}
       <p>
       Upon entering a <code>suspend</code> block, the coroutine is already considered
       suspended, and can be resumed. For example, if you started another kernel thread,
@@ -4742,6 +4868,9 @@ async fn testResumeFromSuspend(my_result: *i32) void {
     my_result.* += 1;
 }
       {#code_end#}
+      <p>
+      This is guaranteed to be a tail call, and therefore will not cause a new stack frame.
+      </p>
       {#header_close#}
       {#header_close#}
       {#header_open|Await#}
@@ -7544,8 +7673,8 @@ hljs.registerLanguage("zig", function(t) {
         },
         a = t.IR + "\\s*\\(",
         c = {
-            keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong resume cancel await async orelse",
-            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bytesToSlice sliceToBytes errSetCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz popCount import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall errorToInt intToError enumToInt intToEnum",
+            keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong resume suspend cancel await async orelse",
+            built_in: "atomicLoad breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage divTrunc divFloor enumTagName intToPtr ptrToInt panic ptrCast intCast floatCast intToFloat floatToInt boolToInt bytesToSlice sliceToBytes errSetCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz popCount import cImport errorName embedFile cmpxchgStrong cmpxchgWeak fence divExact truncate atomicRmw sqrt field typeInfo typeName newStackCall errorToInt intToError enumToInt intToEnum handle",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];
