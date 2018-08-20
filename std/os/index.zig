@@ -39,6 +39,12 @@ pub const File = @import("file.zig").File;
 pub const time = @import("time.zig");
 
 pub const page_size = 4 * 1024;
+pub const PATH_MAX = switch (builtin.os) {
+    Os.linux => linux.PATH_MAX,
+    Os.macosx, Os.ios => darwin.PATH_MAX,
+    else => @compileError("Unsupported OS"),
+    // https://msdn.microsoft.com/en-us/library/930f87yf.aspx
+};
 
 pub const UserInfo = @import("get_user_id.zig").UserInfo;
 pub const getUserInfo = @import("get_user_id.zig").getUserInfo;
@@ -437,11 +443,14 @@ pub const PosixOpenError = error{
 /// ::file_path needs to be copied in memory to add a null terminating byte.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(allocator: *Allocator, file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
-    const path_with_null = try cstr.addNullByte(allocator, file_path);
-    defer allocator.free(path_with_null);
+pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
+    var path_with_null: [PATH_MAX]u8 = undefined;
+    if (file_path.len > PATH_MAX - 1)
+        return error.NameTooLong;
+    mem.copy(u8, path_with_null[0..PATH_MAX - 1], file_path);
+    path_with_null[file_path.len] = '\x00';
 
-    return posixOpenC(path_with_null.ptr, flags, perm);
+    return posixOpenC(&path_with_null, flags, perm);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -948,7 +957,7 @@ pub fn deleteFilePosix(allocator: *Allocator, file_path: []const u8) !void {
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
 pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []const u8) !void {
-    var in_file = try os.File.openRead(allocator, source_path);
+    var in_file = try os.File.openRead(source_path);
     defer in_file.close();
 
     const mode = try in_file.mode();
@@ -970,7 +979,7 @@ pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []con
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
 pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
-    var in_file = try os.File.openRead(allocator, source_path);
+    var in_file = try os.File.openRead(source_path);
     defer in_file.close();
 
     var atomic_file = try AtomicFile.init(allocator, dest_path, mode);
@@ -1400,7 +1409,6 @@ pub const Dir = struct {
                 },
                 Os.macosx, Os.ios => Handle{
                     .fd = try posixOpen(
-                        allocator,
                         dir_path,
                         posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
                         0,
@@ -1412,7 +1420,6 @@ pub const Dir = struct {
                 },
                 Os.linux => Handle{
                     .fd = try posixOpen(
-                        allocator,
                         dir_path,
                         posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC,
                         0,
@@ -1609,17 +1616,17 @@ pub fn changeCurDir(allocator: *Allocator, dir_path: []const u8) !void {
 }
 
 /// Read value of a symbolic link.
-pub fn readLink(allocator: *Allocator, pathname: []const u8) ![]u8 {
-    const path_buf = try allocator.alloc(u8, pathname.len + 1);
-    defer allocator.free(path_buf);
-
-    mem.copy(u8, path_buf, pathname);
-    path_buf[pathname.len] = 0;
+pub fn readLink(allocator: *Allocator, file_path: []const u8) ![]u8 {
+    var path_with_null: [PATH_MAX]u8 = undefined;
+    if (file_path.len > PATH_MAX - 1)
+        return error.NameTooLong;
+    mem.copy(u8, path_with_null[0..PATH_MAX - 1], file_path);
+    path_with_null[file_path.len] = '\x00';
 
     var result_buf = try allocator.alloc(u8, 1024);
     errdefer allocator.free(result_buf);
     while (true) {
-        const ret_val = posix.readlink(path_buf.ptr, result_buf.ptr, result_buf.len);
+        const ret_val = posix.readlink(&path_with_null, result_buf.ptr, result_buf.len);
         const err = posix.getErrno(ret_val);
         if (err > 0) {
             return switch (err) {
@@ -2028,13 +2035,13 @@ pub fn openSelfExe() !os.File {
             const proc_file_path = "/proc/self/exe";
             var fixed_buffer_mem: [proc_file_path.len + 1]u8 = undefined;
             var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
+            return os.File.openRead(proc_file_path);
         },
         Os.macosx, Os.ios => {
             var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
             var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             const self_exe_path = try selfExePath(&fixed_allocator.allocator);
-            return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
+            return os.File.openRead(self_exe_path);
         },
         else => @compileError("Unsupported OS"),
     }
