@@ -29,14 +29,13 @@ pub const File = struct {
 
     /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openRead(allocator: *mem.Allocator, path: []const u8) OpenError!File {
+    pub fn openRead(path: []const u8) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_RDONLY;
-            const fd = try os.posixOpen(allocator, path, flags, 0);
+            const fd = try os.posixOpen(path, flags, 0);
             return openHandle(fd);
         } else if (is_windows) {
             const handle = try os.windowsOpen(
-                allocator,
                 path,
                 windows.GENERIC_READ,
                 windows.FILE_SHARE_READ,
@@ -61,11 +60,10 @@ pub const File = struct {
     pub fn openWriteMode(allocator: *mem.Allocator, path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
-            const fd = try os.posixOpen(allocator, path, flags, file_mode);
+            const fd = try os.posixOpen(path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
             const handle = try os.windowsOpen(
-                allocator,
                 path,
                 windows.GENERIC_WRITE,
                 windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,

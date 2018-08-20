@@ -28,7 +28,7 @@ test "write a file, read it, then delete it" {
         try buf_stream.flush();
     }
     {
-        var file = try os.File.openRead(allocator, tmp_file_name);
+        var file = try os.File.openRead(tmp_file_name);
         defer file.close();
 
         const file_size = try file.getEndPos();
