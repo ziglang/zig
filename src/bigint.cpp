@@ -435,6 +435,21 @@ bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
 }
 #endif
 
+static inline void _twos_complement_inplace(BigInt *bn) {
+    if (bn->digit_count == 1) {
+        bn->data.digit = ~bn->data.digit + 1;
+    } else {
+        size_t i = 0;
+        bool increment = true;
+        for (; i < bn->digit_count; i += 1) {
+            bn->data.digits[i] = ~bn->data.digits[i];
+            if (increment) {
+                increment = add_u64_overflow(bn->data.digits[i], 1, &bn->data.digits[i]);
+            }
+        }
+    }
+}
+
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     if (op1->digit_count == 0) {
         return bigint_init_bigint(dest, op2);
