@@ -45,7 +45,7 @@ test "write a file, read it, then delete it" {
         assert(mem.eql(u8, contents["begin".len .. contents.len - "end".len], data));
         assert(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
-    try os.deleteFile(allocator, tmp_file_name);
+    try os.deleteFile(tmp_file_name);
 }
 
 test "BufferOutStream" {

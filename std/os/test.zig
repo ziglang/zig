@@ -10,9 +10,9 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
-    try os.makePath(a, "os_test_tmp/b/c");
-    try io.writeFile(a, "os_test_tmp/b/c/file.txt", "nonsense");
-    try io.writeFile(a, "os_test_tmp/b/file2.txt", "blah");
+    try os.makePath(a, "os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "c");
+    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "c" ++ os.path.sep_str ++ "file.txt", "nonsense");
+    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "file2.txt", "blah");
     try os.deleteTree(a, "os_test_tmp");
     if (os.Dir.open(a, "os_test_tmp")) |dir| {
         @panic("expected error");
@@ -23,14 +23,14 @@ test "makePath, put some files in it, deleteTree" {
 
 test "access file" {
     try os.makePath(a, "os_test_tmp");
-    if (os.File.access(a, "os_test_tmp/file.txt")) |ok| {
+    if (os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt")) |ok| {
         @panic("expected error");
     } else |err| {
-        assert(err == error.NotFound);
+        assert(err == error.FileNotFound);
     }
 
-    try io.writeFile(a, "os_test_tmp/file.txt", "");
-    try os.File.access(a, "os_test_tmp/file.txt");
+    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "file.txt", "");
+    try os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt");
     try os.deleteTree(a, "os_test_tmp");
 }
 

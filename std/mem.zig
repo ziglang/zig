@@ -179,8 +179,8 @@ pub fn secureZero(comptime T: type, s: []T) void {
     // NOTE: We do not use a volatile slice cast here since LLVM cannot
     // see that it can be replaced by a memset.
     const ptr = @ptrCast([*]volatile u8, s.ptr);
-    const len = s.len * @sizeOf(T);
-    @memset(ptr, 0, len);
+    const length = s.len * @sizeOf(T);
+    @memset(ptr, 0, length);
 }
 
 test "mem.secureZero" {
@@ -250,6 +250,20 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
         if (b[index] != item) return false;
     }
     return true;
+}
+
+pub fn len(comptime T: type, ptr: [*]const T) usize {
+    var count: usize = 0;
+    while (ptr[count] != 0) : (count += 1) {}
+    return count;
+}
+
+pub fn toSliceConst(comptime T: type, ptr: [*]const T) []const T {
+    return ptr[0..len(T, ptr)];
+}
+
+pub fn toSlice(comptime T: type, ptr: [*]T) []T {
+    return ptr[0..len(T, ptr)];
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided
@@ -809,3 +823,4 @@ pub fn endianSwap(comptime T: type, x: T) T {
 test "std.mem.endianSwap" {
     assert(endianSwap(u32, 0xDEADBEEF) == 0xEFBEADDE);
 }
+

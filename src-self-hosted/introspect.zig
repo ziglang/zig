@@ -14,7 +14,7 @@ pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![
     const test_index_file = try os.path.join(allocator, test_zig_dir, "std", "index.zig");
     defer allocator.free(test_index_file);
 
-    var file = try os.File.openRead(allocator, test_index_file);
+    var file = try os.File.openRead(test_index_file);
     file.close();
 
     return test_zig_dir;

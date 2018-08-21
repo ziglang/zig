@@ -382,7 +382,6 @@ pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHa
         },
 
         builtin.Os.windows => return os.windowsOpen(
-            loop.allocator,
             path,
             windows.GENERIC_READ,
             windows.FILE_SHARE_READ,
@@ -411,7 +410,6 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os
         },
         builtin.Os.windows,
         => return os.windowsOpen(
-            loop.allocator,
             path,
             windows.GENERIC_WRITE,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
@@ -435,7 +433,6 @@ pub async fn openReadWrite(
         },
 
         builtin.Os.windows => return os.windowsOpen(
-            loop.allocator,
             path,
             windows.GENERIC_WRITE|windows.GENERIC_READ,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
@@ -593,7 +590,6 @@ pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, 
 
 async fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !void {
     const handle = try os.windowsOpen(
-        loop.allocator,
         path,
         windows.GENERIC_WRITE,
         windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,

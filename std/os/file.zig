@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const posix = os.posix;
 const windows = os.windows;
 const Os = builtin.Os;
+const windows_util = @import("windows/util.zig");
 
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
@@ -102,21 +103,42 @@ pub const File = struct {
 
     pub const AccessError = error{
         PermissionDenied,
-        NotFound,
+        PathNotFound,
+        FileNotFound,
         NameTooLong,
         BadMode,
         BadPathName,
         Io,
         SystemResources,
-        OutOfMemory,
+
+        /// On Windows, file paths must be valid Unicode.
+        InvalidUtf8,
 
         Unexpected,
     };
 
+    /// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
+    /// Otherwise use `access` or `accessC`.
+    pub fn accessW(path: [*]const u16) AccessError!void {
+        if (os.windows.GetFileAttributesW(path) != os.windows.INVALID_FILE_ATTRIBUTES) {
+            return;
+        }
+
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return error.PathNotFound,
+            windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
+            else => return os.unexpectedErrorWindows(err),
+        }
+    }
+
+    /// Call if you have a UTF-8 encoded, null-terminated string.
+    /// Otherwise use `access` or `accessW`.
     pub fn accessC(path: [*]const u8) AccessError!void {
         if (is_windows) {
-            // this needs to convert to UTF-16LE and call accessW
-            @compileError("TODO support windows");
+            const path_w = try windows_util.cStrToPrefixedFileW(path);
+            return accessW(&path_w);
         }
         if (is_posix) {
             const result = posix.access(path, posix.F_OK);
@@ -137,28 +159,14 @@ pub const File = struct {
                 posix.ENOMEM => return error.SystemResources,
                 else => return os.unexpectedErrorPosix(err),
             }
-        } else if (is_windows) {
-            if (os.windows.GetFileAttributesA(path) != os.windows.INVALID_FILE_ATTRIBUTES) {
-                return;
-            }
-
-            const err = windows.GetLastError();
-            switch (err) {
-                windows.ERROR.FILE_NOT_FOUND,
-                windows.ERROR.PATH_NOT_FOUND,
-                => return error.NotFound,
-                windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
-                else => return os.unexpectedErrorWindows(err),
-            }
-        } else {
-            @compileError("TODO implement access for this OS");
         }
+        @compileError("Unsupported OS");
     }
 
     pub fn access(path: []const u8) AccessError!void {
         if (is_windows) {
-            // this needs to convert to UTF-16LE and call accessW
-            @compileError("TODO support windows");
+            const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return accessW(&path_w);
         }
         if (is_posix) {
             var path_with_null: [posix.PATH_MAX]u8 = undefined;
@@ -167,7 +175,7 @@ pub const File = struct {
             path_with_null[path.len] = 0;
             return accessC(&path_with_null);
         }
-        @compileError("TODO implement access for this OS");
+        @compileError("Unsupported OS");
     }
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,

@@ -16,6 +16,8 @@ pub const sep_windows = '\\';
 pub const sep_posix = '/';
 pub const sep = if (is_windows) sep_windows else sep_posix;
 
+pub const sep_str = [1]u8{sep};
+
 pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
 pub const delimiter = if (is_windows) delimiter_windows else delimiter_posix;
@@ -337,7 +339,7 @@ pub fn resolveSlice(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
         assert(is_windows); // resolveWindows called on non windows can't use getCwd
-        return os.getCwd(allocator);
+        return os.getCwdAlloc(allocator);
     }
 
     // determine which disk designator we will result with, if any
@@ -432,7 +434,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
             },
             WindowsPath.Kind.None => {
                 assert(is_windows); // resolveWindows called on non windows can't use getCwd
-                const cwd = try os.getCwd(allocator);
+                const cwd = try os.getCwdAlloc(allocator);
                 defer allocator.free(cwd);
                 const parsed_cwd = windowsParsePath(cwd);
                 result = try allocator.alloc(u8, max_size + parsed_cwd.disk_designator.len + 1);
@@ -448,7 +450,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     } else {
         assert(is_windows); // resolveWindows called on non windows can't use getCwd
         // TODO call get cwd for the result_disk_designator instead of the global one
-        const cwd = try os.getCwd(allocator);
+        const cwd = try os.getCwdAlloc(allocator);
         defer allocator.free(cwd);
 
         result = try allocator.alloc(u8, max_size + cwd.len + 1);
@@ -516,7 +518,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
         assert(!is_windows); // resolvePosix called on windows can't use getCwd
-        return os.getCwd(allocator);
+        return os.getCwdAlloc(allocator);
     }
 
     var first_index: usize = 0;
@@ -538,7 +540,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
         result = try allocator.alloc(u8, max_size);
     } else {
         assert(!is_windows); // resolvePosix called on windows can't use getCwd
-        const cwd = try os.getCwd(allocator);
+        const cwd = try os.getCwdAlloc(allocator);
         defer allocator.free(cwd);
         result = try allocator.alloc(u8, max_size + cwd.len + 1);
         mem.copy(u8, result, cwd);
@@ -577,7 +579,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 }
 
 test "os.path.resolve" {
-    const cwd = try os.getCwd(debug.global_allocator);
+    const cwd = try os.getCwdAlloc(debug.global_allocator);
     if (is_windows) {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
@@ -591,7 +593,7 @@ test "os.path.resolve" {
 
 test "os.path.resolveWindows" {
     if (is_windows) {
-        const cwd = try os.getCwd(debug.global_allocator);
+        const cwd = try os.getCwdAlloc(debug.global_allocator);
         const parsed_cwd = windowsParsePath(cwd);
         {
             const result = testResolveWindows([][]const u8{ "/usr/local", "lib\\zig\\std\\array_list.zig" });

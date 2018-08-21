@@ -302,6 +302,7 @@ pub const Compilation = struct {
         UnsupportedLinkArchitecture,
         UserResourceLimitReached,
         InvalidUtf8,
+        BadPathName,
     };
 
     pub const Event = union(enum) {

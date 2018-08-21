@@ -254,9 +254,8 @@ pub fn OutStream(comptime WriteError: type) type {
     };
 }
 
-/// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
-pub fn writeFile(allocator: *mem.Allocator, path: []const u8, data: []const u8) !void {
-    var file = try File.openWrite(allocator, path);
+pub fn writeFile(path: []const u8, data: []const u8) !void {
+    var file = try File.openWrite(path);
     defer file.close();
     try file.write(data);
 }
@@ -268,7 +267,7 @@ pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
 
 /// On success, caller owns returned buffer.
 pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
-    var file = try File.openRead(allocator, path);
+    var file = try File.openRead(path);
     defer file.close();
 
     const size = try file.getEndPos();

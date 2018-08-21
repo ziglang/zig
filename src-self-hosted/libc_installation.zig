@@ -233,7 +233,7 @@ pub const LibCInstallation = struct {
             const stdlib_path = try std.os.path.join(loop.allocator, search_path, "stdlib.h");
             defer loop.allocator.free(stdlib_path);
 
-            if (try fileExists(loop.allocator, stdlib_path)) {
+            if (try fileExists(stdlib_path)) {
                 self.include_dir = try std.mem.dupe(loop.allocator, u8, search_path);
                 return;
             }
@@ -257,7 +257,7 @@ pub const LibCInstallation = struct {
             const stdlib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "stdlib.h");
             defer loop.allocator.free(stdlib_path);
 
-            if (try fileExists(loop.allocator, stdlib_path)) {
+            if (try fileExists(stdlib_path)) {
                 self.include_dir = result_buf.toOwnedSlice();
                 return;
             }
@@ -285,7 +285,7 @@ pub const LibCInstallation = struct {
             }
             const ucrt_lib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "ucrt.lib");
             defer loop.allocator.free(ucrt_lib_path);
-            if (try fileExists(loop.allocator, ucrt_lib_path)) {
+            if (try fileExists(ucrt_lib_path)) {
                 self.lib_dir = result_buf.toOwnedSlice();
                 return;
             }
@@ -360,7 +360,7 @@ pub const LibCInstallation = struct {
             }
             const kernel32_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "kernel32.lib");
             defer loop.allocator.free(kernel32_path);
-            if (try fileExists(loop.allocator, kernel32_path)) {
+            if (try fileExists(kernel32_path)) {
                 self.kernel32_lib_dir = result_buf.toOwnedSlice();
                 return;
             }
@@ -449,12 +449,11 @@ fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
     return search_buf[0..search_end];
 }
 
-fn fileExists(allocator: *std.mem.Allocator, path: []const u8) !bool {
-    if (std.os.File.access(allocator, path)) |_| {
+fn fileExists(path: []const u8) !bool {
+    if (std.os.File.access(path)) |_| {
         return true;
     } else |err| switch (err) {
-        error.NotFound, error.PermissionDenied => return false,
-        error.OutOfMemory => return error.OutOfMemory,
+        error.FileNotFound, error.PathNotFound, error.PermissionDenied => return false,
         else => return error.FileSystem,
     }
 }

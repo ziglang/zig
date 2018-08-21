@@ -45,7 +45,7 @@ pub const MAX_PATH_BYTES = switch (builtin.os) {
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
     // +1 for the null byte at the end, which can be encoded in 1 byte.
-    Os.windows => 32767 * 3 + 1,
+    Os.windows => windows_util.PATH_MAX_WIDE * 3 + 1,
     else => @compileError("Unsupported OS"),
 };
 
@@ -326,6 +326,8 @@ pub const PosixWriteError = error{
     NoSpaceLeft,
     AccessDenied,
     BrokenPipe,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -439,6 +441,8 @@ pub const PosixOpenError = error{
     NoSpaceLeft,
     NotDir,
     PathAlreadyExists,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -600,6 +604,8 @@ pub const PosixExecveError = error{
     FileNotFound,
     NotDir,
     FileBusy,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -736,20 +742,25 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
 pub const GetCwdError = error{Unexpected};
 
 /// The result is a slice of out_buffer.
+/// TODO with well defined copy elision we could make the API of this function better.
 pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
     switch (builtin.os) {
         Os.windows => {
-            var utf16le_buf: [windows_util.PATH_MAX_UTF16]u16 = undefined;
-            const result = windows.GetCurrentDirectoryW(utf16le_buf.len, &utf16le_buf);
+            var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
+            const casted_len = @intCast(windows.DWORD, utf16le_buf.len); // TODO shouldn't need this cast
+            const casted_ptr = ([*]u16)(&utf16le_buf); // TODO shouldn't need this cast
+            const result = windows.GetCurrentDirectoryW(casted_len, casted_ptr);
             if (result == 0) {
                 const err = windows.GetLastError();
                 switch (err) {
                     else => return unexpectedErrorWindows(err),
                 }
             }
-            assert(result <= buf.len);
+            assert(result <= utf16le_buf.len);
             const utf16le_slice = utf16le_buf[0..result];
-            return std.unicode.utf16leToUtf8(out_buffer, utf16le_buf);
+            // Trust that Windows gives us valid UTF-16LE.
+            const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
+            return out_buffer[0..end_index];
         },
         else => {
             const err = posix.getErrno(posix.getcwd(out_buffer, out_buffer.len));
@@ -764,7 +775,9 @@ pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
 
 test "os.getCwd" {
     // at least call it so it gets compiled
-    _ = getCwd(debug.global_allocator);
+    _ = getCwdAlloc(debug.global_allocator);
+    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    _ = getCwd(&buf);
 }
 
 pub const SymLinkError = PosixSymLinkError || WindowsSymLinkError;
@@ -779,6 +792,8 @@ pub fn symLink(allocator: *Allocator, existing_path: []const u8, new_path: []con
 
 pub const WindowsSymLinkError = error{
     OutOfMemory,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -809,6 +824,8 @@ pub const PosixSymLinkError = error{
     NoSpaceLeft,
     ReadOnlyFileSystem,
     NotDir,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -867,7 +884,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
 
         if (symLink(allocator, existing_path, tmp_path)) {
-            return rename(allocator, tmp_path, new_path);
+            return rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
             else => return err, // TODO zig should know this set does not include PathAlreadyExists
@@ -886,8 +903,15 @@ pub const DeleteFileError = error{
     NotDir,
     SystemResources,
     ReadOnlyFileSystem,
-    OutOfMemory,
 
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -900,7 +924,18 @@ pub fn deleteFile(file_path: []const u8) DeleteFileError!void {
 }
 
 pub fn deleteFileWindows(file_path: []const u8) !void {
-    @compileError("TODO rewrite with DeleteFileW and no allocator");
+    const file_path_w = try windows_util.sliceToPrefixedFileW(file_path);
+
+    if (windows.DeleteFileW(&file_path_w) == 0) {
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.ACCESS_DENIED => return error.AccessDenied,
+            windows.ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
+            windows.ERROR.INVALID_PARAMETER => return error.NameTooLong,
+            else => return unexpectedErrorWindows(err),
+        }
+    }
 }
 
 pub fn deleteFilePosixC(file_path: [*]const u8) !void {
@@ -1028,7 +1063,7 @@ pub const AtomicFile = struct {
     pub fn deinit(self: *AtomicFile) void {
         if (!self.finished) {
             self.file.close();
-            deleteFile(self.allocator, self.tmp_path) catch {};
+            deleteFile(self.tmp_path) catch {};
             self.allocator.free(self.tmp_path);
             self.finished = true;
         }
@@ -1037,7 +1072,7 @@ pub const AtomicFile = struct {
     pub fn finish(self: *AtomicFile) !void {
         assert(!self.finished);
         self.file.close();
-        try rename(self.allocator, self.tmp_path, self.dest_path);
+        try rename(self.tmp_path, self.dest_path);
         self.allocator.free(self.tmp_path);
         self.finished = true;
     }
@@ -1075,7 +1110,15 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) !void {
 
 pub fn rename(old_path: []const u8, new_path: []const u8) !void {
     if (is_windows) {
-        @compileError("TODO rewrite with MoveFileExW and no allocator");
+        const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
+        const old_path_w = try windows_util.sliceToPrefixedFileW(old_path);
+        const new_path_w = try windows_util.sliceToPrefixedFileW(new_path);
+        if (windows.MoveFileExW(&old_path_w, &new_path_w, flags) == 0) {
+            const err = windows.GetLastError();
+            switch (err) {
+                else => return unexpectedErrorWindows(err),
+            }
+        }
     } else {
         var old_path_with_null: [posix.PATH_MAX]u8 = undefined;
         if (old_path.len >= posix.PATH_MAX) return error.NameTooLong;
@@ -1099,11 +1142,10 @@ pub fn makeDir(dir_path: []const u8) !void {
     }
 }
 
-pub fn makeDirWindows(allocator: *Allocator, dir_path: []const u8) !void {
-    const path_buf = try cstr.addNullByte(allocator, dir_path);
-    defer allocator.free(path_buf);
+pub fn makeDirWindows(dir_path: []const u8) !void {
+    const dir_path_w = try windows_util.sliceToPrefixedFileW(dir_path);
 
-    if (windows.CreateDirectoryA(path_buf.ptr, null) == 0) {
+    if (windows.CreateDirectoryW(&dir_path_w, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.ALREADY_EXISTS => error.PathAlreadyExists,
@@ -1144,13 +1186,14 @@ pub fn makeDirPosix(dir_path: []const u8) !void {
 
 /// Calls makeDir recursively to make an entire path. Returns success if the path
 /// already exists and is a directory.
+/// TODO determine if we can remove the allocator requirement from this function
 pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
     const resolved_path = try path.resolve(allocator, full_path);
     defer allocator.free(resolved_path);
 
     var end_index: usize = resolved_path.len;
     while (true) {
-        makeDir(allocator, resolved_path[0..end_index]) catch |err| switch (err) {
+        makeDir(resolved_path[0..end_index]) catch |err| switch (err) {
             error.PathAlreadyExists => {
                 // TODO stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
@@ -1188,6 +1231,7 @@ pub const DeleteDirError = error{
     ReadOnlyFileSystem,
     OutOfMemory,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -1256,20 +1300,30 @@ const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DirNotEmpty,
+
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
+
+/// TODO determine if we can remove the allocator requirement
 pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
         var got_access_denied = false;
         // First, try deleting the item as a file. This way we don't follow sym links.
-        if (deleteFile(allocator, full_path)) {
+        if (deleteFile(full_path)) {
             return;
         } else |err| switch (err) {
             error.FileNotFound => return,
             error.IsDir => {},
             error.AccessDenied => got_access_denied = true,
 
-            error.OutOfMemory,
             error.SymLinkLoop,
             error.NameTooLong,
             error.SystemResources,
@@ -1277,6 +1331,8 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
             error.NotDir,
             error.FileSystem,
             error.FileBusy,
+            error.InvalidUtf8,
+            error.BadPathName,
             error.Unexpected,
             => return err,
         }
@@ -1383,6 +1439,7 @@ pub const Dir = struct {
         PathAlreadyExists,
         OutOfMemory,
 
+        /// See https://github.com/ziglang/zig/issues/1396
         Unexpected,
     };
 
@@ -1685,6 +1742,8 @@ pub fn posix_setregid(rgid: u32, egid: u32) !void {
 
 pub const WindowsGetStdHandleErrs = error{
     NoStdHandles,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2012,7 +2071,7 @@ pub fn unexpectedErrorPosix(errno: usize) UnexpectedError {
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
 pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
-    if (unexpected_error_tracing) {
+    if (true) {
         debug.warn("unexpected GetLastError(): {}\n", err);
         debug.dumpCurrentStackTrace(null);
     }
@@ -2215,6 +2274,7 @@ pub const PosixBindError = error{
     /// The socket inode would reside on a read-only filesystem.
     ReadOnlyFileSystem,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2258,6 +2318,7 @@ const PosixListenError = error{
     /// The socket is not of a type that supports the listen() operation.
     OperationNotSupported,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2311,6 +2372,7 @@ pub const PosixAcceptError = error{
     /// Firewall rules forbid connection.
     BlockedByFirewall,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2356,6 +2418,7 @@ pub const LinuxEpollCreateError = error{
     /// There was insufficient memory to create the kernel object.
     SystemResources,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2410,6 +2473,7 @@ pub const LinuxEpollCtlError = error{
     /// for example, a regular file or a directory.
     FileDescriptorIncompatibleWithEpoll,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2452,6 +2516,7 @@ pub const LinuxEventFdError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2474,6 +2539,7 @@ pub const PosixGetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2527,6 +2593,7 @@ pub const PosixConnectError = error{
     /// that for IP sockets the timeout may be very long when syncookies are enabled on the server.
     ConnectionTimedOut,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2748,6 +2815,7 @@ pub const SpawnThreadError = error{
     /// Not enough userland memory to spawn the thread.
     OutOfMemory,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2935,6 +3003,8 @@ pub fn posixFStat(fd: i32) !posix.Stat {
 pub const CpuCountError = error{
     OutOfMemory,
     PermissionDenied,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -3005,6 +3075,7 @@ pub const BsdKQueueError = error{
     /// The system-wide limit on the total number of open files has been reached.
     SystemFdQuotaExceeded,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
