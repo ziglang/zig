@@ -39,11 +39,14 @@ pub const File = @import("file.zig").File;
 pub const time = @import("time.zig");
 
 pub const page_size = 4 * 1024;
-pub const PATH_MAX = switch (builtin.os) {
-    Os.linux => linux.PATH_MAX,
-    Os.macosx, Os.ios => darwin.PATH_MAX,
+pub const MAX_PATH_BYTES = switch (builtin.os) {
+    Os.linux, Os.macosx, Os.ios => posix.PATH_MAX,
+    // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
+    // If it would require 4 UTF-8 bytes, then there would be a surrogate
+    // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
+    // +1 for the null byte at the end, which can be encoded in 1 byte.
+    Os.windows => 32767 * 3 + 1,
     else => @compileError("Unsupported OS"),
-    // https://msdn.microsoft.com/en-us/library/930f87yf.aspx
 };
 
 pub const UserInfo = @import("get_user_id.zig").UserInfo;
@@ -423,7 +426,6 @@ pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, off
 }
 
 pub const PosixOpenError = error{
-    OutOfMemory,
     AccessDenied,
     FileTooBig,
     IsDir,
@@ -444,12 +446,10 @@ pub const PosixOpenError = error{
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
 pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
-    var path_with_null: [PATH_MAX]u8 = undefined;
-    if (file_path.len > PATH_MAX - 1)
-        return error.NameTooLong;
-    mem.copy(u8, path_with_null[0..PATH_MAX - 1], file_path);
-    path_with_null[file_path.len] = '\x00';
-
+    var path_with_null: [posix.PATH_MAX]u8 = undefined;
+    if (file_path.len >= posix.PATH_MAX) return error.NameTooLong;
+    mem.copy(u8, path_with_null[0..], file_path);
+    path_with_null[file_path.len] = 0;
     return posixOpenC(&path_with_null, flags, perm);
 }
 
@@ -728,43 +728,35 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
 }
 
 /// Caller must free the returned memory.
-pub fn getCwd(allocator: *Allocator) ![]u8 {
+pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
+    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    return mem.dupe(allocator, u8, try getCwd(&buf));
+}
+
+pub const GetCwdError = error{Unexpected};
+
+/// The result is a slice of out_buffer.
+pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
     switch (builtin.os) {
         Os.windows => {
-            var buf = try allocator.alloc(u8, 256);
-            errdefer allocator.free(buf);
-
-            while (true) {
-                const result = windows.GetCurrentDirectoryA(@intCast(windows.WORD, buf.len), buf.ptr);
-
-                if (result == 0) {
-                    const err = windows.GetLastError();
-                    return switch (err) {
-                        else => unexpectedErrorWindows(err),
-                    };
+            var utf16le_buf: [windows_util.PATH_MAX_UTF16]u16 = undefined;
+            const result = windows.GetCurrentDirectoryW(utf16le_buf.len, &utf16le_buf);
+            if (result == 0) {
+                const err = windows.GetLastError();
+                switch (err) {
+                    else => return unexpectedErrorWindows(err),
                 }
-
-                if (result > buf.len) {
-                    buf = try allocator.realloc(u8, buf, result);
-                    continue;
-                }
-
-                return allocator.shrink(u8, buf, result);
             }
+            assert(result <= buf.len);
+            const utf16le_slice = utf16le_buf[0..result];
+            return std.unicode.utf16leToUtf8(out_buffer, utf16le_buf);
         },
         else => {
-            var buf = try allocator.alloc(u8, 1024);
-            errdefer allocator.free(buf);
-            while (true) {
-                const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
-                if (err == posix.ERANGE) {
-                    buf = try allocator.realloc(u8, buf, buf.len * 2);
-                    continue;
-                } else if (err > 0) {
-                    return unexpectedErrorPosix(err);
-                }
-
-                return allocator.shrink(u8, buf, cstr.len(buf.ptr));
+            const err = posix.getErrno(posix.getcwd(out_buffer, out_buffer.len));
+            switch (err) {
+                0 => return cstr.toSlice(out_buffer),
+                posix.ERANGE => unreachable,
+                else => return unexpectedErrorPosix(err),
             }
         },
     }
@@ -899,56 +891,45 @@ pub const DeleteFileError = error{
     Unexpected,
 };
 
-pub fn deleteFile(allocator: *Allocator, file_path: []const u8) DeleteFileError!void {
+pub fn deleteFile(file_path: []const u8) DeleteFileError!void {
     if (builtin.os == Os.windows) {
-        return deleteFileWindows(allocator, file_path);
+        return deleteFileWindows(file_path);
     } else {
-        return deleteFilePosix(allocator, file_path);
+        return deleteFilePosix(file_path);
     }
 }
 
-pub fn deleteFileWindows(allocator: *Allocator, file_path: []const u8) !void {
-    const buf = try allocator.alloc(u8, file_path.len + 1);
-    defer allocator.free(buf);
+pub fn deleteFileWindows(file_path: []const u8) !void {
+    @compileError("TODO rewrite with DeleteFileW and no allocator");
+}
 
-    mem.copy(u8, buf, file_path);
-    buf[file_path.len] = 0;
-
-    if (windows.DeleteFileA(buf.ptr) == 0) {
-        const err = windows.GetLastError();
-        return switch (err) {
-            windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
-            windows.ERROR.ACCESS_DENIED => error.AccessDenied,
-            windows.ERROR.FILENAME_EXCED_RANGE, windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
-            else => unexpectedErrorWindows(err),
-        };
+pub fn deleteFilePosixC(file_path: [*]const u8) !void {
+    const err = posix.getErrno(posix.unlink(file_path));
+    switch (err) {
+        0 => return,
+        posix.EACCES => return error.AccessDenied,
+        posix.EPERM => return error.AccessDenied,
+        posix.EBUSY => return error.FileBusy,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.EIO => return error.FileSystem,
+        posix.EISDIR => return error.IsDir,
+        posix.ELOOP => return error.SymLinkLoop,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOTDIR => return error.NotDir,
+        posix.ENOMEM => return error.SystemResources,
+        posix.EROFS => return error.ReadOnlyFileSystem,
+        else => return unexpectedErrorPosix(err),
     }
 }
 
-pub fn deleteFilePosix(allocator: *Allocator, file_path: []const u8) !void {
-    const buf = try allocator.alloc(u8, file_path.len + 1);
-    defer allocator.free(buf);
-
-    mem.copy(u8, buf, file_path);
-    buf[file_path.len] = 0;
-
-    const err = posix.getErrno(posix.unlink(buf.ptr));
-    if (err > 0) {
-        return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
-            posix.EBUSY => error.FileBusy,
-            posix.EFAULT, posix.EINVAL => unreachable,
-            posix.EIO => error.FileSystem,
-            posix.EISDIR => error.IsDir,
-            posix.ELOOP => error.SymLinkLoop,
-            posix.ENAMETOOLONG => error.NameTooLong,
-            posix.ENOENT => error.FileNotFound,
-            posix.ENOTDIR => error.NotDir,
-            posix.ENOMEM => error.SystemResources,
-            posix.EROFS => error.ReadOnlyFileSystem,
-            else => unexpectedErrorPosix(err),
-        };
-    }
+pub fn deleteFilePosix(file_path: []const u8) !void {
+    var path_with_null: [posix.PATH_MAX]u8 = undefined;
+    if (file_path.len >= posix.PATH_MAX) return error.NameTooLong;
+    mem.copy(u8, path_with_null[0..], file_path);
+    path_with_null[file_path.len] = 0;
+    return deleteFilePosixC(&path_with_null);
 }
 
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
@@ -956,6 +937,7 @@ pub fn deleteFilePosix(allocator: *Allocator, file_path: []const u8) !void {
 /// there is a possibility of power loss or application termination leaving temporary files present
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
+/// TODO investigate if this can work with no allocator
 pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []const u8) !void {
     var in_file = try os.File.openRead(source_path);
     defer in_file.close();
@@ -978,6 +960,7 @@ pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []con
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
+/// TODO investigate if this can work with no allocator
 pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
     var in_file = try os.File.openRead(source_path);
     defer in_file.close();
@@ -996,6 +979,7 @@ pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: [
 }
 
 pub const AtomicFile = struct {
+    /// TODO investigate if we can make this work with no allocator
     allocator: *Allocator,
     file: os.File,
     tmp_path: []u8,
@@ -1023,7 +1007,7 @@ pub const AtomicFile = struct {
             try getRandomBytes(rand_buf[0..]);
             b64_fs_encoder.encode(tmp_path[dirname_component_len..], rand_buf);
 
-            const file = os.File.openWriteNoClobber(allocator, tmp_path, mode) catch |err| switch (err) {
+            const file = os.File.openWriteNoClobber(tmp_path, mode) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
                 // TODO zig should figure out that this error set does not include PathAlreadyExists since
                 // it is handled in the above switch
@@ -1059,56 +1043,59 @@ pub const AtomicFile = struct {
     }
 };
 
-pub fn rename(allocator: *Allocator, old_path: []const u8, new_path: []const u8) !void {
-    const full_buf = try allocator.alloc(u8, old_path.len + new_path.len + 2);
-    defer allocator.free(full_buf);
-
-    const old_buf = full_buf;
-    mem.copy(u8, old_buf, old_path);
-    old_buf[old_path.len] = 0;
-
-    const new_buf = full_buf[old_path.len + 1 ..];
-    mem.copy(u8, new_buf, new_path);
-    new_buf[new_path.len] = 0;
-
+pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) !void {
     if (is_windows) {
-        const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
-        if (windows.MoveFileExA(old_buf.ptr, new_buf.ptr, flags) == 0) {
-            const err = windows.GetLastError();
-            return switch (err) {
-                else => unexpectedErrorWindows(err),
-            };
-        }
+        @compileError("TODO implement for windows");
     } else {
-        const err = posix.getErrno(posix.rename(old_buf.ptr, new_buf.ptr));
-        if (err > 0) {
-            return switch (err) {
-                posix.EACCES, posix.EPERM => error.AccessDenied,
-                posix.EBUSY => error.FileBusy,
-                posix.EDQUOT => error.DiskQuota,
-                posix.EFAULT, posix.EINVAL => unreachable,
-                posix.EISDIR => error.IsDir,
-                posix.ELOOP => error.SymLinkLoop,
-                posix.EMLINK => error.LinkQuotaExceeded,
-                posix.ENAMETOOLONG => error.NameTooLong,
-                posix.ENOENT => error.FileNotFound,
-                posix.ENOTDIR => error.NotDir,
-                posix.ENOMEM => error.SystemResources,
-                posix.ENOSPC => error.NoSpaceLeft,
-                posix.EEXIST, posix.ENOTEMPTY => error.PathAlreadyExists,
-                posix.EROFS => error.ReadOnlyFileSystem,
-                posix.EXDEV => error.RenameAcrossMountPoints,
-                else => unexpectedErrorPosix(err),
-            };
+        const err = posix.getErrno(posix.rename(old_path, new_path));
+        switch (err) {
+            0 => return,
+            posix.EACCES => return error.AccessDenied,
+            posix.EPERM => return error.AccessDenied,
+            posix.EBUSY => return error.FileBusy,
+            posix.EDQUOT => return error.DiskQuota,
+            posix.EFAULT => unreachable,
+            posix.EINVAL => unreachable,
+            posix.EISDIR => return error.IsDir,
+            posix.ELOOP => return error.SymLinkLoop,
+            posix.EMLINK => return error.LinkQuotaExceeded,
+            posix.ENAMETOOLONG => return error.NameTooLong,
+            posix.ENOENT => return error.FileNotFound,
+            posix.ENOTDIR => return error.NotDir,
+            posix.ENOMEM => return error.SystemResources,
+            posix.ENOSPC => return error.NoSpaceLeft,
+            posix.EEXIST => return error.PathAlreadyExists,
+            posix.ENOTEMPTY => return error.PathAlreadyExists,
+            posix.EROFS => return error.ReadOnlyFileSystem,
+            posix.EXDEV => return error.RenameAcrossMountPoints,
+            else => return unexpectedErrorPosix(err),
         }
     }
 }
 
-pub fn makeDir(allocator: *Allocator, dir_path: []const u8) !void {
+pub fn rename(old_path: []const u8, new_path: []const u8) !void {
     if (is_windows) {
-        return makeDirWindows(allocator, dir_path);
+        @compileError("TODO rewrite with MoveFileExW and no allocator");
     } else {
-        return makeDirPosix(allocator, dir_path);
+        var old_path_with_null: [posix.PATH_MAX]u8 = undefined;
+        if (old_path.len >= posix.PATH_MAX) return error.NameTooLong;
+        mem.copy(u8, old_path_with_null[0..], old_path);
+        old_path_with_null[old_path.len] = 0;
+
+        var new_path_with_null: [posix.PATH_MAX]u8 = undefined;
+        if (new_path.len >= posix.PATH_MAX) return error.NameTooLong;
+        mem.copy(u8, new_path_with_null[0..], new_path);
+        new_path_with_null[new_path.len] = 0;
+
+        return renameC(&old_path_with_null, &new_path_with_null);
+    }
+}
+
+pub fn makeDir(dir_path: []const u8) !void {
+    if (is_windows) {
+        return makeDirWindows(dir_path);
+    } else {
+        return makeDirPosix(dir_path);
     }
 }
 
@@ -1126,28 +1113,33 @@ pub fn makeDirWindows(allocator: *Allocator, dir_path: []const u8) !void {
     }
 }
 
-pub fn makeDirPosix(allocator: *Allocator, dir_path: []const u8) !void {
-    const path_buf = try cstr.addNullByte(allocator, dir_path);
-    defer allocator.free(path_buf);
-
+pub fn makeDirPosixC(dir_path: [*]const u8) !void {
     const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
-    if (err > 0) {
-        return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
-            posix.EDQUOT => error.DiskQuota,
-            posix.EEXIST => error.PathAlreadyExists,
-            posix.EFAULT => unreachable,
-            posix.ELOOP => error.SymLinkLoop,
-            posix.EMLINK => error.LinkQuotaExceeded,
-            posix.ENAMETOOLONG => error.NameTooLong,
-            posix.ENOENT => error.FileNotFound,
-            posix.ENOMEM => error.SystemResources,
-            posix.ENOSPC => error.NoSpaceLeft,
-            posix.ENOTDIR => error.NotDir,
-            posix.EROFS => error.ReadOnlyFileSystem,
-            else => unexpectedErrorPosix(err),
-        };
+    switch (err) {
+        0 => return,
+        posix.EACCES => return error.AccessDenied,
+        posix.EPERM => return error.AccessDenied,
+        posix.EDQUOT => return error.DiskQuota,
+        posix.EEXIST => return error.PathAlreadyExists,
+        posix.EFAULT => unreachable,
+        posix.ELOOP => return error.SymLinkLoop,
+        posix.EMLINK => return error.LinkQuotaExceeded,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOSPC => return error.NoSpaceLeft,
+        posix.ENOTDIR => return error.NotDir,
+        posix.EROFS => return error.ReadOnlyFileSystem,
+        else => return unexpectedErrorPosix(err),
     }
+}
+
+pub fn makeDirPosix(dir_path: []const u8) !void {
+    var path_with_null: [posix.PATH_MAX]u8 = undefined;
+    if (dir_path.len >= posix.PATH_MAX) return error.NameTooLong;
+    mem.copy(u8, path_with_null[0..], dir_path);
+    path_with_null[dir_path.len] = 0;
+    return makeDirPosixC(&path_with_null);
 }
 
 /// Calls makeDir recursively to make an entire path. Returns success if the path
@@ -1409,6 +1401,7 @@ pub const Dir = struct {
                 },
                 Os.macosx, Os.ios => Handle{
                     .fd = try posixOpen(
+                        allocator,
                         dir_path,
                         posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
                         0,
@@ -1420,6 +1413,7 @@ pub const Dir = struct {
                 },
                 Os.linux => Handle{
                     .fd = try posixOpen(
+                        allocator,
                         dir_path,
                         posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC,
                         0,
@@ -1616,37 +1610,33 @@ pub fn changeCurDir(allocator: *Allocator, dir_path: []const u8) !void {
 }
 
 /// Read value of a symbolic link.
-pub fn readLink(allocator: *Allocator, file_path: []const u8) ![]u8 {
-    var path_with_null: [PATH_MAX]u8 = undefined;
-    if (file_path.len > PATH_MAX - 1)
-        return error.NameTooLong;
-    mem.copy(u8, path_with_null[0..PATH_MAX - 1], file_path);
-    path_with_null[file_path.len] = '\x00';
-
-    var result_buf = try allocator.alloc(u8, 1024);
-    errdefer allocator.free(result_buf);
-    while (true) {
-        const ret_val = posix.readlink(&path_with_null, result_buf.ptr, result_buf.len);
-        const err = posix.getErrno(ret_val);
-        if (err > 0) {
-            return switch (err) {
-                posix.EACCES => error.AccessDenied,
-                posix.EFAULT, posix.EINVAL => unreachable,
-                posix.EIO => error.FileSystem,
-                posix.ELOOP => error.SymLinkLoop,
-                posix.ENAMETOOLONG => error.NameTooLong,
-                posix.ENOENT => error.FileNotFound,
-                posix.ENOMEM => error.SystemResources,
-                posix.ENOTDIR => error.NotDir,
-                else => unexpectedErrorPosix(err),
-            };
-        }
-        if (ret_val == result_buf.len) {
-            result_buf = try allocator.realloc(u8, result_buf, result_buf.len * 2);
-            continue;
-        }
-        return allocator.shrink(u8, result_buf, ret_val);
+/// The return value is a slice of out_buffer.
+pub fn readLinkC(pathname: [*]const u8, out_buffer: *[posix.PATH_MAX]u8) ![]u8 {
+    const rc = posix.readlink(pathname, out_buffer, out_buffer.len);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return out_buffer[0..rc],
+        posix.EACCES => error.AccessDenied,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.EIO => return error.FileSystem,
+        posix.ELOOP => return error.SymLinkLoop,
+        posix.ENAMETOOLONG => unreachable, // out_buffer is at least PATH_MAX
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOTDIR => return error.NotDir,
+        else => return unexpectedErrorPosix(err),
     }
+}
+
+/// Read value of a symbolic link.
+/// The return value is a slice of out_buffer.
+pub fn readLink(file_path: []const u8, out_buffer: *[posix.PATH_MAX]u8) ![]u8 {
+    var path_with_null: [posix.PATH_MAX]u8 = undefined;
+    if (file_path.len >= posix.PATH_MAX) return error.NameTooLong;
+    mem.copy(u8, path_with_null[0..], file_path);
+    path_with_null[file_path.len] = 0;
+    return readLinkC(&path_with_null, out_buffer);
 }
 
 pub fn posix_setuid(uid: u32) !void {
@@ -2035,13 +2025,13 @@ pub fn openSelfExe() !os.File {
             const proc_file_path = "/proc/self/exe";
             var fixed_buffer_mem: [proc_file_path.len + 1]u8 = undefined;
             var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            return os.File.openRead(proc_file_path);
+            return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
         },
         Os.macosx, Os.ios => {
             var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
             var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             const self_exe_path = try selfExePath(&fixed_allocator.allocator);
-            return os.File.openRead(self_exe_path);
+            return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
         },
         else => @compileError("Unsupported OS"),
     }

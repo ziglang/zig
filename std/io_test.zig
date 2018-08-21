@@ -16,7 +16,7 @@ test "write a file, read it, then delete it" {
     prng.random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try os.File.openWrite(allocator, tmp_file_name);
+        var file = try os.File.openWrite(tmp_file_name);
         defer file.close();
 
         var file_out_stream = io.FileOutStream.init(&file);
@@ -63,7 +63,7 @@ test "BufferOutStream" {
 }
 
 test "SliceInStream" {
-    const bytes = []const u8 { 1, 2, 3, 4, 5, 6, 7 };
+    const bytes = []const u8{ 1, 2, 3, 4, 5, 6, 7 };
     var ss = io.SliceInStream.init(bytes);
 
     var dest: [4]u8 = undefined;
@@ -81,7 +81,7 @@ test "SliceInStream" {
 }
 
 test "PeekStream" {
-    const bytes = []const u8 { 1, 2, 3, 4, 5, 6, 7, 8 };
+    const bytes = []const u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var ss = io.SliceInStream.init(bytes);
     var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
 

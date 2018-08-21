@@ -7,6 +7,8 @@ const mem = std.mem;
 const BufMap = std.BufMap;
 const cstr = std.cstr;
 
+pub const PATH_MAX_UTF16 = 32767;
+
 pub const WaitError = error{
     WaitAbandoned,
     WaitTimeOut,
@@ -90,36 +92,17 @@ pub const OpenError = error{
     AccessDenied,
     PipeBusy,
     Unexpected,
-    OutOfMemory,
 };
 
 /// `file_path` needs to be copied in memory to add a null terminating byte, hence the allocator.
 pub fn windowsOpen(
-    allocator: *mem.Allocator,
     file_path: []const u8,
     desired_access: windows.DWORD,
     share_mode: windows.DWORD,
     creation_disposition: windows.DWORD,
     flags_and_attrs: windows.DWORD,
 ) OpenError!windows.HANDLE {
-    const path_with_null = try cstr.addNullByte(allocator, file_path);
-    defer allocator.free(path_with_null);
-
-    const result = windows.CreateFileA(path_with_null.ptr, desired_access, share_mode, null, creation_disposition, flags_and_attrs, null);
-
-    if (result == windows.INVALID_HANDLE_VALUE) {
-        const err = windows.GetLastError();
-        return switch (err) {
-            windows.ERROR.SHARING_VIOLATION => OpenError.SharingViolation,
-            windows.ERROR.ALREADY_EXISTS, windows.ERROR.FILE_EXISTS => OpenError.PathAlreadyExists,
-            windows.ERROR.FILE_NOT_FOUND => OpenError.FileNotFound,
-            windows.ERROR.ACCESS_DENIED => OpenError.AccessDenied,
-            windows.ERROR.PIPE_BUSY => OpenError.PipeBusy,
-            else => os.unexpectedErrorWindows(err),
-        };
-    }
-
-    return result;
+    @compileError("TODO rewrite with CreateFileW and no allocator");
 }
 
 /// Caller must free result.
@@ -238,7 +221,7 @@ pub fn windowsPostQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_
     }
 }
 
-pub const WindowsWaitResult = enum{
+pub const WindowsWaitResult = enum {
     Normal,
     Aborted,
     Cancelled,
@@ -254,7 +237,7 @@ pub fn windowsGetQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_t
                 if (std.debug.runtime_safety) {
                     std.debug.panic("unexpected error: {}\n", err);
                 }
-            }
+            },
         }
     }
     return WindowsWaitResult.Normal;

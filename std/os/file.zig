@@ -27,7 +27,6 @@ pub const File = struct {
 
     pub const OpenError = os.WindowsOpenError || os.PosixOpenError;
 
-    /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
     pub fn openRead(path: []const u8) OpenError!File {
         if (is_posix) {
@@ -49,15 +48,14 @@ pub const File = struct {
     }
 
     /// Calls `openWriteMode` with os.File.default_mode for the mode.
-    pub fn openWrite(allocator: *mem.Allocator, path: []const u8) OpenError!File {
-        return openWriteMode(allocator, path, os.File.default_mode);
+    pub fn openWrite(path: []const u8) OpenError!File {
+        return openWriteMode(path, os.File.default_mode);
     }
 
     /// If the path does not exist it will be created.
     /// If a file already exists in the destination it will be truncated.
-    /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openWriteMode(allocator: *mem.Allocator, path: []const u8, file_mode: Mode) OpenError!File {
+    pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
             const fd = try os.posixOpen(path, flags, file_mode);
@@ -78,16 +76,14 @@ pub const File = struct {
 
     /// If the path does not exist it will be created.
     /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
-    /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openWriteNoClobber(allocator: *mem.Allocator, path: []const u8, file_mode: Mode) OpenError!File {
+    pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
-            const fd = try os.posixOpen(allocator, path, flags, file_mode);
+            const fd = try os.posixOpen(path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
             const handle = try os.windowsOpen(
-                allocator,
                 path,
                 windows.GENERIC_WRITE,
                 windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
@@ -117,12 +113,13 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn access(allocator: *mem.Allocator, path: []const u8) AccessError!void {
-        const path_with_null = try std.cstr.addNullByte(allocator, path);
-        defer allocator.free(path_with_null);
-
+    pub fn accessC(path: [*]const u8) AccessError!void {
+        if (is_windows) {
+            // this needs to convert to UTF-16LE and call accessW
+            @compileError("TODO support windows");
+        }
         if (is_posix) {
-            const result = posix.access(path_with_null.ptr, posix.F_OK);
+            const result = posix.access(path, posix.F_OK);
             const err = posix.getErrno(result);
             switch (err) {
                 0 => return,
@@ -141,7 +138,7 @@ pub const File = struct {
                 else => return os.unexpectedErrorPosix(err),
             }
         } else if (is_windows) {
-            if (os.windows.GetFileAttributesA(path_with_null.ptr) != os.windows.INVALID_FILE_ATTRIBUTES) {
+            if (os.windows.GetFileAttributesA(path) != os.windows.INVALID_FILE_ATTRIBUTES) {
                 return;
             }
 
@@ -156,6 +153,21 @@ pub const File = struct {
         } else {
             @compileError("TODO implement access for this OS");
         }
+    }
+
+    pub fn access(path: []const u8) AccessError!void {
+        if (is_windows) {
+            // this needs to convert to UTF-16LE and call accessW
+            @compileError("TODO support windows");
+        }
+        if (is_posix) {
+            var path_with_null: [posix.PATH_MAX]u8 = undefined;
+            if (path.len >= posix.PATH_MAX) return error.NameTooLong;
+            mem.copy(u8, path_with_null[0..], path);
+            path_with_null[path.len] = 0;
+            return accessC(&path_with_null);
+        }
+        @compileError("TODO implement access for this OS");
     }
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,

@@ -573,7 +573,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
         result_index += 1;
     }
 
-    return result[0..result_index];
+    return allocator.shrink(u8, result, result_index);
 }
 
 test "os.path.resolve" {
@@ -1077,6 +1077,7 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// Expands all symbolic links and resolves references to `.`, `..`, and
 /// extra `/` characters in ::pathname.
 /// Caller must deallocate result.
+/// TODO rename this to realAlloc and provide real with no allocator. See #1392
 pub fn real(allocator: *Allocator, pathname: []const u8) ![]u8 {
     switch (builtin.os) {
         Os.windows => {
@@ -1166,7 +1167,7 @@ pub fn real(allocator: *Allocator, pathname: []const u8) ![]u8 {
             return allocator.shrink(u8, result_buf, cstr.len(result_buf.ptr));
         },
         Os.linux => {
-            const fd = try os.posixOpen(pathname, posix.O_PATH | posix.O_NONBLOCK | posix.O_CLOEXEC, 0);
+            const fd = try os.posixOpen(allocator, pathname, posix.O_PATH | posix.O_NONBLOCK | posix.O_CLOEXEC, 0);
             defer os.close(fd);
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;

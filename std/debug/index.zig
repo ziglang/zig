@@ -340,7 +340,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
     }
 }
 
-fn printLineFromFile(allocator: *mem.Allocator, out_stream: var, line_info: *const LineInfo) !void {
+fn printLineFromFile(out_stream: var, line_info: *const LineInfo) !void {
     var f = try os.File.openRead(line_info.file_name);
     defer f.close();
     // TODO fstat and make sure that the file has the correct size

@@ -1,6 +1,5 @@
 use @import("index.zig");
 
-
 pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
 
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
@@ -74,7 +73,8 @@ pub extern "kernel32" stdcallcc fn GetCommandLineA() LPSTR;
 
 pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) BOOL;
 
-pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPSTR) DWORD;
+pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?[*]CHAR) DWORD;
+pub extern "kernel32" stdcallcc fn GetCurrentDirectoryW(nBufferLength: WORD, lpBuffer: ?[*]WCHAR) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetCurrentThread() HANDLE;
 pub extern "kernel32" stdcallcc fn GetCurrentThreadId() DWORD;
@@ -106,7 +106,6 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
     cchFilePath: DWORD,
     dwFlags: DWORD,
 ) DWORD;
-
 
 pub extern "kernel32" stdcallcc fn GetOverlappedResult(hFile: HANDLE, lpOverlapped: *OVERLAPPED, lpNumberOfBytesTransferred: *DWORD, bWait: BOOL) BOOL;
 
@@ -194,7 +193,6 @@ pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: LPCSTR) ?HMODULE;
 
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
 
-
 pub const FILE_NOTIFY_INFORMATION = extern struct {
     NextEntryOffset: DWORD,
     Action: DWORD,
@@ -208,7 +206,7 @@ pub const FILE_ACTION_MODIFIED = 0x00000003;
 pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn(DWORD, DWORD, *OVERLAPPED) void;
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn (DWORD, DWORD, *OVERLAPPED) void;
 
 pub const FILE_LIST_DIRECTORY = 1;
 

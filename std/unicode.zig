@@ -218,7 +218,6 @@ const Utf8Iterator = struct {
         }
 
         const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
-
         it.i += cp_len;
         return it.bytes[it.i - cp_len .. it.i];
     }
@@ -232,6 +231,34 @@ const Utf8Iterator = struct {
             3 => return utf8Decode3(slice) catch unreachable,
             4 => return utf8Decode4(slice) catch unreachable,
             else => unreachable,
+        }
+    }
+};
+
+pub const Utf16LeIterator = struct {
+    bytes: []const u8,
+    i: usize,
+
+    pub fn init(s: []const u16) Utf16LeIterator {
+        return Utf16LeIterator{
+            .bytes = @sliceToBytes(s),
+            .i = 0,
+        };
+    }
+
+    pub fn nextCodepoint(it: *Utf16LeIterator) !?u32 {
+        const c0: u32 = mem.readIntLE(u16, it.bytes[it.i .. it.i + 2]);
+        if (c0 & ~u32(0x03ff) == 0xd800) {
+            // surrogate pair
+            it.i += 2;
+            if (it.i >= it.bytes.len) return error.DanglingSurrogateHalf;
+            const c1: u32 = mem.readIntLE(u16, it.bytes[it.i .. it.i + 2]);
+            if (c1 & ~u32(0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
+            return 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
+        } else if (c0 & ~u32(0x03ff) == 0xdc00) {
+            return error.UnexpectedSecondSurrogateHalf;
+        } else {
+            return c0;
         }
     }
 };
@@ -446,40 +473,32 @@ fn testDecode(bytes: []const u8) !u32 {
     return utf8Decode(bytes);
 }
 
-// TODO: make this API on top of a non-allocating Utf16LeView
-pub fn utf16leToUtf8(allocator: *mem.Allocator, utf16le: []const u16) ![]u8 {
+/// Caller must free returned memory.
+pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8 {
     var result = std.ArrayList(u8).init(allocator);
     // optimistically guess that it will all be ascii.
     try result.ensureCapacity(utf16le.len);
-
-    const utf16le_as_bytes = @sliceToBytes(utf16le);
-    var i: usize = 0;
     var out_index: usize = 0;
-    while (i < utf16le_as_bytes.len) : (i += 2) {
-        // decode
-        const c0: u32 = mem.readIntLE(u16, utf16le_as_bytes[i..i + 2]);
-        var codepoint: u32 = undefined;
-        if (c0 & ~u32(0x03ff) == 0xd800) {
-            // surrogate pair
-            i += 2;
-            if (i >= utf16le_as_bytes.len) return error.DanglingSurrogateHalf;
-            const c1: u32 = mem.readIntLE(u16, utf16le_as_bytes[i..i + 2]);
-            if (c1 & ~u32(0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
-            codepoint = 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
-        } else if (c0 & ~u32(0x03ff) == 0xdc00) {
-            return error.UnexpectedSecondSurrogateHalf;
-        } else {
-            codepoint = c0;
-        }
-
-        // encode
+    var it = Utf16LeIterator.init(utf16le);
+    while (try it.nextCodepoint()) |codepoint| {
         const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
         try result.resize(result.len + utf8_len);
-        _ = utf8Encode(codepoint, result.items[out_index..]) catch unreachable;
+        assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
         out_index += utf8_len;
     }
 
     return result.toOwnedSlice();
+}
+
+pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !void {
+    var out_index: usize = 0;
+    var it = Utf16LeIterator.init(utf16le);
+    while (try it.nextCodepoint()) |codepoint| {
+        const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
+        try result.resize(result.len + utf8_len);
+        assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
+        out_index += utf8_len;
+    }
 }
 
 test "utf16leToUtf8" {
