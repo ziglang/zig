@@ -133,9 +133,7 @@ static void from_twos_complement(BigInt *dest, const BigInt *src, size_t bit_cou
 
         bigint_negate(dest, &inverted);
         return;
-
     }
-
     bigint_init_bigint(dest, src);
 }
 
