@@ -76,7 +76,19 @@ pub fn build(b: *Builder) !void {
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
-    test_step.dependOn(test_stage2_step);
+
+    // Temporary: until #1364 lands,
+    // disable stage2 on windows so that
+    // normal test run for stage1 build.
+    if (builtin.os == builtin.Os.windows) {
+        warn(
+            \\Stage2 Tests disabled on Windows until #1364 lands.
+            \\Reference: https://github.com/ziglang/zig/issues/1364
+            \\
+        );
+    } else {
+      test_step.dependOn(test_stage2_step);
+    }
 
     const all_modes = []builtin.Mode{
         builtin.Mode.Debug,
