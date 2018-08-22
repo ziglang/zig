@@ -10709,6 +10709,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             !wanted_child_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
 <<<<<<< HEAD
+<<<<<<< HEAD
             IrInstruction *cast1 = ir_resolve_ptr_of_array_to_unknown_len_ptr(ira, source_instr, value, wanted_child_type);
 =======
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_child_type, value);
@@ -10716,6 +10717,9 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
 
 >>>>>>> allow implicit cast from *[N]T to ?[*]T
+=======
+            IrInstruction *cast1 = ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_child_type);
+>>>>>>> call ir_resolve_ptr_of_array_to_slice instead of recursing
             return ir_analyze_maybe_wrap(ira, source_instr, cast1, wanted_type);
         }
     }
