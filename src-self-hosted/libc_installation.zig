@@ -453,7 +453,7 @@ fn fileExists(path: []const u8) !bool {
     if (std.os.File.access(path)) |_| {
         return true;
     } else |err| switch (err) {
-        error.FileNotFound, error.PathNotFound, error.PermissionDenied => return false,
+        error.FileNotFound, error.PermissionDenied => return false,
         else => return error.FileSystem,
     }
 }

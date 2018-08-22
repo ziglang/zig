@@ -97,11 +97,11 @@ pub const OpenError = error{
     SharingViolation,
     PathAlreadyExists,
 
-    /// When all the path components are found but the file component is not.
+    /// When any of the path components can not be found or the file component can not
+    /// be found. Some operating systems distinguish between path components not found and
+    /// file components not found, but they are collapsed into FileNotFound to gain
+    /// consistency across operating systems.
     FileNotFound,
-
-    /// When one or more path components are not found.
-    PathNotFound,
 
     AccessDenied,
     PipeBusy,
@@ -136,7 +136,7 @@ pub fn windowsOpen(
             windows.ERROR.ALREADY_EXISTS => return OpenError.PathAlreadyExists,
             windows.ERROR.FILE_EXISTS => return OpenError.PathAlreadyExists,
             windows.ERROR.FILE_NOT_FOUND => return OpenError.FileNotFound,
-            windows.ERROR.PATH_NOT_FOUND => return OpenError.PathNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return OpenError.FileNotFound,
             windows.ERROR.ACCESS_DENIED => return OpenError.AccessDenied,
             windows.ERROR.PIPE_BUSY => return OpenError.PipeBusy,
             else => return os.unexpectedErrorWindows(err),
@@ -216,9 +216,8 @@ pub fn windowsFindFirstFile(
     if (handle == windows.INVALID_HANDLE_VALUE) {
         const err = windows.GetLastError();
         switch (err) {
-            windows.ERROR.FILE_NOT_FOUND,
-            windows.ERROR.PATH_NOT_FOUND,
-            => return error.PathNotFound,
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
             else => return os.unexpectedErrorWindows(err),
         }
     }
@@ -284,13 +283,13 @@ pub fn windowsGetQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_t
     return WindowsWaitResult.Normal;
 }
 
-pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE+1]u16 {
+pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
 }
 
-pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE+1]u16 {
+pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
     // TODO well defined copy elision
-    var result: [PATH_MAX_WIDE+1]u16 = undefined;
+    var result: [PATH_MAX_WIDE + 1]u16 = undefined;
 
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
@@ -298,12 +297,13 @@ pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE+1]u16 {
     // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
     // Because we want the larger maximum path length for absolute paths, we
     // disallow forward slashes in zig std lib file functions on Windows.
-    for (s) |byte| switch (byte) {
+    for (s) |byte|
+        switch (byte) {
         '/', '*', '?', '"', '<', '>', '|' => return error.BadPathName,
         else => {},
     };
     const start_index = if (mem.startsWith(u8, s, "\\\\") or !os.path.isAbsolute(s)) 0 else blk: {
-        const prefix = []u16{'\\', '\\', '?', '\\'};
+        const prefix = []u16{ '\\', '\\', '?', '\\' };
         mem.copy(u16, result[0..], prefix);
         break :blk prefix.len;
     };

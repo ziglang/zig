@@ -1491,11 +1491,14 @@ pub const LibExeObjStep = struct {
                     }
 
                     if (!is_darwin) {
-                        const rpath_arg = builder.fmt("-Wl,-rpath,{}", os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
+                        const rpath_arg = builder.fmt("-Wl,-rpath,{}", try os.path.realAlloc(
+                            builder.allocator,
+                            builder.pathFromRoot(builder.cache_root),
+                        ));
                         defer builder.allocator.free(rpath_arg);
-                        cc_args.append(rpath_arg) catch unreachable;
+                        try cc_args.append(rpath_arg);
 
-                        cc_args.append("-rdynamic") catch unreachable;
+                        try cc_args.append("-rdynamic");
                     }
 
                     for (self.full_path_libs.toSliceConst()) |full_path_lib| {
@@ -1566,11 +1569,14 @@ pub const LibExeObjStep = struct {
                 cc_args.append("-o") catch unreachable;
                 cc_args.append(output_path) catch unreachable;
 
-                const rpath_arg = builder.fmt("-Wl,-rpath,{}", os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
+                const rpath_arg = builder.fmt("-Wl,-rpath,{}", try os.path.realAlloc(
+                    builder.allocator,
+                    builder.pathFromRoot(builder.cache_root),
+                ));
                 defer builder.allocator.free(rpath_arg);
-                cc_args.append(rpath_arg) catch unreachable;
+                try cc_args.append(rpath_arg);
 
-                cc_args.append("-rdynamic") catch unreachable;
+                try cc_args.append("-rdynamic");
 
                 {
                     var it = self.link_libs.iterator();

@@ -17,7 +17,7 @@ test "makePath, put some files in it, deleteTree" {
     if (os.Dir.open(a, "os_test_tmp")) |dir| {
         @panic("expected error");
     } else |err| {
-        assert(err == error.PathNotFound);
+        assert(err == error.FileNotFound);
     }
 }
 

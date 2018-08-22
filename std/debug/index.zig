@@ -255,7 +255,7 @@ pub fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address
                         address,
                         compile_unit_name,
                     );
-                    if (printLineFromFile(debug_info.allocator(), out_stream, line_info)) {
+                    if (printLineFromFile(out_stream, line_info)) {
                         if (line_info.column == 0) {
                             try out_stream.write("\n");
                         } else {

@@ -11,6 +11,7 @@ const math = std.math;
 const posix = os.posix;
 const windows = os.windows;
 const cstr = std.cstr;
+const windows_util = @import("windows/util.zig");
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';
@@ -1075,113 +1076,148 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
     assert(mem.eql(u8, result, expected_output));
 }
 
-/// Return the canonicalized absolute pathname.
-/// Expands all symbolic links and resolves references to `.`, `..`, and
-/// extra `/` characters in ::pathname.
-/// Caller must deallocate result.
-/// TODO rename this to realAlloc and provide real with no allocator. See #1392
-pub fn real(allocator: *Allocator, pathname: []const u8) ![]u8 {
+pub const RealError = error{
+    FileNotFound,
+    AccessDenied,
+    NameTooLong,
+    NotSupported,
+    NotDir,
+    SymLinkLoop,
+    InputOutput,
+    FileTooBig,
+    IsDir,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    SystemResources,
+    NoSpaceLeft,
+    FileSystem,
+    BadPathName,
+
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+
+    /// TODO remove this possibility
+    PathAlreadyExists,
+
+    /// TODO remove this possibility
+    Unexpected,
+};
+
+/// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
+/// Otherwise use `real` or `realC`.
+pub fn realW(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: [*]const u16) RealError![]u8 {
+    const h_file = windows.CreateFileW(
+        pathname,
+        windows.GENERIC_READ,
+        windows.FILE_SHARE_READ,
+        null,
+        windows.OPEN_EXISTING,
+        windows.FILE_ATTRIBUTE_NORMAL,
+        null,
+    );
+    if (h_file == windows.INVALID_HANDLE_VALUE) {
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.ACCESS_DENIED => return error.AccessDenied,
+            windows.ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
+            else => return os.unexpectedErrorWindows(err),
+        }
+    }
+    defer os.close(h_file);
+    var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
+    const casted_len = @intCast(windows.DWORD, utf16le_buf.len); // TODO shouldn't need this cast
+    const result = windows.GetFinalPathNameByHandleW(h_file, &utf16le_buf, casted_len, windows.VOLUME_NAME_DOS);
+    assert(result <= utf16le_buf.len);
+    if (result == 0) {
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.NOT_ENOUGH_MEMORY => return error.SystemResources,
+            windows.ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
+            windows.ERROR.INVALID_PARAMETER => unreachable,
+            else => return os.unexpectedErrorWindows(err),
+        }
+    }
+    const utf16le_slice = utf16le_buf[0..result];
+
+    // windows returns \\?\ prepended to the path
+    // we strip it because nobody wants \\?\ prepended to their path
+    const prefix = []u16{ '\\', '\\', '?', '\\' };
+    const start_index = if (mem.startsWith(u16, utf16le_slice, prefix)) prefix.len else 0;
+
+    // Trust that Windows gives us valid UTF-16LE.
+    const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice[start_index..]) catch unreachable;
+    return out_buffer[0..end_index];
+}
+
+/// See `real`
+/// Use this when you have a null terminated pointer path.
+pub fn realC(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: [*]const u8) RealError![]u8 {
     switch (builtin.os) {
         Os.windows => {
-            const pathname_buf = try allocator.alloc(u8, pathname.len + 1);
-            defer allocator.free(pathname_buf);
-
-            mem.copy(u8, pathname_buf, pathname);
-            pathname_buf[pathname.len] = 0;
-
-            const h_file = windows.CreateFileA(pathname_buf.ptr, windows.GENERIC_READ, windows.FILE_SHARE_READ, null, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, null);
-            if (h_file == windows.INVALID_HANDLE_VALUE) {
-                const err = windows.GetLastError();
-                return switch (err) {
-                    windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
-                    windows.ERROR.ACCESS_DENIED => error.AccessDenied,
-                    windows.ERROR.FILENAME_EXCED_RANGE => error.NameTooLong,
-                    else => os.unexpectedErrorWindows(err),
-                };
-            }
-            defer os.close(h_file);
-            var buf = try allocator.alloc(u8, 256);
-            errdefer allocator.free(buf);
-            while (true) {
-                const buf_len = math.cast(windows.DWORD, buf.len) catch return error.NameTooLong;
-                const result = windows.GetFinalPathNameByHandleA(h_file, buf.ptr, buf_len, windows.VOLUME_NAME_DOS);
-
-                if (result == 0) {
-                    const err = windows.GetLastError();
-                    return switch (err) {
-                        windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
-                        windows.ERROR.NOT_ENOUGH_MEMORY => error.OutOfMemory,
-                        windows.ERROR.INVALID_PARAMETER => unreachable,
-                        else => os.unexpectedErrorWindows(err),
-                    };
-                }
-
-                if (result > buf.len) {
-                    buf = try allocator.realloc(u8, buf, result);
-                    continue;
-                }
-
-                // windows returns \\?\ prepended to the path
-                // we strip it because nobody wants \\?\ prepended to their path
-                const final_len = x: {
-                    if (result > 4 and mem.startsWith(u8, buf, "\\\\?\\")) {
-                        var i: usize = 4;
-                        while (i < result) : (i += 1) {
-                            buf[i - 4] = buf[i];
-                        }
-                        break :x result - 4;
-                    } else {
-                        break :x result;
-                    }
-                };
-
-                return allocator.shrink(u8, buf, final_len);
-            }
+            const pathname_w = try windows_util.cStrToPrefixedFileW(pathname);
+            return realW(out_buffer, pathname_w);
         },
         Os.macosx, Os.ios => {
-            // TODO instead of calling the libc function here, port the implementation
-            // to Zig, and then remove the NameTooLong error possibility.
-            const pathname_buf = try allocator.alloc(u8, pathname.len + 1);
-            defer allocator.free(pathname_buf);
-
-            const result_buf = try allocator.alloc(u8, posix.PATH_MAX);
-            errdefer allocator.free(result_buf);
-
-            mem.copy(u8, pathname_buf, pathname);
-            pathname_buf[pathname.len] = 0;
-
-            const err = posix.getErrno(posix.realpath(pathname_buf.ptr, result_buf.ptr));
-            if (err > 0) {
-                return switch (err) {
-                    posix.EINVAL => unreachable,
-                    posix.EBADF => unreachable,
-                    posix.EFAULT => unreachable,
-                    posix.EACCES => error.AccessDenied,
-                    posix.ENOENT => error.FileNotFound,
-                    posix.ENOTSUP => error.NotSupported,
-                    posix.ENOTDIR => error.NotDir,
-                    posix.ENAMETOOLONG => error.NameTooLong,
-                    posix.ELOOP => error.SymLinkLoop,
-                    posix.EIO => error.InputOutput,
-                    else => os.unexpectedErrorPosix(err),
-                };
+            // TODO instead of calling the libc function here, port the implementation to Zig
+            const err = posix.getErrno(posix.realpath(pathname, out_buffer));
+            switch (err) {
+                0 => return mem.toSlice(u8, out_buffer),
+                posix.EINVAL => unreachable,
+                posix.EBADF => unreachable,
+                posix.EFAULT => unreachable,
+                posix.EACCES => return error.AccessDenied,
+                posix.ENOENT => return error.FileNotFound,
+                posix.ENOTSUP => return error.NotSupported,
+                posix.ENOTDIR => return error.NotDir,
+                posix.ENAMETOOLONG => return error.NameTooLong,
+                posix.ELOOP => return error.SymLinkLoop,
+                posix.EIO => return error.InputOutput,
+                else => return os.unexpectedErrorPosix(err),
             }
-            return allocator.shrink(u8, result_buf, cstr.len(result_buf.ptr));
         },
         Os.linux => {
-            const fd = try os.posixOpen(allocator, pathname, posix.O_PATH | posix.O_NONBLOCK | posix.O_CLOEXEC, 0);
+            const fd = try os.posixOpenC(pathname, posix.O_PATH | posix.O_NONBLOCK | posix.O_CLOEXEC, 0);
             defer os.close(fd);
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
-            const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd) catch unreachable;
+            const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}\x00", fd) catch unreachable;
 
-            return os.readLink(allocator, proc_path);
+            return os.readLinkC(out_buffer, proc_path.ptr);
         },
         else => @compileError("TODO implement os.path.real for " ++ @tagName(builtin.os)),
     }
 }
 
+/// Return the canonicalized absolute pathname.
+/// Expands all symbolic links and resolves references to `.`, `..`, and
+/// extra `/` characters in ::pathname.
+/// The return value is a slice of out_buffer, and not necessarily from the beginning.
+pub fn real(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: []const u8) RealError![]u8 {
+    switch (builtin.os) {
+        Os.windows => {
+            const pathname_w = try windows_util.sliceToPrefixedFileW(pathname);
+            return realW(out_buffer, &pathname_w);
+        },
+        Os.macosx, Os.ios, Os.linux => {
+            const pathname_c = try os.toPosixPath(pathname);
+            return realC(out_buffer, &pathname_c);
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
+/// `real`, except caller must free the returned memory.
+pub fn realAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
+    var buf: [os.MAX_PATH_BYTES]u8 = undefined;
+    return mem.dupe(allocator, u8, try real(&buf, pathname));
+}
+
 test "os.path.real" {
     // at least call it so it gets compiled
-    _ = real(debug.global_allocator, "some_path");
+    var buf: [os.MAX_PATH_BYTES]u8 = undefined;
+    std.debug.assertError(real(&buf, "definitely_bogus_does_not_exist1234"), error.FileNotFound);
 }

@@ -28,13 +28,26 @@ pub const File = struct {
 
     pub const OpenError = os.WindowsOpenError || os.PosixOpenError;
 
+    /// `openRead` except with a null terminated path
+    pub fn openReadC(path: [*]const u8) OpenError!File {
+        if (is_posix) {
+            const flags = posix.O_LARGEFILE | posix.O_RDONLY;
+            const fd = try os.posixOpenC(path, flags, 0);
+            return openHandle(fd);
+        }
+        if (is_windows) {
+            return openRead(mem.toSliceConst(u8, path));
+        }
+        @compileError("Unsupported OS");
+    }
+
     /// Call close to clean up.
     pub fn openRead(path: []const u8) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE | posix.O_RDONLY;
-            const fd = try os.posixOpen(path, flags, 0);
-            return openHandle(fd);
-        } else if (is_windows) {
+            const path_c = try os.toPosixPath(path);
+            return openReadC(&path_c);
+        }
+        if (is_windows) {
             const handle = try os.windowsOpen(
                 path,
                 windows.GENERIC_READ,
@@ -43,9 +56,8 @@ pub const File = struct {
                 windows.FILE_ATTRIBUTE_NORMAL,
             );
             return openHandle(handle);
-        } else {
-            @compileError("TODO implement openRead for this OS");
         }
+        @compileError("Unsupported OS");
     }
 
     /// Calls `openWriteMode` with os.File.default_mode for the mode.
@@ -103,13 +115,11 @@ pub const File = struct {
 
     pub const AccessError = error{
         PermissionDenied,
-        PathNotFound,
         FileNotFound,
         NameTooLong,
-        BadMode,
-        BadPathName,
-        Io,
+        InputOutput,
         SystemResources,
+        BadPathName,
 
         /// On Windows, file paths must be valid Unicode.
         InvalidUtf8,
@@ -127,7 +137,7 @@ pub const File = struct {
         const err = windows.GetLastError();
         switch (err) {
             windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.PATH_NOT_FOUND => return error.PathNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
             windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
             else => return os.unexpectedErrorWindows(err),
         }
@@ -149,13 +159,13 @@ pub const File = struct {
                 posix.EROFS => return error.PermissionDenied,
                 posix.ELOOP => return error.PermissionDenied,
                 posix.ETXTBSY => return error.PermissionDenied,
-                posix.ENOTDIR => return error.NotFound,
-                posix.ENOENT => return error.NotFound,
+                posix.ENOTDIR => return error.FileNotFound,
+                posix.ENOENT => return error.FileNotFound,
 
                 posix.ENAMETOOLONG => return error.NameTooLong,
                 posix.EINVAL => unreachable,
-                posix.EFAULT => return error.BadPathName,
-                posix.EIO => return error.Io,
+                posix.EFAULT => unreachable,
+                posix.EIO => return error.InputOutput,
                 posix.ENOMEM => return error.SystemResources,
                 else => return os.unexpectedErrorPosix(err),
             }
@@ -197,7 +207,9 @@ pub const File = struct {
                 const err = posix.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        posix.EBADF => error.BadFd,
+                        // We do not make this an error code because if you get EBADF it's always a bug,
+                        // since the fd could have been reused.
+                        posix.EBADF => unreachable,
                         posix.EINVAL => error.Unseekable,
                         posix.EOVERFLOW => error.Unseekable,
                         posix.ESPIPE => error.Unseekable,
@@ -210,7 +222,7 @@ pub const File = struct {
                 if (windows.SetFilePointerEx(self.handle, amount, null, windows.FILE_CURRENT) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
-                        windows.ERROR.INVALID_PARAMETER => error.BadFd,
+                        windows.ERROR.INVALID_PARAMETER => unreachable,
                         else => os.unexpectedErrorWindows(err),
                     };
                 }
@@ -227,7 +239,9 @@ pub const File = struct {
                 const err = posix.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        posix.EBADF => error.BadFd,
+                        // We do not make this an error code because if you get EBADF it's always a bug,
+                        // since the fd could have been reused.
+                        posix.EBADF => unreachable,
                         posix.EINVAL => error.Unseekable,
                         posix.EOVERFLOW => error.Unseekable,
                         posix.ESPIPE => error.Unseekable,
@@ -241,7 +255,7 @@ pub const File = struct {
                 if (windows.SetFilePointerEx(self.handle, ipos, null, windows.FILE_BEGIN) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
-                        windows.ERROR.INVALID_PARAMETER => error.BadFd,
+                        windows.ERROR.INVALID_PARAMETER => unreachable,
                         else => os.unexpectedErrorWindows(err),
                     };
                 }
@@ -257,7 +271,9 @@ pub const File = struct {
                 const err = posix.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        posix.EBADF => error.BadFd,
+                        // We do not make this an error code because if you get EBADF it's always a bug,
+                        // since the fd could have been reused.
+                        posix.EBADF => unreachable,
                         posix.EINVAL => error.Unseekable,
                         posix.EOVERFLOW => error.Unseekable,
                         posix.ESPIPE => error.Unseekable,
@@ -272,7 +288,7 @@ pub const File = struct {
                 if (windows.SetFilePointerEx(self.handle, 0, &pos, windows.FILE_CURRENT) == 0) {
                     const err = windows.GetLastError();
                     return switch (err) {
-                        windows.ERROR.INVALID_PARAMETER => error.BadFd,
+                        windows.ERROR.INVALID_PARAMETER => unreachable,
                         else => os.unexpectedErrorWindows(err),
                     };
                 }
@@ -305,7 +321,6 @@ pub const File = struct {
     }
 
     pub const ModeError = error{
-        BadFd,
         SystemResources,
         Unexpected,
     };
@@ -316,7 +331,9 @@ pub const File = struct {
             const err = posix.getErrno(posix.fstat(self.handle, &stat));
             if (err > 0) {
                 return switch (err) {
-                    posix.EBADF => error.BadFd,
+                    // We do not make this an error code because if you get EBADF it's always a bug,
+                    // since the fd could have been reused.
+                    posix.EBADF => unreachable,
                     posix.ENOMEM => error.SystemResources,
                     else => os.unexpectedErrorPosix(err),
                 };

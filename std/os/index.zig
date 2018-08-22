@@ -436,7 +436,7 @@ pub const PosixOpenError = error{
     NameTooLong,
     SystemFdQuotaExceeded,
     NoDevice,
-    PathNotFound,
+    FileNotFound,
     SystemResources,
     NoSpaceLeft,
     NotDir,
@@ -450,11 +450,8 @@ pub const PosixOpenError = error{
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
 pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
-    var path_with_null: [posix.PATH_MAX]u8 = undefined;
-    if (file_path.len >= posix.PATH_MAX) return error.NameTooLong;
-    mem.copy(u8, path_with_null[0..], file_path);
-    path_with_null[file_path.len] = 0;
-    return posixOpenC(&path_with_null, flags, perm);
+    const file_path_c = try toPosixPath(file_path);
+    return posixOpenC(&file_path_c, flags, perm);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -476,7 +473,7 @@ pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
                 posix.ENAMETOOLONG => return PosixOpenError.NameTooLong,
                 posix.ENFILE => return PosixOpenError.SystemFdQuotaExceeded,
                 posix.ENODEV => return PosixOpenError.NoDevice,
-                posix.ENOENT => return PosixOpenError.PathNotFound,
+                posix.ENOENT => return PosixOpenError.FileNotFound,
                 posix.ENOMEM => return PosixOpenError.SystemResources,
                 posix.ENOSPC => return PosixOpenError.NoSpaceLeft,
                 posix.ENOTDIR => return PosixOpenError.NotDir,
@@ -487,6 +484,16 @@ pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
         }
         return @intCast(i32, result);
     }
+}
+
+/// Used to convert a slice to a null terminated slice on the stack.
+/// TODO well defined copy elision
+pub fn toPosixPath(file_path: []const u8) ![posix.PATH_MAX]u8 {
+    var path_with_null: [posix.PATH_MAX]u8 = undefined;
+    if (file_path.len >= posix.PATH_MAX) return error.NameTooLong;
+    mem.copy(u8, path_with_null[0..], file_path);
+    path_with_null[file_path.len] = 0;
+    return path_with_null;
 }
 
 pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
@@ -742,7 +749,6 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
 pub const GetCwdError = error{Unexpected};
 
 /// The result is a slice of out_buffer.
-/// TODO with well defined copy elision we could make the API of this function better.
 pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
     switch (builtin.os) {
         Os.windows => {
@@ -960,11 +966,8 @@ pub fn deleteFilePosixC(file_path: [*]const u8) !void {
 }
 
 pub fn deleteFilePosix(file_path: []const u8) !void {
-    var path_with_null: [posix.PATH_MAX]u8 = undefined;
-    if (file_path.len >= posix.PATH_MAX) return error.NameTooLong;
-    mem.copy(u8, path_with_null[0..], file_path);
-    path_with_null[file_path.len] = 0;
-    return deleteFilePosixC(&path_with_null);
+    const file_path_c = try toPosixPath(file_path);
+    return deleteFilePosixC(&file_path_c);
 }
 
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
@@ -1120,17 +1123,9 @@ pub fn rename(old_path: []const u8, new_path: []const u8) !void {
             }
         }
     } else {
-        var old_path_with_null: [posix.PATH_MAX]u8 = undefined;
-        if (old_path.len >= posix.PATH_MAX) return error.NameTooLong;
-        mem.copy(u8, old_path_with_null[0..], old_path);
-        old_path_with_null[old_path.len] = 0;
-
-        var new_path_with_null: [posix.PATH_MAX]u8 = undefined;
-        if (new_path.len >= posix.PATH_MAX) return error.NameTooLong;
-        mem.copy(u8, new_path_with_null[0..], new_path);
-        new_path_with_null[new_path.len] = 0;
-
-        return renameC(&old_path_with_null, &new_path_with_null);
+        const old_path_c = try toPosixPath(old_path);
+        const new_path_c = try toPosixPath(new_path);
+        return renameC(&old_path_c, &new_path_c);
     }
 }
 
@@ -1156,7 +1151,7 @@ pub fn makeDirWindows(dir_path: []const u8) !void {
 }
 
 pub fn makeDirPosixC(dir_path: [*]const u8) !void {
-    const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
+    const err = posix.getErrno(posix.mkdir(dir_path, 0o755));
     switch (err) {
         0 => return,
         posix.EACCES => return error.AccessDenied,
@@ -1177,11 +1172,8 @@ pub fn makeDirPosixC(dir_path: [*]const u8) !void {
 }
 
 pub fn makeDirPosix(dir_path: []const u8) !void {
-    var path_with_null: [posix.PATH_MAX]u8 = undefined;
-    if (dir_path.len >= posix.PATH_MAX) return error.NameTooLong;
-    mem.copy(u8, path_with_null[0..], dir_path);
-    path_with_null[dir_path.len] = 0;
-    return makeDirPosixC(&path_with_null);
+    const dir_path_c = try toPosixPath(dir_path);
+    return makeDirPosixC(&dir_path_c);
 }
 
 /// Calls makeDir recursively to make an entire path. Returns success if the path
@@ -1290,7 +1282,6 @@ const DeleteTreeError = error{
     NameTooLong,
     SystemFdQuotaExceeded,
     NoDevice,
-    PathNotFound,
     SystemResources,
     NoSpaceLeft,
     PathAlreadyExists,
@@ -1354,7 +1345,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
                 error.NameTooLong,
                 error.SystemFdQuotaExceeded,
                 error.NoDevice,
-                error.PathNotFound,
+                error.FileNotFound,
                 error.SystemResources,
                 error.NoSpaceLeft,
                 error.PathAlreadyExists,
@@ -1424,7 +1415,7 @@ pub const Dir = struct {
     };
 
     pub const OpenError = error{
-        PathNotFound,
+        FileNotFound,
         NotDir,
         AccessDenied,
         FileTooBig,
@@ -1443,6 +1434,7 @@ pub const Dir = struct {
         Unexpected,
     };
 
+    /// TODO remove the allocator requirement from this API
     pub fn open(allocator: *Allocator, dir_path: []const u8) OpenError!Dir {
         return Dir{
             .allocator = allocator,
@@ -1458,7 +1450,6 @@ pub const Dir = struct {
                 },
                 Os.macosx, Os.ios => Handle{
                     .fd = try posixOpen(
-                        allocator,
                         dir_path,
                         posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
                         0,
@@ -1470,7 +1461,6 @@ pub const Dir = struct {
                 },
                 Os.linux => Handle{
                     .fd = try posixOpen(
-                        allocator,
                         dir_path,
                         posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC,
                         0,
@@ -1668,12 +1658,12 @@ pub fn changeCurDir(allocator: *Allocator, dir_path: []const u8) !void {
 
 /// Read value of a symbolic link.
 /// The return value is a slice of out_buffer.
-pub fn readLinkC(pathname: [*]const u8, out_buffer: *[posix.PATH_MAX]u8) ![]u8 {
+pub fn readLinkC(out_buffer: *[posix.PATH_MAX]u8, pathname: [*]const u8) ![]u8 {
     const rc = posix.readlink(pathname, out_buffer, out_buffer.len);
     const err = posix.getErrno(rc);
     switch (err) {
         0 => return out_buffer[0..rc],
-        posix.EACCES => error.AccessDenied,
+        posix.EACCES => return error.AccessDenied,
         posix.EFAULT => unreachable,
         posix.EINVAL => unreachable,
         posix.EIO => return error.FileSystem,
@@ -1688,12 +1678,9 @@ pub fn readLinkC(pathname: [*]const u8, out_buffer: *[posix.PATH_MAX]u8) ![]u8 {
 
 /// Read value of a symbolic link.
 /// The return value is a slice of out_buffer.
-pub fn readLink(file_path: []const u8, out_buffer: *[posix.PATH_MAX]u8) ![]u8 {
-    var path_with_null: [posix.PATH_MAX]u8 = undefined;
-    if (file_path.len >= posix.PATH_MAX) return error.NameTooLong;
-    mem.copy(u8, path_with_null[0..], file_path);
-    path_with_null[file_path.len] = 0;
-    return readLinkC(&path_with_null, out_buffer);
+pub fn readLink(out_buffer: *[posix.PATH_MAX]u8, file_path: []const u8) ![]u8 {
+    const file_path_c = try toPosixPath(file_path);
+    return readLinkC(out_buffer, &file_path_c);
 }
 
 pub fn posix_setuid(uid: u32) !void {
@@ -2080,17 +2067,12 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
 
 pub fn openSelfExe() !os.File {
     switch (builtin.os) {
-        Os.linux => {
-            const proc_file_path = "/proc/self/exe";
-            var fixed_buffer_mem: [proc_file_path.len + 1]u8 = undefined;
-            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
-        },
+        Os.linux => return os.File.openReadC(c"/proc/self/exe"),
         Os.macosx, Os.ios => {
-            var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
-            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            const self_exe_path = try selfExePath(&fixed_allocator.allocator);
-            return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
+            var buf: [MAX_PATH_BYTES]u8 = undefined;
+            const self_exe_path = try selfExePath(&buf);
+            buf[self_exe_path.len] = 0;
+            return os.File.openReadC(self_exe_path.ptr);
         },
         else => @compileError("Unsupported OS"),
     }
@@ -2099,7 +2081,7 @@ pub fn openSelfExe() !os.File {
 test "openSelfExe" {
     switch (builtin.os) {
         Os.linux, Os.macosx, Os.ios => (try openSelfExe()).close(),
-        else => return, // Unsupported OS.
+        else => return error.SkipZigTest, // Unsupported OS
     }
 }
 
@@ -2108,69 +2090,67 @@ test "openSelfExe" {
 /// If you only want an open file handle, use openSelfExe.
 /// This function may return an error if the current executable
 /// was deleted after spawning.
-/// Caller owns returned memory.
-pub fn selfExePath(allocator: *mem.Allocator) ![]u8 {
+/// Returned value is a slice of out_buffer.
+///
+/// On Linux, depends on procfs being mounted. If the currently executing binary has
+/// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
+pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
-        Os.linux => {
-            // If the currently executing binary has been deleted,
-            // the file path looks something like `/a/b/c/exe (deleted)`
-            return readLink(allocator, "/proc/self/exe");
-        },
+        Os.linux => return readLink(out_buffer, "/proc/self/exe"),
         Os.windows => {
-            var out_path = try Buffer.initSize(allocator, 0xff);
-            errdefer out_path.deinit();
-            while (true) {
-                const dword_len = try math.cast(windows.DWORD, out_path.len());
-                const copied_amt = windows.GetModuleFileNameA(null, out_path.ptr(), dword_len);
-                if (copied_amt <= 0) {
-                    const err = windows.GetLastError();
-                    return switch (err) {
-                        else => unexpectedErrorWindows(err),
-                    };
+            var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
+            const casted_len = @intCast(windows.DWORD, utf16le_buf.len); // TODO shouldn't need this cast
+            const rc = windows.GetModuleFileNameW(null, &utf16le_buf, casted_len);
+            assert(rc <= utf16le_buf.len);
+            if (rc == 0) {
+                const err = windows.GetLastError();
+                switch (err) {
+                    else => return unexpectedErrorWindows(err),
                 }
-                if (copied_amt < out_path.len()) {
-                    out_path.shrink(copied_amt);
-                    return out_path.toOwnedSlice();
-                }
-                const new_len = (out_path.len() << 1) | 0b1;
-                try out_path.resize(new_len);
             }
+            const utf16le_slice = utf16le_buf[0..rc];
+            // Trust that Windows gives us valid UTF-16LE.
+            const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
+            return out_buffer[0..end_index];
         },
         Os.macosx, Os.ios => {
-            var u32_len: u32 = 0;
-            const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
-            assert(ret1 != 0);
-            const bytes = try allocator.alloc(u8, u32_len);
-            errdefer allocator.free(bytes);
-            const ret2 = c._NSGetExecutablePath(bytes.ptr, &u32_len);
-            assert(ret2 == 0);
-            return bytes;
+            var u32_len: u32 = @intCast(u32, out_buffer.len); // TODO shouldn't need this cast
+            const rc = c._NSGetExecutablePath(out_buffer, &u32_len);
+            if (rc != 0) return error.NameTooLong;
+            return out_buffer[0..u32_len];
         },
         else => @compileError("Unsupported OS"),
     }
 }
 
-/// Get the directory path that contains the current executable.
+/// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
-pub fn selfExeDirPath(allocator: *mem.Allocator) ![]u8 {
+pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
+    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
+}
+
+/// Get the directory path that contains the current executable.
+/// Returned value is a slice of out_buffer.
+pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) ![]const u8 {
     switch (builtin.os) {
         Os.linux => {
             // If the currently executing binary has been deleted,
             // the file path looks something like `/a/b/c/exe (deleted)`
             // This path cannot be opened, but it's valid for determining the directory
             // the executable was in when it was run.
-            const full_exe_path = try readLink(allocator, "/proc/self/exe");
-            errdefer allocator.free(full_exe_path);
-            const dir = path.dirname(full_exe_path) orelse ".";
-            return allocator.shrink(u8, full_exe_path, dir.len);
+            const full_exe_path = try readLinkC(out_buffer, c"/proc/self/exe");
+            // Assume that /proc/self/exe has an absolute path, and therefore dirname
+            // will not return null.
+            return path.dirname(full_exe_path).?;
         },
         Os.windows, Os.macosx, Os.ios => {
-            const self_exe_path = try selfExePath(allocator);
-            errdefer allocator.free(self_exe_path);
-            const dirname = os.path.dirname(self_exe_path) orelse ".";
-            return allocator.shrink(u8, self_exe_path, dirname.len);
+            const self_exe_path = try selfExePath(out_buffer);
+            // Assume that the OS APIs return absolute paths, and therefore dirname
+            // will not return null.
+            return path.dirname(self_exe_path).?;
         },
-        else => @compileError("unimplemented: std.os.selfExeDirPath for " ++ @tagName(builtin.os)),
+        else => @compileError("Unsupported OS"),
     }
 }
 
@@ -2991,7 +2971,9 @@ pub fn posixFStat(fd: i32) !posix.Stat {
     const err = posix.getErrno(posix.fstat(fd, &stat));
     if (err > 0) {
         return switch (err) {
-            posix.EBADF => error.BadFd,
+            // We do not make this an error code because if you get EBADF it's always a bug,
+            // since the fd could have been reused.
+            posix.EBADF => unreachable,
             posix.ENOMEM => error.SystemResources,
             else => os.unexpectedErrorPosix(err),
         };

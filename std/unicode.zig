@@ -495,7 +495,7 @@ pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8
 }
 
 /// Asserts that the output buffer is big enough.
-/// Returns end index.
+/// Returns end byte index into utf8.
 pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
     var end_index: usize = 0;
     var it = Utf16LeIterator.init(utf16le);

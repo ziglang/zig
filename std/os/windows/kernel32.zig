@@ -4,8 +4,8 @@ pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVE
 
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
 
-pub extern "kernel32" stdcallcc fn CreateDirectoryA( lpPathName: [*]const u8, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) BOOL;
-pub extern "kernel32" stdcallcc fn CreateDirectoryW( lpPathName: [*]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) BOOL;
+pub extern "kernel32" stdcallcc fn CreateDirectoryA(lpPathName: [*]const u8, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) BOOL;
+pub extern "kernel32" stdcallcc fn CreateDirectoryW(lpPathName: [*]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateFileA(
     lpFileName: [*]const u8, // TODO null terminated pointer type
@@ -89,7 +89,8 @@ pub extern "kernel32" stdcallcc fn GetFileSizeEx(hFile: HANDLE, lpFileSize: *LAR
 pub extern "kernel32" stdcallcc fn GetFileAttributesA(lpFileName: [*]const CHAR) DWORD;
 pub extern "kernel32" stdcallcc fn GetFileAttributesW(lpFileName: [*]const WCHAR) DWORD;
 
-pub extern "kernel32" stdcallcc fn GetModuleFileNameA(hModule: ?HMODULE, lpFilename: LPSTR, nSize: DWORD) DWORD;
+pub extern "kernel32" stdcallcc fn GetModuleFileNameA(hModule: ?HMODULE, lpFilename: [*]u8, nSize: DWORD) DWORD;
+pub extern "kernel32" stdcallcc fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetLastError() DWORD;
 
@@ -103,6 +104,13 @@ pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(
 pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
     hFile: HANDLE,
     lpszFilePath: LPSTR,
+    cchFilePath: DWORD,
+    dwFlags: DWORD,
+) DWORD;
+
+pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleW(
+    hFile: HANDLE,
+    lpszFilePath: [*]u16,
     cchFilePath: DWORD,
     dwFlags: DWORD,
 ) DWORD;
