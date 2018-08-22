@@ -2094,6 +2094,7 @@ test "openSelfExe" {
 ///
 /// On Linux, depends on procfs being mounted. If the currently executing binary has
 /// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
+/// TODO make the return type of this a null terminated pointer
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
@@ -2117,7 +2118,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
             var u32_len: u32 = @intCast(u32, out_buffer.len); // TODO shouldn't need this cast
             const rc = c._NSGetExecutablePath(out_buffer, &u32_len);
             if (rc != 0) return error.NameTooLong;
-            return out_buffer[0..u32_len];
+            return mem.toSlice(u8, out_buffer);
         },
         else => @compileError("Unsupported OS"),
     }
