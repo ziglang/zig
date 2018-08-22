@@ -10697,6 +10697,19 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
 
             return cast2;
+        } else if (
+            wanted_child_type->id == TypeTableEntryIdPointer &&
+            wanted_child_type->data.pointer.ptr_len == PtrLenUnknown &&
+            actual_type->id == TypeTableEntryIdPointer &&
+            actual_type->data.pointer.ptr_len == PtrLenSingle &&
+            actual_type->data.pointer.child_type->id == TypeTableEntryIdArray &&
+            actual_type->data.pointer.alignment >= wanted_child_type->data.pointer.alignment &&
+            types_match_const_cast_only(ira, wanted_child_type->data.pointer.child_type,
+            actual_type->data.pointer.child_type->data.array.child_type, source_node,
+            !wanted_child_type->data.pointer.is_const).id == ConstCastResultIdOk)
+        {
+            IrInstruction *cast1 = ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_child_type);
+            return ir_analyze_maybe_wrap(ira, source_instr, cast1, wanted_type);
         }
     }
 
