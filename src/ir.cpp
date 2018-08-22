@@ -10708,7 +10708,14 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             actual_type->data.pointer.child_type->data.array.child_type, source_node,
             !wanted_child_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
+<<<<<<< HEAD
             IrInstruction *cast1 = ir_resolve_ptr_of_array_to_unknown_len_ptr(ira, source_instr, value, wanted_child_type);
+=======
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_child_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+>>>>>>> allow implicit cast from *[N]T to ?[*]T
             return ir_analyze_maybe_wrap(ira, source_instr, cast1, wanted_type);
         }
     }
