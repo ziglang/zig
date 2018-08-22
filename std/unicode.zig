@@ -218,7 +218,6 @@ const Utf8Iterator = struct {
         }
 
         const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
-
         it.i += cp_len;
         return it.bytes[it.i - cp_len .. it.i];
     }
@@ -232,6 +231,38 @@ const Utf8Iterator = struct {
             3 => return utf8Decode3(slice) catch unreachable,
             4 => return utf8Decode4(slice) catch unreachable,
             else => unreachable,
+        }
+    }
+};
+
+pub const Utf16LeIterator = struct {
+    bytes: []const u8,
+    i: usize,
+
+    pub fn init(s: []const u16) Utf16LeIterator {
+        return Utf16LeIterator{
+            .bytes = @sliceToBytes(s),
+            .i = 0,
+        };
+    }
+
+    pub fn nextCodepoint(it: *Utf16LeIterator) !?u32 {
+        assert(it.i <= it.bytes.len);
+        if (it.i == it.bytes.len) return null;
+        const c0: u32 = mem.readIntLE(u16, it.bytes[it.i .. it.i + 2]);
+        if (c0 & ~u32(0x03ff) == 0xd800) {
+            // surrogate pair
+            it.i += 2;
+            if (it.i >= it.bytes.len) return error.DanglingSurrogateHalf;
+            const c1: u32 = mem.readIntLE(u16, it.bytes[it.i .. it.i + 2]);
+            if (c1 & ~u32(0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
+            it.i += 2;
+            return 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
+        } else if (c0 & ~u32(0x03ff) == 0xdc00) {
+            return error.UnexpectedSecondSurrogateHalf;
+        } else {
+            it.i += 2;
+            return c0;
         }
     }
 };
@@ -446,40 +477,32 @@ fn testDecode(bytes: []const u8) !u32 {
     return utf8Decode(bytes);
 }
 
-// TODO: make this API on top of a non-allocating Utf16LeView
-pub fn utf16leToUtf8(allocator: *mem.Allocator, utf16le: []const u16) ![]u8 {
+/// Caller must free returned memory.
+pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8 {
     var result = std.ArrayList(u8).init(allocator);
     // optimistically guess that it will all be ascii.
     try result.ensureCapacity(utf16le.len);
-
-    const utf16le_as_bytes = @sliceToBytes(utf16le);
-    var i: usize = 0;
     var out_index: usize = 0;
-    while (i < utf16le_as_bytes.len) : (i += 2) {
-        // decode
-        const c0: u32 = mem.readIntLE(u16, utf16le_as_bytes[i..i + 2]);
-        var codepoint: u32 = undefined;
-        if (c0 & ~u32(0x03ff) == 0xd800) {
-            // surrogate pair
-            i += 2;
-            if (i >= utf16le_as_bytes.len) return error.DanglingSurrogateHalf;
-            const c1: u32 = mem.readIntLE(u16, utf16le_as_bytes[i..i + 2]);
-            if (c1 & ~u32(0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
-            codepoint = 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
-        } else if (c0 & ~u32(0x03ff) == 0xdc00) {
-            return error.UnexpectedSecondSurrogateHalf;
-        } else {
-            codepoint = c0;
-        }
-
-        // encode
+    var it = Utf16LeIterator.init(utf16le);
+    while (try it.nextCodepoint()) |codepoint| {
         const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
         try result.resize(result.len + utf8_len);
-        _ = utf8Encode(codepoint, result.items[out_index..]) catch unreachable;
+        assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
         out_index += utf8_len;
     }
 
     return result.toOwnedSlice();
+}
+
+/// Asserts that the output buffer is big enough.
+/// Returns end byte index into utf8.
+pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
+    var end_index: usize = 0;
+    var it = Utf16LeIterator.init(utf16le);
+    while (try it.nextCodepoint()) |codepoint| {
+        end_index += try utf8Encode(codepoint, utf8[end_index..]);
+    }
+    return end_index;
 }
 
 test "utf16leToUtf8" {
@@ -489,14 +512,14 @@ test "utf16leToUtf8" {
     {
         mem.writeInt(utf16le_as_bytes[0..], u16('A'), builtin.Endian.Little);
         mem.writeInt(utf16le_as_bytes[2..], u16('a'), builtin.Endian.Little);
-        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "Aa"));
     }
 
     {
         mem.writeInt(utf16le_as_bytes[0..], u16(0x80), builtin.Endian.Little);
         mem.writeInt(utf16le_as_bytes[2..], u16(0xffff), builtin.Endian.Little);
-        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
     }
 
@@ -504,7 +527,7 @@ test "utf16leToUtf8" {
         // the values just outside the surrogate half range
         mem.writeInt(utf16le_as_bytes[0..], u16(0xd7ff), builtin.Endian.Little);
         mem.writeInt(utf16le_as_bytes[2..], u16(0xe000), builtin.Endian.Little);
-        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
     }
 
@@ -512,7 +535,7 @@ test "utf16leToUtf8" {
         // smallest surrogate pair
         mem.writeInt(utf16le_as_bytes[0..], u16(0xd800), builtin.Endian.Little);
         mem.writeInt(utf16le_as_bytes[2..], u16(0xdc00), builtin.Endian.Little);
-        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
     }
 
@@ -520,14 +543,14 @@ test "utf16leToUtf8" {
         // largest surrogate pair
         mem.writeInt(utf16le_as_bytes[0..], u16(0xdbff), builtin.Endian.Little);
         mem.writeInt(utf16le_as_bytes[2..], u16(0xdfff), builtin.Endian.Little);
-        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
 
     {
         mem.writeInt(utf16le_as_bytes[0..], u16(0xdbff), builtin.Endian.Little);
         mem.writeInt(utf16le_as_bytes[2..], u16(0xdc00), builtin.Endian.Little);
-        const utf8 = try utf16leToUtf8(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
 }
@@ -547,4 +570,21 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16
 
     try result.append(0);
     return result.toOwnedSlice();
+}
+
+/// Returns index of next character. If exact fit, returned index equals output slice length.
+/// If ran out of room, returned index equals output slice length + 1.
+/// TODO support codepoints bigger than 16 bits
+pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
+    const utf16le_as_bytes = @sliceToBytes(utf16le[0..]);
+    var end_index: usize = 0;
+
+    var it = (try Utf8View.init(utf8)).iterator();
+    while (it.nextCodepoint()) |codepoint| {
+        if (end_index == utf16le_as_bytes.len) return (end_index / 2) + 1;
+        // TODO surrogate pairs
+        mem.writeInt(utf16le_as_bytes[end_index..], @intCast(u16, codepoint), builtin.Endian.Little);
+        end_index += 2;
+    }
+    return end_index / 2;
 }

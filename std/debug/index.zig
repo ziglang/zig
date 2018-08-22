@@ -255,7 +255,7 @@ pub fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address
                         address,
                         compile_unit_name,
                     );
-                    if (printLineFromFile(debug_info.allocator(), out_stream, line_info)) {
+                    if (printLineFromFile(out_stream, line_info)) {
                         if (line_info.column == 0) {
                             try out_stream.write("\n");
                         } else {
@@ -340,8 +340,8 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
     }
 }
 
-fn printLineFromFile(allocator: *mem.Allocator, out_stream: var, line_info: *const LineInfo) !void {
-    var f = try os.File.openRead(allocator, line_info.file_name);
+fn printLineFromFile(out_stream: var, line_info: *const LineInfo) !void {
+    var f = try os.File.openRead(line_info.file_name);
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 

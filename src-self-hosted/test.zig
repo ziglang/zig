@@ -94,7 +94,7 @@ pub const TestContext = struct {
         }
 
         // TODO async I/O
-        try std.io.writeFile(allocator, file1_path, source);
+        try std.io.writeFile(file1_path, source);
 
         var comp = try Compilation.create(
             &self.zig_compiler,
@@ -128,7 +128,7 @@ pub const TestContext = struct {
         }
 
         // TODO async I/O
-        try std.io.writeFile(allocator, file1_path, source);
+        try std.io.writeFile(file1_path, source);
 
         var comp = try Compilation.create(
             &self.zig_compiler,

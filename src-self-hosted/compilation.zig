@@ -257,8 +257,6 @@ pub const Compilation = struct {
     pub const BuildError = error{
         OutOfMemory,
         EndOfStream,
-        BadFd,
-        Io,
         IsDir,
         Unexpected,
         SystemResources,
@@ -273,7 +271,6 @@ pub const Compilation = struct {
         NameTooLong,
         SystemFdQuotaExceeded,
         NoDevice,
-        PathNotFound,
         NoSpaceLeft,
         NotDir,
         FileSystem,
@@ -302,6 +299,7 @@ pub const Compilation = struct {
         UnsupportedLinkArchitecture,
         UserResourceLimitReached,
         InvalidUtf8,
+        BadPathName,
     };
 
     pub const Event = union(enum) {
@@ -961,7 +959,7 @@ pub const Compilation = struct {
         if (self.root_src_path) |root_src_path| {
             const root_scope = blk: {
                 // TODO async/await os.path.real
-                const root_src_real_path = os.path.real(self.gpa(), root_src_path) catch |err| {
+                const root_src_real_path = os.path.realAlloc(self.gpa(), root_src_path) catch |err| {
                     try self.addCompileErrorCli(root_src_path, "unable to open: {}", @errorName(err));
                     return;
                 };

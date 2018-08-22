@@ -7,9 +7,17 @@ const mem = std.mem;
 const BufMap = std.BufMap;
 const cstr = std.cstr;
 
+// > The maximum path of 32,767 characters is approximate, because the "\\?\"
+// > prefix may be expanded to a longer string by the system at run time, and
+// > this expansion applies to the total length.
+// from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+pub const PATH_MAX_WIDE = 32767;
+
 pub const WaitError = error{
     WaitAbandoned,
     WaitTimeOut,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -37,6 +45,8 @@ pub const WriteError = error{
     SystemResources,
     OperationAborted,
     BrokenPipe,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -86,37 +96,51 @@ pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
 pub const OpenError = error{
     SharingViolation,
     PathAlreadyExists,
+
+    /// When any of the path components can not be found or the file component can not
+    /// be found. Some operating systems distinguish between path components not found and
+    /// file components not found, but they are collapsed into FileNotFound to gain
+    /// consistency across operating systems.
     FileNotFound,
+
     AccessDenied,
     PipeBusy,
+    NameTooLong,
+
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
-    OutOfMemory,
 };
 
-/// `file_path` needs to be copied in memory to add a null terminating byte, hence the allocator.
 pub fn windowsOpen(
-    allocator: *mem.Allocator,
     file_path: []const u8,
     desired_access: windows.DWORD,
     share_mode: windows.DWORD,
     creation_disposition: windows.DWORD,
     flags_and_attrs: windows.DWORD,
 ) OpenError!windows.HANDLE {
-    const path_with_null = try cstr.addNullByte(allocator, file_path);
-    defer allocator.free(path_with_null);
+    const file_path_w = try sliceToPrefixedFileW(file_path);
 
-    const result = windows.CreateFileA(path_with_null.ptr, desired_access, share_mode, null, creation_disposition, flags_and_attrs, null);
+    const result = windows.CreateFileW(&file_path_w, desired_access, share_mode, null, creation_disposition, flags_and_attrs, null);
 
     if (result == windows.INVALID_HANDLE_VALUE) {
         const err = windows.GetLastError();
-        return switch (err) {
-            windows.ERROR.SHARING_VIOLATION => OpenError.SharingViolation,
-            windows.ERROR.ALREADY_EXISTS, windows.ERROR.FILE_EXISTS => OpenError.PathAlreadyExists,
-            windows.ERROR.FILE_NOT_FOUND => OpenError.FileNotFound,
-            windows.ERROR.ACCESS_DENIED => OpenError.AccessDenied,
-            windows.ERROR.PIPE_BUSY => OpenError.PipeBusy,
-            else => os.unexpectedErrorWindows(err),
-        };
+        switch (err) {
+            windows.ERROR.SHARING_VIOLATION => return OpenError.SharingViolation,
+            windows.ERROR.ALREADY_EXISTS => return OpenError.PathAlreadyExists,
+            windows.ERROR.FILE_EXISTS => return OpenError.PathAlreadyExists,
+            windows.ERROR.FILE_NOT_FOUND => return OpenError.FileNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return OpenError.FileNotFound,
+            windows.ERROR.ACCESS_DENIED => return OpenError.AccessDenied,
+            windows.ERROR.PIPE_BUSY => return OpenError.PipeBusy,
+            else => return os.unexpectedErrorWindows(err),
+        }
     }
 
     return result;
@@ -192,9 +216,8 @@ pub fn windowsFindFirstFile(
     if (handle == windows.INVALID_HANDLE_VALUE) {
         const err = windows.GetLastError();
         switch (err) {
-            windows.ERROR.FILE_NOT_FOUND,
-            windows.ERROR.PATH_NOT_FOUND,
-            => return error.PathNotFound,
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
             else => return os.unexpectedErrorWindows(err),
         }
     }
@@ -238,7 +261,7 @@ pub fn windowsPostQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_
     }
 }
 
-pub const WindowsWaitResult = enum{
+pub const WindowsWaitResult = enum {
     Normal,
     Aborted,
     Cancelled,
@@ -254,8 +277,39 @@ pub fn windowsGetQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_t
                 if (std.debug.runtime_safety) {
                     std.debug.panic("unexpected error: {}\n", err);
                 }
-            }
+            },
         }
     }
     return WindowsWaitResult.Normal;
+}
+
+pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
+    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
+}
+
+pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
+    // TODO well defined copy elision
+    var result: [PATH_MAX_WIDE + 1]u16 = undefined;
+
+    // > File I/O functions in the Windows API convert "/" to "\" as part of
+    // > converting the name to an NT-style name, except when using the "\\?\"
+    // > prefix as detailed in the following sections.
+    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+    // Because we want the larger maximum path length for absolute paths, we
+    // disallow forward slashes in zig std lib file functions on Windows.
+    for (s) |byte|
+        switch (byte) {
+        '/', '*', '?', '"', '<', '>', '|' => return error.BadPathName,
+        else => {},
+    };
+    const start_index = if (mem.startsWith(u8, s, "\\\\") or !os.path.isAbsolute(s)) 0 else blk: {
+        const prefix = []u16{ '\\', '\\', '?', '\\' };
+        mem.copy(u16, result[0..], prefix);
+        break :blk prefix.len;
+    };
+    const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
+    assert(end_index <= result.len);
+    if (end_index == result.len) return error.NameTooLong;
+    result[end_index] = 0;
+    return result;
 }

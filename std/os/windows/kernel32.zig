@@ -1,14 +1,11 @@
 use @import("index.zig");
 
-
 pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
 
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
 
-pub extern "kernel32" stdcallcc fn CreateDirectoryA(
-    lpPathName: LPCSTR,
-    lpSecurityAttributes: ?*SECURITY_ATTRIBUTES,
-) BOOL;
+pub extern "kernel32" stdcallcc fn CreateDirectoryA(lpPathName: [*]const u8, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) BOOL;
+pub extern "kernel32" stdcallcc fn CreateDirectoryW(lpPathName: [*]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateFileA(
     lpFileName: [*]const u8, // TODO null terminated pointer type
@@ -60,7 +57,8 @@ pub extern "kernel32" stdcallcc fn CreateIoCompletionPort(FileHandle: HANDLE, Ex
 
 pub extern "kernel32" stdcallcc fn CreateThread(lpThreadAttributes: ?LPSECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?LPDWORD) ?HANDLE;
 
-pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) BOOL;
+pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: [*]const u8) BOOL;
+pub extern "kernel32" stdcallcc fn DeleteFileW(lpFileName: [*]const u16) BOOL;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) noreturn;
 
@@ -74,7 +72,8 @@ pub extern "kernel32" stdcallcc fn GetCommandLineA() LPSTR;
 
 pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) BOOL;
 
-pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPSTR) DWORD;
+pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: DWORD, lpBuffer: ?[*]CHAR) DWORD;
+pub extern "kernel32" stdcallcc fn GetCurrentDirectoryW(nBufferLength: DWORD, lpBuffer: ?[*]WCHAR) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetCurrentThread() HANDLE;
 pub extern "kernel32" stdcallcc fn GetCurrentThreadId() DWORD;
@@ -87,9 +86,11 @@ pub extern "kernel32" stdcallcc fn GetExitCodeProcess(hProcess: HANDLE, lpExitCo
 
 pub extern "kernel32" stdcallcc fn GetFileSizeEx(hFile: HANDLE, lpFileSize: *LARGE_INTEGER) BOOL;
 
-pub extern "kernel32" stdcallcc fn GetFileAttributesA(lpFileName: LPCSTR) DWORD;
+pub extern "kernel32" stdcallcc fn GetFileAttributesA(lpFileName: [*]const CHAR) DWORD;
+pub extern "kernel32" stdcallcc fn GetFileAttributesW(lpFileName: [*]const WCHAR) DWORD;
 
-pub extern "kernel32" stdcallcc fn GetModuleFileNameA(hModule: ?HMODULE, lpFilename: LPSTR, nSize: DWORD) DWORD;
+pub extern "kernel32" stdcallcc fn GetModuleFileNameA(hModule: ?HMODULE, lpFilename: [*]u8, nSize: DWORD) DWORD;
+pub extern "kernel32" stdcallcc fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetLastError() DWORD;
 
@@ -107,6 +108,12 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
     dwFlags: DWORD,
 ) DWORD;
 
+pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleW(
+    hFile: HANDLE,
+    lpszFilePath: [*]u16,
+    cchFilePath: DWORD,
+    dwFlags: DWORD,
+) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetOverlappedResult(hFile: HANDLE, lpOverlapped: *OVERLAPPED, lpNumberOfBytesTransferred: *DWORD, bWait: BOOL) BOOL;
 
@@ -132,8 +139,14 @@ pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem
 pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: ?*const c_void) BOOL;
 
 pub extern "kernel32" stdcallcc fn MoveFileExA(
-    lpExistingFileName: LPCSTR,
-    lpNewFileName: LPCSTR,
+    lpExistingFileName: [*]const u8,
+    lpNewFileName: [*]const u8,
+    dwFlags: DWORD,
+) BOOL;
+
+pub extern "kernel32" stdcallcc fn MoveFileExW(
+    lpExistingFileName: [*]const u16,
+    lpNewFileName: [*]const u16,
     dwFlags: DWORD,
 ) BOOL;
 
@@ -194,7 +207,6 @@ pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: LPCSTR) ?HMODULE;
 
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
 
-
 pub const FILE_NOTIFY_INFORMATION = extern struct {
     NextEntryOffset: DWORD,
     Action: DWORD,
@@ -208,7 +220,7 @@ pub const FILE_ACTION_MODIFIED = 0x00000003;
 pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn(DWORD, DWORD, *OVERLAPPED) void;
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn (DWORD, DWORD, *OVERLAPPED) void;
 
 pub const FILE_LIST_DIRECTORY = 1;
 

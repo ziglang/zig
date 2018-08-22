@@ -10,6 +10,7 @@ pub const GetAppDataDirError = error{
 };
 
 /// Caller owns returned memory.
+/// TODO determine if we can remove the allocator requirement
 pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
     switch (builtin.os) {
         builtin.Os.windows => {
@@ -22,7 +23,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
             )) {
                 os.windows.S_OK => {
                     defer os.windows.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
-                    const global_dir = unicode.utf16leToUtf8(allocator, utf16lePtrSlice(dir_path_ptr)) catch |err| switch (err) {
+                    const global_dir = unicode.utf16leToUtf8Alloc(allocator, utf16lePtrSlice(dir_path_ptr)) catch |err| switch (err) {
                         error.UnexpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
                         error.ExpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
                         error.DanglingSurrogateHalf => return error.AppDataDirUnavailable,

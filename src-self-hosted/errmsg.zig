@@ -235,7 +235,7 @@ pub const Msg = struct {
         const allocator = msg.getAllocator();
         const tree = msg.getTree();
 
-        const cwd = try os.getCwd(allocator);
+        const cwd = try os.getCwdAlloc(allocator);
         defer allocator.free(cwd);
 
         const relpath = try os.path.relative(allocator, cwd, msg.realpath);
