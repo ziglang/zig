@@ -19,7 +19,7 @@ pub fn build(b: *Builder) !void {
     var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8{
         docgen_exe.getOutputPath(),
         rel_zig_exe,
-        "doc/langref.html.in",
+        "doc" ++ os.path.sep_str ++ "langref.html.in",
         os.path.join(b.allocator, b.cache_root, "langref.html") catch unreachable,
     });
     docgen_cmd.step.dependOn(&docgen_exe.step);
