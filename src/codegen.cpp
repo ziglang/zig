@@ -5220,13 +5220,13 @@ static bool is_llvm_value_unnamed_type(TypeTableEntry *type_entry, LLVMValueRef 
 }
 
 static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, const char *name) {
-    render_const_val_global(g, const_val, name);
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
         case ConstPtrSpecialDiscard:
             zig_unreachable();
         case ConstPtrSpecialRef:
             {
+                render_const_val_global(g, const_val, name);
                 ConstExprValue *pointee = const_val->data.x_ptr.data.ref.pointee;
                 render_const_val(g, pointee, "");
                 render_const_val_global(g, pointee, "");
@@ -5237,6 +5237,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
             }
         case ConstPtrSpecialBaseArray:
             {
+                render_const_val_global(g, const_val, name);
                 ConstExprValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
                 size_t elem_index = const_val->data.x_ptr.data.base_array.elem_index;
                 assert(array_const_val->type->id == TypeTableEntryIdArray);
@@ -5257,6 +5258,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
             }
         case ConstPtrSpecialBaseStruct:
             {
+                render_const_val_global(g, const_val, name);
                 ConstExprValue *struct_const_val = const_val->data.x_ptr.data.base_struct.struct_val;
                 assert(struct_const_val->type->id == TypeTableEntryIdStruct);
                 if (struct_const_val->type->zero_bits) {
@@ -5279,6 +5281,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
             }
         case ConstPtrSpecialHardCodedAddr:
             {
+                render_const_val_global(g, const_val, name);
                 uint64_t addr_value = const_val->data.x_ptr.data.hard_coded_addr.addr;
                 TypeTableEntry *usize = g->builtin_types.entry_usize;
                 const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstInt(usize->type_ref, addr_value, false),
