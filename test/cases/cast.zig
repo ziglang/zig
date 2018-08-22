@@ -491,6 +491,8 @@ test "implicit cast from *[N]T to ?[*]T" {
   var y: [4]u16 = [4]u16 {0, 1, 2, 3};
 
   x = &y;
-  
+  assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+  x.?[0] = 8;
+  y[3] = 6;
   assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
 }
