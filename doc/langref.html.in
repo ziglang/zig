@@ -3838,6 +3838,7 @@ test "float widening" {
       <p>TODO: [N]T to ?[]const T</p>
       <p>TODO: *[N]T to []T</p>
       <p>TODO: *[N]T to [*]T</p>
+      <p>TODO: *[N]T to ?[*]T</p>
       <p>TODO: *T to *[1]T</p>
       <p>TODO: [N]T to E![]const T</p>
       {#header_close#}
