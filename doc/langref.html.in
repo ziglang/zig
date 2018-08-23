@@ -744,19 +744,19 @@ const yet_another_hex_float = 0x103.70P-5;
       {#code_end#}
       {#header_close#}
       {#header_open|Floating Point Operations#}
-      <p>By default floating point operations use <code>Optimized</code> mode,
-      but you can switch to <code>Strict</code> mode on a per-block basis:</p>
+      <p>By default floating point operations use <code>Strict</code> mode,
+      but you can switch to <code>Optimized</code> mode on a per-block basis:</p>
       {#code_begin|obj|foo#}
       {#code_release_fast#}
 const builtin = @import("builtin");
 const big = f64(1 << 40);
 
 export fn foo_strict(x: f64) f64 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
     return x + big - big;
 }
 
 export fn foo_optimized(x: f64) f64 {
+    @setFloatMode(this, builtin.FloatMode.Optimized);
     return x + big - big;
 }
       {#code_end#}
@@ -5948,7 +5948,7 @@ pub const FloatMode = enum {
       {#code_end#}
       <ul>
         <li>
-          <code>Optimized</code> (default) - Floating point operations may do all of the following:
+          <code>Optimized</code> - Floating point operations may do all of the following:
           <ul>
             <li>Assume the arguments and result are not NaN. Optimizations are required to retain defined behavior over NaNs, but the value of the result is undefined.</li>
             <li>Assume the arguments and result are not +/-Inf. Optimizations are required to retain defined behavior over +/-Inf, but the value of the result is undefined.</li>
@@ -5960,7 +5960,7 @@ pub const FloatMode = enum {
           This is equivalent to <code>-ffast-math</code> in GCC.
         </li>
         <li>
-          <code>Strict</code> - Floating point operations follow strict IEEE compliance.
+          <code>Strict</code> (default) - Floating point operations follow strict IEEE compliance.
         </li>
       </ul>
       {#see_also|Floating Point Operations#}

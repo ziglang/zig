@@ -61,10 +61,8 @@ fn ceil64(x: f64) f64 {
     }
 
     if (u >> 63 != 0) {
-        @setFloatMode(this, builtin.FloatMode.Strict);
         y = x - math.f64_toint + math.f64_toint - x;
     } else {
-        @setFloatMode(this, builtin.FloatMode.Strict);
         y = x + math.f64_toint - math.f64_toint - x;
     }
 
