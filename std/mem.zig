@@ -679,10 +679,38 @@ test "testWriteInt" {
     comptime testWriteIntImpl();
 }
 fn testWriteIntImpl() void {
-    var bytes: [4]u8 = undefined;
+    var bytes: [8]u8 = undefined;
+
+    writeInt(bytes[0..], u64(0x12345678CAFEBABE), builtin.Endian.Big);
+    assert(eql(u8, bytes, []u8{
+        0x12,
+        0x34,
+        0x56,
+        0x78,
+        0xCA,
+        0xFE,
+        0xBA,
+        0xBE,
+    }));
+
+    writeInt(bytes[0..], u64(0xBEBAFECA78563412), builtin.Endian.Little);
+    assert(eql(u8, bytes, []u8{
+        0x12,
+        0x34,
+        0x56,
+        0x78,
+        0xCA,
+        0xFE,
+        0xBA,
+        0xBE,
+    }));
 
     writeInt(bytes[0..], u32(0x12345678), builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x12,
         0x34,
         0x56,
@@ -695,10 +723,18 @@ fn testWriteIntImpl() void {
         0x34,
         0x56,
         0x78,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
     }));
 
     writeInt(bytes[0..], u16(0x1234), builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x00,
         0x00,
         0x12,
@@ -709,6 +745,10 @@ fn testWriteIntImpl() void {
     assert(eql(u8, bytes, []u8{
         0x34,
         0x12,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x00,
         0x00,
     }));
