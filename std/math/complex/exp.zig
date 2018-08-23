@@ -17,8 +17,6 @@ pub fn exp(z: var) @typeOf(z) {
 }
 
 fn exp32(z: Complex(f32)) Complex(f32) {
-    @setFloatMode(this, @import("builtin").FloatMode.Strict);
-
     const exp_overflow = 0x42b17218; // max_exp * ln2 ~= 88.72283955
     const cexp_overflow = 0x43400074; // (max_exp - min_denom_exp) * ln2
 
