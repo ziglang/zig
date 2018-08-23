@@ -42,8 +42,8 @@ pub fn getStderrStream() !*io.OutStream(io.FileOutStream.Error) {
     }
 }
 
-var self_debug_info: ?*ElfStackTrace = null;
-pub fn getSelfDebugInfo() !*ElfStackTrace {
+var self_debug_info: ?*DebugInfo = null;
+pub fn getSelfDebugInfo() !*DebugInfo {
     if (self_debug_info) |info| {
         return info;
     } else {
@@ -155,7 +155,7 @@ const WHITE = "\x1b[37;1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, allocator: *mem.Allocator, debug_info: *ElfStackTrace, tty_color: bool) !void {
+pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo, tty_color: bool) !void {
     var frame_index: usize = undefined;
     var frames_left: usize = undefined;
     if (stack_trace.index < stack_trace.instruction_addresses.len) {
@@ -185,7 +185,7 @@ pub inline fn getReturnAddress(frame_count: usize) usize {
     return @intToPtr(*const usize, fp + @sizeOf(usize)).*;
 }
 
-pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_info: *ElfStackTrace, tty_color: bool, start_addr: ?usize) !void {
+pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
     const AddressState = union(enum) {
         NotLookingForStartAddress,
         LookingForStartAddress: usize,
@@ -218,7 +218,7 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_
     }
 }
 
-pub fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: usize, tty_color: bool) !void {
+pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
     switch (builtin.os) {
         builtin.Os.windows => return error.UnsupportedDebugInfo,
         builtin.Os.macosx => {
@@ -291,10 +291,10 @@ pub fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address
     }
 }
 
-pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
+pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*DebugInfo {
     switch (builtin.object_format) {
         builtin.ObjectFormat.elf => {
-            const st = try allocator.create(ElfStackTrace{
+            const st = try allocator.create(DebugInfo{
                 .self_exe_file = undefined,
                 .elf = undefined,
                 .debug_info = undefined,
@@ -324,7 +324,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
             var exe_file = try os.openSelfExe();
             defer exe_file.close();
 
-            const st = try allocator.create(ElfStackTrace{ .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)) });
+            const st = try allocator.create(DebugInfo{ .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)) });
             errdefer allocator.destroy(st);
             return st;
         },
@@ -372,11 +372,11 @@ fn printLineFromFile(out_stream: var, line_info: *const LineInfo) !void {
     }
 }
 
-pub const ElfStackTrace = switch (builtin.os) {
+pub const DebugInfo = switch (builtin.os) {
     builtin.Os.macosx => struct {
         symbol_table: macho.SymbolTable,
 
-        pub fn close(self: *ElfStackTrace) void {
+        pub fn close(self: *DebugInfo) void {
             self.symbol_table.deinit();
         }
     },
@@ -391,17 +391,17 @@ pub const ElfStackTrace = switch (builtin.os) {
         abbrev_table_list: ArrayList(AbbrevTableHeader),
         compile_unit_list: ArrayList(CompileUnit),
 
-        pub fn allocator(self: *const ElfStackTrace) *mem.Allocator {
+        pub fn allocator(self: *const DebugInfo) *mem.Allocator {
             return self.abbrev_table_list.allocator;
         }
 
-        pub fn readString(self: *ElfStackTrace) ![]u8 {
+        pub fn readString(self: *DebugInfo) ![]u8 {
             var in_file_stream = io.FileInStream.init(&self.self_exe_file);
             const in_stream = &in_file_stream.stream;
             return readStringRaw(self.allocator(), in_stream);
         }
 
-        pub fn close(self: *ElfStackTrace) void {
+        pub fn close(self: *DebugInfo) void {
             self.self_exe_file.close();
             self.elf.close();
         }
@@ -508,7 +508,7 @@ const Die = struct {
         };
     }
 
-    fn getAttrString(self: *const Die, st: *ElfStackTrace, id: u64) ![]u8 {
+    fn getAttrString(self: *const Die, st: *DebugInfo, id: u64) ![]u8 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
@@ -623,7 +623,7 @@ fn readStringRaw(allocator: *mem.Allocator, in_stream: var) ![]u8 {
     return buf.toSlice();
 }
 
-fn getString(st: *ElfStackTrace, offset: u64) ![]u8 {
+fn getString(st: *DebugInfo, offset: u64) ![]u8 {
     const pos = st.debug_str.offset + offset;
     try st.self_exe_file.seekTo(pos);
     return st.readString();
@@ -730,7 +730,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
     };
 }
 
-fn parseAbbrevTable(st: *ElfStackTrace) !AbbrevTable {
+fn parseAbbrevTable(st: *DebugInfo) !AbbrevTable {
     const in_file = &st.self_exe_file;
     var in_file_stream = io.FileInStream.init(in_file);
     const in_stream = &in_file_stream.stream;
@@ -760,7 +760,7 @@ fn parseAbbrevTable(st: *ElfStackTrace) !AbbrevTable {
 
 /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
 /// seeks in the stream and parses it.
-fn getAbbrevTable(st: *ElfStackTrace, abbrev_offset: u64) !*const AbbrevTable {
+fn getAbbrevTable(st: *DebugInfo, abbrev_offset: u64) !*const AbbrevTable {
     for (st.abbrev_table_list.toSlice()) |*header| {
         if (header.offset == abbrev_offset) {
             return &header.table;
@@ -781,7 +781,7 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
     return null;
 }
 
-fn parseDie(st: *ElfStackTrace, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
+fn parseDie(st: *DebugInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
     const in_file = &st.self_exe_file;
     var in_file_stream = io.FileInStream.init(in_file);
     const in_stream = &in_file_stream.stream;
@@ -803,7 +803,7 @@ fn parseDie(st: *ElfStackTrace, abbrev_table: *const AbbrevTable, is_64: bool) !
     return result;
 }
 
-fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, target_address: usize) !LineInfo {
+fn getLineNumberInfo(st: *DebugInfo, compile_unit: *const CompileUnit, target_address: usize) !LineInfo {
     const compile_unit_cwd = try compile_unit.die.getAttrString(st, DW.AT_comp_dir);
 
     const in_file = &st.self_exe_file;
@@ -982,7 +982,7 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
     return error.MissingDebugInfo;
 }
 
-fn scanAllCompileUnits(st: *ElfStackTrace) !void {
+fn scanAllCompileUnits(st: *DebugInfo) !void {
     const debug_info_end = st.debug_info.offset + st.debug_info.size;
     var this_unit_offset = st.debug_info.offset;
     var cu_index: usize = 0;
@@ -1052,7 +1052,7 @@ fn scanAllCompileUnits(st: *ElfStackTrace) !void {
     }
 }
 
-fn findCompileUnit(st: *ElfStackTrace, target_address: u64) !*const CompileUnit {
+fn findCompileUnit(st: *DebugInfo, target_address: u64) !*const CompileUnit {
     var in_file_stream = io.FileInStream.init(&st.self_exe_file);
     const in_stream = &in_file_stream.stream;
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
