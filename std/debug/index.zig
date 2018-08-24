@@ -1056,8 +1056,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
     ptr += opcode_base - 1;
 
     var include_directories = ArrayList([]const u8).init(di.allocator());
-    //try include_directories.append(compile_unit_cwd);
-    try include_directories.append("./");
+    try include_directories.append("");
     while (true) {
         const dir = readStringMem(&ptr);
         if (dir.len == 0) break;
