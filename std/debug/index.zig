@@ -889,11 +889,10 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
         while (true) {
             const opcode = try in_stream.readByte();
 
-            var sub_op: u8 = undefined; // TODO move this to the correct scope and fix the compiler crash
             if (opcode == DW.LNS_extended_op) {
                 const op_size = try readULeb128(in_stream);
                 if (op_size < 1) return error.InvalidDebugInfo;
-                sub_op = try in_stream.readByte();
+                var sub_op = try in_stream.readByte();
                 switch (sub_op) {
                     DW.LNE_end_sequence => {
                         prog.end_sequence = true;
