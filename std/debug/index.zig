@@ -62,6 +62,7 @@ fn wantTtyColor() bool {
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
+/// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream() catch return;
     const debug_info = getSelfDebugInfo() catch |err| {
@@ -75,6 +76,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 }
 
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
+/// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: *const builtin.StackTrace) void {
     const stderr = getStderrStream() catch return;
     const debug_info = getSelfDebugInfo() catch |err| {
@@ -460,6 +462,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     std.sort.sort(MachoSymbol, symbols, MachoSymbol.addressLessThan);
 
     return DebugInfo{
+        .ofiles = DebugInfo.OFileTable.init(allocator),
         .symbols = symbols,
         .strings = strings,
     };
@@ -511,10 +514,22 @@ const MachoSymbol = struct {
     }
 };
 
+const MachOFile = struct {
+    bytes: []align(@alignOf(std.c.mach_header_64)) const u8,
+};
+
 pub const DebugInfo = switch (builtin.os) {
     builtin.Os.macosx => struct {
         symbols: []const MachoSymbol,
         strings: []const u8,
+        ofiles: OFileTable,
+
+        const OFileTable = std.HashMap(
+            *std.c.nlist_64,
+            MachOFile,
+            std.hash_map.getHashPtrAddrFn(*std.c.nlist_64),
+            std.hash_map.getTrivialEqlFn(*std.c.nlist_64),
+        );
     },
     else => struct {
         self_exe_file: os.File,
@@ -940,6 +955,44 @@ fn parseDie(st: *DebugInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die 
 }
 
 fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: usize) !LineInfo {
+    const ofile = symbol.ofile orelse return error.MissingDebugInfo;
+    const gop = try di.ofiles.getOrPut(ofile);
+    const mach_o_file = if (gop.found_existing) &gop.kv.value else blk: {
+        errdefer _ = di.ofiles.remove(ofile);
+        const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
+        std.debug.warn("reading .o file: {}\n", ofile_path);
+
+        gop.kv.value = MachOFile{
+            .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(std.c.mach_header_64)),
+        };
+        const hdr = @ptrCast(*const std.c.mach_header_64, gop.kv.value.bytes.ptr);
+        assert(hdr.magic == std.c.MH_MAGIC_64);
+
+        const hdr_base = @ptrCast([*]const u8, hdr);
+        var ptr = hdr_base + @sizeOf(std.c.mach_header_64);
+        var ncmd: u32 = hdr.ncmds;
+        const segcmd = while (ncmd != 0) : (ncmd -= 1) {
+            const lc = @ptrCast(*const std.c.load_command, ptr);
+            switch (lc.cmd) {
+                std.c.LC_SEGMENT_64 => break @ptrCast(*const std.c.segment_command_64, ptr),
+                else => {},
+            }
+            ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
+        } else {
+            return error.MissingDebugInfo;
+        };
+        const sections = @ptrCast([*]const std.c.section_64, ptr + @sizeOf(std.c.segment_command_64))[0..segcmd.nsects];
+        for (sections) |sect| {
+            if (sect.flags & std.c.SECTION_TYPE == std.c.S_REGULAR and
+                (sect.flags & std.c.SECTION_ATTRIBUTES) & std.c.S_ATTR_DEBUG == std.c.S_ATTR_DEBUG) {
+                const sect_name = mem.toSliceConst(u8, &sect.sectname);
+                std.debug.warn("sect: {}\n", sect_name);
+            }
+        }
+
+        break :blk &gop.kv.value;
+    };
+
     return error.MissingDebugInfo;
 }
 

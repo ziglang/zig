@@ -24,6 +24,7 @@ pub const empty_import = @import("empty.zig");
 pub const event = @import("event.zig");
 pub const fmt = @import("fmt/index.zig");
 pub const hash = @import("hash/index.zig");
+pub const hash_map = @import("hash_map.zig");
 pub const heap = @import("heap.zig");
 pub const io = @import("io.zig");
 pub const json = @import("json.zig");

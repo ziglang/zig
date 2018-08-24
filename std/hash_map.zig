@@ -408,6 +408,22 @@ test "iterator hash map" {
     assert(entry.value == values[0]);
 }
 
+pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {
+    return struct {
+        fn hash(key: K) u32 {
+            return getAutoHashFn(usize)(@ptrToInt(key));
+        }
+    }.hash;
+}
+
+pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
+    return struct {
+        fn eql(a: K, b: K) bool {
+            return a == b;
+        }
+    }.eql;
+}
+
 pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
