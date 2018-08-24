@@ -491,7 +491,10 @@ test "implicit cast from *[N]T to ?[*]T" {
   var y: [4]u16 = [4]u16 {0, 1, 2, 3};
 
   x = &y;
+<<<<<<< HEAD
+=======
   assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+>>>>>>> call ir_resolve_ptr_of_array_to_slice instead of recursing
   x.?[0] = 8;
   y[3] = 6;
   assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
