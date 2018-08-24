@@ -17125,7 +17125,7 @@ static ConstExprValue *ir_make_type_info_value(IrAnalyze *ira, TypeTableEntry *t
         // alignment: u32
         ensure_field_index(result->type, "alignment", 3);
         fields[3].special = ConstValSpecialStatic;
-        fields[3].type = ira->codegen->builtin_types.entry_u32;
+        fields[3].type = get_int_type(ira->codegen, false, 29);
         bigint_init_unsigned(&fields[3].data.x_bigint, attrs_type->data.pointer.alignment);
         // child: type
         ensure_field_index(result->type, "child", 4);
