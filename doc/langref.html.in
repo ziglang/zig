@@ -6166,7 +6166,7 @@ pub const TypeInfo = union(TypeId) {
         size: Size,
         is_const: bool,
         is_volatile: bool,
-        alignment: u32,
+        alignment: u29,
         child: type,
 
         pub const Size = enum {
