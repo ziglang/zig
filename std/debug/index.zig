@@ -271,10 +271,11 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
         const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
         break :blk os.path.basename(ofile_path);
     } else "???";
-    if (getLineNumberInfoMacOs(di, symbol.*, address)) |line_info| {
+    if (getLineNumberInfoMacOs(di, symbol.*, adjusted_addr)) |line_info| {
+        defer line_info.deinit();
         try printLineInfo(di, out_stream, line_info, address, symbol_name, compile_unit_name, tty_color);
     } else |err| switch (err) {
-        error.MissingDebugInfo => {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
             if (tty_color) {
                 try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in {} ({})" ++ RESET ++ "\n\n\n", address, symbol_name, compile_unit_name);
             } else {
@@ -427,12 +428,16 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
 
     var ofile: ?*std.c.nlist_64 = null;
+    var reloc: u64 = 0;
     var symbol_index: usize = 0;
     var last_len: u64 = 0;
     for (syms) |*sym| {
         if (sym.n_type & std.c.N_STAB != 0) {
             switch (sym.n_type) {
-                std.c.N_OSO => ofile = sym,
+                std.c.N_OSO => {
+                    ofile = sym;
+                    reloc = 0;
+                },
                 std.c.N_FUN => {
                     if (sym.n_sect == 0) {
                         last_len = sym.n_value;
@@ -440,8 +445,14 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
                         symbols_buf[symbol_index] = MachoSymbol{
                             .nlist = sym,
                             .ofile = ofile,
+                            .reloc = reloc,
                         };
                         symbol_index += 1;
+                    }
+                },
+                std.c.N_BNSYM => {
+                    if (reloc == 0) {
+                        reloc = sym.n_value;
                     }
                 },
                 else => continue,
@@ -506,6 +517,7 @@ fn printLineFromFile(out_stream: var, line_info: *const LineInfo) !void {
 const MachoSymbol = struct {
     nlist: *std.c.nlist_64,
     ofile: ?*std.c.nlist_64,
+    reloc: u64,
 
     /// Returns the address from the macho file
     fn address(self: MachoSymbol) u64 {
@@ -535,6 +547,10 @@ pub const DebugInfo = switch (builtin.os) {
             std.hash_map.getHashPtrAddrFn(*std.c.nlist_64),
             std.hash_map.getTrivialEqlFn(*std.c.nlist_64),
         );
+
+        pub fn allocator(self: DebugInfo) *mem.Allocator {
+            return self.ofiles.allocator;
+        }
     },
     else => struct {
         self_exe_file: os.File,
@@ -965,7 +981,6 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
     const mach_o_file = if (gop.found_existing) &gop.kv.value else blk: {
         errdefer _ = di.ofiles.remove(ofile);
         const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
-        std.debug.warn("reading .o file: {}\n", ofile_path);
 
         gop.kv.value = MachOFile{
             .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(std.c.mach_header_64)),
@@ -973,7 +988,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
             .sect_debug_line = null,
         };
         const hdr = @ptrCast(*const std.c.mach_header_64, gop.kv.value.bytes.ptr);
-        assert(hdr.magic == std.c.MH_MAGIC_64);
+        if (hdr.magic != std.c.MH_MAGIC_64) return error.InvalidDebugInfo;
 
         const hdr_base = @ptrCast([*]const u8, hdr);
         var ptr = hdr_base + @sizeOf(std.c.mach_header_64);
@@ -998,12 +1013,162 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
                 } else if (mem.eql(u8, sect_name, "__debug_info")) {
                     gop.kv.value.sect_debug_info = sect;
                 }
-                std.debug.warn("sect: {}\n", sect_name);
             }
         }
 
         break :blk &gop.kv.value;
     };
+
+    const sect_debug_line = mach_o_file.sect_debug_line orelse return error.MissingDebugInfo;
+    var ptr = mach_o_file.bytes.ptr + sect_debug_line.offset;
+
+    var is_64: bool = undefined;
+    const unit_length = try readInitialLengthMem(&ptr, &is_64);
+    if (unit_length == 0) return error.MissingDebugInfo;
+
+    const version = readIntMem(&ptr, u16, builtin.Endian.Little);
+    // TODO support 3 and 5
+    if (version != 2 and version != 4) return error.InvalidDebugInfo;
+
+    const prologue_length = if (is_64)
+        readIntMem(&ptr, u64, builtin.Endian.Little)
+    else
+        readIntMem(&ptr, u32, builtin.Endian.Little);
+    const prog_start = ptr + prologue_length;
+
+    const minimum_instruction_length = readByteMem(&ptr);
+    if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
+
+    if (version >= 4) {
+        // maximum_operations_per_instruction
+        ptr += 1;
+    }
+
+    const default_is_stmt = readByteMem(&ptr) != 0;
+    const line_base = readByteSignedMem(&ptr);
+
+    const line_range = readByteMem(&ptr);
+    if (line_range == 0) return error.InvalidDebugInfo;
+
+    const opcode_base = readByteMem(&ptr);
+
+    const standard_opcode_lengths = ptr[0..opcode_base - 1];
+    ptr += opcode_base - 1;
+
+    var include_directories = ArrayList([]const u8).init(di.allocator());
+    //try include_directories.append(compile_unit_cwd);
+    try include_directories.append("./");
+    while (true) {
+        const dir = readStringMem(&ptr);
+        if (dir.len == 0) break;
+        try include_directories.append(dir);
+    }
+
+    var file_entries = ArrayList(FileEntry).init(di.allocator());
+    var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
+
+    while (true) {
+        const file_name = readStringMem(&ptr);
+        if (file_name.len == 0) break;
+        const dir_index = try readULeb128Mem(&ptr);
+        const mtime = try readULeb128Mem(&ptr);
+        const len_bytes = try readULeb128Mem(&ptr);
+        try file_entries.append(FileEntry{
+            .file_name = file_name,
+            .dir_index = dir_index,
+            .mtime = mtime,
+            .len_bytes = len_bytes,
+        });
+    }
+
+    ptr = prog_start;
+    while (true) {
+        const opcode = readByteMem(&ptr);
+
+        if (opcode == DW.LNS_extended_op) {
+            const op_size = try readULeb128Mem(&ptr);
+            if (op_size < 1) return error.InvalidDebugInfo;
+            var sub_op = readByteMem(&ptr);
+            switch (sub_op) {
+                DW.LNE_end_sequence => {
+                    prog.end_sequence = true;
+                    if (try prog.checkLineMatch()) |info| return info;
+                    return error.MissingDebugInfo;
+                },
+                DW.LNE_set_address => {
+                    const addr = readIntMem(&ptr, usize, builtin.Endian.Little);
+                    prog.address = symbol.reloc + addr;
+                },
+                DW.LNE_define_file => {
+                    const file_name = readStringMem(&ptr);
+                    const dir_index = try readULeb128Mem(&ptr);
+                    const mtime = try readULeb128Mem(&ptr);
+                    const len_bytes = try readULeb128Mem(&ptr);
+                    try file_entries.append(FileEntry{
+                        .file_name = file_name,
+                        .dir_index = dir_index,
+                        .mtime = mtime,
+                        .len_bytes = len_bytes,
+                    });
+                },
+                else => {
+                    ptr += op_size - 1;
+                },
+            }
+        } else if (opcode >= opcode_base) {
+            // special opcodes
+            const adjusted_opcode = opcode - opcode_base;
+            const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
+            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
+            prog.line += inc_line;
+            prog.address += inc_addr;
+            if (try prog.checkLineMatch()) |info| return info;
+            prog.basic_block = false;
+        } else {
+            switch (opcode) {
+                DW.LNS_copy => {
+                    if (try prog.checkLineMatch()) |info| return info;
+                    prog.basic_block = false;
+                },
+                DW.LNS_advance_pc => {
+                    const arg = try readULeb128Mem(&ptr);
+                    prog.address += arg * minimum_instruction_length;
+                },
+                DW.LNS_advance_line => {
+                    const arg = try readILeb128Mem(&ptr);
+                    prog.line += arg;
+                },
+                DW.LNS_set_file => {
+                    const arg = try readULeb128Mem(&ptr);
+                    prog.file = arg;
+                },
+                DW.LNS_set_column => {
+                    const arg = try readULeb128Mem(&ptr);
+                    prog.column = arg;
+                },
+                DW.LNS_negate_stmt => {
+                    prog.is_stmt = !prog.is_stmt;
+                },
+                DW.LNS_set_basic_block => {
+                    prog.basic_block = true;
+                },
+                DW.LNS_const_add_pc => {
+                    const inc_addr = minimum_instruction_length * ((255 - opcode_base) / line_range);
+                    prog.address += inc_addr;
+                },
+                DW.LNS_fixed_advance_pc => {
+                    const arg = readIntMem(&ptr, u16, builtin.Endian.Little);
+                    prog.address += arg;
+                },
+                DW.LNS_set_prologue_end => {},
+                else => {
+                    if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
+                    const len_bytes = standard_opcode_lengths[opcode - 1];
+                    ptr += len_bytes;
+                },
+            }
+        }
+    }
 
     return error.MissingDebugInfo;
 }
@@ -1094,11 +1259,10 @@ fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, targ
         while (true) {
             const opcode = try in_stream.readByte();
 
-            var sub_op: u8 = undefined; // TODO move this to the correct scope and fix the compiler crash
             if (opcode == DW.LNS_extended_op) {
                 const op_size = try readULeb128(in_stream);
                 if (op_size < 1) return error.InvalidDebugInfo;
-                sub_op = try in_stream.readByte();
+                var sub_op = try in_stream.readByte();
                 switch (sub_op) {
                     DW.LNE_end_sequence => {
                         prog.end_sequence = true;
@@ -1289,6 +1453,89 @@ fn findCompileUnit(st: *DebugInfo, target_address: u64) !*const CompileUnit {
         }
     }
     return error.MissingDebugInfo;
+}
+
+fn readIntMem(ptr: *[*]const u8, comptime T: type, endian: builtin.Endian) T {
+    const result = mem.readInt(ptr.*[0..@sizeOf(T)], T, endian);
+    ptr.* += @sizeOf(T);
+    return result;
+}
+
+fn readByteMem(ptr: *[*]const u8) u8 {
+    const result = ptr.*[0];
+    ptr.* += 1;
+    return result;
+}
+
+fn readByteSignedMem(ptr: *[*]const u8) i8 {
+    return @bitCast(i8, readByteMem(ptr));
+}
+
+fn readInitialLengthMem(ptr: *[*]const u8, is_64: *bool) !u64 {
+    const first_32_bits = mem.readIntLE(u32, ptr.*[0..4]);
+    is_64.* = (first_32_bits == 0xffffffff);
+    if (is_64.*) {
+        ptr.* += 4;
+        const result = mem.readIntLE(u64, ptr.*[0..8]);
+        ptr.* += 8;
+        return result;
+    } else {
+        if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
+        ptr.* += 4;
+        return u64(first_32_bits);
+    }
+}
+
+fn readStringMem(ptr: *[*]const u8) []const u8 {
+    const result = mem.toSliceConst(u8, ptr.*);
+    ptr.* += result.len + 1;
+    return result;
+}
+
+fn readULeb128Mem(ptr: *[*]const u8) !u64 {
+    var result: u64 = 0;
+    var shift: usize = 0;
+    var i: usize = 0;
+
+    while (true) {
+        const byte = ptr.*[i];
+        i += 1;
+
+        var operand: u64 = undefined;
+
+        if (@shlWithOverflow(u64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
+
+        result |= operand;
+
+        if ((byte & 0b10000000) == 0) {
+            ptr.* += i;
+            return result;
+        }
+
+        shift += 7;
+    }
+}
+fn readILeb128Mem(ptr: *[*]const u8) !i64 {
+    var result: i64 = 0;
+    var shift: usize = 0;
+    var i: usize = 0;
+
+    while (true) {
+        const byte = ptr.*[i];
+        i += 1;
+
+        var operand: i64 = undefined;
+        if (@shlWithOverflow(i64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
+
+        result |= operand;
+        shift += 7;
+
+        if ((byte & 0b10000000) == 0) {
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << @intCast(u6, shift));
+            ptr.* += i;
+            return result;
+        }
+    }
 }
 
 fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool) !u64 {
