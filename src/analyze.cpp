@@ -3035,7 +3035,7 @@ static bool scope_is_root_decls(Scope *scope) {
 
 static void wrong_panic_prototype(CodeGen *g, AstNode *proto_node, TypeTableEntry *fn_type) {
     add_node_error(g, proto_node,
-            buf_sprintf("expected 'fn([]const u8, ?&builtin.StackTrace) unreachable', found '%s'",
+            buf_sprintf("expected 'fn([]const u8, ?*builtin.StackTrace) noreturn', found '%s'",
                 buf_ptr(&fn_type->name)));
 }
 
