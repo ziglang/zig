@@ -1033,8 +1033,16 @@ static void ir_print_field_parent_ptr(IrPrint *irp, IrInstructionFieldParentPtr 
     fprintf(irp->f, ")");
 }
 
-static void ir_print_offset_of(IrPrint *irp, IrInstructionOffsetOf *instruction) {
-    fprintf(irp->f, "@offset_of(");
+static void ir_print_byte_offset_of(IrPrint *irp, IrInstructionByteOffsetOf *instruction) {
+    fprintf(irp->f, "@byte_offset_of(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->field_name);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bit_offset_of(IrPrint *irp, IrInstructionBitOffsetOf *instruction) {
+    fprintf(irp->f, "@bit_offset_of(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->field_name);
@@ -1641,8 +1649,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdFieldParentPtr:
             ir_print_field_parent_ptr(irp, (IrInstructionFieldParentPtr *)instruction);
             break;
-        case IrInstructionIdOffsetOf:
-            ir_print_offset_of(irp, (IrInstructionOffsetOf *)instruction);
+        case IrInstructionIdByteOffsetOf:
+            ir_print_byte_offset_of(irp, (IrInstructionByteOffsetOf *)instruction);
+            break;
+        case IrInstructionIdBitOffsetOf:
+            ir_print_bit_offset_of(irp, (IrInstructionBitOffsetOf *)instruction);
             break;
         case IrInstructionIdTypeInfo:
             ir_print_type_info(irp, (IrInstructionTypeInfo *)instruction);

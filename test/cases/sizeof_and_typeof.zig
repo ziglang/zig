@@ -19,16 +19,16 @@ const P = packed struct {
     c: u8,
 };
 
-test "offsetOf" {
+test "byteOffsetOf" {
     // Packed structs have fixed memory layout
     const p: P = undefined;
-    assert(@offsetOf(P, "a") == 0);
-    assert(@offsetOf(@typeOf(p), "b") == 1);
-    assert(@offsetOf(@typeOf(p), "c") == 5);
+    assert(@byteOffsetOf(P, "a") == 0);
+    assert(@byteOffsetOf(@typeOf(p), "b") == 1);
+    assert(@byteOffsetOf(@typeOf(p), "c") == 5);
 
     // Non-packed struct fields can be moved/padded
     const a: A = undefined;
-    assert(@ptrToInt(&a.a) - @ptrToInt(&a) == @offsetOf(A, "a"));
-    assert(@ptrToInt(&a.b) - @ptrToInt(&a) == @offsetOf(@typeOf(a), "b"));
-    assert(@ptrToInt(&a.c) - @ptrToInt(&a) == @offsetOf(@typeOf(a), "c"));
+    assert(@ptrToInt(&a.a) - @ptrToInt(&a) == @byteOffsetOf(A, "a"));
+    assert(@ptrToInt(&a.b) - @ptrToInt(&a) == @byteOffsetOf(@typeOf(a), "b"));
+    assert(@ptrToInt(&a.c) - @ptrToInt(&a) == @byteOffsetOf(@typeOf(a), "c"));
 }
