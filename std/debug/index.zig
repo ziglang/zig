@@ -253,11 +253,11 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
     return null;
 }
 
-fn printSourceAtAddressMacOs(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
     const base_addr = @ptrToInt(&std.c._mh_execute_header);
     const adjusted_addr = 0x100000000 + (address - base_addr);
 
-    const symbol = machoSearchSymbols(debug_info.symbols, adjusted_addr) orelse {
+    const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {
         if (tty_color) {
             try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n\n\n", address);
         } else {
@@ -266,16 +266,19 @@ fn printSourceAtAddressMacOs(debug_info: *DebugInfo, out_stream: var, address: u
         return;
     };
 
-    const symbol_name = mem.toSliceConst(u8, debug_info.strings.ptr + symbol.nlist.n_strx);
-    if (getLineNumberInfoMacOs(debug_info, symbol.*, address)) |line_info| {
-        const compile_unit_name = "???";
-        try printLineInfo(debug_info, out_stream, line_info, address, symbol_name, compile_unit_name, tty_color);
+    const symbol_name = mem.toSliceConst(u8, di.strings.ptr + symbol.nlist.n_strx);
+    const compile_unit_name = if (symbol.ofile) |ofile| blk: {
+        const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
+        break :blk os.path.basename(ofile_path);
+    } else "???";
+    if (getLineNumberInfoMacOs(di, symbol.*, address)) |line_info| {
+        try printLineInfo(di, out_stream, line_info, address, symbol_name, compile_unit_name, tty_color);
     } else |err| switch (err) {
         error.MissingDebugInfo => {
             if (tty_color) {
-                try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in {} (???)" ++ RESET ++ "\n\n\n", address, symbol_name);
+                try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in {} ({})" ++ RESET ++ "\n\n\n", address, symbol_name, compile_unit_name);
             } else {
-                try out_stream.print("???:?:?: 0x{x} in {} (???)\n\n\n", address, symbol_name);
+                try out_stream.print("???:?:?: 0x{x} in {} ({})\n\n\n", address, symbol_name, compile_unit_name);
             }
         },
         else => return err,
@@ -516,6 +519,8 @@ const MachoSymbol = struct {
 
 const MachOFile = struct {
     bytes: []align(@alignOf(std.c.mach_header_64)) const u8,
+    sect_debug_info: ?*const std.c.section_64,
+    sect_debug_line: ?*const std.c.section_64,
 };
 
 pub const DebugInfo = switch (builtin.os) {
@@ -964,6 +969,8 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
 
         gop.kv.value = MachOFile{
             .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(std.c.mach_header_64)),
+            .sect_debug_info = null,
+            .sect_debug_line = null,
         };
         const hdr = @ptrCast(*const std.c.mach_header_64, gop.kv.value.bytes.ptr);
         assert(hdr.magic == std.c.MH_MAGIC_64);
@@ -981,11 +988,16 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         } else {
             return error.MissingDebugInfo;
         };
-        const sections = @ptrCast([*]const std.c.section_64, ptr + @sizeOf(std.c.segment_command_64))[0..segcmd.nsects];
-        for (sections) |sect| {
+        const sections = @alignCast(@alignOf(std.c.section_64), @ptrCast([*]const std.c.section_64, ptr + @sizeOf(std.c.segment_command_64)))[0..segcmd.nsects];
+        for (sections) |*sect| {
             if (sect.flags & std.c.SECTION_TYPE == std.c.S_REGULAR and
                 (sect.flags & std.c.SECTION_ATTRIBUTES) & std.c.S_ATTR_DEBUG == std.c.S_ATTR_DEBUG) {
                 const sect_name = mem.toSliceConst(u8, &sect.sectname);
+                if (mem.eql(u8, sect_name, "__debug_line")) {
+                    gop.kv.value.sect_debug_line = sect;
+                } else if (mem.eql(u8, sect_name, "__debug_info")) {
+                    gop.kv.value.sect_debug_info = sect;
+                }
                 std.debug.warn("sect: {}\n", sect_name);
             }
         }
