@@ -166,6 +166,11 @@ pub fn formatType(
 
             if (has_cust_fmt) return value.format(fmt, context, Errors, output);
             try output(context, @typeName(T));
+            if (comptime @typeId(T) == builtin.TypeId.Enum) {
+                try output(context, ".");
+                try formatType(@tagName(value), "", context, Errors, output);
+                return;
+            }
             comptime var field_i = 0;
             inline while (field_i < @memberCount(T)) : (field_i += 1) {
                 if (field_i == 0) {
