@@ -248,66 +248,6 @@ pub fn main() void {
           </th>
         </tr>
         <tr>
-          <td><code>i2</code></td>
-          <td><code>(none)</code></td>
-          <td>signed 2-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>u2</code></td>
-          <td><code>(none)</code></td>
-          <td>unsigned 2-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>i3</code></td>
-          <td><code>(none)</code></td>
-          <td>signed 3-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>u3</code></td>
-          <td><code>(none)</code></td>
-          <td>unsigned 3-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>i4</code></td>
-          <td><code>(none)</code></td>
-          <td>signed 4-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>u4</code></td>
-          <td><code>(none)</code></td>
-          <td>unsigned 4-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>i5</code></td>
-          <td><code>(none)</code></td>
-          <td>signed 5-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>u5</code></td>
-          <td><code>(none)</code></td>
-          <td>unsigned 5-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>i6</code></td>
-          <td><code>(none)</code></td>
-          <td>signed 6-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>u6</code></td>
-          <td><code>(none)</code></td>
-          <td>unsigned 6-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>i7</code></td>
-          <td><code>(none)</code></td>
-          <td>signed 7-bit integer</td>
-        </tr>
-        <tr>
-          <td><code>u7</code></td>
-          <td><code>(none)</code></td>
-          <td>unsigned 7-bit integer</td>
-        </tr>
-        <tr>
           <td><code>i8</code></td>
           <td><code>int8_t</code></td>
           <td>signed 8-bit integer</td>
@@ -476,6 +416,11 @@ pub fn main() void {
         </tr>
       </table>
       </div>
+      <p>
+      In addition to the integer types above, arbitrary bit-width integers can be referenced by using
+      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      <code>i7</code> refers to a signed 7-bit integer.
+      </p>
       {#see_also|Integers|Floats|void|Errors#}
       {#header_close#}
       {#header_open|Primitive Values#}
