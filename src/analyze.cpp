@@ -19,12 +19,12 @@
 
 static const size_t default_backward_branch_quota = 1000;
 
-static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type);
-static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type);
+static Error resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type);
+static Error resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type);
 
-static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type);
-static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
-static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
+static Error ATTRIBUTE_MUST_USE resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type);
+static Error ATTRIBUTE_MUST_USE resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
+static Error ATTRIBUTE_MUST_USE resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
 static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
@@ -370,15 +370,20 @@ uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
     return LLVMSizeOfTypeInBits(g->target_data_ref, type_entry->type_ref);
 }
 
-bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry) {
-    type_ensure_zero_bits_known(g, type_entry);
+Result<bool> type_is_copyable(CodeGen *g, TypeTableEntry *type_entry) {
+    Error err;
+    if ((err = type_ensure_zero_bits_known(g, type_entry)))
+        return err;
+
     if (!type_has_bits(type_entry))
         return true;
 
     if (!handle_is_ptr(type_entry))
         return true;
 
-    ensure_complete_type(g, type_entry);
+    if ((err = ensure_complete_type(g, type_entry)))
+        return err;
+
     return type_entry->is_copyable;
 }
 
@@ -447,7 +452,7 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
         }
     }
 
-    type_ensure_zero_bits_known(g, child_type);
+    assertNoError(type_ensure_zero_bits_known(g, child_type));
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
     entry->is_copyable = true;
@@ -554,11 +559,11 @@ TypeTableEntry *get_optional_type(CodeGen *g, TypeTableEntry *child_type) {
         TypeTableEntry *entry = child_type->optional_parent;
         return entry;
     } else {
-        ensure_complete_type(g, child_type);
+        assertNoError(ensure_complete_type(g, child_type));
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdOptional);
         assert(child_type->type_ref || child_type->zero_bits);
-        entry->is_copyable = type_is_copyable(g, child_type);
+        entry->is_copyable = type_is_copyable(g, child_type).unwrap();
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
@@ -650,7 +655,7 @@ TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, T
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdErrorUnion);
     entry->is_copyable = true;
     assert(payload_type->di_type);
-    ensure_complete_type(g, payload_type);
+    assertNoError(ensure_complete_type(g, payload_type));
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "%s!%s", buf_ptr(&err_set_type->name), buf_ptr(&payload_type->name));
@@ -739,7 +744,7 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
         return entry;
     }
 
-    ensure_complete_type(g, child_type);
+    assertNoError(ensure_complete_type(g, child_type));
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
     entry->zero_bits = (array_size == 0) || child_type->zero_bits;
@@ -1050,13 +1055,13 @@ TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g) {
 }
 
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
+    Error err;
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
     if (table_entry) {
         return table_entry->value;
     }
     if (fn_type_id->return_type != nullptr) {
-        ensure_complete_type(g, fn_type_id->return_type);
-        if (type_is_invalid(fn_type_id->return_type))
+        if ((err = ensure_complete_type(g, fn_type_id->return_type)))
             return g->builtin_types.entry_invalid;
         assert(fn_type_id->return_type->id != TypeTableEntryIdOpaque);
     } else {
@@ -1172,8 +1177,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_param_info->src_index = i;
             gen_param_info->gen_index = SIZE_MAX;
 
-            ensure_complete_type(g, type_entry);
-            if (type_is_invalid(type_entry))
+            if ((err = ensure_complete_type(g, type_entry)))
                 return g->builtin_types.entry_invalid;
 
             if (type_has_bits(type_entry)) {
@@ -1493,6 +1497,7 @@ TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry) {
 static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, FnTableEntry *fn_entry) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
+    Error err;
 
     FnTypeId fn_type_id = {0};
     init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
@@ -1550,7 +1555,8 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             return g->builtin_types.entry_invalid;
         }
         if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-            type_ensure_zero_bits_known(g, type_entry);
+            if ((err = type_ensure_zero_bits_known(g, type_entry)))
+                return g->builtin_types.entry_invalid;
             if (!type_has_bits(type_entry)) {
                 add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
@@ -1598,7 +1604,8 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
             case TypeTableEntryIdPromise:
-                type_ensure_zero_bits_known(g, type_entry);
+                if ((err = type_ensure_zero_bits_known(g, type_entry)))
+                    return g->builtin_types.entry_invalid;
                 if (type_requires_comptime(type_entry)) {
                     add_node_error(g, param_node->data.param_decl.type,
                         buf_sprintf("parameter of type '%s' must be declared comptime",
@@ -1729,24 +1736,28 @@ bool type_is_invalid(TypeTableEntry *type_entry) {
 }
 
 
-static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
+static Error resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     assert(enum_type->id == TypeTableEntryIdEnum);
 
-    if (enum_type->data.enumeration.complete)
-        return;
+    if (enum_type->data.enumeration.is_invalid)
+        return ErrorSemanticAnalyzeFail;
 
-    resolve_enum_zero_bits(g, enum_type);
-    if (type_is_invalid(enum_type))
-        return;
+    if (enum_type->data.enumeration.complete)
+        return ErrorNone;
+
+    Error err;
+    if ((err = resolve_enum_zero_bits(g, enum_type)))
+        return err;
 
     AstNode *decl_node = enum_type->data.enumeration.decl_node;
 
     if (enum_type->data.enumeration.embedded_in_current) {
         if (!enum_type->data.enumeration.reported_infinite_err) {
+            enum_type->data.enumeration.is_invalid = true;
             enum_type->data.enumeration.reported_infinite_err = true;
             add_node_error(g, decl_node, buf_sprintf("enum '%s' contains itself", buf_ptr(&enum_type->name)));
         }
-        return;
+        return ErrorSemanticAnalyzeFail;
     }
 
     assert(!enum_type->data.enumeration.zero_bits_loop_flag);
@@ -1778,7 +1789,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     enum_type->data.enumeration.complete = true;
 
     if (enum_type->data.enumeration.is_invalid)
-        return;
+        return ErrorSemanticAnalyzeFail;
 
     if (enum_type->zero_bits) {
         enum_type->type_ref = LLVMVoidType();
@@ -1797,7 +1808,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
 
         ZigLLVMReplaceTemporary(g->dbuilder, enum_type->di_type, replacement_di_type);
         enum_type->di_type = replacement_di_type;
-        return;
+        return ErrorNone;
     }
 
     TypeTableEntry *tag_int_type = enum_type->data.enumeration.tag_int_type;
@@ -1815,6 +1826,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
 
     ZigLLVMReplaceTemporary(g->dbuilder, enum_type->di_type, tag_di_type);
     enum_type->di_type = tag_di_type;
+    return ErrorNone;
 }
 
 
@@ -1897,15 +1909,15 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
     return struct_type;
 }
 
-static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
+static Error resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     assert(struct_type->id == TypeTableEntryIdStruct);
 
     if (struct_type->data.structure.complete)
-        return;
+        return ErrorNone;
 
-    resolve_struct_zero_bits(g, struct_type);
-    if (struct_type->data.structure.is_invalid)
-        return;
+    Error err;
+    if ((err = resolve_struct_zero_bits(g, struct_type)))
+        return err;
 
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
@@ -1916,7 +1928,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
             add_node_error(g, decl_node,
                     buf_sprintf("struct '%s' contains itself", buf_ptr(&struct_type->name)));
         }
-        return;
+        return ErrorSemanticAnalyzeFail;
     }
 
     assert(!struct_type->data.structure.zero_bits_loop_flag);
@@ -1943,8 +1955,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         TypeTableEntry *field_type = type_struct_field->type_entry;
 
-        ensure_complete_type(g, field_type);
-        if (type_is_invalid(field_type)) {
+        if ((err = ensure_complete_type(g, field_type))) {
             struct_type->data.structure.is_invalid = true;
             break;
         }
@@ -2026,7 +2037,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     struct_type->data.structure.complete = true;
 
     if (struct_type->data.structure.is_invalid)
-        return;
+        return ErrorSemanticAnalyzeFail;
 
     if (struct_type->zero_bits) {
         struct_type->type_ref = LLVMVoidType();
@@ -2045,7 +2056,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
                 0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
         ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
         struct_type->di_type = replacement_di_type;
-        return;
+        return ErrorNone;
     }
     assert(struct_type->di_type);
 
@@ -2128,17 +2139,19 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
+
+    return ErrorNone;
 }
 
-static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
+static Error resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     assert(union_type->id == TypeTableEntryIdUnion);
 
     if (union_type->data.unionation.complete)
-        return;
+        return ErrorNone;
 
-    resolve_union_zero_bits(g, union_type);
-    if (type_is_invalid(union_type))
-        return;
+    Error err;
+    if ((err = resolve_union_zero_bits(g, union_type)))
+        return err;
 
     AstNode *decl_node = union_type->data.unionation.decl_node;
 
@@ -2148,7 +2161,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
             union_type->data.unionation.is_invalid = true;
             add_node_error(g, decl_node, buf_sprintf("union '%s' contains itself", buf_ptr(&union_type->name)));
         }
-        return;
+        return ErrorSemanticAnalyzeFail;
     }
 
     assert(!union_type->data.unionation.zero_bits_loop_flag);
@@ -2179,8 +2192,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
         TypeTableEntry *field_type = union_field->type_entry;
 
-        ensure_complete_type(g, field_type);
-        if (type_is_invalid(field_type)) {
+        if ((err = ensure_complete_type(g, field_type))) {
             union_type->data.unionation.is_invalid = true;
             continue;
         }
@@ -2219,7 +2231,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     union_type->data.unionation.most_aligned_union_member = most_aligned_union_member;
 
     if (union_type->data.unionation.is_invalid)
-        return;
+        return ErrorSemanticAnalyzeFail;
 
     if (union_type->zero_bits) {
         union_type->type_ref = LLVMVoidType();
@@ -2238,7 +2250,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
         ZigLLVMReplaceTemporary(g->dbuilder, union_type->di_type, replacement_di_type);
         union_type->di_type = replacement_di_type;
-        return;
+        return ErrorNone;
     }
 
     uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
@@ -2274,7 +2286,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
         ZigLLVMReplaceTemporary(g->dbuilder, union_type->di_type, replacement_di_type);
         union_type->di_type = replacement_di_type;
-        return;
+        return ErrorNone;
     }
 
     LLVMTypeRef union_type_ref;
@@ -2293,7 +2305,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
         ZigLLVMReplaceTemporary(g->dbuilder, union_type->di_type, tag_type->di_type);
         union_type->di_type = tag_type->di_type;
-        return;
+        return ErrorNone;
     } else {
         union_type_ref = most_aligned_union_member->type_ref;
     }
@@ -2367,19 +2379,21 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
     ZigLLVMReplaceTemporary(g->dbuilder, union_type->di_type, replacement_di_type);
     union_type->di_type = replacement_di_type;
+
+    return ErrorNone;
 }
 
-static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
+static Error resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
     assert(enum_type->id == TypeTableEntryIdEnum);
 
     if (enum_type->data.enumeration.zero_bits_known)
-        return;
+        return ErrorNone;
 
     if (enum_type->data.enumeration.zero_bits_loop_flag) {
         add_node_error(g, enum_type->data.enumeration.decl_node,
             buf_sprintf("'%s' depends on itself", buf_ptr(&enum_type->name)));
         enum_type->data.enumeration.is_invalid = true;
-        return;
+        return ErrorSemanticAnalyzeFail;
     }
 
     enum_type->data.enumeration.zero_bits_loop_flag = true;
@@ -2398,7 +2412,7 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
         enum_type->data.enumeration.is_invalid = true;
         enum_type->data.enumeration.zero_bits_loop_flag = false;
         enum_type->data.enumeration.zero_bits_known = true;
-        return;
+        return ErrorSemanticAnalyzeFail;
     }
 
     enum_type->data.enumeration.src_field_count = field_count;
@@ -2525,13 +2539,23 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
     enum_type->data.enumeration.zero_bits_loop_flag = false;
     enum_type->zero_bits = !type_has_bits(tag_int_type);
     enum_type->data.enumeration.zero_bits_known = true;
+
+    if (enum_type->data.enumeration.is_invalid)
+        return ErrorSemanticAnalyzeFail;
+
+    return ErrorNone;
 }
 
-static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
+static Error resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
     assert(struct_type->id == TypeTableEntryIdStruct);
 
+    Error err;
+
+    if (struct_type->data.structure.is_invalid)
+        return ErrorSemanticAnalyzeFail;
+
     if (struct_type->data.structure.zero_bits_known)
-        return;
+        return ErrorNone;
 
     if (struct_type->data.structure.zero_bits_loop_flag) {
         // If we get here it's due to recursion. This is a design flaw in the compiler,
@@ -2547,7 +2571,7 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
                 struct_type->data.structure.abi_alignment = LLVMABIAlignmentOfType(g->target_data_ref, LLVMPointerType(LLVMInt8Type(), 0));
             }
         }
-        return;
+        return ErrorNone;
     }
 
     struct_type->data.structure.zero_bits_loop_flag = true;
@@ -2596,8 +2620,7 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
                     buf_sprintf("enums, not structs, support field assignment"));
         }
 
-        type_ensure_zero_bits_known(g, field_type);
-        if (type_is_invalid(field_type)) {
+        if ((err = type_ensure_zero_bits_known(g, field_type))) {
             struct_type->data.structure.is_invalid = true;
             continue;
         }
@@ -2634,16 +2657,27 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
     struct_type->data.structure.gen_field_count = (uint32_t)gen_field_index;
     struct_type->zero_bits = (gen_field_index == 0);
     struct_type->data.structure.zero_bits_known = true;
+
+    if (struct_type->data.structure.is_invalid) {
+        return ErrorSemanticAnalyzeFail;
+    }
+
+    return ErrorNone;
 }
 
-static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
+static Error resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     assert(union_type->id == TypeTableEntryIdUnion);
 
+    Error err;
+
+    if (union_type->data.unionation.is_invalid)
+        return ErrorSemanticAnalyzeFail;
+
     if (union_type->data.unionation.zero_bits_known)
-        return;
+        return ErrorNone;
 
     if (type_is_invalid(union_type))
-        return;
+        return ErrorSemanticAnalyzeFail;
 
     if (union_type->data.unionation.zero_bits_loop_flag) {
         // If we get here it's due to recursion. From this we conclude that the struct is
@@ -2660,7 +2694,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
                         LLVMPointerType(LLVMInt8Type(), 0));
             }
         }
-        return;
+        return ErrorNone;
     }
 
     union_type->data.unionation.zero_bits_loop_flag = true;
@@ -2679,7 +2713,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         union_type->data.unionation.is_invalid = true;
         union_type->data.unionation.zero_bits_loop_flag = false;
         union_type->data.unionation.zero_bits_known = true;
-        return;
+        return ErrorSemanticAnalyzeFail;
     }
     union_type->data.unionation.src_field_count = field_count;
     union_type->data.unionation.fields = allocate<TypeUnionField>(field_count);
@@ -2711,13 +2745,13 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
             tag_int_type = analyze_type_expr(g, scope, enum_type_node);
             if (type_is_invalid(tag_int_type)) {
                 union_type->data.unionation.is_invalid = true;
-                return;
+                return ErrorSemanticAnalyzeFail;
             }
             if (tag_int_type->id != TypeTableEntryIdInt) {
                 add_node_error(g, enum_type_node,
                     buf_sprintf("expected integer tag type, found '%s'", buf_ptr(&tag_int_type->name)));
                 union_type->data.unionation.is_invalid = true;
-                return;
+                return ErrorSemanticAnalyzeFail;
             }
         } else {
             tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
@@ -2744,13 +2778,13 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         TypeTableEntry *enum_type = analyze_type_expr(g, scope, enum_type_node);
         if (type_is_invalid(enum_type)) {
             union_type->data.unionation.is_invalid = true;
-            return;
+            return ErrorSemanticAnalyzeFail;
         }
         if (enum_type->id != TypeTableEntryIdEnum) {
             union_type->data.unionation.is_invalid = true;
             add_node_error(g, enum_type_node,
                 buf_sprintf("expected enum tag type, found '%s'", buf_ptr(&enum_type->name)));
-            return;
+            return ErrorSemanticAnalyzeFail;
         }
         tag_type = enum_type;
         abi_alignment_so_far = get_abi_alignment(g, enum_type); // this populates src_field_count
@@ -2789,8 +2823,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
             }
         } else {
             field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
-            type_ensure_zero_bits_known(g, field_type);
-            if (type_is_invalid(field_type)) {
+            if ((err = type_ensure_zero_bits_known(g, field_type))) {
                 union_type->data.unionation.is_invalid = true;
                 continue;
             }
@@ -2883,7 +2916,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     union_type->data.unionation.abi_alignment = abi_alignment_so_far;
 
     if (union_type->data.unionation.is_invalid)
-        return;
+        return ErrorSemanticAnalyzeFail;
 
     bool src_have_tag = decl_node->data.container_decl.auto_enum ||
         decl_node->data.container_decl.init_arg_expr != nullptr;
@@ -2905,7 +2938,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         add_node_error(g, source_node,
             buf_sprintf("%s union does not support enum tag type", qual_str));
         union_type->data.unionation.is_invalid = true;
-        return;
+        return ErrorSemanticAnalyzeFail;
     }
 
     if (create_enum_type) {
@@ -2970,6 +3003,11 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     union_type->data.unionation.gen_field_count = gen_field_index;
     union_type->zero_bits = (gen_field_index == 0 && (field_count < 2 || !src_have_tag));
     union_type->data.unionation.zero_bits_known = true;
+
+    if (union_type->data.unionation.is_invalid)
+        return ErrorSemanticAnalyzeFail;
+
+    return ErrorNone;
 }
 
 static void get_fully_qualified_decl_name_internal(Buf *buf, Scope *scope, uint8_t sep) {
@@ -3463,13 +3501,13 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
     variable_entry->shadowable = false;
     variable_entry->mem_slot_index = SIZE_MAX;
     variable_entry->src_arg_index = SIZE_MAX;
-    variable_entry->align_bytes = get_abi_alignment(g, value->type);
 
     assert(name);
-
     buf_init_from_buf(&variable_entry->name, name);
 
-    if (value->type->id != TypeTableEntryIdInvalid) {
+    if (!type_is_invalid(value->type)) {
+        variable_entry->align_bytes = get_abi_alignment(g, value->type);
+
         VariableTableEntry *existing_var = find_variable(g, parent_scope, name);
         if (existing_var && !existing_var->shadowable) {
             ErrorMsg *msg = add_node_error(g, source_node,
@@ -5311,13 +5349,13 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 
 
 void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
+    Error err;
     TypeTableEntry *wanted_type = const_val->type;
     if (wanted_type->id == TypeTableEntryIdArray) {
         const_val->special = ConstValSpecialStatic;
         const_val->data.x_array.special = ConstArraySpecialUndef;
     } else if (wanted_type->id == TypeTableEntryIdStruct) {
-        ensure_complete_type(g, wanted_type);
-        if (type_is_invalid(wanted_type)) {
+        if ((err = ensure_complete_type(g, wanted_type))) {
             return;
         }
 
@@ -5350,27 +5388,33 @@ ConstExprValue *create_const_vals(size_t count) {
     return vals;
 }
 
-void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry) {
+Error ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry) {
+    if (type_is_invalid(type_entry))
+        return ErrorSemanticAnalyzeFail;
     if (type_entry->id == TypeTableEntryIdStruct) {
         if (!type_entry->data.structure.complete)
-            resolve_struct_type(g, type_entry);
+            return resolve_struct_type(g, type_entry);
     } else if (type_entry->id == TypeTableEntryIdEnum) {
         if (!type_entry->data.enumeration.complete)
-            resolve_enum_type(g, type_entry);
+            return resolve_enum_type(g, type_entry);
     } else if (type_entry->id == TypeTableEntryIdUnion) {
         if (!type_entry->data.unionation.complete)
-            resolve_union_type(g, type_entry);
+            return resolve_union_type(g, type_entry);
     }
+    return ErrorNone;
 }
 
-void type_ensure_zero_bits_known(CodeGen *g, TypeTableEntry *type_entry) {
+Error type_ensure_zero_bits_known(CodeGen *g, TypeTableEntry *type_entry) {
+    if (type_is_invalid(type_entry))
+        return ErrorSemanticAnalyzeFail;
     if (type_entry->id == TypeTableEntryIdStruct) {
-        resolve_struct_zero_bits(g, type_entry);
+        return resolve_struct_zero_bits(g, type_entry);
     } else if (type_entry->id == TypeTableEntryIdEnum) {
-        resolve_enum_zero_bits(g, type_entry);
+        return resolve_enum_zero_bits(g, type_entry);
     } else if (type_entry->id == TypeTableEntryIdUnion) {
-        resolve_union_zero_bits(g, type_entry);
+        return resolve_union_zero_bits(g, type_entry);
     }
+    return ErrorNone;
 }
 
 bool ir_get_var_is_comptime(VariableTableEntry *var) {
@@ -6213,7 +6257,7 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
 }
 
 uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry) {
-    type_ensure_zero_bits_known(g, type_entry);
+    assertNoError(type_ensure_zero_bits_known(g, type_entry));
     if (type_entry->zero_bits) return 0;
 
     // We need to make this function work without requiring ensure_complete_type

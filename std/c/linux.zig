@@ -8,3 +8,6 @@ pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,
 };
+
+/// See std.elf for constants for this
+pub extern fn getauxval(__type: c_ulong) c_ulong;

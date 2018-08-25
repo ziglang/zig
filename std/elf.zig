@@ -869,6 +869,11 @@ pub const Phdr = switch (@sizeOf(usize)) {
     8 => Elf64_Phdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
+pub const Shdr = switch (@sizeOf(usize)) {
+    4 => Elf32_Shdr,
+    8 => Elf64_Shdr,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
 pub const Sym = switch (@sizeOf(usize)) {
     4 => Elf32_Sym,
     8 => Elf64_Sym,

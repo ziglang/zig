@@ -21,6 +21,7 @@
 #define ATTRIBUTE_PRINTF(a, b)
 #define ATTRIBUTE_RETURNS_NOALIAS __declspec(restrict)
 #define ATTRIBUTE_NORETURN __declspec(noreturn)
+#define ATTRIBUTE_MUST_USE
 
 #else
 
@@ -28,6 +29,7 @@
 #define ATTRIBUTE_PRINTF(a, b) __attribute__((format(printf, a, b)))
 #define ATTRIBUTE_RETURNS_NOALIAS __attribute__((__malloc__))
 #define ATTRIBUTE_NORETURN __attribute__((noreturn))
+#define ATTRIBUTE_MUST_USE __attribute__((warn_unused_result))
 
 #endif
 

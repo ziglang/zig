@@ -5812,12 +5812,16 @@ static void do_code_gen(CodeGen *g) {
 
         LLVMValueRef global_value;
         if (var->linkage == VarLinkageExternal) {
-            global_value = LLVMAddGlobal(g->module, var->value->type->type_ref, buf_ptr(&var->name));
+            LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, buf_ptr(&var->name));
+            if (existing_llvm_var) {
+                global_value = LLVMConstBitCast(existing_llvm_var, LLVMPointerType(var->value->type->type_ref, 0));
+            } else {
+                global_value = LLVMAddGlobal(g->module, var->value->type->type_ref, buf_ptr(&var->name));
+                // TODO debug info for the extern variable
 
-            // TODO debug info for the extern variable
-
-            LLVMSetLinkage(global_value, LLVMExternalLinkage);
-            LLVMSetAlignment(global_value, var->align_bytes);
+                LLVMSetLinkage(global_value, LLVMExternalLinkage);
+                LLVMSetAlignment(global_value, var->align_bytes);
+            }
         } else {
             bool exported = (var->linkage == VarLinkageExport);
             const char *mangled_name = buf_ptr(get_mangled_name(g, &var->name, exported));

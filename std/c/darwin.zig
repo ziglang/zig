@@ -1,5 +1,8 @@
+const macho = @import("../macho.zig");
+
 extern "c" fn __error() *c_int;
 pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
+pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 
 pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize;
 
@@ -32,6 +35,15 @@ pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usi
 
 pub extern "c" fn bind(socket: c_int, address: ?*const sockaddr, address_len: socklen_t) c_int;
 pub extern "c" fn socket(domain: c_int, type: c_int, protocol: c_int) c_int;
+
+/// The value of the link editor defined symbol _MH_EXECUTE_SYM is the address
+/// of the mach header in a Mach-O executable file type.  It does not appear in
+/// any file type other than a MH_EXECUTE file type.  The type of the symbol is
+/// absolute as the header is not part of any section.
+pub extern "c" var _mh_execute_header: if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
+
+pub const mach_header_64 = macho.mach_header_64;
+pub const mach_header = macho.mach_header;
 
 pub use @import("../os/darwin/errno.zig");
 
