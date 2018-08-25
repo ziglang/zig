@@ -1739,6 +1739,9 @@ bool type_is_invalid(TypeTableEntry *type_entry) {
 static Error resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     assert(enum_type->id == TypeTableEntryIdEnum);
 
+    if (enum_type->data.enumeration.is_invalid)
+        return ErrorSemanticAnalyzeFail;
+
     if (enum_type->data.enumeration.complete)
         return ErrorNone;
 
@@ -2536,7 +2539,9 @@ static Error resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
     enum_type->data.enumeration.zero_bits_loop_flag = false;
     enum_type->zero_bits = !type_has_bits(tag_int_type);
     enum_type->data.enumeration.zero_bits_known = true;
-    assert(!enum_type->data.enumeration.is_invalid);
+
+    if (enum_type->data.enumeration.is_invalid)
+        return ErrorSemanticAnalyzeFail;
 
     return ErrorNone;
 }
@@ -2545,6 +2550,9 @@ static Error resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
     assert(struct_type->id == TypeTableEntryIdStruct);
 
     Error err;
+
+    if (struct_type->data.structure.is_invalid)
+        return ErrorSemanticAnalyzeFail;
 
     if (struct_type->data.structure.zero_bits_known)
         return ErrorNone;
@@ -2661,6 +2669,9 @@ static Error resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     assert(union_type->id == TypeTableEntryIdUnion);
 
     Error err;
+
+    if (union_type->data.unionation.is_invalid)
+        return ErrorSemanticAnalyzeFail;
 
     if (union_type->data.unionation.zero_bits_known)
         return ErrorNone;
@@ -2992,7 +3003,10 @@ static Error resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     union_type->data.unionation.gen_field_count = gen_field_index;
     union_type->zero_bits = (gen_field_index == 0 && (field_count < 2 || !src_have_tag));
     union_type->data.unionation.zero_bits_known = true;
-    assert(!union_type->data.unionation.is_invalid);
+
+    if (union_type->data.unionation.is_invalid)
+        return ErrorSemanticAnalyzeFail;
+
     return ErrorNone;
 }
 
