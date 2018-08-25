@@ -940,6 +940,15 @@ test "fmt.format" {
         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", &value);
     }
     {
+        const Enum = enum {
+            One,
+            Two,
+        };
+        const value = Enum.Two;
+        try testFmt("enum: Enum.Two\n", "enum: {}\n", value);
+        try testFmt("enum: Enum.Two\n", "enum: {}\n", &value);
+    }
+    {
         var buf1: [32]u8 = undefined;
         const value: f32 = 1.34;
         const result = try bufPrint(buf1[0..], "f32: {e}\n", value);
