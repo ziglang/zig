@@ -166,6 +166,11 @@ pub fn formatType(
 
             if (has_cust_fmt) return value.format(fmt, context, Errors, output);
             try output(context, @typeName(T));
+            if (comptime @typeId(T) == builtin.TypeId.Enum) {
+                try output(context, ".");
+                try formatType(@tagName(value), "", context, Errors, output);
+                return;
+            }
             comptime var field_i = 0;
             inline while (field_i < @memberCount(T)) : (field_i += 1) {
                 if (field_i == 0) {
@@ -933,6 +938,15 @@ test "fmt.format" {
         const value = Struct{ .field = 42 };
         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", value);
         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", &value);
+    }
+    {
+        const Enum = enum {
+            One,
+            Two,
+        };
+        const value = Enum.Two;
+        try testFmt("enum: Enum.Two\n", "enum: {}\n", value);
+        try testFmt("enum: Enum.Two\n", "enum: {}\n", &value);
     }
     {
         var buf1: [32]u8 = undefined;
