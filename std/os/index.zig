@@ -31,7 +31,7 @@ pub const posix = switch (builtin.os) {
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
-pub const net = @import("net.zig");
+pub const net = std.net;
 
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
@@ -2289,8 +2289,8 @@ pub const PosixBindError = error{
 };
 
 /// addr is `&const T` where T is one of the sockaddr
-pub fn posixBind(fd: i32, addr: *const posix.sockaddr) PosixBindError!void {
-    const rc = posix.bind(fd, addr, @sizeOf(posix.sockaddr));
+pub fn posixBind(fd: i32, addr: std.net.Address) PosixBindError!void {
+    const rc = posix.bind(fd, addr.os_addr, addr.os_length);
     const err = posix.getErrno(rc);
     switch (err) {
         0 => return,
@@ -2386,10 +2386,9 @@ pub const PosixAcceptError = error{
     Unexpected,
 };
 
-pub fn posixAccept(fd: i32, addr: *posix.sockaddr, flags: u32) PosixAcceptError!i32 {
+pub fn posixAccept(fd: i32, addr: *net.Address, flags: u32) PosixAcceptError!i32 {
     while (true) {
-        var sockaddr_size = u32(@sizeOf(posix.sockaddr));
-        const rc = posix.accept4(fd, addr, &sockaddr_size, flags);
+        const rc = posix.accept4(fd, &addr.os_addr, &addr.os_length, flags);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return @intCast(i32, rc),
