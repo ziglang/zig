@@ -253,11 +253,7 @@ fn gethi(in: f64) f64 {
 /// Normalize the number by factoring in the error.
 ///   @hp: The float pair.
 fn hpNormalize(hp: *HP) void {
-    // Required to avoid segfaults causing buffer overrun during errol3 digit output termination.
-    @setFloatMode(this, @import("builtin").FloatMode.Strict);
-
     const val = hp.val;
-
     hp.val += hp.off;
     hp.off += val - hp.val;
 }

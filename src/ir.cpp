@@ -15203,17 +15203,17 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_void;
     }
 
-    bool *fast_math_off_ptr;
+    bool *fast_math_on_ptr;
     AstNode **fast_math_set_node_ptr;
     if (target_type->id == TypeTableEntryIdBlock) {
         ScopeBlock *block_scope = (ScopeBlock *)target_val->data.x_block;
-        fast_math_off_ptr = &block_scope->fast_math_off;
+        fast_math_on_ptr = &block_scope->fast_math_on;
         fast_math_set_node_ptr = &block_scope->fast_math_set_node;
     } else if (target_type->id == TypeTableEntryIdFn) {
         assert(target_val->data.x_ptr.special == ConstPtrSpecialFunction);
         FnTableEntry *target_fn = target_val->data.x_ptr.data.fn.fn_entry;
         assert(target_fn->def_scope);
-        fast_math_off_ptr = &target_fn->def_scope->fast_math_off;
+        fast_math_on_ptr = &target_fn->def_scope->fast_math_on;
         fast_math_set_node_ptr = &target_fn->def_scope->fast_math_set_node;
     } else if (target_type->id == TypeTableEntryIdMetaType) {
         ScopeDecls *decls_scope;
@@ -15229,7 +15229,7 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
                 buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&type_arg->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
-        fast_math_off_ptr = &decls_scope->fast_math_off;
+        fast_math_on_ptr = &decls_scope->fast_math_on;
         fast_math_set_node_ptr = &decls_scope->fast_math_set_node;
     } else {
         ir_add_error_node(ira, target_instruction->source_node,
@@ -15251,7 +15251,7 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
     *fast_math_set_node_ptr = source_node;
-    *fast_math_off_ptr = (float_mode_scalar == FloatModeStrict);
+    *fast_math_on_ptr = (float_mode_scalar == FloatModeOptimized);
 
     ir_build_const_from(ira, &instruction->base);
     return ira->codegen->builtin_types.entry_void;
@@ -17093,7 +17093,7 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, TypeTableEntry 
     // alignment: u32
     ensure_field_index(result->type, "alignment", 3);
     fields[3].special = ConstValSpecialStatic;
-    fields[3].type = ira->codegen->builtin_types.entry_u32;
+    fields[3].type = get_int_type(ira->codegen, false, 29);
     bigint_init_unsigned(&fields[3].data.x_bigint, attrs_type->data.pointer.alignment);
     // child: type
     ensure_field_index(result->type, "child", 4);

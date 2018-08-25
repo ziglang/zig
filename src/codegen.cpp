@@ -829,15 +829,15 @@ static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
         if (scope->id == ScopeIdBlock) {
             ScopeBlock *block_scope = (ScopeBlock *)scope;
             if (block_scope->fast_math_set_node)
-                return !block_scope->fast_math_off;
+                return block_scope->fast_math_on;
         } else if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
             if (decls_scope->fast_math_set_node)
-                return !decls_scope->fast_math_off;
+                return decls_scope->fast_math_on;
         }
         scope = scope->parent;
     }
-    return true;
+    return false;
 }
 
 static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {

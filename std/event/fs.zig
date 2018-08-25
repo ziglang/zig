@@ -638,10 +638,7 @@ pub async fn readFile(loop: *Loop, file_path: []const u8, max_size: usize) ![]u8
     var close_op = try CloseOperation.start(loop);
     defer close_op.finish();
 
-    const path_with_null = try std.cstr.addNullByte(loop.allocator, file_path);
-    defer loop.allocator.free(path_with_null);
-
-    const fd = try await (async openRead(loop, path_with_null[0..file_path.len]) catch unreachable);
+    const fd = try await (async openRead(loop, file_path) catch unreachable);
     close_op.setHandle(fd);
 
     var list = std.ArrayList(u8).init(loop.allocator);

@@ -35,11 +35,7 @@ fn round32(x_: f32) f32 {
         return 0 * @bitCast(f32, u);
     }
 
-    {
-        @setFloatMode(this, builtin.FloatMode.Strict);
-        y = x + math.f32_toint - math.f32_toint - x;
-    }
-
+    y = x + math.f32_toint - math.f32_toint - x;
     if (y > 0.5) {
         y = y + x - 1;
     } else if (y <= -0.5) {
@@ -72,11 +68,7 @@ fn round64(x_: f64) f64 {
         return 0 * @bitCast(f64, u);
     }
 
-    {
-        @setFloatMode(this, builtin.FloatMode.Strict);
-        y = x + math.f64_toint - math.f64_toint - x;
-    }
-
+    y = x + math.f64_toint - math.f64_toint - x;
     if (y > 0.5) {
         y = y + x - 1;
     } else if (y <= -0.5) {
