@@ -635,6 +635,35 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
 pub var linux_aux_raw = []usize{0} ** 38;
 pub var posix_environ_raw: [][*]u8 = undefined;
 
+/// See std.elf for the constants.
+pub fn linuxGetAuxVal(index: usize) usize {
+    if (builtin.link_libc) {
+        return usize(std.c.getauxval(index));
+    } else {
+        return linux_aux_raw[index];
+    }
+}
+
+pub fn getBaseAddress() usize {
+    switch (builtin.os) {
+        builtin.Os.linux => {
+            const base = linuxGetAuxVal(std.elf.AT_BASE);
+            if (base != 0) {
+                return base;
+            }
+            const phdr = linuxGetAuxVal(std.elf.AT_PHDR);
+            const ElfHeader = switch (@sizeOf(usize)) {
+                4 => std.elf.Elf32_Ehdr,
+                8 => std.elf.Elf64_Ehdr,
+                else => @compileError("Unsupported architecture"),
+            };
+            return phdr - @sizeOf(ElfHeader);
+        },
+        builtin.Os.macosx => return @ptrToInt(&std.c._mh_execute_header),
+        else => @compileError("Unsupported OS"),
+    }
+}
+
 /// Caller must free result when done.
 /// TODO make this go through libc when we have it
 pub fn getEnvMap(allocator: *Allocator) !BufMap {

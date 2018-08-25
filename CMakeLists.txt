@@ -485,6 +485,7 @@ set(ZIG_STD_FILES
     "json.zig"
     "lazy_init.zig"
     "linked_list.zig"
+    "macho.zig"
     "math/acos.zig"
     "math/acosh.zig"
     "math/asin.zig"

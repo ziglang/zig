@@ -9,6 +9,7 @@
 #define ZIG_ANALYZE_HPP
 
 #include "all_types.hpp"
+#include "result.hpp"
 
 void semantic_analyze(CodeGen *g);
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
@@ -88,8 +89,8 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index);
 FnTableEntry *scope_get_fn_if_root(Scope *scope);
 bool type_requires_comptime(TypeTableEntry *type_entry);
-void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry);
-void type_ensure_zero_bits_known(CodeGen *g, TypeTableEntry *type_entry);
+Error ATTRIBUTE_MUST_USE ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry);
+Error ATTRIBUTE_MUST_USE type_ensure_zero_bits_known(CodeGen *g, TypeTableEntry *type_entry);
 void complete_enum(CodeGen *g, TypeTableEntry *enum_type);
 bool ir_get_var_is_comptime(VariableTableEntry *var);
 bool const_values_equal(ConstExprValue *a, ConstExprValue *b);
@@ -178,7 +179,7 @@ TypeTableEntryId type_id_at_index(size_t index);
 size_t type_id_len();
 size_t type_id_index(TypeTableEntry *entry);
 TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
-bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry);
+Result<bool> type_is_copyable(CodeGen *g, TypeTableEntry *type_entry);
 LinkLib *create_link_lib(Buf *name);
 bool calling_convention_does_first_arg_return(CallingConvention cc);
 LinkLib *add_link_lib(CodeGen *codegen, Buf *lib);

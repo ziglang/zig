@@ -4,6 +4,7 @@ const mem = std.mem;
 const io = std.io;
 const os = std.os;
 const elf = std.elf;
+const macho = std.macho;
 const DW = std.dwarf;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
@@ -369,33 +370,7 @@ pub const OpenSelfDebugInfoError = error{
 
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     switch (builtin.os) {
-        builtin.Os.linux => {
-            const st = try allocator.create(DebugInfo{
-                .self_exe_file = undefined,
-                .elf = undefined,
-                .debug_info = undefined,
-                .debug_abbrev = undefined,
-                .debug_str = undefined,
-                .debug_line = undefined,
-                .debug_ranges = null,
-                .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
-                .compile_unit_list = ArrayList(CompileUnit).init(allocator),
-            });
-            errdefer allocator.destroy(st);
-            st.self_exe_file = try os.openSelfExe();
-            errdefer st.self_exe_file.close();
-
-            try st.elf.openFile(allocator, &st.self_exe_file);
-            errdefer st.elf.close();
-
-            st.debug_info = (try st.elf.findSection(".debug_info")) orelse return error.MissingDebugInfo;
-            st.debug_abbrev = (try st.elf.findSection(".debug_abbrev")) orelse return error.MissingDebugInfo;
-            st.debug_str = (try st.elf.findSection(".debug_str")) orelse return error.MissingDebugInfo;
-            st.debug_line = (try st.elf.findSection(".debug_line")) orelse return error.MissingDebugInfo;
-            st.debug_ranges = (try st.elf.findSection(".debug_ranges"));
-            try scanAllCompileUnits(st);
-            return st;
-        },
+        builtin.Os.linux => return openSelfDebugInfoLinux(allocator),
         builtin.Os.macosx, builtin.Os.ios => return openSelfDebugInfoMacOs(allocator),
         builtin.Os.windows => {
             // TODO: https://github.com/ziglang/zig/issues/721
@@ -405,40 +380,91 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     }
 }
 
+fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
+    var di = DebugInfo{
+        .self_exe_file = undefined,
+        .elf = undefined,
+        .debug_info = undefined,
+        .debug_abbrev = undefined,
+        .debug_str = undefined,
+        .debug_line = undefined,
+        .debug_ranges = null,
+        .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
+        .compile_unit_list = ArrayList(CompileUnit).init(allocator),
+    };
+    di.self_exe_file = try os.openSelfExe();
+    errdefer di.self_exe_file.close();
+
+    try di.elf.openFile(allocator, &di.self_exe_file);
+    errdefer di.elf.close();
+
+    di.debug_info = (try di.elf.findSection(".debug_info")) orelse return error.MissingDebugInfo;
+    di.debug_abbrev = (try di.elf.findSection(".debug_abbrev")) orelse return error.MissingDebugInfo;
+    di.debug_str = (try di.elf.findSection(".debug_str")) orelse return error.MissingDebugInfo;
+    di.debug_line = (try di.elf.findSection(".debug_line")) orelse return error.MissingDebugInfo;
+    di.debug_ranges = (try di.elf.findSection(".debug_ranges"));
+    try scanAllCompileUnits(&di);
+    return di;
+}
+
+pub fn findElfSection(elf: *Elf, name: []const u8) ?*elf.Shdr {
+    var file_stream = io.FileInStream.init(elf.in_file);
+    const in = &file_stream.stream;
+
+    section_loop: for (elf.section_headers) |*elf_section| {
+        if (elf_section.sh_type == SHT_NULL) continue;
+
+        const name_offset = elf.string_section.offset + elf_section.name;
+        try elf.in_file.seekTo(name_offset);
+
+        for (name) |expected_c| {
+            const target_c = try in.readByte();
+            if (target_c == 0 or expected_c != target_c) continue :section_loop;
+        }
+
+        {
+            const null_byte = try in.readByte();
+            if (null_byte == 0) return elf_section;
+        }
+    }
+
+    return null;
+}
+
 fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     const hdr = &std.c._mh_execute_header;
-    assert(hdr.magic == std.c.MH_MAGIC_64);
+    assert(hdr.magic == std.macho.MH_MAGIC_64);
 
     const hdr_base = @ptrCast([*]u8, hdr);
-    var ptr = hdr_base + @sizeOf(std.c.mach_header_64);
+    var ptr = hdr_base + @sizeOf(macho.mach_header_64);
     var ncmd: u32 = hdr.ncmds;
     const symtab = while (ncmd != 0) : (ncmd -= 1) {
-        const lc = @ptrCast(*std.c.load_command, ptr);
+        const lc = @ptrCast(*std.macho.load_command, ptr);
         switch (lc.cmd) {
-            std.c.LC_SYMTAB => break @ptrCast(*std.c.symtab_command, ptr),
+            std.macho.LC_SYMTAB => break @ptrCast(*std.macho.symtab_command, ptr),
             else => {},
         }
         ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
     } else {
         return error.MissingDebugInfo;
     };
-    const syms = @ptrCast([*]std.c.nlist_64, hdr_base + symtab.symoff)[0..symtab.nsyms];
+    const syms = @ptrCast([*]macho.nlist_64, hdr_base + symtab.symoff)[0..symtab.nsyms];
     const strings = @ptrCast([*]u8, hdr_base + symtab.stroff)[0..symtab.strsize];
 
     const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
 
-    var ofile: ?*std.c.nlist_64 = null;
+    var ofile: ?*macho.nlist_64 = null;
     var reloc: u64 = 0;
     var symbol_index: usize = 0;
     var last_len: u64 = 0;
     for (syms) |*sym| {
-        if (sym.n_type & std.c.N_STAB != 0) {
+        if (sym.n_type & std.macho.N_STAB != 0) {
             switch (sym.n_type) {
-                std.c.N_OSO => {
+                std.macho.N_OSO => {
                     ofile = sym;
                     reloc = 0;
                 },
-                std.c.N_FUN => {
+                std.macho.N_FUN => {
                     if (sym.n_sect == 0) {
                         last_len = sym.n_value;
                     } else {
@@ -450,7 +476,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
                         symbol_index += 1;
                     }
                 },
-                std.c.N_BNSYM => {
+                std.macho.N_BNSYM => {
                     if (reloc == 0) {
                         reloc = sym.n_value;
                     }
@@ -459,8 +485,8 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
             }
         }
     }
-    const sentinel = try allocator.createOne(std.c.nlist_64);
-    sentinel.* = std.c.nlist_64{
+    const sentinel = try allocator.createOne(macho.nlist_64);
+    sentinel.* = macho.nlist_64{
         .n_strx = 0,
         .n_type = 36,
         .n_sect = 0,
@@ -515,8 +541,8 @@ fn printLineFromFile(out_stream: var, line_info: *const LineInfo) !void {
 }
 
 const MachoSymbol = struct {
-    nlist: *std.c.nlist_64,
-    ofile: ?*std.c.nlist_64,
+    nlist: *macho.nlist_64,
+    ofile: ?*macho.nlist_64,
     reloc: u64,
 
     /// Returns the address from the macho file
@@ -530,9 +556,9 @@ const MachoSymbol = struct {
 };
 
 const MachOFile = struct {
-    bytes: []align(@alignOf(std.c.mach_header_64)) const u8,
-    sect_debug_info: ?*const std.c.section_64,
-    sect_debug_line: ?*const std.c.section_64,
+    bytes: []align(@alignOf(macho.mach_header_64)) const u8,
+    sect_debug_info: ?*const macho.section_64,
+    sect_debug_line: ?*const macho.section_64,
 };
 
 pub const DebugInfo = switch (builtin.os) {
@@ -542,10 +568,10 @@ pub const DebugInfo = switch (builtin.os) {
         ofiles: OFileTable,
 
         const OFileTable = std.HashMap(
-            *std.c.nlist_64,
+            *macho.nlist_64,
             MachOFile,
-            std.hash_map.getHashPtrAddrFn(*std.c.nlist_64),
-            std.hash_map.getTrivialEqlFn(*std.c.nlist_64),
+            std.hash_map.getHashPtrAddrFn(*macho.nlist_64),
+            std.hash_map.getTrivialEqlFn(*macho.nlist_64),
         );
 
         pub fn allocator(self: DebugInfo) *mem.Allocator {
@@ -563,7 +589,7 @@ pub const DebugInfo = switch (builtin.os) {
         abbrev_table_list: ArrayList(AbbrevTableHeader),
         compile_unit_list: ArrayList(CompileUnit),
 
-        pub fn allocator(self: *const DebugInfo) *mem.Allocator {
+        pub fn allocator(self: DebugInfo) *mem.Allocator {
             return self.abbrev_table_list.allocator;
         }
 
@@ -983,30 +1009,31 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
 
         gop.kv.value = MachOFile{
-            .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(std.c.mach_header_64)),
+            .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(macho.mach_header_64)),
             .sect_debug_info = null,
             .sect_debug_line = null,
         };
-        const hdr = @ptrCast(*const std.c.mach_header_64, gop.kv.value.bytes.ptr);
-        if (hdr.magic != std.c.MH_MAGIC_64) return error.InvalidDebugInfo;
+        const hdr = @ptrCast(*const macho.mach_header_64, gop.kv.value.bytes.ptr);
+        if (hdr.magic != std.macho.MH_MAGIC_64) return error.InvalidDebugInfo;
 
         const hdr_base = @ptrCast([*]const u8, hdr);
-        var ptr = hdr_base + @sizeOf(std.c.mach_header_64);
+        var ptr = hdr_base + @sizeOf(macho.mach_header_64);
         var ncmd: u32 = hdr.ncmds;
         const segcmd = while (ncmd != 0) : (ncmd -= 1) {
-            const lc = @ptrCast(*const std.c.load_command, ptr);
+            const lc = @ptrCast(*const std.macho.load_command, ptr);
             switch (lc.cmd) {
-                std.c.LC_SEGMENT_64 => break @ptrCast(*const std.c.segment_command_64, ptr),
+                std.macho.LC_SEGMENT_64 => break @ptrCast(*const std.macho.segment_command_64, ptr),
                 else => {},
             }
             ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
         } else {
             return error.MissingDebugInfo;
         };
-        const sections = @alignCast(@alignOf(std.c.section_64), @ptrCast([*]const std.c.section_64, ptr + @sizeOf(std.c.segment_command_64)))[0..segcmd.nsects];
+        const sections = @alignCast(@alignOf(macho.section_64), @ptrCast([*]const macho.section_64, ptr + @sizeOf(std.macho.segment_command_64)))[0..segcmd.nsects];
         for (sections) |*sect| {
-            if (sect.flags & std.c.SECTION_TYPE == std.c.S_REGULAR and
-                (sect.flags & std.c.SECTION_ATTRIBUTES) & std.c.S_ATTR_DEBUG == std.c.S_ATTR_DEBUG) {
+            if (sect.flags & macho.SECTION_TYPE == macho.S_REGULAR and
+                (sect.flags & macho.SECTION_ATTRIBUTES) & macho.S_ATTR_DEBUG == macho.S_ATTR_DEBUG)
+            {
                 const sect_name = mem.toSliceConst(u8, &sect.sectname);
                 if (mem.eql(u8, sect_name, "__debug_line")) {
                     gop.kv.value.sect_debug_line = sect;
@@ -1052,7 +1079,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
 
     const opcode_base = readByteMem(&ptr);
 
-    const standard_opcode_lengths = ptr[0..opcode_base - 1];
+    const standard_opcode_lengths = ptr[0 .. opcode_base - 1];
     ptr += opcode_base - 1;
 
     var include_directories = ArrayList([]const u8).init(di.allocator());
