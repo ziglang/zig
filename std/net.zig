@@ -24,15 +24,13 @@ pub const Address = struct {
     os_addr: OsAddress,
     os_length: OsAddressLength,
 
-    /// Assumes that ip4 address is in host byte order
     pub fn initIp4(ip4: u32, port: u16) Address {
         return Address{
             .os_addr = posix.sockaddr{
                 .in = posix.sockaddr_in {
-                    .len = @sizeOf(posix.sockaddr_in),
                     .family = posix.AF_INET,
                     .port = std.mem.endianSwapIfLe(u16, port),
-                    .addr = std.mem.endianSwapIfLe(u32, ip4),
+                    .addr = ip4,
                     .zero = []u8{0} ** 8,
                 },
             },
@@ -45,7 +43,6 @@ pub const Address = struct {
             .family = posix.AF_INET6,
             .os_addr = posix.sockaddr{
                 .in6 = posix.sockaddr_in6{
-                    .len = @sizeOf(posix.sockaddr_in6),
                     .family = posix.AF_INET6,
                     .port = std.mem.endianSwapIfLe(u16, port),
                     .flowinfo = 0,
