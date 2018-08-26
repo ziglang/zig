@@ -555,15 +555,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @floatToInt(i8, f32(-129.1));
         \\}
         \\comptime {
-        \\    _ = @floatToInt(u8, f32(-1.1));
-        \\}
-        \\comptime {
         \\    _ = @floatToInt(u8, f32(256.1));
         \\}
     ,
         ".tmp_source.zig:2:9: error: integer value '-129' cannot be stored in type 'i8'",
-        ".tmp_source.zig:5:9: error: integer value '-1' cannot be stored in type 'u8'",
-        ".tmp_source.zig:8:9: error: integer value '256' cannot be stored in type 'u8'",
+        ".tmp_source.zig:5:9: error: integer value '256' cannot be stored in type 'u8'",
     );
 
     cases.add(
