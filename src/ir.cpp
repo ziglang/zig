@@ -155,18 +155,22 @@ static TypeTableEntry *adjust_slice_align(CodeGen *g, TypeTableEntry *slice_type
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(get_codegen_ptr_type(const_val->type) != nullptr);
     assert(const_val->special == ConstValSpecialStatic);
+    ConstExprValue *result;
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
         case ConstPtrSpecialRef:
-            return const_val->data.x_ptr.data.ref.pointee;
+            result = const_val->data.x_ptr.data.ref.pointee;
+            break;
         case ConstPtrSpecialBaseArray:
             expand_undef_array(g, const_val->data.x_ptr.data.base_array.array_val);
-            return &const_val->data.x_ptr.data.base_array.array_val->data.x_array.s_none.elements[
+            result = &const_val->data.x_ptr.data.base_array.array_val->data.x_array.s_none.elements[
                 const_val->data.x_ptr.data.base_array.elem_index];
+            break;
         case ConstPtrSpecialBaseStruct:
-            return &const_val->data.x_ptr.data.base_struct.struct_val->data.x_struct.fields[
+            result = &const_val->data.x_ptr.data.base_struct.struct_val->data.x_struct.fields[
                 const_val->data.x_ptr.data.base_struct.field_index];
+            break;
         case ConstPtrSpecialHardCodedAddr:
             zig_unreachable();
         case ConstPtrSpecialDiscard:
@@ -174,7 +178,8 @@ ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
         case ConstPtrSpecialFunction:
             zig_unreachable();
     }
-    zig_unreachable();
+    assert(result != nullptr);
+    return result;
 }
 
 static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
