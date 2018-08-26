@@ -2202,7 +2202,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const x : u8 = 300;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:1:16: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        ".tmp_source.zig:1:16: error: cannot cast number literal '300' of 9 bits into 8 bit type 'u8'",
     );
 
     cases.add(
