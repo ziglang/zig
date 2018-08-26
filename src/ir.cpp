@@ -8360,7 +8360,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     if (other_type->id == ZigTypeIdFloat) {
         return true;
     } else if (other_type->id == ZigTypeIdInt && const_val_is_int) {
-        if (!other_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
+        if (!explicit_cast && !other_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
             Buf *val_buf = buf_alloc();
             bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
             ir_add_error(ira, instruction,
