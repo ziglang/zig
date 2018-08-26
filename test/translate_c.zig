@@ -1,6 +1,51 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("for loop with var init but empty body",
+        \\void foo(void) {
+        \\    for (int x = 0; x < 10; x++);
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    {
+        \\        var x: c_int = 0;
+        \\        while (x < 10) : (x += 1) {}
+        \\    }
+        \\}
+    );
+
+    cases.add("do while with empty body",
+        \\void foo(void) {
+        \\    do ; while (1);
+        \\}
+    , // TODO this should be if (1 != 0) break
+        \\pub fn foo() void {
+        \\    while (true) {
+        \\        if (!1) break;
+        \\    }
+        \\}
+    );
+
+    cases.add("for with empty body",
+        \\void foo(void) {
+        \\    for (;;);
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    while (true) {}
+        \\}
+    );
+
+    cases.add("while with empty body",
+        \\void foo(void) {
+        \\    while (1);
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    while (1 != 0) {}
+        \\}
+    );
+
     cases.add("double define struct",
         \\typedef struct Bar Bar;
         \\typedef struct Foo Foo;

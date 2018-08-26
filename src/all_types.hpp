@@ -1850,7 +1850,7 @@ struct ScopeDecls {
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> decl_table;
     bool safety_off;
     AstNode *safety_set_node;
-    bool fast_math_off;
+    bool fast_math_on;
     AstNode *fast_math_set_node;
     ImportTableEntry *import;
     // If this is a scope from a container, this is the type entry, otherwise null
@@ -1870,7 +1870,7 @@ struct ScopeBlock {
 
     bool safety_off;
     AstNode *safety_set_node;
-    bool fast_math_off;
+    bool fast_math_on;
     AstNode *fast_math_set_node;
 };
 

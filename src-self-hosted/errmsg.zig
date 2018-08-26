@@ -33,35 +33,48 @@ pub const Span = struct {
 };
 
 pub const Msg = struct {
-    span: Span,
     text: []u8,
+    realpath: []u8,
     data: Data,
 
     const Data = union(enum) {
+        Cli: Cli,
         PathAndTree: PathAndTree,
         ScopeAndComp: ScopeAndComp,
     };
 
     const PathAndTree = struct {
-        realpath: []const u8,
+        span: Span,
         tree: *ast.Tree,
         allocator: *mem.Allocator,
     };
 
     const ScopeAndComp = struct {
-        root_scope: *Scope.Root,
+        span: Span,
+        tree_scope: *Scope.AstTree,
         compilation: *Compilation,
+    };
+
+    const Cli = struct {
+        allocator: *mem.Allocator,
     };
 
     pub fn destroy(self: *Msg) void {
         switch (self.data) {
+            Data.Cli => |cli| {
+                cli.allocator.free(self.text);
+                cli.allocator.free(self.realpath);
+                cli.allocator.destroy(self);
+            },
             Data.PathAndTree => |path_and_tree| {
                 path_and_tree.allocator.free(self.text);
+                path_and_tree.allocator.free(self.realpath);
                 path_and_tree.allocator.destroy(self);
             },
             Data.ScopeAndComp => |scope_and_comp| {
-                scope_and_comp.root_scope.base.deref(scope_and_comp.compilation);
+                scope_and_comp.tree_scope.base.deref(scope_and_comp.compilation);
                 scope_and_comp.compilation.gpa().free(self.text);
+                scope_and_comp.compilation.gpa().free(self.realpath);
                 scope_and_comp.compilation.gpa().destroy(self);
             },
         }
@@ -69,6 +82,7 @@ pub const Msg = struct {
 
     fn getAllocator(self: *const Msg) *mem.Allocator {
         switch (self.data) {
+            Data.Cli => |cli| return cli.allocator,
             Data.PathAndTree => |path_and_tree| {
                 return path_and_tree.allocator;
             },
@@ -78,71 +92,93 @@ pub const Msg = struct {
         }
     }
 
-    pub fn getRealPath(self: *const Msg) []const u8 {
-        switch (self.data) {
-            Data.PathAndTree => |path_and_tree| {
-                return path_and_tree.realpath;
-            },
-            Data.ScopeAndComp => |scope_and_comp| {
-                return scope_and_comp.root_scope.realpath;
-            },
-        }
-    }
-
     pub fn getTree(self: *const Msg) *ast.Tree {
         switch (self.data) {
+            Data.Cli => unreachable,
             Data.PathAndTree => |path_and_tree| {
                 return path_and_tree.tree;
             },
             Data.ScopeAndComp => |scope_and_comp| {
-                return scope_and_comp.root_scope.tree;
+                return scope_and_comp.tree_scope.tree;
             },
         }
     }
 
+    pub fn getSpan(self: *const Msg) Span {
+        return switch (self.data) {
+            Data.Cli => unreachable,
+            Data.PathAndTree => |path_and_tree| path_and_tree.span,
+            Data.ScopeAndComp => |scope_and_comp| scope_and_comp.span,
+        };
+    }
+
     /// Takes ownership of text
-    /// References root_scope, and derefs when the msg is freed
-    pub fn createFromScope(comp: *Compilation, root_scope: *Scope.Root, span: Span, text: []u8) !*Msg {
+    /// References tree_scope, and derefs when the msg is freed
+    pub fn createFromScope(comp: *Compilation, tree_scope: *Scope.AstTree, span: Span, text: []u8) !*Msg {
+        const realpath = try mem.dupe(comp.gpa(), u8, tree_scope.root().realpath);
+        errdefer comp.gpa().free(realpath);
+
         const msg = try comp.gpa().create(Msg{
             .text = text,
-            .span = span,
+            .realpath = realpath,
             .data = Data{
                 .ScopeAndComp = ScopeAndComp{
-                    .root_scope = root_scope,
+                    .tree_scope = tree_scope,
                     .compilation = comp,
+                    .span = span,
                 },
             },
         });
-        root_scope.base.ref();
+        tree_scope.base.ref();
+        return msg;
+    }
+
+    /// Caller owns returned Msg and must free with `allocator`
+    /// allocator will additionally be used for printing messages later.
+    pub fn createFromCli(comp: *Compilation, realpath: []const u8, text: []u8) !*Msg {
+        const realpath_copy = try mem.dupe(comp.gpa(), u8, realpath);
+        errdefer comp.gpa().free(realpath_copy);
+
+        const msg = try comp.gpa().create(Msg{
+            .text = text,
+            .realpath = realpath_copy,
+            .data = Data{
+                .Cli = Cli{ .allocator = comp.gpa() },
+            },
+        });
         return msg;
     }
 
     pub fn createFromParseErrorAndScope(
         comp: *Compilation,
-        root_scope: *Scope.Root,
+        tree_scope: *Scope.AstTree,
         parse_error: *const ast.Error,
     ) !*Msg {
         const loc_token = parse_error.loc();
         var text_buf = try std.Buffer.initSize(comp.gpa(), 0);
         defer text_buf.deinit();
 
+        const realpath_copy = try mem.dupe(comp.gpa(), u8, tree_scope.root().realpath);
+        errdefer comp.gpa().free(realpath_copy);
+
         var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
-        try parse_error.render(&root_scope.tree.tokens, out_stream);
+        try parse_error.render(&tree_scope.tree.tokens, out_stream);
 
         const msg = try comp.gpa().create(Msg{
             .text = undefined,
-            .span = Span{
-                .first = loc_token,
-                .last = loc_token,
-            },
+            .realpath = realpath_copy,
             .data = Data{
                 .ScopeAndComp = ScopeAndComp{
-                    .root_scope = root_scope,
+                    .tree_scope = tree_scope,
                     .compilation = comp,
+                    .span = Span{
+                        .first = loc_token,
+                        .last = loc_token,
+                    },
                 },
             },
         });
-        root_scope.base.ref();
+        tree_scope.base.ref();
         msg.text = text_buf.toOwnedSlice();
         return msg;
     }
@@ -161,21 +197,24 @@ pub const Msg = struct {
         var text_buf = try std.Buffer.initSize(allocator, 0);
         defer text_buf.deinit();
 
+        const realpath_copy = try mem.dupe(allocator, u8, realpath);
+        errdefer allocator.free(realpath_copy);
+
         var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
         try parse_error.render(&tree.tokens, out_stream);
 
         const msg = try allocator.create(Msg{
             .text = undefined,
+            .realpath = realpath_copy,
             .data = Data{
                 .PathAndTree = PathAndTree{
                     .allocator = allocator,
-                    .realpath = realpath,
                     .tree = tree,
+                    .span = Span{
+                        .first = loc_token,
+                        .last = loc_token,
+                    },
                 },
-            },
-            .span = Span{
-                .first = loc_token,
-                .last = loc_token,
             },
         });
         msg.text = text_buf.toOwnedSlice();
@@ -185,20 +224,28 @@ pub const Msg = struct {
     }
 
     pub fn printToStream(msg: *const Msg, stream: var, color_on: bool) !void {
+        switch (msg.data) {
+            Data.Cli => {
+                try stream.print("{}:-:-: error: {}\n", msg.realpath, msg.text);
+                return;
+            },
+            else => {},
+        }
+
         const allocator = msg.getAllocator();
-        const realpath = msg.getRealPath();
         const tree = msg.getTree();
 
-        const cwd = try os.getCwd(allocator);
+        const cwd = try os.getCwdAlloc(allocator);
         defer allocator.free(cwd);
 
-        const relpath = try os.path.relative(allocator, cwd, realpath);
+        const relpath = try os.path.relative(allocator, cwd, msg.realpath);
         defer allocator.free(relpath);
 
-        const path = if (relpath.len < realpath.len) relpath else realpath;
+        const path = if (relpath.len < msg.realpath.len) relpath else msg.realpath;
+        const span = msg.getSpan();
 
-        const first_token = tree.tokens.at(msg.span.first);
-        const last_token = tree.tokens.at(msg.span.last);
+        const first_token = tree.tokens.at(span.first);
+        const last_token = tree.tokens.at(span.last);
         const start_loc = tree.tokenLocationPtr(0, first_token);
         const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
         if (!color_on) {

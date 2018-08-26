@@ -34,10 +34,10 @@ pub fn main() !void {
     const out_file_name = try (args_it.next(allocator) orelse @panic("expected output arg"));
     defer allocator.free(out_file_name);
 
-    var in_file = try os.File.openRead(allocator, in_file_name);
+    var in_file = try os.File.openRead(in_file_name);
     defer in_file.close();
 
-    var out_file = try os.File.openWrite(allocator, out_file_name);
+    var out_file = try os.File.openWrite(out_file_name);
     defer out_file.close();
 
     var file_in_stream = io.FileInStream.init(&in_file);
@@ -370,9 +370,9 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .n = header_stack_size,
                         },
                     });
-                    if (try urls.put(urlized, tag_token)) |other_tag_token| {
+                    if (try urls.put(urlized, tag_token)) |entry| {
                         parseError(tokenizer, tag_token, "duplicate header url: #{}", urlized) catch {};
-                        parseError(tokenizer, other_tag_token, "other tag here") catch {};
+                        parseError(tokenizer, entry.value, "other tag here") catch {};
                         return error.ParseError;
                     }
                     if (last_action == Action.Open) {
@@ -738,7 +738,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 try out.print("<pre><code class=\"zig\">{}</code></pre>", escaped_source);
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
                 const tmp_source_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_ext);
-                try io.writeFile(allocator, tmp_source_file_name, trimmed_raw_source);
+                try io.writeFile(tmp_source_file_name, trimmed_raw_source);
 
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| {

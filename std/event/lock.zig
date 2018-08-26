@@ -9,6 +9,7 @@ const Loop = std.event.Loop;
 /// Thread-safe async/await lock.
 /// Does not make any syscalls - coroutines which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
+/// Allows only one actor to hold the lock.
 pub const Lock = struct {
     loop: *Loop,
     shared_bit: u8, // TODO make this a bool
@@ -90,13 +91,14 @@ pub const Lock = struct {
     }
 
     pub async fn acquire(self: *Lock) Held {
+        // TODO explicitly put this memory in the coroutine frame #1194
         suspend {
-            // TODO explicitly put this memory in the coroutine frame #1194
-            var my_tick_node = Loop.NextTickNode{
-                .data = @handle(),
-                .next = undefined,
-            };
+            resume @handle();
+        }
+        var my_tick_node = Loop.NextTickNode.init(@handle());
 
+        errdefer _ = self.queue.remove(&my_tick_node); // TODO test canceling an acquire
+        suspend {
             self.queue.put(&my_tick_node);
 
             // At this point, we are in the queue, so we might have already been resumed and this coroutine
@@ -146,6 +148,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
     }
     const handle1 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node1 = Loop.NextTickNode{
+        .prev = undefined,
         .next = undefined,
         .data = handle1,
     };
@@ -153,6 +156,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
 
     const handle2 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node2 = Loop.NextTickNode{
+        .prev = undefined,
         .next = undefined,
         .data = handle2,
     };
@@ -160,6 +164,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
 
     const handle3 = async lockRunner(lock) catch @panic("out of memory");
     var tick_node3 = Loop.NextTickNode{
+        .prev = undefined,
         .next = undefined,
         .data = handle3,
     };

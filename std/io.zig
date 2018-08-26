@@ -207,6 +207,12 @@ pub fn InStream(comptime ReadError: type) type {
                 _ = try self.readByte();
             }
         }
+
+        pub fn readStruct(self: *Self, comptime T: type, ptr: *T) !void {
+            // Only extern and packed structs have defined in-memory layout.
+            assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
+            return self.readNoEof(@sliceToBytes((*[1]T)(ptr)[0..]));
+        }
     };
 }
 
@@ -254,9 +260,8 @@ pub fn OutStream(comptime WriteError: type) type {
     };
 }
 
-/// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
-pub fn writeFile(allocator: *mem.Allocator, path: []const u8, data: []const u8) !void {
-    var file = try File.openWrite(allocator, path);
+pub fn writeFile(path: []const u8, data: []const u8) !void {
+    var file = try File.openWrite(path);
     defer file.close();
     try file.write(data);
 }
@@ -268,7 +273,7 @@ pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
 
 /// On success, caller owns returned buffer.
 pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
-    var file = try File.openRead(allocator, path);
+    var file = try File.openRead(path);
     defer file.close();
 
     const size = try file.getEndPos();
@@ -415,13 +420,12 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
             self.at_end = (read < left);
             return pos + read;
         }
-
     };
 }
 
 pub const SliceInStream = struct {
     const Self = this;
-    pub const Error = error { };
+    pub const Error = error{};
     pub const Stream = InStream(Error);
 
     pub stream: Stream,
@@ -481,13 +485,12 @@ pub const SliceOutStream = struct {
 
         assert(self.pos <= self.slice.len);
 
-        const n =
-            if (self.pos + bytes.len <= self.slice.len)
-                bytes.len
-            else
-                self.slice.len - self.pos;
+        const n = if (self.pos + bytes.len <= self.slice.len)
+            bytes.len
+        else
+            self.slice.len - self.pos;
 
-        std.mem.copy(u8, self.slice[self.pos..self.pos + n], bytes[0..n]);
+        std.mem.copy(u8, self.slice[self.pos .. self.pos + n], bytes[0..n]);
         self.pos += n;
 
         if (n < bytes.len) {
@@ -586,7 +589,7 @@ pub const BufferedAtomicFile = struct {
         });
         errdefer allocator.destroy(self);
 
-        self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.default_file_mode);
+        self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.File.default_mode);
         errdefer self.atomic_file.deinit();
 
         self.file_stream = FileOutStream.init(&self.atomic_file.file);

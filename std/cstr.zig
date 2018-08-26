@@ -9,10 +9,9 @@ pub const line_sep = switch (builtin.os) {
     else => "\n",
 };
 
+/// Deprecated, use mem.len
 pub fn len(ptr: [*]const u8) usize {
-    var count: usize = 0;
-    while (ptr[count] != 0) : (count += 1) {}
-    return count;
+    return mem.len(u8, ptr);
 }
 
 pub fn cmp(a: [*]const u8, b: [*]const u8) i8 {
@@ -27,12 +26,14 @@ pub fn cmp(a: [*]const u8, b: [*]const u8) i8 {
     }
 }
 
+/// Deprecated, use mem.toSliceConst
 pub fn toSliceConst(str: [*]const u8) []const u8 {
-    return str[0..len(str)];
+    return mem.toSliceConst(u8, str);
 }
 
+/// Deprecated, use mem.toSlice
 pub fn toSlice(str: [*]u8) []u8 {
-    return str[0..len(str)];
+    return mem.toSlice(u8, str);
 }
 
 test "cstr fns" {

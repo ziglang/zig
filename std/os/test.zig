@@ -10,28 +10,45 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
-    try os.makePath(a, "os_test_tmp/b/c");
-    try io.writeFile(a, "os_test_tmp/b/c/file.txt", "nonsense");
-    try io.writeFile(a, "os_test_tmp/b/file2.txt", "blah");
+    try os.makePath(a, "os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "c");
+    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "c" ++ os.path.sep_str ++ "file.txt", "nonsense");
+    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "file2.txt", "blah");
     try os.deleteTree(a, "os_test_tmp");
     if (os.Dir.open(a, "os_test_tmp")) |dir| {
         @panic("expected error");
     } else |err| {
-        assert(err == error.PathNotFound);
+        assert(err == error.FileNotFound);
     }
 }
 
 test "access file" {
     try os.makePath(a, "os_test_tmp");
-    if (os.File.access(a, "os_test_tmp/file.txt")) |ok| {
+    if (os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt")) |ok| {
         @panic("expected error");
     } else |err| {
-        assert(err == error.NotFound);
+        assert(err == error.FileNotFound);
     }
 
-    try io.writeFile(a, "os_test_tmp/file.txt", "");
-    try os.File.access(a, "os_test_tmp/file.txt");
+    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "file.txt", "");
+    try os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt");
     try os.deleteTree(a, "os_test_tmp");
+}
+
+fn testThreadIdFn(thread_id: *os.Thread.Id) void {
+    thread_id.* = os.Thread.getCurrentId();
+}
+
+test "std.os.Thread.getCurrentId" {
+    var thread_current_id: os.Thread.Id = undefined;
+    const thread = try os.spawnThread(&thread_current_id, testThreadIdFn);
+    const thread_id = thread.handle();
+    thread.wait();
+    switch (builtin.os) {
+        builtin.Os.windows => assert(os.Thread.getCurrentId() != thread_current_id),
+        else => {
+            assert(thread_current_id == thread_id);
+        },
+    }
 }
 
 test "spawn threads" {

@@ -143,7 +143,7 @@ pub const LibCInstallation = struct {
     pub async fn findNative(self: *LibCInstallation, loop: *event.Loop) !void {
         self.initEmpty();
         var group = event.Group(FindError!void).init(loop);
-        errdefer group.cancelAll();
+        errdefer group.deinit();
         var windows_sdk: ?*c.ZigWindowsSDK = null;
         errdefer if (windows_sdk) |sdk| c.zig_free_windows_sdk(@ptrCast(?[*]c.ZigWindowsSDK, sdk));
 
@@ -233,7 +233,7 @@ pub const LibCInstallation = struct {
             const stdlib_path = try std.os.path.join(loop.allocator, search_path, "stdlib.h");
             defer loop.allocator.free(stdlib_path);
 
-            if (try fileExists(loop.allocator, stdlib_path)) {
+            if (try fileExists(stdlib_path)) {
                 self.include_dir = try std.mem.dupe(loop.allocator, u8, search_path);
                 return;
             }
@@ -257,7 +257,7 @@ pub const LibCInstallation = struct {
             const stdlib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "stdlib.h");
             defer loop.allocator.free(stdlib_path);
 
-            if (try fileExists(loop.allocator, stdlib_path)) {
+            if (try fileExists(stdlib_path)) {
                 self.include_dir = result_buf.toOwnedSlice();
                 return;
             }
@@ -285,7 +285,7 @@ pub const LibCInstallation = struct {
             }
             const ucrt_lib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "ucrt.lib");
             defer loop.allocator.free(ucrt_lib_path);
-            if (try fileExists(loop.allocator, ucrt_lib_path)) {
+            if (try fileExists(ucrt_lib_path)) {
                 self.lib_dir = result_buf.toOwnedSlice();
                 return;
             }
@@ -313,7 +313,7 @@ pub const LibCInstallation = struct {
             },
         };
         var group = event.Group(FindError!void).init(loop);
-        errdefer group.cancelAll();
+        errdefer group.deinit();
         for (dyn_tests) |*dyn_test| {
             try group.call(testNativeDynamicLinker, self, loop, dyn_test);
         }
@@ -341,7 +341,6 @@ pub const LibCInstallation = struct {
         }
     }
 
-
     async fn findNativeKernel32LibDir(self: *LibCInstallation, loop: *event.Loop, sdk: *c.ZigWindowsSDK) FindError!void {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
@@ -361,7 +360,7 @@ pub const LibCInstallation = struct {
             }
             const kernel32_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "kernel32.lib");
             defer loop.allocator.free(kernel32_path);
-            if (try fileExists(loop.allocator, kernel32_path)) {
+            if (try fileExists(kernel32_path)) {
                 self.kernel32_lib_dir = result_buf.toOwnedSlice();
                 return;
             }
@@ -450,13 +449,11 @@ fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
     return search_buf[0..search_end];
 }
 
-
-fn fileExists(allocator: *std.mem.Allocator, path: []const u8) !bool {
-    if (std.os.File.access(allocator, path)) |_| {
+fn fileExists(path: []const u8) !bool {
+    if (std.os.File.access(path)) |_| {
         return true;
     } else |err| switch (err) {
-        error.NotFound, error.PermissionDenied => return false,
-        error.OutOfMemory => return error.OutOfMemory,
+        error.FileNotFound, error.PermissionDenied => return false,
         else => return error.FileSystem,
     }
 }

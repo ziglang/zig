@@ -4,8 +4,8 @@ const mem = std.mem;
 const io = std.io;
 const os = std.os;
 const elf = std.elf;
-const DW = std.dwarf;
 const macho = std.macho;
+const DW = std.dwarf;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
@@ -19,14 +19,19 @@ pub const runtime_safety = switch (builtin.mode) {
 
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
-/// TODO atomic/multithread support
 var stderr_file: os.File = undefined;
 var stderr_file_out_stream: io.FileOutStream = undefined;
+
+/// TODO multithreaded awareness
 var stderr_stream: ?*io.OutStream(io.FileOutStream.Error) = null;
+var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
+    const held = stderr_mutex.acquire();
+    defer held.release();
     const stderr = getStderrStream() catch return;
     stderr.print(fmt, args) catch return;
 }
+
 pub fn getStderrStream() !*io.OutStream(io.FileOutStream.Error) {
     if (stderr_stream) |st| {
         return st;
@@ -39,14 +44,15 @@ pub fn getStderrStream() !*io.OutStream(io.FileOutStream.Error) {
     }
 }
 
-var self_debug_info: ?*ElfStackTrace = null;
-pub fn getSelfDebugInfo() !*ElfStackTrace {
-    if (self_debug_info) |info| {
+/// TODO multithreaded awareness
+var self_debug_info: ?DebugInfo = null;
+
+pub fn getSelfDebugInfo() !*DebugInfo {
+    if (self_debug_info) |*info| {
         return info;
     } else {
-        const info = try openSelfDebugInfo(getDebugInfoAllocator());
-        self_debug_info = info;
-        return info;
+        self_debug_info = try openSelfDebugInfo(getDebugInfoAllocator());
+        return &self_debug_info.?;
     }
 }
 
@@ -57,6 +63,7 @@ fn wantTtyColor() bool {
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
+/// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream() catch return;
     const debug_info = getSelfDebugInfo() catch |err| {
@@ -70,6 +77,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 }
 
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
+/// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: *const builtin.StackTrace) void {
     const stderr = getStderrStream() catch return;
     const debug_info = getSelfDebugInfo() catch |err| {
@@ -124,6 +132,7 @@ pub fn panic(comptime format: []const u8, args: ...) noreturn {
     panicExtra(null, first_trace_addr, format, args);
 }
 
+/// TODO multithreaded awareness
 var panicking: u8 = 0; // TODO make this a bool
 
 pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: ...) noreturn {
@@ -152,7 +161,7 @@ const WHITE = "\x1b[37;1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, allocator: *mem.Allocator, debug_info: *ElfStackTrace, tty_color: bool) !void {
+pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo, tty_color: bool) !void {
     var frame_index: usize = undefined;
     var frames_left: usize = undefined;
     if (stack_trace.index < stack_trace.instruction_addresses.len) {
@@ -182,7 +191,7 @@ pub inline fn getReturnAddress(frame_count: usize) usize {
     return @intToPtr(*const usize, fp + @sizeOf(usize)).*;
 }
 
-pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_info: *ElfStackTrace, tty_color: bool, start_addr: ?usize) !void {
+pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
     const AddressState = union(enum) {
         NotLookingForStartAddress,
         LookingForStartAddress: usize,
@@ -215,130 +224,292 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_
     }
 }
 
-pub fn printSourceAtAddress(debug_info: *ElfStackTrace, out_stream: var, address: usize, tty_color: bool) !void {
+pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
     switch (builtin.os) {
-        builtin.Os.windows => return error.UnsupportedDebugInfo,
-        builtin.Os.macosx => {
-            // TODO(bnoordhuis) It's theoretically possible to obtain the
-            // compilation unit from the symbtab but it's not that useful
-            // in practice because the compiler dumps everything in a single
-            // object file.  Future improvement: use external dSYM data when
-            // available.
-            const unknown = macho.Symbol{
-                .name = "???",
-                .address = address,
-            };
-            const symbol = debug_info.symbol_table.search(address) orelse &unknown;
-            try out_stream.print(WHITE ++ "{}" ++ RESET ++ ": " ++ DIM ++ "0x{x}" ++ " in ??? (???)" ++ RESET ++ "\n", symbol.name, address);
+        builtin.Os.macosx => return printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color),
+        builtin.Os.linux => return printSourceAtAddressLinux(debug_info, out_stream, address, tty_color),
+        builtin.Os.windows => {
+            // TODO https://github.com/ziglang/zig/issues/721
+            return error.UnsupportedOperatingSystem;
         },
-        else => {
-            const compile_unit = findCompileUnit(debug_info, address) catch {
-                if (tty_color) {
-                    try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n    ???\n\n", address);
-                } else {
-                    try out_stream.print("???:?:?: 0x{x} in ??? (???)\n    ???\n\n", address);
-                }
-                return;
-            };
-            const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
-            if (getLineNumberInfo(debug_info, compile_unit, address - 1)) |line_info| {
-                defer line_info.deinit();
-                if (tty_color) {
-                    try out_stream.print(
-                        WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++ DIM ++ "0x{x} in ??? ({})" ++ RESET ++ "\n",
-                        line_info.file_name,
-                        line_info.line,
-                        line_info.column,
-                        address,
-                        compile_unit_name,
-                    );
-                    if (printLineFromFile(debug_info.allocator(), out_stream, line_info)) {
-                        if (line_info.column == 0) {
-                            try out_stream.write("\n");
-                        } else {
-                            {
-                                var col_i: usize = 1;
-                                while (col_i < line_info.column) : (col_i += 1) {
-                                    try out_stream.writeByte(' ');
-                                }
-                            }
-                            try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
-                        }
-                    } else |err| switch (err) {
-                        error.EndOfFile => {},
-                        else => return err,
-                    }
-                } else {
-                    try out_stream.print(
-                        "{}:{}:{}: 0x{x} in ??? ({})\n",
-                        line_info.file_name,
-                        line_info.line,
-                        line_info.column,
-                        address,
-                        compile_unit_name,
-                    );
-                }
-            } else |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => {
-                    try out_stream.print("0x{x} in ??? ({})\n", address, compile_unit_name);
-                },
-                else => return err,
+        else => return error.UnsupportedOperatingSystem,
+    }
+}
+
+fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
+    var min: usize = 0;
+    var max: usize = symbols.len - 1; // Exclude sentinel.
+    while (min < max) {
+        const mid = min + (max - min) / 2;
+        const curr = &symbols[mid];
+        const next = &symbols[mid + 1];
+        if (address >= next.address()) {
+            min = mid + 1;
+        } else if (address < curr.address()) {
+            max = mid;
+        } else {
+            return curr;
+        }
+    }
+    return null;
+}
+
+fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+    const base_addr = @ptrToInt(&std.c._mh_execute_header);
+    const adjusted_addr = 0x100000000 + (address - base_addr);
+
+    const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {
+        if (tty_color) {
+            try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n\n\n", address);
+        } else {
+            try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", address);
+        }
+        return;
+    };
+
+    const symbol_name = mem.toSliceConst(u8, di.strings.ptr + symbol.nlist.n_strx);
+    const compile_unit_name = if (symbol.ofile) |ofile| blk: {
+        const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
+        break :blk os.path.basename(ofile_path);
+    } else "???";
+    if (getLineNumberInfoMacOs(di, symbol.*, adjusted_addr)) |line_info| {
+        defer line_info.deinit();
+        try printLineInfo(di, out_stream, line_info, address, symbol_name, compile_unit_name, tty_color);
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
+            if (tty_color) {
+                try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in {} ({})" ++ RESET ++ "\n\n\n", address, symbol_name, compile_unit_name);
+            } else {
+                try out_stream.print("???:?:?: 0x{x} in {} ({})\n\n\n", address, symbol_name, compile_unit_name);
             }
         },
+        else => return err,
     }
 }
 
-pub fn openSelfDebugInfo(allocator: *mem.Allocator) !*ElfStackTrace {
-    switch (builtin.object_format) {
-        builtin.ObjectFormat.elf => {
-            const st = try allocator.create(ElfStackTrace{
-                .self_exe_file = undefined,
-                .elf = undefined,
-                .debug_info = undefined,
-                .debug_abbrev = undefined,
-                .debug_str = undefined,
-                .debug_line = undefined,
-                .debug_ranges = null,
-                .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
-                .compile_unit_list = ArrayList(CompileUnit).init(allocator),
-            });
-            errdefer allocator.destroy(st);
-            st.self_exe_file = try os.openSelfExe();
-            errdefer st.self_exe_file.close();
-
-            try st.elf.openFile(allocator, &st.self_exe_file);
-            errdefer st.elf.close();
-
-            st.debug_info = (try st.elf.findSection(".debug_info")) orelse return error.MissingDebugInfo;
-            st.debug_abbrev = (try st.elf.findSection(".debug_abbrev")) orelse return error.MissingDebugInfo;
-            st.debug_str = (try st.elf.findSection(".debug_str")) orelse return error.MissingDebugInfo;
-            st.debug_line = (try st.elf.findSection(".debug_line")) orelse return error.MissingDebugInfo;
-            st.debug_ranges = (try st.elf.findSection(".debug_ranges"));
-            try scanAllCompileUnits(st);
-            return st;
+pub fn printSourceAtAddressLinux(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+    const compile_unit = findCompileUnit(debug_info, address) catch {
+        if (tty_color) {
+            try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n\n\n", address);
+        } else {
+            try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", address);
+        }
+        return;
+    };
+    const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
+    if (getLineNumberInfoLinux(debug_info, compile_unit, address - 1)) |line_info| {
+        defer line_info.deinit();
+        const symbol_name = "???";
+        try printLineInfo(debug_info, out_stream, line_info, address, symbol_name, compile_unit_name, tty_color);
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
+            if (tty_color) {
+                try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? ({})" ++ RESET ++ "\n\n\n", address, compile_unit_name);
+            } else {
+                try out_stream.print("???:?:?: 0x{x} in ??? ({})\n\n\n", address, compile_unit_name);
+            }
         },
-        builtin.ObjectFormat.macho => {
-            var exe_file = try os.openSelfExe();
-            defer exe_file.close();
-
-            const st = try allocator.create(ElfStackTrace{ .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)) });
-            errdefer allocator.destroy(st);
-            return st;
-        },
-        builtin.ObjectFormat.coff => {
-            return error.TodoSupportCoffDebugInfo;
-        },
-        builtin.ObjectFormat.wasm => {
-            return error.TodoSupportCOFFDebugInfo;
-        },
-        builtin.ObjectFormat.unknown => {
-            return error.UnknownObjectFormat;
-        },
+        else => return err,
     }
 }
 
-fn printLineFromFile(allocator: *mem.Allocator, out_stream: var, line_info: *const LineInfo) !void {
-    var f = try os.File.openRead(allocator, line_info.file_name);
+fn printLineInfo(
+    debug_info: *DebugInfo,
+    out_stream: var,
+    line_info: LineInfo,
+    address: usize,
+    symbol_name: []const u8,
+    compile_unit_name: []const u8,
+    tty_color: bool,
+) !void {
+    if (tty_color) {
+        try out_stream.print(
+            WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++ DIM ++ "0x{x} in {} ({})" ++ RESET ++ "\n",
+            line_info.file_name,
+            line_info.line,
+            line_info.column,
+            address,
+            symbol_name,
+            compile_unit_name,
+        );
+        if (printLineFromFile(out_stream, line_info)) {
+            if (line_info.column == 0) {
+                try out_stream.write("\n");
+            } else {
+                {
+                    var col_i: usize = 1;
+                    while (col_i < line_info.column) : (col_i += 1) {
+                        try out_stream.writeByte(' ');
+                    }
+                }
+                try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
+            }
+        } else |err| switch (err) {
+            error.EndOfFile => {},
+            else => return err,
+        }
+    } else {
+        try out_stream.print(
+            "{}:{}:{}: 0x{x} in {} ({})\n",
+            line_info.file_name,
+            line_info.line,
+            line_info.column,
+            address,
+            symbol_name,
+            compile_unit_name,
+        );
+    }
+}
+
+// TODO use this
+pub const OpenSelfDebugInfoError = error{
+    MissingDebugInfo,
+    OutOfMemory,
+    UnsupportedOperatingSystem,
+};
+
+pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
+    switch (builtin.os) {
+        builtin.Os.linux => return openSelfDebugInfoLinux(allocator),
+        builtin.Os.macosx, builtin.Os.ios => return openSelfDebugInfoMacOs(allocator),
+        builtin.Os.windows => {
+            // TODO: https://github.com/ziglang/zig/issues/721
+            return error.UnsupportedOperatingSystem;
+        },
+        else => return error.UnsupportedOperatingSystem,
+    }
+}
+
+fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
+    var di = DebugInfo{
+        .self_exe_file = undefined,
+        .elf = undefined,
+        .debug_info = undefined,
+        .debug_abbrev = undefined,
+        .debug_str = undefined,
+        .debug_line = undefined,
+        .debug_ranges = null,
+        .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
+        .compile_unit_list = ArrayList(CompileUnit).init(allocator),
+    };
+    di.self_exe_file = try os.openSelfExe();
+    errdefer di.self_exe_file.close();
+
+    try di.elf.openFile(allocator, &di.self_exe_file);
+    errdefer di.elf.close();
+
+    di.debug_info = (try di.elf.findSection(".debug_info")) orelse return error.MissingDebugInfo;
+    di.debug_abbrev = (try di.elf.findSection(".debug_abbrev")) orelse return error.MissingDebugInfo;
+    di.debug_str = (try di.elf.findSection(".debug_str")) orelse return error.MissingDebugInfo;
+    di.debug_line = (try di.elf.findSection(".debug_line")) orelse return error.MissingDebugInfo;
+    di.debug_ranges = (try di.elf.findSection(".debug_ranges"));
+    try scanAllCompileUnits(&di);
+    return di;
+}
+
+pub fn findElfSection(elf: *Elf, name: []const u8) ?*elf.Shdr {
+    var file_stream = io.FileInStream.init(elf.in_file);
+    const in = &file_stream.stream;
+
+    section_loop: for (elf.section_headers) |*elf_section| {
+        if (elf_section.sh_type == SHT_NULL) continue;
+
+        const name_offset = elf.string_section.offset + elf_section.name;
+        try elf.in_file.seekTo(name_offset);
+
+        for (name) |expected_c| {
+            const target_c = try in.readByte();
+            if (target_c == 0 or expected_c != target_c) continue :section_loop;
+        }
+
+        {
+            const null_byte = try in.readByte();
+            if (null_byte == 0) return elf_section;
+        }
+    }
+
+    return null;
+}
+
+fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
+    const hdr = &std.c._mh_execute_header;
+    assert(hdr.magic == std.macho.MH_MAGIC_64);
+
+    const hdr_base = @ptrCast([*]u8, hdr);
+    var ptr = hdr_base + @sizeOf(macho.mach_header_64);
+    var ncmd: u32 = hdr.ncmds;
+    const symtab = while (ncmd != 0) : (ncmd -= 1) {
+        const lc = @ptrCast(*std.macho.load_command, ptr);
+        switch (lc.cmd) {
+            std.macho.LC_SYMTAB => break @ptrCast(*std.macho.symtab_command, ptr),
+            else => {},
+        }
+        ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
+    } else {
+        return error.MissingDebugInfo;
+    };
+    const syms = @ptrCast([*]macho.nlist_64, hdr_base + symtab.symoff)[0..symtab.nsyms];
+    const strings = @ptrCast([*]u8, hdr_base + symtab.stroff)[0..symtab.strsize];
+
+    const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
+
+    var ofile: ?*macho.nlist_64 = null;
+    var reloc: u64 = 0;
+    var symbol_index: usize = 0;
+    var last_len: u64 = 0;
+    for (syms) |*sym| {
+        if (sym.n_type & std.macho.N_STAB != 0) {
+            switch (sym.n_type) {
+                std.macho.N_OSO => {
+                    ofile = sym;
+                    reloc = 0;
+                },
+                std.macho.N_FUN => {
+                    if (sym.n_sect == 0) {
+                        last_len = sym.n_value;
+                    } else {
+                        symbols_buf[symbol_index] = MachoSymbol{
+                            .nlist = sym,
+                            .ofile = ofile,
+                            .reloc = reloc,
+                        };
+                        symbol_index += 1;
+                    }
+                },
+                std.macho.N_BNSYM => {
+                    if (reloc == 0) {
+                        reloc = sym.n_value;
+                    }
+                },
+                else => continue,
+            }
+        }
+    }
+    const sentinel = try allocator.createOne(macho.nlist_64);
+    sentinel.* = macho.nlist_64{
+        .n_strx = 0,
+        .n_type = 36,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = symbols_buf[symbol_index - 1].nlist.n_value + last_len,
+    };
+
+    const symbols = allocator.shrink(MachoSymbol, symbols_buf, symbol_index);
+
+    // Even though lld emits symbols in ascending order, this debug code
+    // should work for programs linked in any valid way.
+    // This sort is so that we can binary search later.
+    std.sort.sort(MachoSymbol, symbols, MachoSymbol.addressLessThan);
+
+    return DebugInfo{
+        .ofiles = DebugInfo.OFileTable.init(allocator),
+        .symbols = symbols,
+        .strings = strings,
+    };
+}
+
+fn printLineFromFile(out_stream: var, line_info: *const LineInfo) !void {
+    var f = try os.File.openRead(line_info.file_name);
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -369,12 +540,42 @@ fn printLineFromFile(allocator: *mem.Allocator, out_stream: var, line_info: *con
     }
 }
 
-pub const ElfStackTrace = switch (builtin.os) {
-    builtin.Os.macosx => struct {
-        symbol_table: macho.SymbolTable,
+const MachoSymbol = struct {
+    nlist: *macho.nlist_64,
+    ofile: ?*macho.nlist_64,
+    reloc: u64,
 
-        pub fn close(self: *ElfStackTrace) void {
-            self.symbol_table.deinit();
+    /// Returns the address from the macho file
+    fn address(self: MachoSymbol) u64 {
+        return self.nlist.n_value;
+    }
+
+    fn addressLessThan(lhs: MachoSymbol, rhs: MachoSymbol) bool {
+        return lhs.address() < rhs.address();
+    }
+};
+
+const MachOFile = struct {
+    bytes: []align(@alignOf(macho.mach_header_64)) const u8,
+    sect_debug_info: ?*const macho.section_64,
+    sect_debug_line: ?*const macho.section_64,
+};
+
+pub const DebugInfo = switch (builtin.os) {
+    builtin.Os.macosx => struct {
+        symbols: []const MachoSymbol,
+        strings: []const u8,
+        ofiles: OFileTable,
+
+        const OFileTable = std.HashMap(
+            *macho.nlist_64,
+            MachOFile,
+            std.hash_map.getHashPtrAddrFn(*macho.nlist_64),
+            std.hash_map.getTrivialEqlFn(*macho.nlist_64),
+        );
+
+        pub fn allocator(self: DebugInfo) *mem.Allocator {
+            return self.ofiles.allocator;
         }
     },
     else => struct {
@@ -388,17 +589,17 @@ pub const ElfStackTrace = switch (builtin.os) {
         abbrev_table_list: ArrayList(AbbrevTableHeader),
         compile_unit_list: ArrayList(CompileUnit),
 
-        pub fn allocator(self: *const ElfStackTrace) *mem.Allocator {
+        pub fn allocator(self: DebugInfo) *mem.Allocator {
             return self.abbrev_table_list.allocator;
         }
 
-        pub fn readString(self: *ElfStackTrace) ![]u8 {
+        pub fn readString(self: *DebugInfo) ![]u8 {
             var in_file_stream = io.FileInStream.init(&self.self_exe_file);
             const in_stream = &in_file_stream.stream;
             return readStringRaw(self.allocator(), in_stream);
         }
 
-        pub fn close(self: *ElfStackTrace) void {
+        pub fn close(self: *DebugInfo) void {
             self.self_exe_file.close();
             self.elf.close();
         }
@@ -505,7 +706,7 @@ const Die = struct {
         };
     }
 
-    fn getAttrString(self: *const Die, st: *ElfStackTrace, id: u64) ![]u8 {
+    fn getAttrString(self: *const Die, st: *DebugInfo, id: u64) ![]u8 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
@@ -620,7 +821,7 @@ fn readStringRaw(allocator: *mem.Allocator, in_stream: var) ![]u8 {
     return buf.toSlice();
 }
 
-fn getString(st: *ElfStackTrace, offset: u64) ![]u8 {
+fn getString(st: *DebugInfo, offset: u64) ![]u8 {
     const pos = st.debug_str.offset + offset;
     try st.self_exe_file.seekTo(pos);
     return st.readString();
@@ -672,14 +873,10 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, comptime T: type
 
 const ParseFormValueError = error{
     EndOfStream,
-    Io,
-    BadFd,
-    Unexpected,
     InvalidDebugInfo,
     EndOfFile,
-    IsDir,
     OutOfMemory,
-};
+} || std.os.File.ReadError;
 
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) ParseFormValueError!FormValue {
     return switch (form_id) {
@@ -731,7 +928,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
     };
 }
 
-fn parseAbbrevTable(st: *ElfStackTrace) !AbbrevTable {
+fn parseAbbrevTable(st: *DebugInfo) !AbbrevTable {
     const in_file = &st.self_exe_file;
     var in_file_stream = io.FileInStream.init(in_file);
     const in_stream = &in_file_stream.stream;
@@ -761,7 +958,7 @@ fn parseAbbrevTable(st: *ElfStackTrace) !AbbrevTable {
 
 /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
 /// seeks in the stream and parses it.
-fn getAbbrevTable(st: *ElfStackTrace, abbrev_offset: u64) !*const AbbrevTable {
+fn getAbbrevTable(st: *DebugInfo, abbrev_offset: u64) !*const AbbrevTable {
     for (st.abbrev_table_list.toSlice()) |*header| {
         if (header.offset == abbrev_offset) {
             return &header.table;
@@ -782,7 +979,7 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
     return null;
 }
 
-fn parseDie(st: *ElfStackTrace, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
+fn parseDie(st: *DebugInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
     const in_file = &st.self_exe_file;
     var in_file_stream = io.FileInStream.init(in_file);
     const in_stream = &in_file_stream.stream;
@@ -804,12 +1001,210 @@ fn parseDie(st: *ElfStackTrace, abbrev_table: *const AbbrevTable, is_64: bool) !
     return result;
 }
 
-fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, target_address: usize) !LineInfo {
-    const compile_unit_cwd = try compile_unit.die.getAttrString(st, DW.AT_comp_dir);
+fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: usize) !LineInfo {
+    const ofile = symbol.ofile orelse return error.MissingDebugInfo;
+    const gop = try di.ofiles.getOrPut(ofile);
+    const mach_o_file = if (gop.found_existing) &gop.kv.value else blk: {
+        errdefer _ = di.ofiles.remove(ofile);
+        const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
 
-    const in_file = &st.self_exe_file;
-    const debug_line_end = st.debug_line.offset + st.debug_line.size;
-    var this_offset = st.debug_line.offset;
+        gop.kv.value = MachOFile{
+            .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(macho.mach_header_64)),
+            .sect_debug_info = null,
+            .sect_debug_line = null,
+        };
+        const hdr = @ptrCast(*const macho.mach_header_64, gop.kv.value.bytes.ptr);
+        if (hdr.magic != std.macho.MH_MAGIC_64) return error.InvalidDebugInfo;
+
+        const hdr_base = @ptrCast([*]const u8, hdr);
+        var ptr = hdr_base + @sizeOf(macho.mach_header_64);
+        var ncmd: u32 = hdr.ncmds;
+        const segcmd = while (ncmd != 0) : (ncmd -= 1) {
+            const lc = @ptrCast(*const std.macho.load_command, ptr);
+            switch (lc.cmd) {
+                std.macho.LC_SEGMENT_64 => break @ptrCast(*const std.macho.segment_command_64, ptr),
+                else => {},
+            }
+            ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
+        } else {
+            return error.MissingDebugInfo;
+        };
+        const sections = @alignCast(@alignOf(macho.section_64), @ptrCast([*]const macho.section_64, ptr + @sizeOf(std.macho.segment_command_64)))[0..segcmd.nsects];
+        for (sections) |*sect| {
+            if (sect.flags & macho.SECTION_TYPE == macho.S_REGULAR and
+                (sect.flags & macho.SECTION_ATTRIBUTES) & macho.S_ATTR_DEBUG == macho.S_ATTR_DEBUG)
+            {
+                const sect_name = mem.toSliceConst(u8, &sect.sectname);
+                if (mem.eql(u8, sect_name, "__debug_line")) {
+                    gop.kv.value.sect_debug_line = sect;
+                } else if (mem.eql(u8, sect_name, "__debug_info")) {
+                    gop.kv.value.sect_debug_info = sect;
+                }
+            }
+        }
+
+        break :blk &gop.kv.value;
+    };
+
+    const sect_debug_line = mach_o_file.sect_debug_line orelse return error.MissingDebugInfo;
+    var ptr = mach_o_file.bytes.ptr + sect_debug_line.offset;
+
+    var is_64: bool = undefined;
+    const unit_length = try readInitialLengthMem(&ptr, &is_64);
+    if (unit_length == 0) return error.MissingDebugInfo;
+
+    const version = readIntMem(&ptr, u16, builtin.Endian.Little);
+    // TODO support 3 and 5
+    if (version != 2 and version != 4) return error.InvalidDebugInfo;
+
+    const prologue_length = if (is_64)
+        readIntMem(&ptr, u64, builtin.Endian.Little)
+    else
+        readIntMem(&ptr, u32, builtin.Endian.Little);
+    const prog_start = ptr + prologue_length;
+
+    const minimum_instruction_length = readByteMem(&ptr);
+    if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
+
+    if (version >= 4) {
+        // maximum_operations_per_instruction
+        ptr += 1;
+    }
+
+    const default_is_stmt = readByteMem(&ptr) != 0;
+    const line_base = readByteSignedMem(&ptr);
+
+    const line_range = readByteMem(&ptr);
+    if (line_range == 0) return error.InvalidDebugInfo;
+
+    const opcode_base = readByteMem(&ptr);
+
+    const standard_opcode_lengths = ptr[0 .. opcode_base - 1];
+    ptr += opcode_base - 1;
+
+    var include_directories = ArrayList([]const u8).init(di.allocator());
+    try include_directories.append("");
+    while (true) {
+        const dir = readStringMem(&ptr);
+        if (dir.len == 0) break;
+        try include_directories.append(dir);
+    }
+
+    var file_entries = ArrayList(FileEntry).init(di.allocator());
+    var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
+
+    while (true) {
+        const file_name = readStringMem(&ptr);
+        if (file_name.len == 0) break;
+        const dir_index = try readULeb128Mem(&ptr);
+        const mtime = try readULeb128Mem(&ptr);
+        const len_bytes = try readULeb128Mem(&ptr);
+        try file_entries.append(FileEntry{
+            .file_name = file_name,
+            .dir_index = dir_index,
+            .mtime = mtime,
+            .len_bytes = len_bytes,
+        });
+    }
+
+    ptr = prog_start;
+    while (true) {
+        const opcode = readByteMem(&ptr);
+
+        if (opcode == DW.LNS_extended_op) {
+            const op_size = try readULeb128Mem(&ptr);
+            if (op_size < 1) return error.InvalidDebugInfo;
+            var sub_op = readByteMem(&ptr);
+            switch (sub_op) {
+                DW.LNE_end_sequence => {
+                    prog.end_sequence = true;
+                    if (try prog.checkLineMatch()) |info| return info;
+                    return error.MissingDebugInfo;
+                },
+                DW.LNE_set_address => {
+                    const addr = readIntMem(&ptr, usize, builtin.Endian.Little);
+                    prog.address = symbol.reloc + addr;
+                },
+                DW.LNE_define_file => {
+                    const file_name = readStringMem(&ptr);
+                    const dir_index = try readULeb128Mem(&ptr);
+                    const mtime = try readULeb128Mem(&ptr);
+                    const len_bytes = try readULeb128Mem(&ptr);
+                    try file_entries.append(FileEntry{
+                        .file_name = file_name,
+                        .dir_index = dir_index,
+                        .mtime = mtime,
+                        .len_bytes = len_bytes,
+                    });
+                },
+                else => {
+                    ptr += op_size - 1;
+                },
+            }
+        } else if (opcode >= opcode_base) {
+            // special opcodes
+            const adjusted_opcode = opcode - opcode_base;
+            const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
+            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
+            prog.line += inc_line;
+            prog.address += inc_addr;
+            if (try prog.checkLineMatch()) |info| return info;
+            prog.basic_block = false;
+        } else {
+            switch (opcode) {
+                DW.LNS_copy => {
+                    if (try prog.checkLineMatch()) |info| return info;
+                    prog.basic_block = false;
+                },
+                DW.LNS_advance_pc => {
+                    const arg = try readULeb128Mem(&ptr);
+                    prog.address += arg * minimum_instruction_length;
+                },
+                DW.LNS_advance_line => {
+                    const arg = try readILeb128Mem(&ptr);
+                    prog.line += arg;
+                },
+                DW.LNS_set_file => {
+                    const arg = try readULeb128Mem(&ptr);
+                    prog.file = arg;
+                },
+                DW.LNS_set_column => {
+                    const arg = try readULeb128Mem(&ptr);
+                    prog.column = arg;
+                },
+                DW.LNS_negate_stmt => {
+                    prog.is_stmt = !prog.is_stmt;
+                },
+                DW.LNS_set_basic_block => {
+                    prog.basic_block = true;
+                },
+                DW.LNS_const_add_pc => {
+                    const inc_addr = minimum_instruction_length * ((255 - opcode_base) / line_range);
+                    prog.address += inc_addr;
+                },
+                DW.LNS_fixed_advance_pc => {
+                    const arg = readIntMem(&ptr, u16, builtin.Endian.Little);
+                    prog.address += arg;
+                },
+                DW.LNS_set_prologue_end => {},
+                else => {
+                    if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
+                    const len_bytes = standard_opcode_lengths[opcode - 1];
+                    ptr += len_bytes;
+                },
+            }
+        }
+    }
+
+    return error.MissingDebugInfo;
+}
+
+fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, target_address: usize) !LineInfo {
+    const compile_unit_cwd = try compile_unit.die.getAttrString(di, DW.AT_comp_dir);
+
+    const in_file = &di.self_exe_file;
+    const debug_line_end = di.debug_line.offset + di.debug_line.size;
+    var this_offset = di.debug_line.offset;
     var this_index: usize = 0;
 
     var in_file_stream = io.FileInStream.init(in_file);
@@ -828,11 +1223,11 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
             continue;
         }
 
-        const version = try in_stream.readInt(st.elf.endian, u16);
+        const version = try in_stream.readInt(di.elf.endian, u16);
         // TODO support 3 and 5
         if (version != 2 and version != 4) return error.InvalidDebugInfo;
 
-        const prologue_length = if (is_64) try in_stream.readInt(st.elf.endian, u64) else try in_stream.readInt(st.elf.endian, u32);
+        const prologue_length = if (is_64) try in_stream.readInt(di.elf.endian, u64) else try in_stream.readInt(di.elf.endian, u32);
         const prog_start_offset = (try in_file.getPos()) + prologue_length;
 
         const minimum_instruction_length = try in_stream.readByte();
@@ -851,7 +1246,7 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
 
         const opcode_base = try in_stream.readByte();
 
-        const standard_opcode_lengths = try st.allocator().alloc(u8, opcode_base - 1);
+        const standard_opcode_lengths = try di.allocator().alloc(u8, opcode_base - 1);
 
         {
             var i: usize = 0;
@@ -860,19 +1255,19 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
             }
         }
 
-        var include_directories = ArrayList([]u8).init(st.allocator());
+        var include_directories = ArrayList([]u8).init(di.allocator());
         try include_directories.append(compile_unit_cwd);
         while (true) {
-            const dir = try st.readString();
+            const dir = try di.readString();
             if (dir.len == 0) break;
             try include_directories.append(dir);
         }
 
-        var file_entries = ArrayList(FileEntry).init(st.allocator());
+        var file_entries = ArrayList(FileEntry).init(di.allocator());
         var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
 
         while (true) {
-            const file_name = try st.readString();
+            const file_name = try di.readString();
             if (file_name.len == 0) break;
             const dir_index = try readULeb128(in_stream);
             const mtime = try readULeb128(in_stream);
@@ -890,11 +1285,10 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
         while (true) {
             const opcode = try in_stream.readByte();
 
-            var sub_op: u8 = undefined; // TODO move this to the correct scope and fix the compiler crash
             if (opcode == DW.LNS_extended_op) {
                 const op_size = try readULeb128(in_stream);
                 if (op_size < 1) return error.InvalidDebugInfo;
-                sub_op = try in_stream.readByte();
+                var sub_op = try in_stream.readByte();
                 switch (sub_op) {
                     DW.LNE_end_sequence => {
                         prog.end_sequence = true;
@@ -902,11 +1296,11 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
                         return error.MissingDebugInfo;
                     },
                     DW.LNE_set_address => {
-                        const addr = try in_stream.readInt(st.elf.endian, usize);
+                        const addr = try in_stream.readInt(di.elf.endian, usize);
                         prog.address = addr;
                     },
                     DW.LNE_define_file => {
-                        const file_name = try st.readString();
+                        const file_name = try di.readString();
                         const dir_index = try readULeb128(in_stream);
                         const mtime = try readULeb128(in_stream);
                         const len_bytes = try readULeb128(in_stream);
@@ -964,7 +1358,7 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
                         prog.address += inc_addr;
                     },
                     DW.LNS_fixed_advance_pc => {
-                        const arg = try in_stream.readInt(st.elf.endian, u16);
+                        const arg = try in_stream.readInt(di.elf.endian, u16);
                         prog.address += arg;
                     },
                     DW.LNS_set_prologue_end => {},
@@ -983,7 +1377,7 @@ fn getLineNumberInfo(st: *ElfStackTrace, compile_unit: *const CompileUnit, targe
     return error.MissingDebugInfo;
 }
 
-fn scanAllCompileUnits(st: *ElfStackTrace) !void {
+fn scanAllCompileUnits(st: *DebugInfo) !void {
     const debug_info_end = st.debug_info.offset + st.debug_info.size;
     var this_unit_offset = st.debug_info.offset;
     var cu_index: usize = 0;
@@ -1053,7 +1447,7 @@ fn scanAllCompileUnits(st: *ElfStackTrace) !void {
     }
 }
 
-fn findCompileUnit(st: *ElfStackTrace, target_address: u64) !*const CompileUnit {
+fn findCompileUnit(st: *DebugInfo, target_address: u64) !*const CompileUnit {
     var in_file_stream = io.FileInStream.init(&st.self_exe_file);
     const in_stream = &in_file_stream.stream;
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
@@ -1085,6 +1479,89 @@ fn findCompileUnit(st: *ElfStackTrace, target_address: u64) !*const CompileUnit 
         }
     }
     return error.MissingDebugInfo;
+}
+
+fn readIntMem(ptr: *[*]const u8, comptime T: type, endian: builtin.Endian) T {
+    const result = mem.readInt(ptr.*[0..@sizeOf(T)], T, endian);
+    ptr.* += @sizeOf(T);
+    return result;
+}
+
+fn readByteMem(ptr: *[*]const u8) u8 {
+    const result = ptr.*[0];
+    ptr.* += 1;
+    return result;
+}
+
+fn readByteSignedMem(ptr: *[*]const u8) i8 {
+    return @bitCast(i8, readByteMem(ptr));
+}
+
+fn readInitialLengthMem(ptr: *[*]const u8, is_64: *bool) !u64 {
+    const first_32_bits = mem.readIntLE(u32, ptr.*[0..4]);
+    is_64.* = (first_32_bits == 0xffffffff);
+    if (is_64.*) {
+        ptr.* += 4;
+        const result = mem.readIntLE(u64, ptr.*[0..8]);
+        ptr.* += 8;
+        return result;
+    } else {
+        if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
+        ptr.* += 4;
+        return u64(first_32_bits);
+    }
+}
+
+fn readStringMem(ptr: *[*]const u8) []const u8 {
+    const result = mem.toSliceConst(u8, ptr.*);
+    ptr.* += result.len + 1;
+    return result;
+}
+
+fn readULeb128Mem(ptr: *[*]const u8) !u64 {
+    var result: u64 = 0;
+    var shift: usize = 0;
+    var i: usize = 0;
+
+    while (true) {
+        const byte = ptr.*[i];
+        i += 1;
+
+        var operand: u64 = undefined;
+
+        if (@shlWithOverflow(u64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
+
+        result |= operand;
+
+        if ((byte & 0b10000000) == 0) {
+            ptr.* += i;
+            return result;
+        }
+
+        shift += 7;
+    }
+}
+fn readILeb128Mem(ptr: *[*]const u8) !i64 {
+    var result: i64 = 0;
+    var shift: usize = 0;
+    var i: usize = 0;
+
+    while (true) {
+        const byte = ptr.*[i];
+        i += 1;
+
+        var operand: i64 = undefined;
+        if (@shlWithOverflow(i64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
+
+        result |= operand;
+        shift += 7;
+
+        if ((byte & 0b10000000) == 0) {
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << @intCast(u6, shift));
+            ptr.* += i;
+            return result;
+        }
+    }
 }
 
 fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool) !u64 {
@@ -1143,7 +1620,7 @@ pub const global_allocator = &global_fixed_allocator.allocator;
 var global_fixed_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(global_allocator_mem[0..]);
 var global_allocator_mem: [100 * 1024]u8 = undefined;
 
-// TODO make thread safe
+/// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;
 var debug_info_direct_allocator: std.heap.DirectAllocator = undefined;
 var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;

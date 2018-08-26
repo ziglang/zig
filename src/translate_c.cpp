@@ -2759,7 +2759,9 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
         AstNode *child_statement;
         child_scope = trans_stmt(c, &child_block_scope->base, stmt->getBody(), &child_statement);
         if (child_scope == nullptr) return nullptr;
-        body_node->data.block.statements.append(child_statement);
+        if (child_statement != nullptr) {
+            body_node->data.block.statements.append(child_statement);
+        }
     }
 
     // if (!cond) break;
@@ -2769,6 +2771,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
     terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
     terminator_node->data.if_bool_expr.then_block = trans_create_node(c, NodeTypeBreak);
 
+    assert(terminator_node != nullptr);
     body_node->data.block.statements.append(terminator_node);
 
     while_scope->node->data.while_expr.body = body_node;
@@ -2832,7 +2835,12 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
     TransScope *body_scope = trans_stmt(c, &while_scope->base, stmt->getBody(), &body_statement);
     if (body_scope == nullptr)
         return nullptr;
-    while_scope->node->data.while_expr.body = body_statement;
+
+    if (body_statement == nullptr) {
+        while_scope->node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+    } else {
+        while_scope->node->data.while_expr.body = body_statement;
+    }
 
     return loop_block_node;
 }
@@ -3067,9 +3075,14 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                     trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
         case Stmt::DeclStmtClass:
             return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
-        case Stmt::WhileStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_while_loop(c, scope, (const WhileStmt *)stmt));
+        case Stmt::WhileStmtClass: {
+            AstNode *while_node = trans_while_loop(c, scope, (const WhileStmt *)stmt);
+            assert(while_node->type == NodeTypeWhileExpr);
+            if (while_node->data.while_expr.body == nullptr) {
+                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+            }
+            return wrap_stmt(out_node, out_child_scope, scope, while_node);
+        }
         case Stmt::IfStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_if_statement(c, scope, (const IfStmt *)stmt));
@@ -3092,12 +3105,18 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
         case Stmt::UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
-        case Stmt::DoStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_do_loop(c, scope, (const DoStmt *)stmt));
-        case Stmt::ForStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_for_loop(c, scope, (const ForStmt *)stmt));
+        case Stmt::DoStmtClass: {
+            AstNode *while_node = trans_do_loop(c, scope, (const DoStmt *)stmt);
+            assert(while_node->type == NodeTypeWhileExpr);
+            if (while_node->data.while_expr.body == nullptr) {
+                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+            }
+            return wrap_stmt(out_node, out_child_scope, scope, while_node);
+        }
+        case Stmt::ForStmtClass: {
+            AstNode *node = trans_for_loop(c, scope, (const ForStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope, node);
+        }
         case Stmt::StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_string_literal(c, scope, (const StringLiteral *)stmt));

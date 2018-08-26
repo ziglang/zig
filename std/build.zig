@@ -267,7 +267,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", installed_file);
             }
-            _ = os.deleteFile(self.allocator, installed_file);
+            _ = os.deleteFile(installed_file);
         }
 
         // TODO remove empty directories
@@ -424,60 +424,69 @@ pub const Builder = struct {
         return mode;
     }
 
-    pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) bool {
-        if (self.user_input_options.put(name, UserInputOption{
-            .name = name,
-            .value = UserValue{ .Scalar = value },
-            .used = false,
-        }) catch unreachable) |*prev_value| {
-            // option already exists
-            switch (prev_value.value) {
-                UserValue.Scalar => |s| {
-                    // turn it into a list
-                    var list = ArrayList([]const u8).init(self.allocator);
-                    list.append(s) catch unreachable;
-                    list.append(value) catch unreachable;
-                    _ = self.user_input_options.put(name, UserInputOption{
-                        .name = name,
-                        .value = UserValue{ .List = list },
-                        .used = false,
-                    }) catch unreachable;
-                },
-                UserValue.List => |*list| {
-                    // append to the list
-                    list.append(value) catch unreachable;
-                    _ = self.user_input_options.put(name, UserInputOption{
-                        .name = name,
-                        .value = UserValue{ .List = list.* },
-                        .used = false,
-                    }) catch unreachable;
-                },
-                UserValue.Flag => {
-                    warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
-                    return true;
-                },
-            }
+    pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) !bool {
+        const gop = try self.user_input_options.getOrPut(name);
+        if (!gop.found_existing) {
+            gop.kv.value = UserInputOption{
+                .name = name,
+                .value = UserValue{ .Scalar = value },
+                .used = false,
+            };
+            return false;
+        }
+
+        // option already exists
+        switch (gop.kv.value.value) {
+            UserValue.Scalar => |s| {
+                // turn it into a list
+                var list = ArrayList([]const u8).init(self.allocator);
+                list.append(s) catch unreachable;
+                list.append(value) catch unreachable;
+                _ = self.user_input_options.put(name, UserInputOption{
+                    .name = name,
+                    .value = UserValue{ .List = list },
+                    .used = false,
+                }) catch unreachable;
+            },
+            UserValue.List => |*list| {
+                // append to the list
+                list.append(value) catch unreachable;
+                _ = self.user_input_options.put(name, UserInputOption{
+                    .name = name,
+                    .value = UserValue{ .List = list.* },
+                    .used = false,
+                }) catch unreachable;
+            },
+            UserValue.Flag => {
+                warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
+                return true;
+            },
         }
         return false;
     }
 
-    pub fn addUserInputFlag(self: *Builder, name: []const u8) bool {
-        if (self.user_input_options.put(name, UserInputOption{
-            .name = name,
-            .value = UserValue{ .Flag = {} },
-            .used = false,
-        }) catch unreachable) |*prev_value| {
-            switch (prev_value.value) {
-                UserValue.Scalar => |s| {
-                    warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
-                    return true;
-                },
-                UserValue.List => {
-                    warn("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
-                    return true;
-                },
-                UserValue.Flag => {},
-            }
+    pub fn addUserInputFlag(self: *Builder, name: []const u8) !bool {
+        const gop = try self.user_input_options.getOrPut(name);
+        if (!gop.found_existing) {
+            gop.kv.value = UserInputOption{
+                .name = name,
+                .value = UserValue{ .Flag = {} },
+                .used = false,
+            };
+            return false;
+        }
+
+        // option already exists
+        switch (gop.kv.value.value) {
+            UserValue.Scalar => |s| {
+                warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
+                return true;
+            },
+            UserValue.List => {
+                warn("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
+                return true;
+            },
+            UserValue.Flag => {},
         }
         return false;
     }
@@ -603,10 +612,10 @@ pub const Builder = struct {
     }
 
     fn copyFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
-        return self.copyFileMode(source_path, dest_path, os.default_file_mode);
+        return self.copyFileMode(source_path, dest_path, os.File.default_mode);
     }
 
-    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.FileMode) !void {
+    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.File.Mode) !void {
         if (self.verbose) {
             warn("cp {} {}\n", source_path, dest_path);
         }
@@ -1173,7 +1182,7 @@ pub const LibExeObjStep = struct {
 
         if (self.build_options_contents.len() > 0) {
             const build_options_file = try os.path.join(builder.allocator, builder.cache_root, builder.fmt("{}_build_options.zig", self.name));
-            try std.io.writeFile(builder.allocator, build_options_file, self.build_options_contents.toSliceConst());
+            try std.io.writeFile(build_options_file, self.build_options_contents.toSliceConst());
             try zig_args.append("--pkg-begin");
             try zig_args.append("build_options");
             try zig_args.append(builder.pathFromRoot(build_options_file));
@@ -1482,11 +1491,14 @@ pub const LibExeObjStep = struct {
                     }
 
                     if (!is_darwin) {
-                        const rpath_arg = builder.fmt("-Wl,-rpath,{}", os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
+                        const rpath_arg = builder.fmt("-Wl,-rpath,{}", try os.path.realAlloc(
+                            builder.allocator,
+                            builder.pathFromRoot(builder.cache_root),
+                        ));
                         defer builder.allocator.free(rpath_arg);
-                        cc_args.append(rpath_arg) catch unreachable;
+                        try cc_args.append(rpath_arg);
 
-                        cc_args.append("-rdynamic") catch unreachable;
+                        try cc_args.append("-rdynamic");
                     }
 
                     for (self.full_path_libs.toSliceConst()) |full_path_lib| {
@@ -1557,11 +1569,14 @@ pub const LibExeObjStep = struct {
                 cc_args.append("-o") catch unreachable;
                 cc_args.append(output_path) catch unreachable;
 
-                const rpath_arg = builder.fmt("-Wl,-rpath,{}", os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
+                const rpath_arg = builder.fmt("-Wl,-rpath,{}", try os.path.realAlloc(
+                    builder.allocator,
+                    builder.pathFromRoot(builder.cache_root),
+                ));
                 defer builder.allocator.free(rpath_arg);
-                cc_args.append(rpath_arg) catch unreachable;
+                try cc_args.append(rpath_arg);
 
-                cc_args.append("-rdynamic") catch unreachable;
+                try cc_args.append("-rdynamic");
 
                 {
                     var it = self.link_libs.iterator();
@@ -1908,7 +1923,7 @@ pub const WriteFileStep = struct {
             warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
             return err;
         };
-        io.writeFile(self.builder.allocator, full_path, self.data) catch |err| {
+        io.writeFile(full_path, self.data) catch |err| {
             warn("unable to write {}: {}\n", full_path, @errorName(err));
             return err;
         };

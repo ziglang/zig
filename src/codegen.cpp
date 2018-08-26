@@ -829,15 +829,15 @@ static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
         if (scope->id == ScopeIdBlock) {
             ScopeBlock *block_scope = (ScopeBlock *)scope;
             if (block_scope->fast_math_set_node)
-                return !block_scope->fast_math_off;
+                return block_scope->fast_math_on;
         } else if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
             if (decls_scope->fast_math_set_node)
-                return !decls_scope->fast_math_off;
+                return decls_scope->fast_math_on;
         }
         scope = scope->parent;
     }
-    return true;
+    return false;
 }
 
 static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
@@ -5131,13 +5131,13 @@ static bool is_llvm_value_unnamed_type(TypeTableEntry *type_entry, LLVMValueRef 
 }
 
 static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, const char *name) {
-    render_const_val_global(g, const_val, name);
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
         case ConstPtrSpecialDiscard:
             zig_unreachable();
         case ConstPtrSpecialRef:
             {
+                render_const_val_global(g, const_val, name);
                 ConstExprValue *pointee = const_val->data.x_ptr.data.ref.pointee;
                 render_const_val(g, pointee, "");
                 render_const_val_global(g, pointee, "");
@@ -5148,6 +5148,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
             }
         case ConstPtrSpecialBaseArray:
             {
+                render_const_val_global(g, const_val, name);
                 ConstExprValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
                 size_t elem_index = const_val->data.x_ptr.data.base_array.elem_index;
                 assert(array_const_val->type->id == TypeTableEntryIdArray);
@@ -5168,6 +5169,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
             }
         case ConstPtrSpecialBaseStruct:
             {
+                render_const_val_global(g, const_val, name);
                 ConstExprValue *struct_const_val = const_val->data.x_ptr.data.base_struct.struct_val;
                 assert(struct_const_val->type->id == TypeTableEntryIdStruct);
                 if (struct_const_val->type->zero_bits) {
@@ -5190,6 +5192,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
             }
         case ConstPtrSpecialHardCodedAddr:
             {
+                render_const_val_global(g, const_val, name);
                 uint64_t addr_value = const_val->data.x_ptr.data.hard_coded_addr.addr;
                 TypeTableEntry *usize = g->builtin_types.entry_usize;
                 const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstInt(usize->type_ref, addr_value, false),
@@ -5720,12 +5723,16 @@ static void do_code_gen(CodeGen *g) {
 
         LLVMValueRef global_value;
         if (var->linkage == VarLinkageExternal) {
-            global_value = LLVMAddGlobal(g->module, var->value->type->type_ref, buf_ptr(&var->name));
+            LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, buf_ptr(&var->name));
+            if (existing_llvm_var) {
+                global_value = LLVMConstBitCast(existing_llvm_var, LLVMPointerType(var->value->type->type_ref, 0));
+            } else {
+                global_value = LLVMAddGlobal(g->module, var->value->type->type_ref, buf_ptr(&var->name));
+                // TODO debug info for the extern variable
 
-            // TODO debug info for the extern variable
-
-            LLVMSetLinkage(global_value, LLVMExternalLinkage);
-            LLVMSetAlignment(global_value, var->align_bytes);
+                LLVMSetLinkage(global_value, LLVMExternalLinkage);
+                LLVMSetAlignment(global_value, var->align_bytes);
+            }
         } else {
             bool exported = (var->linkage == VarLinkageExport);
             const char *mangled_name = buf_ptr(get_mangled_name(g, &var->name, exported));

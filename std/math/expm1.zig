@@ -19,8 +19,6 @@ pub fn expm1(x: var) @typeOf(x) {
 }
 
 fn expm1_32(x_: f32) f32 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
-
     if (math.isNan(x_))
         return math.nan(f32);
 
@@ -149,8 +147,6 @@ fn expm1_32(x_: f32) f32 {
 }
 
 fn expm1_64(x_: f64) f64 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
-
     if (math.isNan(x_))
         return math.nan(f64);
 

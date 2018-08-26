@@ -482,91 +482,98 @@ pub const NOTE_MACH_CONTINUOUS_TIME = 0x00000080;
 /// data is mach absolute time units
 pub const NOTE_MACHTIME = 0x00000100;
 
-pub const AF_UNSPEC: c_int = 0;
-pub const AF_LOCAL: c_int = 1;
-pub const AF_UNIX: c_int = AF_LOCAL;
-pub const AF_INET: c_int = 2;
-pub const AF_SYS_CONTROL: c_int = 2;
-pub const AF_IMPLINK: c_int = 3;
-pub const AF_PUP: c_int = 4;
-pub const AF_CHAOS: c_int = 5;
-pub const AF_NS: c_int = 6;
-pub const AF_ISO: c_int = 7;
-pub const AF_OSI: c_int = AF_ISO;
-pub const AF_ECMA: c_int = 8;
-pub const AF_DATAKIT: c_int = 9;
-pub const AF_CCITT: c_int = 10;
-pub const AF_SNA: c_int = 11;
-pub const AF_DECnet: c_int = 12;
-pub const AF_DLI: c_int = 13;
-pub const AF_LAT: c_int = 14;
-pub const AF_HYLINK: c_int = 15;
-pub const AF_APPLETALK: c_int = 16;
-pub const AF_ROUTE: c_int = 17;
-pub const AF_LINK: c_int = 18;
-pub const AF_XTP: c_int = 19;
-pub const AF_COIP: c_int = 20;
-pub const AF_CNT: c_int = 21;
-pub const AF_RTIP: c_int = 22;
-pub const AF_IPX: c_int = 23;
-pub const AF_SIP: c_int = 24;
-pub const AF_PIP: c_int = 25;
-pub const AF_ISDN: c_int = 28;
-pub const AF_E164: c_int = AF_ISDN;
-pub const AF_KEY: c_int = 29;
-pub const AF_INET6: c_int = 30;
-pub const AF_NATM: c_int = 31;
-pub const AF_SYSTEM: c_int = 32;
-pub const AF_NETBIOS: c_int = 33;
-pub const AF_PPP: c_int = 34;
-pub const AF_MAX: c_int = 40;
+pub const AF_UNSPEC = 0;
+pub const AF_LOCAL = 1;
+pub const AF_UNIX = AF_LOCAL;
+pub const AF_INET = 2;
+pub const AF_SYS_CONTROL = 2;
+pub const AF_IMPLINK = 3;
+pub const AF_PUP = 4;
+pub const AF_CHAOS = 5;
+pub const AF_NS = 6;
+pub const AF_ISO = 7;
+pub const AF_OSI = AF_ISO;
+pub const AF_ECMA = 8;
+pub const AF_DATAKIT = 9;
+pub const AF_CCITT = 10;
+pub const AF_SNA = 11;
+pub const AF_DECnet = 12;
+pub const AF_DLI = 13;
+pub const AF_LAT = 14;
+pub const AF_HYLINK = 15;
+pub const AF_APPLETALK = 16;
+pub const AF_ROUTE = 17;
+pub const AF_LINK = 18;
+pub const AF_XTP = 19;
+pub const AF_COIP = 20;
+pub const AF_CNT = 21;
+pub const AF_RTIP = 22;
+pub const AF_IPX = 23;
+pub const AF_SIP = 24;
+pub const AF_PIP = 25;
+pub const AF_ISDN = 28;
+pub const AF_E164 = AF_ISDN;
+pub const AF_KEY = 29;
+pub const AF_INET6 = 30;
+pub const AF_NATM = 31;
+pub const AF_SYSTEM = 32;
+pub const AF_NETBIOS = 33;
+pub const AF_PPP = 34;
+pub const AF_MAX = 40;
 
-pub const PF_UNSPEC: c_int = AF_UNSPEC;
-pub const PF_LOCAL: c_int = AF_LOCAL;
-pub const PF_UNIX: c_int = PF_LOCAL;
-pub const PF_INET: c_int = AF_INET;
-pub const PF_IMPLINK: c_int = AF_IMPLINK;
-pub const PF_PUP: c_int = AF_PUP;
-pub const PF_CHAOS: c_int = AF_CHAOS;
-pub const PF_NS: c_int = AF_NS;
-pub const PF_ISO: c_int = AF_ISO;
-pub const PF_OSI: c_int = AF_ISO;
-pub const PF_ECMA: c_int = AF_ECMA;
-pub const PF_DATAKIT: c_int = AF_DATAKIT;
-pub const PF_CCITT: c_int = AF_CCITT;
-pub const PF_SNA: c_int = AF_SNA;
-pub const PF_DECnet: c_int = AF_DECnet;
-pub const PF_DLI: c_int = AF_DLI;
-pub const PF_LAT: c_int = AF_LAT;
-pub const PF_HYLINK: c_int = AF_HYLINK;
-pub const PF_APPLETALK: c_int = AF_APPLETALK;
-pub const PF_ROUTE: c_int = AF_ROUTE;
-pub const PF_LINK: c_int = AF_LINK;
-pub const PF_XTP: c_int = AF_XTP;
-pub const PF_COIP: c_int = AF_COIP;
-pub const PF_CNT: c_int = AF_CNT;
-pub const PF_SIP: c_int = AF_SIP;
-pub const PF_IPX: c_int = AF_IPX;
-pub const PF_RTIP: c_int = AF_RTIP;
-pub const PF_PIP: c_int = AF_PIP;
-pub const PF_ISDN: c_int = AF_ISDN;
-pub const PF_KEY: c_int = AF_KEY;
-pub const PF_INET6: c_int = AF_INET6;
-pub const PF_NATM: c_int = AF_NATM;
-pub const PF_SYSTEM: c_int = AF_SYSTEM;
-pub const PF_NETBIOS: c_int = AF_NETBIOS;
-pub const PF_PPP: c_int = AF_PPP;
-pub const PF_MAX: c_int = AF_MAX;
+pub const PF_UNSPEC = AF_UNSPEC;
+pub const PF_LOCAL = AF_LOCAL;
+pub const PF_UNIX = PF_LOCAL;
+pub const PF_INET = AF_INET;
+pub const PF_IMPLINK = AF_IMPLINK;
+pub const PF_PUP = AF_PUP;
+pub const PF_CHAOS = AF_CHAOS;
+pub const PF_NS = AF_NS;
+pub const PF_ISO = AF_ISO;
+pub const PF_OSI = AF_ISO;
+pub const PF_ECMA = AF_ECMA;
+pub const PF_DATAKIT = AF_DATAKIT;
+pub const PF_CCITT = AF_CCITT;
+pub const PF_SNA = AF_SNA;
+pub const PF_DECnet = AF_DECnet;
+pub const PF_DLI = AF_DLI;
+pub const PF_LAT = AF_LAT;
+pub const PF_HYLINK = AF_HYLINK;
+pub const PF_APPLETALK = AF_APPLETALK;
+pub const PF_ROUTE = AF_ROUTE;
+pub const PF_LINK = AF_LINK;
+pub const PF_XTP = AF_XTP;
+pub const PF_COIP = AF_COIP;
+pub const PF_CNT = AF_CNT;
+pub const PF_SIP = AF_SIP;
+pub const PF_IPX = AF_IPX;
+pub const PF_RTIP = AF_RTIP;
+pub const PF_PIP = AF_PIP;
+pub const PF_ISDN = AF_ISDN;
+pub const PF_KEY = AF_KEY;
+pub const PF_INET6 = AF_INET6;
+pub const PF_NATM = AF_NATM;
+pub const PF_SYSTEM = AF_SYSTEM;
+pub const PF_NETBIOS = AF_NETBIOS;
+pub const PF_PPP = AF_PPP;
+pub const PF_MAX = AF_MAX;
 
-pub const SYSPROTO_EVENT: c_int = 1;
-pub const SYSPROTO_CONTROL: c_int = 2;
+pub const SYSPROTO_EVENT = 1;
+pub const SYSPROTO_CONTROL = 2;
 
-pub const SOCK_STREAM: c_int = 1;
-pub const SOCK_DGRAM: c_int = 2;
-pub const SOCK_RAW: c_int = 3;
-pub const SOCK_RDM: c_int = 4;
-pub const SOCK_SEQPACKET: c_int = 5;
-pub const SOCK_MAXADDRLEN: c_int = 255;
+pub const SOCK_STREAM = 1;
+pub const SOCK_DGRAM = 2;
+pub const SOCK_RAW = 3;
+pub const SOCK_RDM = 4;
+pub const SOCK_SEQPACKET = 5;
+pub const SOCK_MAXADDRLEN = 255;
+
+pub const IPPROTO_ICMP = 1;
+pub const IPPROTO_ICMPV6 = 58;
+pub const IPPROTO_TCP = 6;
+pub const IPPROTO_UDP = 17;
+pub const IPPROTO_IP = 0;
+pub const IPPROTO_IPV6 = 41;
 
 fn wstatus(x: i32) i32 {
     return x & 0o177;
@@ -605,6 +612,11 @@ pub fn abort() noreturn {
     c.abort();
 }
 
+// bind(int socket, const struct sockaddr *address, socklen_t address_len)
+pub fn bind(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
+    return errnoWrap(c.bind(@bitCast(c_int, fd), addr, len));
+}
+
 pub fn exit(code: i32) noreturn {
     c.exit(code);
 }
@@ -634,12 +646,20 @@ pub fn read(fd: i32, buf: [*]u8, nbyte: usize) usize {
     return errnoWrap(c.read(fd, @ptrCast(*c_void, buf), nbyte));
 }
 
+pub fn pread(fd: i32, buf: [*]u8, nbyte: usize, offset: u64) usize {
+    return errnoWrap(c.pread(fd, @ptrCast(*c_void, buf), nbyte, offset));
+}
+
 pub fn stat(noalias path: [*]const u8, noalias buf: *stat) usize {
     return errnoWrap(c.stat(path, buf));
 }
 
 pub fn write(fd: i32, buf: [*]const u8, nbyte: usize) usize {
     return errnoWrap(c.write(fd, @ptrCast(*const c_void, buf), nbyte));
+}
+
+pub fn pwrite(fd: i32, buf: [*]const u8, nbyte: usize, offset: u64) usize {
+    return errnoWrap(c.pwrite(fd, @ptrCast(*const c_void, buf), nbyte, offset));
 }
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
@@ -805,6 +825,20 @@ pub fn sigaction(sig: u5, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     return result;
 }
 
+pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
+    return errnoWrap(c.socket(@bitCast(c_int, domain), @bitCast(c_int, socket_type), @bitCast(c_int, protocol)));
+}
+
+pub const iovec = extern struct {
+    iov_base: [*]u8,
+    iov_len: usize,
+};
+
+pub const iovec_const = extern struct {
+    iov_base: [*]const u8,
+    iov_len: usize,
+};
+
 pub const sigset_t = c.sigset_t;
 pub const empty_sigset = sigset_t(0);
 
@@ -812,8 +846,13 @@ pub const timespec = c.timespec;
 pub const Stat = c.Stat;
 pub const dirent = c.dirent;
 
+pub const in_port_t = c.in_port_t;
 pub const sa_family_t = c.sa_family_t;
+pub const socklen_t = c.socklen_t;
+
 pub const sockaddr = c.sockaddr;
+pub const sockaddr_in = c.sockaddr_in;
+pub const sockaddr_in6 = c.sockaddr_in6;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with the syscall.
 pub const Kevent = c.Kevent;
