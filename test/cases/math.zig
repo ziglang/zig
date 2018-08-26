@@ -570,3 +570,13 @@ test "cast of bitwise negated number literal to f16 through f64" {
     assert( const_to_f64 == -5.0 );
 }
 
+test "binary operations" {
+  // ref https://github.com/ziglang/zig/issues/1387
+  assert( i64(3 & -1) == 3 );
+  assert( i64(3 & 1) == 1 );
+  assert( i64(-3 & -1) == -3 );
+  assert( u64(18446744073709551615 & 18446744073709551611) == 18446744073709551611 );
+  assert( i128(-18446744073709551615 & -18446744073709551611) == -18446744073709551615 );
+  assert( i64(3 | -1) == -1);
+  assert( i64(3 ^ -1) == -4);
+}
