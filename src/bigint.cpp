@@ -1220,7 +1220,6 @@ void bigint_or(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         _twos_complement_inplace(dest);
         dest->is_negative = true;
     }
-    dest->allow_binop_cast = true;
     bigint_normalize(dest);
 }
 
@@ -1251,7 +1250,6 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         _twos_complement_inplace(dest);
         dest->is_negative = true;
     }
-    dest->allow_binop_cast = true;
     bigint_normalize(dest);
 }
 
@@ -1290,7 +1288,6 @@ void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         _twos_complement_inplace(dest);
         dest->is_negative = true;
     }
-    dest->allow_binop_cast = true;
     bigint_normalize(dest);
 }
 
