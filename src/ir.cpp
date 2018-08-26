@@ -5331,11 +5331,11 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(irb, continue_block);
-            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, payload_scope);
+            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, body_result->scope);
             if (expr_result == irb->codegen->invalid_instruction)
                 return expr_result;
             if (!instr_is_unreachable(expr_result))
-                ir_mark_gen(ir_build_br(irb, payload_scope, node, cond_block, is_comptime));
+                ir_mark_gen(ir_build_br(irb, body_result->scope, node, cond_block, is_comptime));
         }
 
         IrInstruction *else_result = nullptr;
@@ -5413,11 +5413,11 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(irb, continue_block);
-            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, child_scope);
+            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, body_result->scope);
             if (expr_result == irb->codegen->invalid_instruction)
                 return expr_result;
             if (!instr_is_unreachable(expr_result))
-                ir_mark_gen(ir_build_br(irb, child_scope, node, cond_block, is_comptime));
+                ir_mark_gen(ir_build_br(irb, body_result->scope, node, cond_block, is_comptime));
         }
 
         IrInstruction *else_result = nullptr;
@@ -5476,11 +5476,11 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(irb, continue_block);
-            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, scope);
+            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, body_result->scope);
             if (expr_result == irb->codegen->invalid_instruction)
                 return expr_result;
             if (!instr_is_unreachable(expr_result))
-                ir_mark_gen(ir_build_br(irb, scope, node, cond_block, is_comptime));
+                ir_mark_gen(ir_build_br(irb, body_result->scope, node, cond_block, is_comptime));
         }
 
         IrInstruction *else_result = nullptr;

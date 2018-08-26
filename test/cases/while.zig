@@ -68,6 +68,17 @@ test "while with continue expression" {
     assert(sum == 40);
 }
 
+test "while with continue expression node including scope of while body" {
+    var a: u32 = 2;
+    var b: u32 = 0;
+    const result = while (a != 0) : ({a -= 1; b += c;}) {
+        const c = 1;
+        if (b == 1)
+            break true;
+    } else false;
+    assert(result);
+}
+
 test "while with else" {
     var sum: i32 = 0;
     var i: i32 = 0;
