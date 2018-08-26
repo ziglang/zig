@@ -422,7 +422,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @IntType(false, @maxValue(u32) + 1);
         \\}
     ,
-        ".tmp_source.zig:2:40: error: integer value 4294967296 cannot be implicitly casted to type 'u32'",
+        ".tmp_source.zig:2:40: error: cannot cast number literal '4294967296' of 33 bits into 32 bit type 'u32'",
     );
 
     cases.add(
