@@ -2989,7 +2989,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:3:14: error: operation caused overflow",
+        ".tmp_source.zig:3:14: error: cannot cast negative number literal '-10' to unsigned integer type 'u16'",
         ".tmp_source.zig:1:14: note: called from here",
     );
 
