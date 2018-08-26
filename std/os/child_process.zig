@@ -757,6 +757,6 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
 
 fn readIntFd(fd: i32) !ErrInt {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-    os.posixRead(fd, bytes[0..]) catch return error.SystemResources;
+    os.posixReadFull(fd, bytes[0..]) catch return error.SystemResources;
     return mem.readInt(bytes[0..], ErrInt, builtin.endian);
 }
