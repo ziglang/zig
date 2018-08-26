@@ -8787,7 +8787,12 @@ static void update_errors_helper(CodeGen *g, ErrorTableEntry ***errors, size_t *
     *errors = reallocate(*errors, old_errors_count, *errors_count);
 }
 
-static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigType *expected_type, IrInstruction **instructions, size_t instruction_count) {
+static ZigType *ir_resolve_peer_types( IrAnalyze *ira
+                                     , AstNode *source_node
+                                     , ZigType *expected_type
+                                     , IrInstruction *parent_instruction
+                                     , IrInstruction **instructions
+                                     , size_t instruction_count ) {
     Error err;
     assert(instruction_count >= 1);
     IrInstruction *prev_inst = instructions[0];
@@ -11582,7 +11587,7 @@ static ZigType *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op
     }
 
     IrInstruction *instructions[] = {op1, op2};
-    ZigType *resolved_type = ir_resolve_peer_types(ira, source_node, nullptr, instructions, 2);
+    ZigType *resolved_type = ir_resolve_peer_types(ira, source_node, nullptr, &bin_op_instruction->base, instructions, 2);
     if (type_is_invalid(resolved_type))
         return resolved_type;
     if ((err = type_ensure_zero_bits_known(ira->codegen, resolved_type)))
@@ -12026,7 +12031,12 @@ static ZigType *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp *bin_o
     }
 
     IrInstruction *instructions[] = {op1, op2};
-    ZigType *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, nullptr, instructions, 2);
+    ZigType *resolved_type = ir_resolve_peer_types( ira
+                                                  , bin_op_instruction->base.source_node
+                                                  , nullptr
+                                                  , &bin_op_instruction->base
+                                                  , instructions
+                                                  , 2 );
     if (type_is_invalid(resolved_type))
         return resolved_type;
 
@@ -14128,7 +14138,7 @@ static ZigType *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPhi *phi
     }
 
     ZigType *resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node, nullptr,
-            new_incoming_values.items, new_incoming_values.length);
+            &phi_instruction->base, new_incoming_values.items, new_incoming_values.length);
     if (type_is_invalid(resolved_type))
         return resolved_type;
 
@@ -21523,8 +21533,12 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
     } else if (ira->src_implicit_return_type_list.length == 0) {
         return codegen->builtin_types.entry_unreachable;
     } else {
-        return ir_resolve_peer_types(ira, expected_type_source_node, expected_type, ira->src_implicit_return_type_list.items,
-                ira->src_implicit_return_type_list.length);
+        return ir_resolve_peer_types( ira
+                                    , expected_type_source_node
+                                    , expected_type
+                                    , nullptr
+                                    , ira->src_implicit_return_type_list.items
+                                    , ira->src_implicit_return_type_list.length );
     }
 }
 
