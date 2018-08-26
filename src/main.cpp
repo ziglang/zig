@@ -141,26 +141,16 @@ static int print_target_list(FILE *f) {
 }
 
 static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
-    Buf lib_buf = BUF_INIT;
-    buf_init_from_str(&lib_buf, "lib");
-
-    Buf zig_buf = BUF_INIT;
-    buf_init_from_str(&zig_buf, "zig");
-
     Buf std_buf = BUF_INIT;
     buf_init_from_str(&std_buf, "std");
 
     Buf index_zig_buf = BUF_INIT;
     buf_init_from_str(&index_zig_buf, "index.zig");
 
-    Buf test_lib_dir = BUF_INIT;
-    Buf test_zig_dir = BUF_INIT;
     Buf test_std_dir = BUF_INIT;
     Buf test_index_file = BUF_INIT;
 
-    os_path_join(test_path, &lib_buf, &test_lib_dir);
-    os_path_join(&test_lib_dir, &zig_buf, &test_zig_dir);
-    os_path_join(&test_zig_dir, &std_buf, &test_std_dir);
+    os_path_join(test_path, &std_buf, &test_std_dir);
     os_path_join(&test_std_dir, &index_zig_buf, &test_index_file);
 
     int err;
@@ -169,7 +159,7 @@ static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
         exists = false;
     }
     if (exists) {
-        buf_init_from_buf(out_zig_lib_dir, &test_zig_dir);
+        buf_init_from_buf(out_zig_lib_dir, test_path);
         return true;
     }
     return false;
