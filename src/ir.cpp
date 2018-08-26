@@ -9203,7 +9203,8 @@ static ZigType *ir_resolve_peer_types( IrAnalyze *ira
         if (cur_type->id == ZigTypeIdComptimeInt ||
                    cur_type->id == ZigTypeIdComptimeFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, cur_inst, prev_type, false)) {
+            bool explicit_cast = (parent_instruction && parent_instruction->id == IrInstructionIdBinOp);
+            if (ir_num_lit_fits_in_other_type(ira, cur_inst, prev_type, explicit_cast)) {
                 continue;
             } else {
                 return ira->codegen->builtin_types.entry_invalid;
