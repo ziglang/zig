@@ -3364,7 +3364,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var vga_mem: u16 = 0xB8000;
         \\}
     ,
-        ".tmp_source.zig:2:24: error: integer value 753664 cannot be implicitly casted to type 'u16'",
+        ".tmp_source.zig:2:24: error: cannot cast number literal '753664' of 20 bits into 16 bit type 'u16'",
     );
 
     cases.add(
