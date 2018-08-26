@@ -8373,6 +8373,18 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
                     other_type->data.integral.is_signed))
         {
             return true;
+        } else {
+            size_t full_bits = const_val->data.x_bigint.digit_count * 64;
+            size_t number_bits = full_bits - bigint_clz(&const_val->data.x_bigint, full_bits);
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+            ir_add_error(ira, instruction,
+                buf_sprintf("cannot cast number literal '%s' of %zu bits into %u bit type '%s'",
+                  buf_ptr(val_buf),
+                  number_bits,
+                  other_type->data.integral.bit_count,
+                  buf_ptr(&other_type->name)));
+            return false;
         }
     } else if (const_val_fits_in_num_lit(const_val, other_type)) {
         return true;
