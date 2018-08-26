@@ -13970,15 +13970,19 @@ static ZigType *ir_analyze_bin_not(IrAnalyze *ira, IrInstructionUnOp *instructio
     if (type_is_invalid(expr_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (expr_type->id == ZigTypeIdInt) {
+    if ( expr_type->id == ZigTypeIdInt
+      || expr_type->id == ZigTypeIdComptimeInt ) {
         if (instr_is_comptime(value)) {
             ConstExprValue *target_const_val = ir_resolve_const(ira, value, UndefBad);
             if (target_const_val == nullptr)
                 return ira->codegen->builtin_types.entry_invalid;
 
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-            bigint_not(&out_val->data.x_bigint, &target_const_val->data.x_bigint,
-                    expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
+            bigint_not( &out_val->data.x_bigint
+                      , &target_const_val->data.x_bigint
+                      , expr_type->data.integral.bit_count
+                      , expr_type->id == ZigTypeIdComptimeInt ? true : expr_type->data.integral.is_signed
+                      );
             return expr_type;
         }
 
