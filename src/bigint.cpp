@@ -1643,7 +1643,7 @@ size_t bigint_ctz(const BigInt *bi, size_t bit_count) {
 }
 
 size_t bigint_clz(const BigInt *bi, size_t bit_count) {
-    if (bi->is_negative || bit_count == 0)
+    if (bit_count == 0)
         return 0;
     if (bi->digit_count == 0)
         return bit_count;
