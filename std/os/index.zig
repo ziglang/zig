@@ -31,7 +31,7 @@ pub const posix = switch (builtin.os) {
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
-pub const net = @import("net.zig");
+pub const net = std.net;
 
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
@@ -114,7 +114,7 @@ pub fn getRandomBytes(buf: []u8) !void {
                         const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
                         defer close(fd);
 
-                        try posixRead(fd, buf);
+                        try posixReadFull(fd, buf);
                         return;
                     },
                     else => return unexpectedErrorPosix(err),
@@ -126,7 +126,7 @@ pub fn getRandomBytes(buf: []u8) !void {
             const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
             defer close(fd);
 
-            try posixRead(fd, buf);
+            try posixReadFull(fd, buf);
         },
         Os.windows => {
             // Call RtlGenRandom() instead of CryptGetRandom() on Windows
@@ -229,15 +229,10 @@ pub fn close(handle: FileHandle) void {
 }
 
 /// Calls POSIX read, and keeps trying if it gets interrupted.
-pub fn posixRead(fd: i32, buf: []u8) !void {
-    // Linux can return EINVAL when read amount is > 0x7ffff000
-    // See https://github.com/ziglang/zig/pull/743#issuecomment-363158274
-    const max_buf_len = 0x7ffff000;
-
-    var index: usize = 0;
-    while (index < buf.len) {
-        const want_to_read = math.min(buf.len - index, usize(max_buf_len));
-        const rc = posix.read(fd, buf.ptr + index, want_to_read);
+pub fn posixRead(fd: i32, buf: []u8) !usize {
+    // Just for EINTR
+    while (true) {
+        const rc = posix.read(fd, buf.ptr, buf.len);
         const err = posix.getErrno(rc);
         if (err > 0) {
             return switch (err) {
@@ -251,6 +246,20 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
                 else => unexpectedErrorPosix(err),
             };
         }
+        return rc;
+    }
+}
+
+/// Calls POSIX read, and keeps trying if it gets interrupted.
+pub fn posixReadFull(fd: i32, buf: []u8) !void {
+    // Linux can return EINVAL when read amount is > 0x7ffff000
+    // See https://github.com/ziglang/zig/pull/743#issuecomment-363158274
+    const max_buf_len = 0x7ffff000;
+
+    var index: usize = 0;
+    while (index < buf.len) {
+        const want_to_read = math.min(buf.len - index, usize(max_buf_len));
+        const rc = try posixRead(fd, buf[index..]);
         index += rc;
     }
 }
