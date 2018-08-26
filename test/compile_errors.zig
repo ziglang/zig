@@ -3259,17 +3259,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:23:5: error: expected type '*Allocator', found '*List'",
     );
 
-    cases.add(
-        "binary not on number literal",
-        \\const TINY_QUANTUM_SHIFT = 4;
-        \\const TINY_QUANTUM_SIZE = 1 << TINY_QUANTUM_SHIFT;
-        \\var block_aligned_stuff: usize = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE - 1);
-        \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(block_aligned_stuff)); }
-    ,
-        ".tmp_source.zig:3:60: error: unable to perform binary not operation on type 'comptime_int'",
-    );
-
     cases.addCase(x: {
         const tc = cases.create(
             "multiple files with private function error",
