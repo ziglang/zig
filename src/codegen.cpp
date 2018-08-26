@@ -5821,6 +5821,7 @@ static void do_code_gen(CodeGen *g) {
 
                 LLVMSetLinkage(global_value, LLVMExternalLinkage);
                 LLVMSetAlignment(global_value, var->align_bytes);
+                LLVMSetGlobalConstant(global_value, var->gen_is_const);
             }
         } else {
             bool exported = (var->linkage == VarLinkageExport);
@@ -5841,9 +5842,9 @@ static void do_code_gen(CodeGen *g) {
             if (var->gen_is_const && var->value->type->id != TypeTableEntryIdFn) {
                 gen_global_var(g, var, var->value->global_refs->llvm_value, var->value->type);
             }
-        }
 
-        LLVMSetGlobalConstant(global_value, var->gen_is_const);
+            LLVMSetGlobalConstant(global_value, var->gen_is_const);
+        }
 
         var->value_ref = global_value;
     }
