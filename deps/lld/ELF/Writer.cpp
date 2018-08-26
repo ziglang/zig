@@ -1815,12 +1815,14 @@ template <class ELFT> std::vector<PhdrEntry *> Writer<ELFT>::createPhdrs() {
     // Segments are contiguous memory regions that has the same attributes
     // (e.g. executable or writable). There is one phdr for each segment.
     // Therefore, we need to create a new phdr when the next section has
-    // different flags or is loaded at a discontiguous address using AT linker
-    // script command. At the same time, we don't want to create a separate
-    // load segment for the headers, even if the first output section has
-    // an AT attribute.
+    // different flags or is loaded at a discontiguous address or memory
+    // region using AT or AT> linker script command, respectively. At the same
+    // time, we don't want to create a separate load segment for the headers,
+    // even if the first output section has an AT or AT> attribute.
     uint64_t NewFlags = computeFlags(Sec->getPhdrFlags());
-    if ((Sec->LMAExpr && Load->LastSec != Out::ProgramHeaders) ||
+    if (((Sec->LMAExpr ||
+          (Sec->LMARegion && (Sec->LMARegion != Load->FirstSec->LMARegion))) &&
+         Load->LastSec != Out::ProgramHeaders) ||
         Sec->MemRegion != Load->FirstSec->MemRegion || Flags != NewFlags) {
 
       Load = AddHdr(PT_LOAD, NewFlags);

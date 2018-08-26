@@ -116,7 +116,8 @@ void LinkerScript::expandMemoryRegions(uint64_t Size) {
   if (Ctx->MemRegion)
     expandMemoryRegion(Ctx->MemRegion, Size, Ctx->MemRegion->Name,
                        Ctx->OutSec->Name);
-  if (Ctx->LMARegion)
+  // Only expand the LMARegion if it is different from MemRegion.
+  if (Ctx->LMARegion && Ctx->MemRegion != Ctx->LMARegion)
     expandMemoryRegion(Ctx->LMARegion, Size, Ctx->LMARegion->Name,
                        Ctx->OutSec->Name);
 }
@@ -750,6 +751,13 @@ MemoryRegion *LinkerScript::findMemoryRegion(OutputSection *Sec) {
   return nullptr;
 }
 
+static OutputSection *findFirstSection(PhdrEntry *Load) {
+  for (OutputSection *Sec : OutputSections)
+    if (Sec->PtLoad == Load)
+      return Sec;
+  return nullptr;
+}
+
 // This function assigns offsets to input sections and an output section
 // for a single sections command (e.g. ".text { *(.text); }").
 void LinkerScript::assignOffsets(OutputSection *Sec) {
@@ -775,8 +783,11 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
   // will set the LMA such that the difference between VMA and LMA for the
   // section is the same as the preceding output section in the same region
   // https://sourceware.org/binutils/docs-2.20/ld/Output-Section-LMA.html
+  // This, however, should only be done by the first "non-header" section
+  // in the segment.
   if (PhdrEntry *L = Ctx->OutSec->PtLoad)
-    L->LMAOffset = Ctx->LMAOffset;
+    if (Sec == findFirstSection(L))
+      L->LMAOffset = Ctx->LMAOffset;
 
   // We can call this method multiple times during the creation of
   // thunks and want to start over calculation each time.
@@ -951,13 +962,6 @@ void LinkerScript::adjustSectionsAfterSorting() {
       DefPhdrs = Sec->Phdrs;
     }
   }
-}
-
-static OutputSection *findFirstSection(PhdrEntry *Load) {
-  for (OutputSection *Sec : OutputSections)
-    if (Sec->PtLoad == Load)
-      return Sec;
-  return nullptr;
 }
 
 static uint64_t computeBase(uint64_t Min, bool AllocateHeaders) {

@@ -1,0 +1,30 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/at6.s -o %t.o
+# RUN: ld.lld %t.o --script %s -o %t
+# RUN: llvm-readelf -sections -program-headers %t | FileCheck %s
+
+MEMORY {
+  FLASH : ORIGIN = 0x08000000, LENGTH = 0x100
+  RAM   : ORIGIN = 0x20000000, LENGTH = 0x200
+}
+
+SECTIONS {
+ .text : { *(.text) } > FLASH
+ .sec1 : { *(.sec1) } > RAM
+ .sec2 : { *(.sec2) } > RAM AT > FLASH
+}
+
+# Make sure we create a separate PT_LOAD entry for .sec2. Previously,
+# it was added to the PT_LOAD entry of .sec1
+
+# CHECK: Name              Type            Address          Off
+# CHECK: .text             PROGBITS        0000000008000000 001000
+# CHECK: .sec1             PROGBITS        0000000020000000 002000
+# CHECK: .sec2             PROGBITS        0000000020000004 002004
+
+# CHECK: Program Headers:
+# CHECK:      Type  Offset   VirtAddr           PhysAddr
+# CHECK-NEXT: LOAD  0x001000 0x0000000008000000 0x0000000008000000
+# CHECK-NEXT: LOAD  0x002000 0x0000000020000000 0x0000000020000000
+# CHECK-NEXT: LOAD  0x002004 0x0000000020000004 0x0000000008000001
+# CHECK-NOT: LOAD

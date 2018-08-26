@@ -9,7 +9,7 @@
 # RUN:        -F/Custom/Frameworks \
 # RUN:        -framework Bar \
 # RUN:        -framework Foo
-# RUN: '%python' %p/Inputs/DependencyDump.py %t.info | FileCheck %s
+# RUN: %python %p/Inputs/DependencyDump.py %t.info | FileCheck %s
 
 
 # CHECK: linker-vers: lld

@@ -11,7 +11,7 @@
 ; RUN: ls %t.cache | count 4
 
 ; Create a file of size 64KB.
-; RUN: "%python" -c "print(' ' * 65536)" > %t.cache/llvmcache-foo
+; RUN: %python -c "print(' ' * 65536)" > %t.cache/llvmcache-foo
 
 ; This should leave the file in place.
 ; RUN: wasm-ld --thinlto-cache-dir=%t.cache --thinlto-cache-policy cache_size_bytes=128k:prune_interval=0s -o %t.wasm %t2.o %t.o

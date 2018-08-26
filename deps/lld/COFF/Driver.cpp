@@ -1551,11 +1551,11 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       continue;
     }
 
+    // If the symbol isn't common, it must have been replaced with a regular
+    // symbol, which will carry its own alignment.
     auto *DC = dyn_cast<DefinedCommon>(Sym);
-    if (!DC) {
-      warn("/aligncomm symbol " + Name + " of wrong kind");
+    if (!DC)
       continue;
-    }
 
     CommonChunk *C = DC->getChunk();
     C->Alignment = std::max(C->Alignment, Alignment);

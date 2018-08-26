@@ -29,7 +29,13 @@ ELF Improvements
 COFF Improvements
 -----------------
 
-* Item 1.
+* Improved correctness of exporting mangled stdcall symbols.
+
+* Completed support for ARM64 relocations.
+
+* Added support for outputting PDB debug info for MinGW targets.
+
+* Improved compatibility of output binaries with GNU binutils objcopy/strip.
 
 MachO Improvements
 ------------------
