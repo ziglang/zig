@@ -1446,10 +1446,18 @@ void bigint_negate_wrap(BigInt *dest, const BigInt *op, size_t bit_count) {
     bigint_sub_wrap(dest, &zero, op, bit_count, true);
 }
 
+/// Does a binary not operation on `op` which is placed into `dest`
+/// If `bit_count` is zero, this function will operate on the exact number of bits stored inside of the `BigInt`
+/// If `bit_count` is non zero, this function will operate only on `bit_count` bits.
 void bigint_not(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed) {
     if (bit_count == 0) {
-        bigint_init_unsigned(dest, 0);
-        return;
+        bit_count = (op->digit_count * 64) - bigint_clz(op, op->digit_count * 64) + (is_signed ? 1 : 0);
+        // If no bits are stored in `op`;
+        // return a `BigInt` of value 0
+        if (bit_count == 0) {
+            bigint_init_unsigned(dest, 0);
+            return;
+        }
     }
 
     if (is_signed) {
