@@ -1447,9 +1447,12 @@ void bigint_negate_wrap(BigInt *dest, const BigInt *op, size_t bit_count) {
 }
 
 void bigint_not(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed) {
-    if (bit_count == 0) {
-        bigint_init_unsigned(dest, 0);
-        return;
+    if (!bit_count) {
+        bit_count = (op->digit_count * 64) - bigint_clz(op, op->digit_count * 64) + (is_signed ? 1 : 0);
+        if (bit_count == 0) {
+            bigint_init_unsigned(dest, 0);
+            return;
+        }
     }
 
     if (is_signed) {
