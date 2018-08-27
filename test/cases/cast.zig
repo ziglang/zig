@@ -496,3 +496,27 @@ test "implicit cast from *[N]T to ?[*]T" {
   y[3] = 6;
   assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
 }
+
+test "implicit cast from *T to ?*c_void" {
+  var a: u8 = 1;
+  incrementVoidPtrValue(&a);
+  std.debug.assert(a == 2);
+}
+
+fn incrementVoidPtrValue(value: ?*c_void) void {
+    @ptrCast(*u8, value.?).* += 1;
+}
+
+test "implicit cast from [*]T to ?*c_void" {
+  var a = []u8{3, 2, 1};
+  incrementVoidPtrArray(a[0..].ptr, 3);
+  std.debug.assert(std.mem.eql(u8, a, []u8{4, 3, 2}));
+}
+
+fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
+    var n: usize = 0;
+    while(n < len) : (n += 1) {
+        std.debug.warn("{}", n);
+        @ptrCast([*]u8, array.?)[n] += 1;
+    }
+}
