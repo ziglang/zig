@@ -1,3 +1,20 @@
+test "zig fmt: correctly move doc comments on struct fields" {
+    try testTransform(
+        \\pub const section_64 = extern struct {
+        \\    sectname: [16]u8, /// name of this section
+        \\    segname: [16]u8,  /// segment this section goes in
+        \\};
+    ,
+        \\pub const section_64 = extern struct {
+        \\    /// name of this section
+        \\    sectname: [16]u8,
+        \\    /// segment this section goes in
+        \\    segname: [16]u8,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: preserve space between async fn definitions" {
     try testCanonical(
         \\async fn a() void {}
