@@ -6,32 +6,32 @@ const assert = std.debug.assert;
 //////////////////////////
 
 pub const Message = struct {
-sender: MailboxId,
+    sender: MailboxId,
     receiver: MailboxId,
-    code:     usize,
-    args:     [5]usize,
-    payload:  ?[]const u8,
+    code: usize,
+    args: [5]usize,
+    payload: ?[]const u8,
 
     pub fn from(mailbox_id: *const MailboxId) Message {
-        return Message {
-            .sender   = MailboxId.Undefined,
+        return Message{
+            .sender = MailboxId.Undefined,
             .receiver = mailbox_id.*,
-            .code     = undefined,
-            .args     = undefined,
-            .payload  = null,
+            .code = undefined,
+            .args = undefined,
+            .payload = null,
         };
     }
 
     pub fn to(mailbox_id: *const MailboxId, msg_code: usize, args: ...) Message {
-        var message = Message {
-            .sender   = MailboxId.This,
+        var message = Message{
+            .sender = MailboxId.This,
             .receiver = mailbox_id.*,
-            .code     = msg_code,
-            .args     = undefined,
-            .payload  = null,
+            .code = msg_code,
+            .args = undefined,
+            .payload = null,
         };
 
-        assert (args.len <= message.args.len);
+        assert(args.len <= message.args.len);
         comptime var i = 0;
         inline while (i < args.len) : (i += 1) {
             message.args[i] = args[i];
@@ -111,8 +111,7 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
     switch (fd) {
         STDOUT_FILENO, STDERR_FILENO => {
-            send(Message.to(Server.Terminal, 1)
-                        .withPayload(buf[0..count]));
+            send(Message.to(Server.Terminal, 1).withPayload(buf[0..count]));
         },
         else => unreachable,
     }
@@ -124,14 +123,14 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
 ///////////////////////////
 
 pub const Syscall = enum(usize) {
-    exit          = 0,
-    send          = 1,
-    receive       = 2,
-    subscribeIRQ  = 3,
-    inb           = 4,
-    outb          = 5,
-    map           = 6,
-    createThread  = 7,
+    exit = 0,
+    send = 1,
+    receive = 2,
+    subscribeIRQ = 3,
+    inb = 4,
+    outb = 5,
+    map = 6,
+    createThread = 7,
 };
 
 ////////////////////

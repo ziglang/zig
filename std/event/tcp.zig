@@ -89,7 +89,7 @@ pub const Server = struct {
                 error.ProcessFdQuotaExceeded => {
                     errdefer std.os.emfile_promise_queue.remove(&self.waiting_for_emfile_node);
                     suspend {
-                        self.waiting_for_emfile_node = PromiseNode.init( @handle() );
+                        self.waiting_for_emfile_node = PromiseNode.init(@handle());
                         std.os.emfile_promise_queue.append(&self.waiting_for_emfile_node);
                     }
                     continue;

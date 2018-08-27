@@ -188,12 +188,12 @@ pub fn formatType(
                 },
                 builtin.TypeId.Union => {
                     const info = @typeInfo(T).Union;
-                    if(info.tag_type) |UnionTagType| {
+                    if (info.tag_type) |UnionTagType| {
                         try output(context, "{ .");
                         try output(context, @tagName(UnionTagType(value)));
                         try output(context, " = ");
-                        inline for(info.fields) |u_field| {
-                            if(@enumToInt(UnionTagType(value)) == u_field.enum_field.?.value) {
+                        inline for (info.fields) |u_field| {
+                            if (@enumToInt(UnionTagType(value)) == u_field.enum_field.?.value) {
                                 try formatType(@field(value, u_field.name), "", context, Errors, output);
                             }
                         }
@@ -1221,58 +1221,54 @@ test "fmt.format" {
             a: u32,
             b: error,
         };
-        
-        const inst = S {
+
+        const inst = S{
             .a = 456,
             .b = error.Unused,
         };
-        
+
         try testFmt("S{ .a = 456, .b = error.Unused }", "{}", inst);
     }
     //union format
     {
-        const TU = union(enum)
-        {
+        const TU = union(enum) {
             float: f32,
             int: u32,
         };
-        
-        const UU = union
-        {
+
+        const UU = union {
             float: f32,
             int: u32,
         };
-        
-        const EU = extern union
-        {
+
+        const EU = extern union {
             float: f32,
             int: u32,
         };
-        
-        const tu_inst = TU{ .int = 123, };
-        const uu_inst = UU{ .int = 456, };
-        const eu_inst = EU{ .float = 321.123, };
-        
+
+        const tu_inst = TU{ .int = 123 };
+        const uu_inst = UU{ .int = 456 };
+        const eu_inst = EU{ .float = 321.123 };
+
         try testFmt("TU{ .int = 123 }", "{}", tu_inst);
-        
+
         var buf: [100]u8 = undefined;
         const uu_result = try bufPrint(buf[0..], "{}", uu_inst);
         debug.assert(mem.eql(u8, uu_result[0..3], "UU@"));
-        
+
         const eu_result = try bufPrint(buf[0..], "{}", eu_inst);
         debug.assert(mem.eql(u8, uu_result[0..3], "EU@"));
     }
     //enum format
     {
-        const E = enum
-        {
+        const E = enum {
             One,
             Two,
             Three,
         };
-        
+
         const inst = E.Two;
-        
+
         try testFmt("E.Two", "{}", inst);
     }
 }

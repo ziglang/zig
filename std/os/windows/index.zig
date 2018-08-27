@@ -288,27 +288,27 @@ pub const GUID = extern struct {
         assert(str[index] == '{');
         index += 1;
 
-        guid.Data1 = std.fmt.parseUnsigned(c_ulong, str[index..index + 8], 16) catch unreachable;
+        guid.Data1 = std.fmt.parseUnsigned(c_ulong, str[index .. index + 8], 16) catch unreachable;
         index += 8;
 
         assert(str[index] == '-');
         index += 1;
 
-        guid.Data2 = std.fmt.parseUnsigned(c_ushort, str[index..index + 4], 16) catch unreachable;
+        guid.Data2 = std.fmt.parseUnsigned(c_ushort, str[index .. index + 4], 16) catch unreachable;
         index += 4;
 
         assert(str[index] == '-');
         index += 1;
 
-        guid.Data3 = std.fmt.parseUnsigned(c_ushort, str[index..index + 4], 16) catch unreachable;
+        guid.Data3 = std.fmt.parseUnsigned(c_ushort, str[index .. index + 4], 16) catch unreachable;
         index += 4;
 
         assert(str[index] == '-');
         index += 1;
 
-        guid.Data4[0] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+        guid.Data4[0] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
         index += 2;
-        guid.Data4[1] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+        guid.Data4[1] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
         index += 2;
 
         assert(str[index] == '-');
@@ -316,7 +316,7 @@ pub const GUID = extern struct {
 
         var i: usize = 2;
         while (i < guid.Data4.len) : (i += 1) {
-            guid.Data4[i] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+            guid.Data4[i] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
             index += 2;
         }
 
