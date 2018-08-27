@@ -163,26 +163,47 @@ pub fn formatType(
                 }
                 break :cf false;
             };
-
             if (has_cust_fmt) return value.format(fmt, context, Errors, output);
+
             try output(context, @typeName(T));
-            if (comptime @typeId(T) == builtin.TypeId.Enum) {
-                try output(context, ".");
-                try formatType(@tagName(value), "", context, Errors, output);
-                return;
+            switch (comptime @typeId(T)) {
+                builtin.TypeId.Enum => {
+                    try output(context, ".");
+                    try formatType(@tagName(value), "", context, Errors, output);
+                    return;
+                },
+                builtin.TypeId.Struct => {
+                    comptime var field_i = 0;
+                    inline while (field_i < @memberCount(T)) : (field_i += 1) {
+                        if (field_i == 0) {
+                            try output(context, "{ .");
+                        } else {
+                            try output(context, ", .");
+                        }
+                        try output(context, @memberName(T, field_i));
+                        try output(context, " = ");
+                        try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output);
+                    }
+                    try output(context, " }");
+                },
+                builtin.TypeId.Union => {
+                    const info = @typeInfo(T).Union;
+                    if(info.tag_type) |UnionTagType| {
+                        try output(context, "{ .");
+                        try output(context, @tagName(UnionTagType(value)));
+                        try output(context, " = ");
+                        inline for(info.fields) |u_field| {
+                            if(@enumToInt(UnionTagType(value)) == u_field.enum_field.?.value) {
+                                try formatType(@field(value, u_field.name), "", context, Errors, output);
+                            }
+                        }
+                        try output(context, " }");
+                    } else {
+                        try format(context, Errors, output, "@{x}", @ptrToInt(&value));
+                    }
+                },
+                else => unreachable,
             }
-            comptime var field_i = 0;
-            inline while (field_i < @memberCount(T)) : (field_i += 1) {
-                if (field_i == 0) {
-                    try output(context, "{ .");
-                } else {
-                    try output(context, ", .");
-                }
-                try output(context, @memberName(T, field_i));
-                try output(context, " = ");
-                try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output);
-            }
-            try output(context, " }");
             return;
         },
         builtin.TypeId.Pointer => |ptr_info| switch (ptr_info.size) {
@@ -1193,6 +1214,66 @@ test "fmt.format" {
         // same thing but not passing a pointer
         try testFmt("point: (10.200,2.220)\n", "point: {}\n", value);
         try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", value);
+    }
+    //struct format
+    {
+        const S = struct {
+            a: u32,
+            b: error,
+        };
+        
+        const inst = S {
+            .a = 456,
+            .b = error.Unused,
+        };
+        
+        try testFmt("S{ .a = 456, .b = error.Unused }", "{}", inst);
+    }
+    //union format
+    {
+        const TU = union(enum)
+        {
+            float: f32,
+            int: u32,
+        };
+        
+        const UU = union
+        {
+            float: f32,
+            int: u32,
+        };
+        
+        const EU = extern union
+        {
+            float: f32,
+            int: u32,
+        };
+        
+        const tu_inst = TU{ .int = 123, };
+        const uu_inst = UU{ .int = 456, };
+        const eu_inst = EU{ .float = 321.123, };
+        
+        try testFmt("TU{ .int = 123 }", "{}", tu_inst);
+        
+        var buf: [100]u8 = undefined;
+        const uu_result = try bufPrint(buf[0..], "{}", uu_inst);
+        debug.assert(mem.eql(u8, uu_result[0..3], "UU@"));
+        
+        const eu_result = try bufPrint(buf[0..], "{}", eu_inst);
+        debug.assert(mem.eql(u8, uu_result[0..3], "EU@"));
+    }
+    //enum format
+    {
+        const E = enum
+        {
+            One,
+            Two,
+            Three,
+        };
+        
+        const inst = E.Two;
+        
+        try testFmt("E.Two", "{}", inst);
     }
 }
 
