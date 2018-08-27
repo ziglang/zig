@@ -1575,7 +1575,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
 
         switch (type_entry->id) {
             case TypeTableEntryIdInvalid:
-                return g->builtin_types.entry_invalid;
+                zig_unreachable();
             case TypeTableEntryIdUnreachable:
             case TypeTableEntryIdUndefined:
             case TypeTableEntryIdNull:
@@ -1703,6 +1703,11 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdPromise:
+            if ((err = type_ensure_zero_bits_known(g, fn_type_id.return_type)))
+                return g->builtin_types.entry_invalid;
+            if (type_requires_comptime(fn_type_id.return_type)) {
+                return get_generic_fn_type(g, &fn_type_id);
+            }
             break;
     }
 
