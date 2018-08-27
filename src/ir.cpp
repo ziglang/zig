@@ -60,7 +60,7 @@ enum ConstCastResultId {
     ConstCastResultIdType,
     ConstCastResultIdUnresolvedInferredErrSet,
     ConstCastResultIdAsyncAllocatorType,
-    ConstCastResultIdNullWrapPtr,
+    ConstCastResultIdNullWrapPtr
 };
 
 struct ConstCastOnly;
@@ -8471,9 +8471,9 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     if (wanted_type == actual_type)
         return result;
 
-    // * and [*] can do a const-cast-only to ?* and ?[*], respectively
-    // but not if there is a mutable parent pointer
-    // and not if the pointer is zero bits
+    // *T and [*]T may const-cast-only to ?*U and ?[*]U, respectively
+    // but not if we want a mutable pointer
+    // and not if the actual pointer has zero bits
     if (!wanted_is_mutable && wanted_type->id == TypeTableEntryIdOptional &&
         wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer &&
         actual_type->id == TypeTableEntryIdPointer && type_has_bits(actual_type))
@@ -8485,6 +8485,18 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
             result.data.null_wrap_ptr_child = allocate_nonzero<ConstCastOnly>(1);
             *result.data.null_wrap_ptr_child = child;
         }
+        return result;
+    }
+
+    // *T and [*]T can always cast to *c_void
+    if (wanted_type->id == TypeTableEntryIdPointer &&
+        wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+        wanted_type->data.pointer.child_type == g->builtin_types.entry_c_void &&
+        actual_type->id == TypeTableEntryIdPointer &&
+        (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
+        (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile))
+    {
+        assert(actual_type->data.pointer.alignment >= wanted_type->data.pointer.alignment);
         return result;
     }
 

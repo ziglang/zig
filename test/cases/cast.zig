@@ -487,12 +487,35 @@ fn MakeType(comptime T: type) type {
 }
 
 test "implicit cast from *[N]T to ?[*]T" {
-  var x: ?[*]u16 = null;
-  var y: [4]u16 = [4]u16 {0, 1, 2, 3};
+    var x: ?[*]u16 = null;
+    var y: [4]u16 = [4]u16{ 0, 1, 2, 3 };
 
-  x = &y;
-  assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
-  x.?[0] = 8;
-  y[3] = 6;
-  assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+    x = &y;
+    assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+    x.?[0] = 8;
+    y[3] = 6;
+    assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+}
+
+test "implicit cast from *T to ?*c_void" {
+    var a: u8 = 1;
+    incrementVoidPtrValue(&a);
+    std.debug.assert(a == 2);
+}
+
+fn incrementVoidPtrValue(value: ?*c_void) void {
+    @ptrCast(*u8, value.?).* += 1;
+}
+
+test "implicit cast from [*]T to ?*c_void" {
+    var a = []u8{ 3, 2, 1 };
+    incrementVoidPtrArray(a[0..].ptr, 3);
+    assert(std.mem.eql(u8, a, []u8{ 4, 3, 2 }));
+}
+
+fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
+    var n: usize = 0;
+    while (n < len) : (n += 1) {
+        @ptrCast([*]u8, array.?)[n] += 1;
+    }
 }
