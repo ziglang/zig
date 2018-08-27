@@ -12981,7 +12981,11 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         assert(ira->codegen->errors.length != 0);
         return ira->codegen->invalid_instruction;
     }
-    assert(var->value->type);
+    if (!var->value->type) {
+        ir_add_error(ira, instruction,
+            buf_sprintf("cannot reference variable from unreachable code region"));
+        return ira->codegen->invalid_instruction;
+    }
     if (type_is_invalid(var->value->type))
         return ira->codegen->invalid_instruction;
 
