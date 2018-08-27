@@ -155,22 +155,18 @@ static TypeTableEntry *adjust_slice_align(CodeGen *g, TypeTableEntry *slice_type
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(get_codegen_ptr_type(const_val->type) != nullptr);
     assert(const_val->special == ConstValSpecialStatic);
-    ConstExprValue *result;
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
         case ConstPtrSpecialRef:
-            result = const_val->data.x_ptr.data.ref.pointee;
-            break;
+            return const_val->data.x_ptr.data.ref.pointee;
         case ConstPtrSpecialBaseArray:
             expand_undef_array(g, const_val->data.x_ptr.data.base_array.array_val);
-            result = &const_val->data.x_ptr.data.base_array.array_val->data.x_array.s_none.elements[
+            return &const_val->data.x_ptr.data.base_array.array_val->data.x_array.s_none.elements[
                 const_val->data.x_ptr.data.base_array.elem_index];
-            break;
         case ConstPtrSpecialBaseStruct:
-            result = &const_val->data.x_ptr.data.base_struct.struct_val->data.x_struct.fields[
+            return &const_val->data.x_ptr.data.base_struct.struct_val->data.x_struct.fields[
                 const_val->data.x_ptr.data.base_struct.field_index];
-            break;
         case ConstPtrSpecialHardCodedAddr:
             zig_unreachable();
         case ConstPtrSpecialDiscard:
@@ -178,8 +174,7 @@ ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
         case ConstPtrSpecialFunction:
             zig_unreachable();
     }
-    assert(result != nullptr);
-    return result;
+    zig_unreachable();
 }
 
 static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
@@ -10987,6 +10982,7 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
                 ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
             {
                 ConstExprValue *pointee = const_ptr_pointee(ira->codegen, &ptr->value);
+                if (!pointee) return ira->codegen->invalid_instruction;
                 if (pointee->special != ConstValSpecialRuntime) {
                     IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
                         source_instruction->source_node, child_type);
@@ -13660,6 +13656,7 @@ static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp 
             return ira->codegen->builtin_types.entry_invalid;
 
         ConstExprValue *pointee = const_ptr_pointee(ira->codegen, comptime_value);
+        if (!pointee) return ira->codegen->builtin_types.entry_invalid;
         if (pointee->type == child_type) {
             ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
             copy_const_val(out_val, pointee, value->value.data.x_ptr.mut == ConstPtrMutComptimeConst);
@@ -14063,6 +14060,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             ptr_type = ptr_type->data.pointer.child_type;
             if (orig_array_ptr_val->special != ConstValSpecialRuntime) {
                 orig_array_ptr_val = const_ptr_pointee(ira->codegen, orig_array_ptr_val);
+                if (!orig_array_ptr_val) return ira->codegen->builtin_types.entry_invalid;
             }
         }
         if (array_type->data.array.len == 0) {
@@ -14104,6 +14102,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         if (!ptr_val)
             return ira->codegen->builtin_types.entry_invalid;
         ConstExprValue *args_val = const_ptr_pointee(ira->codegen, ptr_val);
+        if (!args_val) return ira->codegen->builtin_types.entry_invalid;
         size_t start = args_val->data.x_arg_tuple.start_index;
         size_t end = args_val->data.x_arg_tuple.end_index;
         uint64_t elem_index_val;
@@ -14385,6 +14384,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
 
                 if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
                     ConstExprValue *struct_val = const_ptr_pointee(ira->codegen, ptr_val);
+                    if (!struct_val) return ira->codegen->invalid_instruction;
                     if (type_is_invalid(struct_val->type))
                         return ira->codegen->invalid_instruction;
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
@@ -14427,6 +14427,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
 
                 if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
                     ConstExprValue *union_val = const_ptr_pointee(ira->codegen, ptr_val);
+                    if (!union_val) return ira->codegen->invalid_instruction;
                     if (type_is_invalid(union_val->type))
                         return ira->codegen->invalid_instruction;
 
@@ -14623,6 +14624,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
 
         assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
         ConstExprValue *child_val = const_ptr_pointee(ira->codegen, container_ptr_val);
+        if (!child_val) return ira->codegen->builtin_types.entry_invalid;
 
         if (buf_eql_str(field_name, "len")) {
             ConstExprValue *len_val = create_const_vals(1);
@@ -14647,6 +14649,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
 
         assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
         ConstExprValue *child_val = const_ptr_pointee(ira->codegen, container_ptr_val);
+        if (!child_val) return ira->codegen->builtin_types.entry_invalid;
         TypeTableEntry *child_type = child_val->data.x_type;
 
         if (type_is_invalid(child_type)) {
@@ -14915,6 +14918,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             return ira->codegen->builtin_types.entry_invalid;
 
         ConstExprValue *namespace_val = const_ptr_pointee(ira->codegen, container_ptr_val);
+        if (!namespace_val) return ira->codegen->builtin_types.entry_invalid;
         assert(namespace_val->special == ConstValSpecialStatic);
 
         ImportTableEntry *namespace_import = namespace_val->data.x_import;
@@ -14991,6 +14995,7 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
         if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar) {
             if (instr_is_comptime(casted_value)) {
                 ConstExprValue *dest_val = const_ptr_pointee(ira->codegen, &ptr->value);
+                if (!dest_val) return ira->codegen->builtin_types.entry_invalid;
                 if (dest_val->special != ConstValSpecialRuntime) {
                     *dest_val = casted_value->value;
                     if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
@@ -15002,6 +15007,7 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
             ir_add_error(ira, &store_ptr_instruction->base,
                     buf_sprintf("cannot store runtime value in compile time variable"));
             ConstExprValue *dest_val = const_ptr_pointee(ira->codegen, &ptr->value);
+            if (!dest_val) return ira->codegen->builtin_types.entry_invalid;
             dest_val->type = ira->codegen->builtin_types.entry_invalid;
 
             return ira->codegen->builtin_types.entry_invalid;
@@ -15855,7 +15861,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
     ConstExprValue *pointee_val = nullptr;
     if (instr_is_comptime(target_value_ptr)) {
         pointee_val = const_ptr_pointee(ira->codegen, &target_value_ptr->value);
-        if (pointee_val->special == ConstValSpecialRuntime)
+        if (pointee_val && pointee_val->special == ConstValSpecialRuntime)
             pointee_val = nullptr;
     }
     if ((err = ensure_complete_type(ira->codegen, target_type)))
@@ -15986,6 +15992,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
                 return ira->codegen->builtin_types.entry_invalid;
 
             ConstExprValue *pointee_val = const_ptr_pointee(ira->codegen, target_val_ptr);
+            if (!pointee_val) return ira->codegen->builtin_types.entry_invalid; 
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
             out_val->data.x_ptr.special = ConstPtrSpecialRef;
             out_val->data.x_ptr.mut = target_val_ptr->data.x_ptr.mut;
@@ -18737,11 +18744,14 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                 TypeTableEntry *child_array_type = array_type->data.pointer.child_type;
                 assert(child_array_type->id == TypeTableEntryIdArray);
                 parent_ptr = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
+                if (!parent_ptr) return ira->codegen->builtin_types.entry_invalid;
                 array_val = const_ptr_pointee(ira->codegen, parent_ptr);
+                if (!array_val) return ira->codegen->builtin_types.entry_invalid;
                 rel_end = child_array_type->data.array.len;
                 abs_offset = 0;
             } else {
                 array_val = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
+                if (!array_val) return ira->codegen->builtin_types.entry_invalid;
                 rel_end = array_type->data.array.len;
                 parent_ptr = nullptr;
                 abs_offset = 0;
@@ -18749,6 +18759,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         } else if (array_type->id == TypeTableEntryIdPointer) {
             assert(array_type->data.pointer.ptr_len == PtrLenUnknown);
             parent_ptr = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
+            if (!parent_ptr) return ira->codegen->builtin_types.entry_invalid;
             if (parent_ptr->special == ConstValSpecialUndef) {
                 array_val = nullptr;
                 abs_offset = 0;
@@ -18780,6 +18791,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             }
         } else if (is_slice(array_type)) {
             ConstExprValue *slice_ptr = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
+            if (!slice_ptr) return ira->codegen->builtin_types.entry_invalid;
             parent_ptr = &slice_ptr->data.x_struct.fields[slice_ptr_index];
             ConstExprValue *len_val = &slice_ptr->data.x_struct.fields[slice_len_index];
 
@@ -19180,6 +19192,7 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
         BigInt *op1_bigint = &casted_op1->value.data.x_bigint;
         BigInt *op2_bigint = &casted_op2->value.data.x_bigint;
         ConstExprValue *pointee_val = const_ptr_pointee(ira->codegen, &casted_result_ptr->value);
+        if (!pointee_val) return ira->codegen->builtin_types.entry_invalid;
         BigInt *dest_bigint = &pointee_val->data.x_bigint;
         switch (instruction->op) {
             case IrOverflowOpAdd:
@@ -19280,6 +19293,7 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira,
             if (!ptr_val)
                 return ira->codegen->builtin_types.entry_invalid;
             ConstExprValue *err_union_val = const_ptr_pointee(ira->codegen, ptr_val);
+            if (!err_union_val) return ira->codegen->builtin_types.entry_invalid;
             if (err_union_val->special != ConstValSpecialRuntime) {
                 ErrorTableEntry *err = err_union_val->data.x_err_union.err;
                 assert(err);
@@ -19328,6 +19342,7 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
             if (!ptr_val)
                 return ira->codegen->builtin_types.entry_invalid;
             ConstExprValue *err_union_val = const_ptr_pointee(ira->codegen, ptr_val);
+            if (!err_union_val) return ira->codegen->builtin_types.entry_invalid;
             if (err_union_val->special != ConstValSpecialRuntime) {
                 ErrorTableEntry *err = err_union_val->data.x_err_union.err;
                 if (err != nullptr) {

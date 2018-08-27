@@ -2,6 +2,21 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "self referencing self via function definition",
+        \\const start = struct {
+        \\    fn a() b() { return b; }
+        \\};
+        \\fn b() void {
+        \\    _ = @typeInfo(start).Struct;
+        \\}
+        \\export fn entry() void {
+        \\    var boom = start.a();
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: 'a' depends on itself",
+    );
+
+    cases.add(
         "@handle() called outside of function definition",
         \\var handle_undef: promise = undefined;
         \\var handle_dummy: promise = @handle();
