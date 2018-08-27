@@ -1680,14 +1680,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdMetaType:
-            if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                add_node_error(g, fn_proto->return_type,
-                    buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
-                    buf_ptr(&fn_type_id.return_type->name),
-                    calling_convention_name(fn_type_id.cc)));
-                return g->builtin_types.entry_invalid;
-            }
-            return get_generic_fn_type(g, &fn_type_id);
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
