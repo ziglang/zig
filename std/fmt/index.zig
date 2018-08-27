@@ -163,26 +163,47 @@ pub fn formatType(
                 }
                 break :cf false;
             };
-
             if (has_cust_fmt) return value.format(fmt, context, Errors, output);
+
             try output(context, @typeName(T));
-            if (comptime @typeId(T) == builtin.TypeId.Enum) {
-                try output(context, ".");
-                try formatType(@tagName(value), "", context, Errors, output);
-                return;
-            }
-            comptime var field_i = 0;
-            inline while (field_i < @memberCount(T)) : (field_i += 1) {
-                if (field_i == 0) {
+            switch (comptime @typeId(T)) {
+                builtin.TypeId.Enum => {
+                    try output(context, ".");
+                    try formatType(@tagName(value), "", context, Errors, output);
+                    return;
+                },
+                builtin.TypeId.Struct => {
+                    comptime var field_i = 0;
+                    inline while (field_i < @memberCount(T)) : (field_i += 1) {
+                        if (field_i == 0) {
+                            try output(context, "{ .");
+                        } else {
+                            try output(context, ", .");
+                        }
+                        try output(context, @memberName(T, field_i));
+                        try output(context, " = ");
+                        try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output);
+                    }
+                    try output(context, " }");
+                },
+                builtin.TypeId.Union => {
                     try output(context, "{ .");
-                } else {
-                    try output(context, ", .");
-                }
-                try output(context, @memberName(T, field_i));
-                try output(context, " = ");
-                try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output);
+                    const info = @typeInfo(T).Union;
+                    if (info.tag_type) |UnionTagType| {
+                        inline for (info.fields) |u_field| {
+                            if (@enumToInt(UnionTagType(value)) == u_field.enum_field.?.value) {
+                                try output(context, @tagName(UnionTagType(value)));
+                                try output(context, " = ");
+                                try formatType(@field(value, u_field.name), "", context, Errors, output);
+                                try output(context, " }");
+                            }
+                        }
+                    } else {
+                        try format(context, Errors, output, "{}@{x}", @typeName(T), @ptrToInt(&value));
+                    }
+                },
+                else => unreachable,
             }
-            try output(context, " }");
             return;
         },
         builtin.TypeId.Pointer => |ptr_info| switch (ptr_info.size) {
