@@ -8488,7 +8488,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
         return result;
     }
 
-    // *T and [*]T can always cast to ?*c_void
+    // *T and [*]T can always cast to *c_void
     if (wanted_type->id == TypeTableEntryIdPointer &&
         wanted_type->data.pointer.ptr_len == PtrLenSingle &&
         wanted_type->data.pointer.child_type == g->builtin_types.entry_c_void &&
