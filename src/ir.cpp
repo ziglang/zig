@@ -3280,7 +3280,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
 }
 
 static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
-        Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstruction *is_comptime)
+        Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstruction *is_comptime,
+        bool skip_name_check)
 {
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
     variable_entry->parent_scope = parent_scope;
@@ -3293,29 +3294,30 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
 
-        VariableTableEntry *existing_var = find_variable(codegen, parent_scope, name);
-        if (existing_var && !existing_var->shadowable) {
-            ErrorMsg *msg = add_node_error(codegen, node,
-                    buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
-            add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
-            variable_entry->value->type = codegen->builtin_types.entry_invalid;
-        } else {
-            TypeTableEntry *type = get_primitive_type(codegen, name);
-            if (type != nullptr) {
-                add_node_error(codegen, node,
-                        buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
+        if (!skip_name_check) {
+            VariableTableEntry *existing_var = find_variable(codegen, parent_scope, name);
+            if (existing_var && !existing_var->shadowable) {
+                ErrorMsg *msg = add_node_error(codegen, node,
+                        buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
+                add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
                 variable_entry->value->type = codegen->builtin_types.entry_invalid;
             } else {
-                Tld *tld = find_decl(codegen, parent_scope, name);
-                if (tld != nullptr) {
-                    ErrorMsg *msg = add_node_error(codegen, node,
-                            buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                    add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                TypeTableEntry *type = get_primitive_type(codegen, name);
+                if (type != nullptr) {
+                    add_node_error(codegen, node,
+                            buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                     variable_entry->value->type = codegen->builtin_types.entry_invalid;
+                } else {
+                    Tld *tld = find_decl(codegen, parent_scope, name);
+                    if (tld != nullptr) {
+                        ErrorMsg *msg = add_node_error(codegen, node,
+                                buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                        add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                        variable_entry->value->type = codegen->builtin_types.entry_invalid;
+                    }
                 }
             }
         }
-
     } else {
         assert(is_shadowable);
         // TODO make this name not actually be in scope. user should be able to make a variable called "_anon"
@@ -3338,14 +3340,9 @@ static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *s
         bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstruction *is_comptime)
 {
     bool is_underscored = name ? buf_eql_str(name, "_") : false;
-    VariableTableEntry *var = create_local_var( irb->codegen
-                                              , node
-                                              , scope
-                                              , (is_underscored ? nullptr : name)
-                                              , src_is_const
-                                              , gen_is_const
-                                              , (is_underscored ? true : is_shadowable)
-                                              , is_comptime );
+    VariableTableEntry *var = create_local_var(irb->codegen, node, scope,
+            (is_underscored ? nullptr : name), src_is_const, gen_is_const,
+            (is_underscored ? true : is_shadowable), is_comptime, false);
     if (is_comptime != nullptr || gen_is_const) {
         var->mem_slot_index = exec_next_mem_slot(irb->exec);
         var->owner_exec = irb->exec;
@@ -12495,6 +12492,17 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         }
     }
 
+    if (var->value->type != nullptr && var->value->type != result_type && !is_comptime_var) {
+        // This is at least the second time we've seen this variable declaration during analysis.
+        // This means that this is actually a different variable due to, e.g. an inline while loop.
+        // We make a new variable so that it can hold a different type, and so the debug info can
+        // be distinct.
+        VariableTableEntry *new_var = create_local_var(ira->codegen, var->decl_node, var->child_scope,
+            &var->name, var->src_is_const, var->gen_is_const, var->shadowable, var->is_comptime, true);
+        var->next_var = new_var;
+        var = new_var;
+    }
+
     var->value->type = result_type;
     assert(var->value->type);
 
@@ -12977,6 +12985,10 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         VariableTableEntry *var)
 {
     Error err;
+    while (var->next_var != nullptr) {
+        var = var->next_var;
+    }
+
     if (var->mem_slot_index != SIZE_MAX && var->owner_exec->analysis == nullptr) {
         assert(ira->codegen->errors.length != 0);
         return ira->codegen->invalid_instruction;

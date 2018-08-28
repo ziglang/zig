@@ -1807,6 +1807,11 @@ struct VariableTableEntry {
     VarLinkage linkage;
     IrInstruction *decl_instruction;
     uint32_t align_bytes;
+
+    // In an inline loop, multiple variables may be created,
+    // In this case, a reference to a variable should follow
+    // this pointer to the redefined variable.
+    VariableTableEntry *next_var;
 };
 
 struct ErrorTableEntry {
