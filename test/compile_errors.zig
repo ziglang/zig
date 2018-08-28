@@ -2,6 +2,23 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "reference variable from unreachable code region",
+        \\pub fn a() void {
+        \\    var i: usize = 0;
+        \\    while (i <= 10) : ({ i += b; }) {
+        \\        continue;
+        \\        const b = 42;
+        \\    }
+        \\}
+        \\export fn entry() void {
+        \\    return a();
+        \\}
+    ,
+        ".tmp_source.zig:5:9: error: unreachable code",
+        ".tmp_source.zig:3:31: error: cannot reference variable from unreachable code region",
+    );
+
+    cases.add(
         "@typeInfo causing depend on itself compile error",
         \\const start = struct {
         \\    fn crash() bug() {
