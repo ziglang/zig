@@ -451,6 +451,7 @@ set(ZIG_STD_FILES
     "crypto/sha1.zig"
     "crypto/sha2.zig"
     "crypto/sha3.zig"
+    "crypto/chacha20.zig"
     "cstr.zig"
     "debug/failing_allocator.zig"
     "debug/index.zig"
