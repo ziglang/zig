@@ -2,6 +2,22 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "switch with invalid expression parameter",
+        \\export fn entry() void {
+        \\    Test(i32);
+        \\}
+        \\fn Test(comptime T: type) void {
+        \\    const x = switch (T) {
+        \\        []u8 => |x| 123,
+        \\        i32 => |x| 456,
+        \\        else => unreachable,
+        \\    };
+        \\}
+    ,
+        ".tmp_source.zig:7:17: error: switch on type 'type' provides no expression parameter",
+    );
+
+    cases.add(
         "function protoype with no body",
         \\fn foo() void;
         \\export fn entry() void {
