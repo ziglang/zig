@@ -393,15 +393,19 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
 
     try coff_file.loadHeader();
 
-    var path: [windows.MAX_PATH]u8 = undefined;
-    const len = try coff_file.getPdbPath(path[0..]);
-    std.debug.warn("pdb path {}\n", path[0..len]);
+    var path_buf: [windows.MAX_PATH]u8 = undefined;
+    const len = try coff_file.getPdbPath(path_buf[0..]);
+    const raw_path = path_buf[0..len];
+    std.debug.warn("pdb raw path {}\n", raw_path);
+
+    const path = try os.path.resolve(allocator, raw_path);
+    std.debug.warn("pdb resolved path {}\n", path);
 
     var di = DebugInfo{
         .pdb = undefined,
     };
 
-    try di.pdb.openFile(allocator, path[0..len]);
+    try di.pdb.openFile(allocator, path);
 
     var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
     std.debug.warn("pdb real filepos {}\n", pdb_stream.getFilePos());
