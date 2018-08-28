@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "function protoype with no body",
+        \\fn foo() void;
+        \\export fn entry() void {
+        \\    foo();
+        \\}
+    ,
+        ".tmp_source.zig:1:1: error: non-extern function has no body",
+    );
+
+    cases.add(
         "@typeInfo causing depend on itself compile error",
         \\const start = struct {
         \\    fn crash() bug() {
