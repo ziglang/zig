@@ -22,19 +22,15 @@ fn Rp(a: usize, b: usize, c: usize, d: usize) QuarterRound {
     };
 }
 
-fn rotate(a: u32, b: u5) u32 {
-    return ((a << b) |
-            (a >> @intCast(u5, (32 - @intCast(u6, b))))
-           );
-}
-
 // The chacha family of ciphers are based on the salsa family.
-fn salsa20_wordtobyte(input: [16]u32) [64]u8 {
+fn salsa20_wordtobyte(out: []u8, input: [16]u32) void {
+    assert(out.len >= 64);
+
     var x: [16]u32 = undefined;
-    var out: [64]u8 = undefined;
 
     for (x) |_, i|
         x[i] = input[i];
+
     const rounds = comptime []QuarterRound{
         Rp( 0, 4, 8,12),
         Rp( 1, 5, 9,13),
@@ -45,20 +41,21 @@ fn salsa20_wordtobyte(input: [16]u32) [64]u8 {
         Rp( 2, 7, 8,13),
         Rp( 3, 4, 9,14),
     };
-    comptime var j: usize = 20;
-    inline while (j > 0) : (j -=2) {
-        for (rounds) |r| {
-            x[r.a] +%= x[r.b]; x[r.d] = rotate(x[r.d] ^ x[r.a], 16);
-            x[r.c] +%= x[r.d]; x[r.b] = rotate(x[r.b] ^ x[r.c], 12);
-            x[r.a] +%= x[r.b]; x[r.d] = rotate(x[r.d] ^ x[r.a],  8);
-            x[r.c] +%= x[r.d]; x[r.b] = rotate(x[r.b] ^ x[r.c],  7);
+
+    comptime var j: usize = 0;
+    inline while (j < 20) : (j += 2) {
+        // two-round cycles
+        inline for (rounds) |r| {
+            x[r.a] +%= x[r.b]; x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], u32(16));
+            x[r.c] +%= x[r.d]; x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], u32(12));
+            x[r.a] +%= x[r.b]; x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a],  u32(8));
+            x[r.c] +%= x[r.d]; x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c],  u32(7));
         }
     }
-    for (x) |_, i|
-        x[i] +%= input[i];
-    for (x) |_, i|
-        mem.writeInt(out[4 * i .. 4 * i + 4], x[i], builtin.Endian.Little);
-    return out;
+
+    for (x) |_, i| {
+        mem.writeInt(out[4 * i .. 4 * i + 4], x[i] +% input[i], builtin.Endian.Little);
+    }
 }
 
 fn chaCha20_internal(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
@@ -73,13 +70,14 @@ fn chaCha20_internal(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) vo
         mem.readIntLE(u32, c[8..12]),
         mem.readIntLE(u32, c[12..16]),
     };
-    
+
     mem.copy(u32, ctx[0..], constant_le[0..4]);
     mem.copy(u32, ctx[4..12], key[0..8]);
     mem.copy(u32, ctx[12..16], counter[0..4]);
 
     while (true) {
-        var buf = salsa20_wordtobyte(ctx);
+        var buf: [64]u8 = undefined;
+        salsa20_wordtobyte(buf[0..], ctx);
 
         if (remaining < 64) {
             var i: usize = 0;
@@ -88,8 +86,8 @@ fn chaCha20_internal(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) vo
             return;
         }
 
-        comptime var i: usize = 0;
-        inline while (i < 64) : (i += 1)
+        var i: usize = 0;
+        while (i < 64) : (i += 1)
             out[cursor + i] = in[cursor + i] ^ buf[i];
 
         cursor += 64;
