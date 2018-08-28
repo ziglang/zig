@@ -4,8 +4,11 @@ const mem = std.mem;
 const io = std.io;
 const os = std.os;
 const elf = std.elf;
-const macho = std.macho;
 const DW = std.dwarf;
+const macho = std.macho;
+const coff = std.coff;
+const pdb = std.pdb;
+const windows = os.windows;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
@@ -228,12 +231,17 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: us
     switch (builtin.os) {
         builtin.Os.macosx => return printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color),
         builtin.Os.linux => return printSourceAtAddressLinux(debug_info, out_stream, address, tty_color),
-        builtin.Os.windows => {
-            // TODO https://github.com/ziglang/zig/issues/721
-            return error.UnsupportedOperatingSystem;
-        },
+        builtin.Os.windows => return printSourceAtAddressWindows(debug_info, out_stream, address, tty_color),
         else => return error.UnsupportedOperatingSystem,
     }
+}
+
+fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+    const base_address = @ptrToInt(windows.GetModuleHandleW(null)); // returned HMODULE points to our executable file in memory
+    const relative_address = address - base_address;
+    std.debug.warn("{x} - {x} => {x}\n", address, base_address, relative_address);
+    try di.pdb.getSourceLine(relative_address);
+    return error.UnsupportedDebugInfo;
 }
 
 fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
@@ -372,12 +380,42 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     switch (builtin.os) {
         builtin.Os.linux => return openSelfDebugInfoLinux(allocator),
         builtin.Os.macosx, builtin.Os.ios => return openSelfDebugInfoMacOs(allocator),
-        builtin.Os.windows => {
-            // TODO: https://github.com/ziglang/zig/issues/721
-            return error.UnsupportedOperatingSystem;
-        },
+        builtin.Os.windows => return openSelfDebugInfoWindows(allocator),
         else => return error.UnsupportedOperatingSystem,
     }
+}
+
+fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
+    var coff_file: coff.Coff = undefined;
+    coff_file.in_file = try os.openSelfExe();
+    coff_file.allocator = allocator;
+    defer coff_file.in_file.close();
+
+    try coff_file.loadHeader();
+
+    var path: [windows.MAX_PATH]u8 = undefined;
+    const len = try coff_file.getPdbPath(path[0..]);
+    std.debug.warn("pdb path {}\n", path[0..len]);
+
+    var di = DebugInfo{
+        .pdb = undefined,
+    };
+
+    try di.pdb.openFile(allocator, path[0..len]);
+
+    var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
+    std.debug.warn("pdb real filepos {}\n", pdb_stream.getFilePos());
+    const version = try pdb_stream.stream.readIntLe(u32);
+    const signature = try pdb_stream.stream.readIntLe(u32);
+    const age = try pdb_stream.stream.readIntLe(u32);
+    var guid: [16]u8 = undefined;
+    try pdb_stream.stream.readNoEof(guid[0..]);
+    if (!mem.eql(u8, coff_file.guid, guid) or coff_file.age != age)
+        return error.InvalidDebugInfo;
+    std.debug.warn("v {} s {} a {}\n", version, signature, age);
+    // We validated the executable and pdb match.
+
+    return di;
 }
 
 fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
@@ -578,7 +616,10 @@ pub const DebugInfo = switch (builtin.os) {
             return self.ofiles.allocator;
         }
     },
-    else => struct {
+    builtin.Os.windows => struct {
+        pdb: pdb.Pdb,
+    },
+    builtin.Os.linux => struct {
         self_exe_file: os.File,
         elf: elf.Elf,
         debug_info: *elf.SectionHeader,
@@ -604,6 +645,7 @@ pub const DebugInfo = switch (builtin.os) {
             self.elf.close();
         }
     },
+    else => @compileError("Unsupported OS"),
 };
 
 const PcRange = struct {

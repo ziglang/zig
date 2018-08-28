@@ -118,16 +118,14 @@ pub const OpenError = error{
     Unexpected,
 };
 
-pub fn windowsOpen(
-    file_path: []const u8,
+pub fn windowsOpenW(
+    file_path_w: [*]const u16,
     desired_access: windows.DWORD,
     share_mode: windows.DWORD,
     creation_disposition: windows.DWORD,
     flags_and_attrs: windows.DWORD,
 ) OpenError!windows.HANDLE {
-    const file_path_w = try sliceToPrefixedFileW(file_path);
-
-    const result = windows.CreateFileW(&file_path_w, desired_access, share_mode, null, creation_disposition, flags_and_attrs, null);
+    const result = windows.CreateFileW(file_path_w, desired_access, share_mode, null, creation_disposition, flags_and_attrs, null);
 
     if (result == windows.INVALID_HANDLE_VALUE) {
         const err = windows.GetLastError();
@@ -144,6 +142,17 @@ pub fn windowsOpen(
     }
 
     return result;
+}
+
+pub fn windowsOpen(
+    file_path: []const u8,
+    desired_access: windows.DWORD,
+    share_mode: windows.DWORD,
+    creation_disposition: windows.DWORD,
+    flags_and_attrs: windows.DWORD,
+) OpenError!windows.HANDLE {
+    const file_path_w = try sliceToPrefixedFileW(file_path);
+    return windowsOpenW(&file_path_w, desired_access, share_mode, creation_disposition, flags_and_attrs);
 }
 
 /// Caller must free result.

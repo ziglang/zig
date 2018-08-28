@@ -48,16 +48,21 @@ pub const File = struct {
             return openReadC(&path_c);
         }
         if (is_windows) {
-            const handle = try os.windowsOpen(
-                path,
-                windows.GENERIC_READ,
-                windows.FILE_SHARE_READ,
-                windows.OPEN_EXISTING,
-                windows.FILE_ATTRIBUTE_NORMAL,
-            );
-            return openHandle(handle);
+            const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return openReadW(&path_w);
         }
         @compileError("Unsupported OS");
+    }
+
+    pub fn openReadW(path_w: [*]const u16) OpenError!File {
+        const handle = try os.windowsOpenW(
+            path_w,
+            windows.GENERIC_READ,
+            windows.FILE_SHARE_READ,
+            windows.OPEN_EXISTING,
+            windows.FILE_ATTRIBUTE_NORMAL,
+        );
+        return openHandle(handle);
     }
 
     /// Calls `openWriteMode` with os.File.default_mode for the mode.
@@ -74,17 +79,22 @@ pub const File = struct {
             const fd = try os.posixOpen(path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(
-                path,
-                windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
-                windows.CREATE_ALWAYS,
-                windows.FILE_ATTRIBUTE_NORMAL,
-            );
-            return openHandle(handle);
+            const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return openWriteModeW(&path_w, file_mode);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
         }
+    }
+
+    pub fn openWriteModeW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
+        const handle = try os.windowsOpenW(
+            path_w,
+            windows.GENERIC_WRITE,
+            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            windows.CREATE_ALWAYS,
+            windows.FILE_ATTRIBUTE_NORMAL,
+        );
+        return openHandle(handle);
     }
 
     /// If the path does not exist it will be created.
@@ -96,17 +106,22 @@ pub const File = struct {
             const fd = try os.posixOpen(path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(
-                path,
-                windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
-                windows.CREATE_NEW,
-                windows.FILE_ATTRIBUTE_NORMAL,
-            );
-            return openHandle(handle);
+            const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return openWriteNoClobberW(&path_w, file_mode);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
         }
+    }
+
+    pub fn openWriteNoClobberW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
+        const handle = try os.windowsOpenW(
+            path_w,
+            windows.GENERIC_WRITE,
+            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            windows.CREATE_NEW,
+            windows.FILE_ATTRIBUTE_NORMAL,
+        );
+        return openHandle(handle);
     }
 
     pub fn openHandle(handle: os.FileHandle) File {

@@ -92,6 +92,8 @@ pub extern "kernel32" stdcallcc fn GetFileAttributesW(lpFileName: [*]const WCHAR
 pub extern "kernel32" stdcallcc fn GetModuleFileNameA(hModule: ?HMODULE, lpFilename: [*]u8, nSize: DWORD) DWORD;
 pub extern "kernel32" stdcallcc fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) DWORD;
 
+pub extern "kernel32" stdcallcc fn GetModuleHandleW(lpModuleName: ?[*]const WCHAR) HMODULE;
+
 pub extern "kernel32" stdcallcc fn GetLastError() DWORD;
 
 pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(
