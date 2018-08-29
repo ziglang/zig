@@ -661,6 +661,7 @@ pub fn getBaseAddress() usize {
             return phdr - @sizeOf(ElfHeader);
         },
         builtin.Os.macosx => return @ptrToInt(&std.c._mh_execute_header),
+        builtin.Os.windows => return @ptrToInt(windows.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
 }
@@ -2069,7 +2070,7 @@ fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []cons
 }
 
 // TODO make this a build variable that you can set
-const unexpected_error_tracing = false;
+const unexpected_error_tracing = true;
 const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
     Unexpected,
@@ -2088,8 +2089,9 @@ pub fn unexpectedErrorPosix(errno: usize) UnexpectedError {
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
 pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
-    if (true) {
+    if (unexpected_error_tracing) {
         debug.warn("unexpected GetLastError(): {}\n", err);
+        @breakpoint();
         debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

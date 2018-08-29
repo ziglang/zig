@@ -271,6 +271,7 @@ pub const File = struct {
                     const err = windows.GetLastError();
                     return switch (err) {
                         windows.ERROR.INVALID_PARAMETER => unreachable,
+                        windows.ERROR.INVALID_HANDLE => unreachable,
                         else => os.unexpectedErrorWindows(err),
                     };
                 }

@@ -578,6 +578,7 @@ set(ZIG_STD_FILES
     "os/windows/error.zig"
     "os/windows/index.zig"
     "os/windows/kernel32.zig"
+    "os/windows/ntdll.zig"
     "os/windows/ole32.zig"
     "os/windows/shell32.zig"
     "os/windows/shlwapi.zig"

@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 
 pub use @import("advapi32.zig");
 pub use @import("kernel32.zig");
+pub use @import("ntdll.zig");
 pub use @import("ole32.zig");
 pub use @import("shell32.zig");
 pub use @import("shlwapi.zig");

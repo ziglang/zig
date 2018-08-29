@@ -195,6 +195,10 @@ pub inline fn getReturnAddress(frame_count: usize) usize {
 }
 
 pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
+    switch (builtin.os) {
+        builtin.Os.windows => return writeCurrentStackTraceWindows(out_stream, allocator, debug_info, tty_color, start_addr),
+        else => {},
+    }
     const AddressState = union(enum) {
         NotLookingForStartAddress,
         LookingForStartAddress: usize,
@@ -227,6 +231,24 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_
     }
 }
 
+pub fn writeCurrentStackTraceWindows(out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo,
+    tty_color: bool, start_addr: ?usize) !void
+{
+    var addr_buf: [1024]usize = undefined;
+    const casted_len = @intCast(u32, addr_buf.len); // TODO shouldn't need this cast
+    const n = windows.RtlCaptureStackBackTrace(0, casted_len, @ptrCast(**c_void, &addr_buf), null);
+    const addrs = addr_buf[0..n];
+    var start_i: usize = if (start_addr) |saddr| blk: {
+        for (addrs) |addr, i| {
+            if (addr == saddr) break :blk i;
+        }
+        return;
+    } else 0;
+    for (addrs[start_i..]) |addr| {
+        try printSourceAtAddress(debug_info, out_stream, addr, tty_color);
+    }
+}
+
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
     switch (builtin.os) {
         builtin.Os.macosx => return printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color),
@@ -237,7 +259,7 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: us
 }
 
 fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
-    const base_address = @ptrToInt(windows.GetModuleHandleW(null)); // returned HMODULE points to our executable file in memory
+    const base_address = os.getBaseAddress();
     const relative_address = address - base_address;
     std.debug.warn("{x} - {x} => {x}\n", address, base_address, relative_address);
     try di.pdb.getSourceLine(relative_address);
