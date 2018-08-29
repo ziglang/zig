@@ -40,7 +40,7 @@ pub fn getStderrStream() !*io.OutStream(io.FileOutStream.Error) {
         return st;
     } else {
         stderr_file = try io.getStdErr();
-        stderr_file_out_stream = io.FileOutStream.init(&stderr_file);
+        stderr_file_out_stream = io.FileOutStream.init(stderr_file);
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;
@@ -73,7 +73,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
-    writeCurrentStackTrace(stderr, getDebugInfoAllocator(), debug_info, wantTtyColor(), start_addr) catch |err| {
+    writeCurrentStackTrace(stderr, debug_info, wantTtyColor(), start_addr) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
         return;
     };
@@ -194,9 +194,9 @@ pub inline fn getReturnAddress(frame_count: usize) usize {
     return @intToPtr(*const usize, fp + @sizeOf(usize)).*;
 }
 
-pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
+pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
     switch (builtin.os) {
-        builtin.Os.windows => return writeCurrentStackTraceWindows(out_stream, allocator, debug_info, tty_color, start_addr),
+        builtin.Os.windows => return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr),
         else => {},
     }
     const AddressState = union(enum) {
@@ -231,7 +231,7 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: *mem.Allocator, debug_
     }
 }
 
-pub fn writeCurrentStackTraceWindows(out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo,
+pub fn writeCurrentStackTraceWindows(out_stream: var, debug_info: *DebugInfo,
     tty_color: bool, start_addr: ?usize) !void
 {
     var addr_buf: [1024]usize = undefined;

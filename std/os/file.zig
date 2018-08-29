@@ -205,17 +205,16 @@ pub const File = struct {
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
-    pub fn close(self: *File) void {
+    pub fn close(self: File) void {
         os.close(self.handle);
-        self.handle = undefined;
     }
 
     /// Calls `os.isTty` on `self.handle`.
-    pub fn isTty(self: *File) bool {
+    pub fn isTty(self: File) bool {
         return os.isTty(self.handle);
     }
 
-    pub fn seekForward(self: *File, amount: isize) !void {
+    pub fn seekForward(self: File, amount: isize) !void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const result = posix.lseek(self.handle, amount, posix.SEEK_CUR);
@@ -246,7 +245,7 @@ pub const File = struct {
         }
     }
 
-    pub fn seekTo(self: *File, pos: usize) !void {
+    pub fn seekTo(self: File, pos: usize) !void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const ipos = try math.cast(isize, pos);
@@ -280,7 +279,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getPos(self: *File) !usize {
+    pub fn getPos(self: File) !usize {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const result = posix.lseek(self.handle, 0, posix.SEEK_CUR);
@@ -316,7 +315,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getEndPos(self: *File) !usize {
+    pub fn getEndPos(self: File) !usize {
         if (is_posix) {
             const stat = try os.posixFStat(self.handle);
             return @intCast(usize, stat.size);
@@ -341,7 +340,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn mode(self: *File) ModeError!Mode {
+    pub fn mode(self: File) ModeError!Mode {
         if (is_posix) {
             var stat: posix.Stat = undefined;
             const err = posix.getErrno(posix.fstat(self.handle, &stat));
@@ -375,7 +374,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn read(self: *File, buffer: []u8) ReadError!usize {
+    pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (is_posix) {
             var index: usize = 0;
             while (index < buffer.len) {
@@ -423,7 +422,7 @@ pub const File = struct {
 
     pub const WriteError = os.WindowsWriteError || os.PosixWriteError;
 
-    pub fn write(self: *File, bytes: []const u8) WriteError!void {
+    pub fn write(self: File, bytes: []const u8) WriteError!void {
         if (is_posix) {
             try os.posixWrite(self.handle, bytes);
         } else if (is_windows) {

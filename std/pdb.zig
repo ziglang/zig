@@ -8,9 +8,58 @@ const warn = std.debug.warn;
 
 const ArrayList = std.ArrayList;
 
-pub const PdbError = error {
-    InvalidPdbMagic,
-    CorruptedFile,
+// https://llvm.org/docs/PDB/DbiStream.html#stream-header
+const DbiStreamHeader = packed struct {
+    VersionSignature: i32,
+    VersionHeader: u32,
+    Age: u32,
+    GlobalStreamIndex: u16,
+    BuildNumber: u16,
+    PublicStreamIndex: u16,
+    PdbDllVersion: u16,
+    SymRecordStream: u16,
+    PdbDllRbld: u16,
+    ModInfoSize: u32,
+    SectionContributionSize: i32,
+    SectionMapSize: i32,
+    SourceInfoSize: i32,
+    TypeServerSize: i32,
+    MFCTypeServerIndex: u32,
+    OptionalDbgHeaderSize: i32,
+    ECSubstreamSize: i32,
+    Flags: u16,
+    Machine: u16,
+    Padding: u32,
+};
+
+const SectionContribEntry = packed struct {
+    Section: u16,
+    Padding1: [2]u8,
+    Offset: i32,
+    Size: i32,
+    Characteristics: u32,
+    ModuleIndex: u16,
+    Padding2: [2]u8,
+    DataCrc: u32,
+    RelocCrc: u32,
+};
+
+const ModInfo = packed struct {
+    Unused1: u32,
+    SectionContr: SectionContribEntry,
+    Flags: u16,
+    ModuleSymStream: u16,
+    SymByteSize: u32,
+    C11ByteSize: u32,
+    C13ByteSize: u32,
+    SourceFileCount: u16,
+    Padding: [2]u8,
+    Unused2: u32,
+    SourceFileNameIndex: u32,
+    PdbFilePathNameIndex: u32,
+    // These fields are variable length
+    //ModuleName: char[],
+    //ObjFileName: char[],
 };
 
 pub const StreamType = enum(u16) {
@@ -30,7 +79,7 @@ pub const Pdb = struct {
         self.in_file = try os.File.openRead(file_name[0..]);
         self.allocator = allocator;
 
-        try self.msf.openFile(allocator, &self.in_file);
+        try self.msf.openFile(allocator, self.in_file);
     }
 
     pub fn getStream(self: *Pdb, stream: StreamType) ?*MsfStream {
@@ -41,29 +90,32 @@ pub const Pdb = struct {
     }
 
     pub fn getSourceLine(self: *Pdb, address: usize) !void {
-        const dbi = self.getStream(StreamType.Dbi) orelse return error.CorruptedFile;
+        const dbi = self.getStream(StreamType.Dbi) orelse return error.InvalidDebugInfo;
 
         // Dbi Header
-        try dbi.seekForward(@sizeOf(u32) * 3 + @sizeOf(u16) * 6);
-        warn("dbi stream at {} (file offset)\n", dbi.getFilePos());
-        const module_info_size = try dbi.stream.readIntLe(u32);
-        const section_contribution_size = try dbi.stream.readIntLe(u32);
-        const section_map_size = try dbi.stream.readIntLe(u32);
-        const source_info_size = try dbi.stream.readIntLe(u32);
-        warn("module_info_size: {}\n", module_info_size);
-        warn("section_contribution_size: {}\n", section_contribution_size);
-        warn("section_map_size: {}\n", section_map_size);
-        warn("source_info_size: {}\n", source_info_size);
-        try dbi.seekForward(@sizeOf(u32) * 5 + @sizeOf(u16) * 2);
+        var header: DbiStreamHeader = undefined;
+        try dbi.stream.readStruct(DbiStreamHeader, &header);
+        std.debug.warn("{}\n", header);
         warn("after header dbi stream at {} (file offset)\n", dbi.getFilePos());
 
         // Module Info Substream
-        try dbi.seekForward(@sizeOf(u32) + @sizeOf(u16) + @sizeOf(u8) * 2);
-        const offset = try dbi.stream.readIntLe(u32);
-        const size = try dbi.stream.readIntLe(u32);
-        try dbi.seekForward(@sizeOf(u32));
-        const module_index = try dbi.stream.readIntLe(u16);
-        warn("module {} of size {} at {}\n", module_index, size, offset);
+        var mod_info_offset: usize = 0;
+        while (mod_info_offset < header.ModInfoSize) {
+            var mod_info: ModInfo = undefined;
+            try dbi.stream.readStruct(ModInfo, &mod_info);
+            std.debug.warn("{}\n", mod_info);
+            mod_info_offset += @sizeOf(ModInfo);
+
+            const module_name = try dbi.readNullTermString(self.allocator);
+            std.debug.warn("module_name {}\n", module_name);
+            mod_info_offset += module_name.len + 1;
+
+            const obj_file_name = try dbi.readNullTermString(self.allocator);
+            std.debug.warn("obj_file_name {}\n", obj_file_name);
+            mod_info_offset += obj_file_name.len + 1;
+        }
+        std.debug.warn("end modules\n");
+
 
         // TODO: locate corresponding source line information
     }
@@ -75,7 +127,7 @@ const Msf = struct {
     directory: MsfStream,
     streams: ArrayList(MsfStream),
 
-    fn openFile(self: *Msf, allocator: *mem.Allocator, file: *os.File) !void {
+    fn openFile(self: *Msf, allocator: *mem.Allocator, file: os.File) !void {
         var file_stream = io.FileInStream.init(file);
         const in = &file_stream.stream;
 
@@ -84,7 +136,7 @@ const Msf = struct {
         warn("magic: '{}'\n", magic);
         
         if (!mem.eql(u8, magic, SuperBlock.FileMagic))
-            return error.InvalidPdbMagic;
+            return error.InvalidDebugInfo;
 
         self.superblock = SuperBlock {
             .block_size = try in.readIntLe(u32),
@@ -97,11 +149,11 @@ const Msf = struct {
 
         switch (self.superblock.block_size) {
             512, 1024, 2048, 4096 => {}, // llvm only uses 4096
-            else => return error.InvalidPdbMagic
+            else => return error.InvalidDebugInfo
         }
 
         if (self.superblock.fileSize() != try file.getEndPos())
-            return error.CorruptedFile; // Should always stand.
+            return error.InvalidDebugInfo; // Should always stand.
 
         self.directory = try MsfStream.init(
             self.superblock.block_size,
@@ -165,12 +217,18 @@ const SuperBlock = struct {
 };
 
 const MsfStream = struct {
-    in_file: *os.File,
+    in_file: os.File,
     pos: usize,
     blocks: ArrayList(u32),
     block_size: u32,
 
-    fn init(block_size: u32, block_count: u32, pos: usize, file: *os.File, allocator: *mem.Allocator) !MsfStream {
+    /// Implementation of InStream trait for Pdb.MsfStream
+    stream: Stream,
+
+    pub const Error = @typeOf(read).ReturnType.ErrorSet;
+    pub const Stream = io.InStream(Error);
+
+    fn init(block_size: u32, block_count: u32, pos: usize, file: os.File, allocator: *mem.Allocator) !MsfStream {
         var stream = MsfStream {
             .in_file = file,
             .pos = 0,
@@ -196,6 +254,18 @@ const MsfStream = struct {
         warn("\n");
 
         return stream;
+    }
+
+    fn readNullTermString(self: *MsfStream, allocator: *mem.Allocator) ![]u8 {
+        var list = ArrayList(u8).init(allocator);
+        defer list.deinit();
+        while (true) {
+            const byte = try self.stream.readByte();
+            if (byte == 0) {
+                return list.toSlice();
+            }
+            try list.append(byte);
+        }
     }
 
     fn read(self: *MsfStream, buffer: []u8) !usize {
@@ -251,12 +321,6 @@ const MsfStream = struct {
 
         return block * self.block_size + offset;
     }
-
-    /// Implementation of InStream trait for Pdb.MsfStream
-    pub const Error = @typeOf(read).ReturnType.ErrorSet;
-    pub const Stream = io.InStream(Error);
-
-    stream: Stream,
 
     fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
         const self = @fieldParentPtr(MsfStream, "stream", in_stream);

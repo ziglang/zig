@@ -34,13 +34,13 @@ pub fn getStdIn() GetStdIoErrs!File {
 
 /// Implementation of InStream trait for File
 pub const FileInStream = struct {
-    file: *File,
+    file: File,
     stream: Stream,
 
     pub const Error = @typeOf(File.read).ReturnType.ErrorSet;
     pub const Stream = InStream(Error);
 
-    pub fn init(file: *File) FileInStream {
+    pub fn init(file: File) FileInStream {
         return FileInStream{
             .file = file,
             .stream = Stream{ .readFn = readFn },
@@ -55,13 +55,13 @@ pub const FileInStream = struct {
 
 /// Implementation of OutStream trait for File
 pub const FileOutStream = struct {
-    file: *File,
+    file: File,
     stream: Stream,
 
     pub const Error = File.WriteError;
     pub const Stream = OutStream(Error);
 
-    pub fn init(file: *File) FileOutStream {
+    pub fn init(file: File) FileOutStream {
         return FileOutStream{
             .file = file,
             .stream = Stream{ .writeFn = writeFn },

@@ -41,7 +41,7 @@ pub const Coff = struct {
     pub fn loadHeader(self: *Coff) !void {
         const pe_pointer_offset = 0x3C;
 
-        var file_stream = io.FileInStream.init(&self.in_file);
+        var file_stream = io.FileInStream.init(self.in_file);
         const in = &file_stream.stream;
 
         var magic: [2]u8 = undefined;
@@ -126,7 +126,7 @@ pub const Coff = struct {
         std.debug.warn("file offset {x}\n", file_offset);
         try self.in_file.seekTo(file_offset + debug_dir.size);
 
-        var file_stream = io.FileInStream.init(&self.in_file);
+        var file_stream = io.FileInStream.init(self.in_file);
         const in = &file_stream.stream;
 
         var cv_signature: [4]u8 = undefined; // CodeView signature
@@ -158,7 +158,7 @@ pub const Coff = struct {
 
         self.sections = ArrayList(Section).init(self.allocator);
 
-        var file_stream = io.FileInStream.init(&self.in_file);
+        var file_stream = io.FileInStream.init(self.in_file);
         const in = &file_stream.stream;
 
         var name: [8]u8 = undefined;
