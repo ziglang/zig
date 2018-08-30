@@ -574,6 +574,7 @@ set(ZIG_STD_FILES
     "os/linux/index.zig"
     "os/linux/vdso.zig"
     "os/linux/x86_64.zig"
+    "os/linux/arm64.zig"
     "os/path.zig"
     "os/time.zig"
     "os/windows/advapi32.zig"

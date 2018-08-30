@@ -330,7 +330,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
     switch (ctx.comp.target.getArch()) {
         builtin.Arch.i386 => try ctx.args.append(c"-MACHINE:X86"),
         builtin.Arch.x86_64 => try ctx.args.append(c"-MACHINE:X64"),
-        builtin.Arch.aarch64 => try ctx.args.append(c"-MACHINE:ARM"),
+        builtin.Arch.aarch64v8 => try ctx.args.append(c"-MACHINE:ARM"),
         else => return error.UnsupportedLinkArchitecture,
     }
 
@@ -556,7 +556,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
                 }
             },
             DarwinPlatform.Kind.IPhoneOS => {
-                if (ctx.comp.target.getArch() == builtin.Arch.aarch64) {
+                if (ctx.comp.target.getArch() == builtin.Arch.aarch64v8) {
                     // iOS does not need any crt1 files for arm64
                 } else if (platform.versionLessThan(3, 1)) {
                     try ctx.args.append(c"-lcrt1.o");

@@ -55,8 +55,22 @@ static const ArchType arch_list[] = {
     {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v5te},
     {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v4t},
 
-    {ZigLLVM_aarch64, ZigLLVM_NoSubArch},
-    {ZigLLVM_aarch64_be, ZigLLVM_NoSubArch},
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8_3a},
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8_2a},
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8_1a},
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8},
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8r},
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8m_baseline},
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8m_mainline},
+
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8_3a},
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8_2a},
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8_1a},
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8},
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8r},
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8m_baseline},
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8m_mainline},
+
     {ZigLLVM_arc, ZigLLVM_NoSubArch},
     {ZigLLVM_avr, ZigLLVM_NoSubArch},
     {ZigLLVM_bpfel, ZigLLVM_NoSubArch},
@@ -928,8 +942,9 @@ const char *arch_stack_pointer_register_name(const ArchType *arch) {
             return "sp";
         case ZigLLVM_x86_64:
             return "rsp";
-
         case ZigLLVM_aarch64:
+            return "sp";
+
         case ZigLLVM_arm:
         case ZigLLVM_thumb:
         case ZigLLVM_aarch64_be:

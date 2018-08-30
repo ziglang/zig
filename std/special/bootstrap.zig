@@ -30,6 +30,11 @@ nakedcc fn _start() noreturn {
                 : [argc] "=r" (-> [*]usize)
             );
         },
+        builtin.Arch.aarch64v8 => {
+            argc_ptr = asm ("mov %[argc], sp"
+                : [argc] "=r" (-> [*]usize)
+            );
+        },
         else => @compileError("unsupported arch"),
     }
     // If LLVM inlines stack variables into _start, they will overwrite

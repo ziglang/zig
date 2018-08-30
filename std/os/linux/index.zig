@@ -5,6 +5,7 @@ const vdso = @import("vdso.zig");
 pub use switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("x86_64.zig"),
     builtin.Arch.i386 => @import("i386.zig"),
+    builtin.Arch.aarch64v8 => @import("arm64.zig"),
     else => @compileError("unsupported arch"),
 };
 pub use @import("errno.zig");
