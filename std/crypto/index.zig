@@ -28,6 +28,9 @@ const import_chaCha20 = @import("chacha20.zig");
 pub const chaCha20IETF = import_chaCha20.chaCha20IETF;
 pub const chaCha20With64BitNonce = import_chaCha20.chaCha20With64BitNonce;
 
+const poly1305 = @import("poly1305.zig");
+const x25519 = @import("x25519.zig");
+
 test "crypto" {
     _ = @import("md5.zig");
     _ = @import("sha1.zig");
@@ -36,4 +39,6 @@ test "crypto" {
     _ = @import("blake2.zig");
     _ = @import("hmac.zig");
     _ = @import("chacha20.zig");
+    _ = @import("poly1305.zig");
+    _ = @import("x25519.zig");
 }
