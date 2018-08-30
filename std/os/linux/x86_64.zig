@@ -266,6 +266,8 @@ pub const SYS_mknodat = 259;
 pub const SYS_fchownat = 260;
 pub const SYS_futimesat = 261;
 pub const SYS_newfstatat = 262;
+// https://github.com/ziglang/zig/issues/1439
+pub const SYS_fstatat = 262;
 pub const SYS_unlinkat = 263;
 pub const SYS_renameat = 264;
 pub const SYS_linkat = 265;
@@ -478,13 +480,6 @@ pub const timeval = extern struct {
 pub const timezone = extern struct {
     tz_minuteswest: i32,
     tz_dsttime: i32,
-};
-
-pub const dirent = extern struct {
-    d_ino: usize,
-    d_off: usize,
-    d_reclen: u16,
-    d_name: u8, // field address is the address of first byte of name
 };
 
 pub const Elf_Symndx = u32;
