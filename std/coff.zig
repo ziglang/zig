@@ -215,7 +215,7 @@ const OptionalHeader = struct {
     data_directory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]DataDirectory,
 };
 
-const Section = struct {
+pub const Section = struct {
     header: SectionHeader,
 };
 

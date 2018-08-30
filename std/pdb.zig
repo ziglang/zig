@@ -5,7 +5,7 @@ const math = std.math;
 const mem = std.mem;
 const os = std.os;
 const warn = std.debug.warn;
-const Coff = std.coff.Coff;
+const coff = std.coff;
 
 const ArrayList = std.ArrayList;
 
@@ -153,7 +153,7 @@ pub const SymbolRecordKind = enum(u16) {
 
 /// Duplicate copy of SymbolRecordKind, but using the official CV names. Useful
 /// for reference purposes and when dealing with unknown record types.
-pub const SymbolKind = enum(u16) {
+pub const SymbolKind = packed enum(u16) {
     S_COMPILE = 1,
     S_REGISTER_16t = 2,
     S_CONSTANT_16t = 3,
@@ -352,6 +352,33 @@ pub const SymbolKind = enum(u16) {
     S_GTHREAD32 = 4371,
 };
 
+const TypeIndex = u32;
+
+const ProcSym = packed struct {
+    Parent: u32 ,
+    End: u32 ,
+    Next: u32 ,
+    CodeSize: u32 ,
+    DbgStart: u32 ,
+    DbgEnd: u32 ,
+    FunctionType: TypeIndex ,
+    CodeOffset: u32,
+    Segment: u16,
+    Flags: ProcSymFlags,
+    Name: u8,
+};
+
+const ProcSymFlags = packed struct {
+    HasFP: bool,
+    HasIRET: bool,
+    HasFRET: bool,
+    IsNoReturn: bool,
+    IsUnreachable: bool,
+    HasCustomCallingConv: bool,
+    IsNoInline: bool,
+    HasOptimizedDebugInfo: bool,
+};
+
 const SectionContrSubstreamVersion  = enum(u32) {
   Ver60 = 0xeffe0000 + 19970605,
   V2 = 0xeffe0000 + 20140516
@@ -359,20 +386,20 @@ const SectionContrSubstreamVersion  = enum(u32) {
 
 const RecordPrefix = packed struct {
     RecordLen: u16, /// Record length, starting from &RecordKind.
-    RecordKind: u16, /// Record kind enum (SymRecordKind or TypeRecordKind)
+    RecordKind: SymbolKind, /// Record kind enum (SymRecordKind or TypeRecordKind)
 };
 
 pub const Pdb = struct {
     in_file: os.File,
     allocator: *mem.Allocator,
-    coff: *Coff,
+    coff: *coff.Coff,
 
     msf: Msf,
 
-    pub fn openFile(self: *Pdb, coff: *Coff, file_name: []u8) !void {
+    pub fn openFile(self: *Pdb, coff_ptr: *coff.Coff, file_name: []u8) !void {
         self.in_file = try os.File.openRead(file_name);
-        self.allocator = coff.allocator;
-        self.coff = coff;
+        self.allocator = coff_ptr.allocator;
+        self.coff = coff_ptr;
 
         try self.msf.openFile(self.allocator, self.in_file);
     }
@@ -468,8 +495,9 @@ pub const Pdb = struct {
         //    std.debug.warn("{}\n", sect_entry);
         //}
 
+        var coff_section: *coff.Section = undefined;
         const mod_index = for (sect_contribs.toSlice()) |sect_contrib| {
-            const coff_section = self.coff.sections.toSlice()[sect_contrib.Section];
+            coff_section = &self.coff.sections.toSlice()[sect_contrib.Section];
             std.debug.warn("looking in coff name: {}\n", mem.toSliceConst(u8, &coff_section.header.name));
 
             const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
@@ -490,6 +518,26 @@ pub const Pdb = struct {
         const symbols = try self.allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
         std.debug.warn("read {} bytes of symbol info\n", symbols.len);
         try modi.stream.readNoEof(symbols);
+        var symbol_i: usize = 0;
+        const proc_sym = while (symbol_i != symbols.len) {
+            const prefix = @ptrCast(*RecordPrefix, &symbols[symbol_i]);
+            if (prefix.RecordLen < 2)
+                return error.InvalidDebugInfo;
+            if (prefix.RecordKind == SymbolKind.S_LPROC32) {
+                const proc_sym = @ptrCast(*ProcSym, &symbols[symbol_i + @sizeOf(RecordPrefix)]);
+                const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
+                const vaddr_end = vaddr_start + proc_sym.CodeSize;
+                std.debug.warn("  {}\n", proc_sym);
+                if (address >= vaddr_start and address < vaddr_end) {
+                    break proc_sym;
+                }
+            }
+            symbol_i += prefix.RecordLen + @sizeOf(u16);
+            if (symbol_i > symbols.len)
+                return error.InvalidDebugInfo;
+        } else return error.MissingDebugInfo;
+
+        std.debug.warn("found in {s}: {}\n", ([*]u8)((*[1]u8)(&proc_sym.Name)), proc_sym);
 
         if (mod.mod_info.C11ByteSize != 0)
             return error.InvalidDebugInfo;
