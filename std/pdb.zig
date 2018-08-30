@@ -76,7 +76,7 @@ pub const Pdb = struct {
     msf: Msf,
 
     pub fn openFile(self: *Pdb, allocator: *mem.Allocator, file_name: []u8) !void {
-        self.in_file = try os.File.openRead(file_name[0..]);
+        self.in_file = try os.File.openRead(file_name);
         self.allocator = allocator;
 
         try self.msf.openFile(allocator, self.in_file);
@@ -85,7 +85,7 @@ pub const Pdb = struct {
     pub fn getStream(self: *Pdb, stream: StreamType) ?*MsfStream {
         const id = @enumToInt(stream);
         if (id < self.msf.streams.len)
-            return &self.msf.streams.items[id];
+            return &self.msf.streams[id];
         return null;
     }
 
@@ -101,17 +101,31 @@ pub const Pdb = struct {
         // Module Info Substream
         var mod_info_offset: usize = 0;
         while (mod_info_offset < header.ModInfoSize) {
+            const march_forward_bytes = dbi.getFilePos() % 4;
+            if (march_forward_bytes != 0) {
+                try dbi.seekForward(march_forward_bytes);
+                mod_info_offset += march_forward_bytes;
+            }
             var mod_info: ModInfo = undefined;
             try dbi.stream.readStruct(ModInfo, &mod_info);
             std.debug.warn("{}\n", mod_info);
             mod_info_offset += @sizeOf(ModInfo);
 
             const module_name = try dbi.readNullTermString(self.allocator);
-            std.debug.warn("module_name {}\n", module_name);
+            std.debug.warn("module_name '{}'\n", module_name);
             mod_info_offset += module_name.len + 1;
 
+            //if (mem.eql(u8, module_name, "piler_rt.obj")) {
+            //    std.debug.warn("detected bad thing\n");
+            //    try dbi.seekTo(dbi.pos -
+            //        "c:\\msys64\\home\\andy\\zig\\build-llvm6-msvc-release\\.\\zig-cache\\compiler_rt.obj\x00".len -
+            //        @sizeOf(ModInfo));
+            //    mod_info_offset -= module_name.len + 1;
+            //    continue;
+            //}
+
             const obj_file_name = try dbi.readNullTermString(self.allocator);
-            std.debug.warn("obj_file_name {}\n", obj_file_name);
+            std.debug.warn("obj_file_name '{}'\n", obj_file_name);
             mod_info_offset += obj_file_name.len + 1;
         }
         std.debug.warn("end modules\n");
@@ -123,66 +137,55 @@ pub const Pdb = struct {
 
 // see https://llvm.org/docs/PDB/MsfFile.html
 const Msf = struct {
-    superblock: SuperBlock,
     directory: MsfStream,
-    streams: ArrayList(MsfStream),
+    streams: []MsfStream,
 
     fn openFile(self: *Msf, allocator: *mem.Allocator, file: os.File) !void {
         var file_stream = io.FileInStream.init(file);
         const in = &file_stream.stream;
 
-        var magic: SuperBlock.FileMagicBuffer = undefined;
-        try in.readNoEof(magic[0..]);
-        warn("magic: '{}'\n", magic);
-        
-        if (!mem.eql(u8, magic, SuperBlock.FileMagic))
+        var superblock: SuperBlock = undefined;
+        try in.readStruct(SuperBlock, &superblock);
+
+        if (!mem.eql(u8, superblock.FileMagic, SuperBlock.file_magic))
             return error.InvalidDebugInfo;
 
-        self.superblock = SuperBlock {
-            .block_size = try in.readIntLe(u32),
-            .free_block_map_block = try in.readIntLe(u32),
-            .num_blocks = try in.readIntLe(u32),
-            .num_directory_bytes = try in.readIntLe(u32),
-            .unknown = try in.readIntLe(u32),
-            .block_map_addr = try in.readIntLe(u32),
-        };
-
-        switch (self.superblock.block_size) {
-            512, 1024, 2048, 4096 => {}, // llvm only uses 4096
+        switch (superblock.BlockSize) {
+            // llvm only supports 4096 but we can handle any of these values
+            512, 1024, 2048, 4096 => {},
             else => return error.InvalidDebugInfo
         }
 
-        if (self.superblock.fileSize() != try file.getEndPos())
-            return error.InvalidDebugInfo; // Should always stand.
+        if (superblock.NumBlocks * superblock.BlockSize != try file.getEndPos())
+            return error.InvalidDebugInfo;
 
         self.directory = try MsfStream.init(
-            self.superblock.block_size,
-            self.superblock.blocksOccupiedByDirectoryStream(),
-            self.superblock.blockMapAddr(),
+            superblock.BlockSize,
+            blockCountFromSize(superblock.NumDirectoryBytes, superblock.BlockSize),
+            superblock.BlockSize * superblock.BlockMapAddr,
             file,
-            allocator
+            allocator,
         );
 
         const stream_count = try self.directory.stream.readIntLe(u32);
         warn("stream count {}\n", stream_count);
 
-        var stream_sizes = ArrayList(u32).init(allocator);
-        try stream_sizes.resize(stream_count);
-        for (stream_sizes.toSlice()) |*s| {
+        const stream_sizes = try allocator.alloc(u32, stream_count);
+        for (stream_sizes) |*s| {
             const size = try self.directory.stream.readIntLe(u32);
-            s.* = blockCountFromSize(size, self.superblock.block_size);
+            s.* = blockCountFromSize(size, superblock.BlockSize);
             warn("stream {}B {} blocks\n", size, s.*);
         }
 
-        self.streams = ArrayList(MsfStream).init(allocator);
-        try self.streams.resize(stream_count);
-        for (self.streams.toSlice()) |*ss, i| {
-            ss.* = try MsfStream.init(
-                self.superblock.block_size,
-                stream_sizes.items[i],
-                try file.getPos(), // We're reading the jagged array of block indices when creating streams so the file is always at the right position.
+        self.streams = try allocator.alloc(MsfStream, stream_count);
+        for (self.streams) |*stream, i| {
+            stream.* = try MsfStream.init(
+                superblock.BlockSize,
+                stream_sizes[i],
+                // MsfStream.init expects the file to be at the part where it reads [N]u32
+                try file.getPos(),
                 file,
-                allocator
+                allocator,
             );
         }
     }
@@ -192,34 +195,53 @@ fn blockCountFromSize(size: u32, block_size: u32) u32 {
     return (size + block_size - 1) / block_size;
 }
 
-const SuperBlock = struct {
-    const FileMagic = "Microsoft C/C++ MSF 7.00\r\n" ++ []u8 { 0x1A, 'D', 'S', 0, 0, 0};
-    const FileMagicBuffer = @typeOf(FileMagic);
+// https://llvm.org/docs/PDB/MsfFile.html#the-superblock
+const SuperBlock = packed struct {
+    /// The LLVM docs list a space between C / C++ but empirically this is not the case.
+    const file_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
 
-    block_size: u32,
-    free_block_map_block: u32,
-    num_blocks: u32,
-    num_directory_bytes: u32,
-    unknown: u32,
-    block_map_addr: u32,
+    FileMagic: [file_magic.len]u8,
 
-    fn fileSize(self: *const SuperBlock) usize {
-        return self.num_blocks * self.block_size;
-    }
+    /// The block size of the internal file system. Valid values are 512, 1024,
+    /// 2048, and 4096 bytes. Certain aspects of the MSF file layout vary depending
+    /// on the block sizes. For the purposes of LLVM, we handle only block sizes of
+    /// 4KiB, and all further discussion assumes a block size of 4KiB.
+    BlockSize: u32,
 
-    fn blockMapAddr(self: *const SuperBlock) usize {
-        return self.block_size * self.block_map_addr;
-    }
+    /// The index of a block within the file, at which begins a bitfield representing
+    /// the set of all blocks within the file which are “free” (i.e. the data within
+    /// that block is not used). See The Free Block Map for more information. Important:
+    /// FreeBlockMapBlock can only be 1 or 2!
+    FreeBlockMapBlock: u32,
 
-    fn blocksOccupiedByDirectoryStream(self: *const SuperBlock) u32 {
-        return blockCountFromSize(self.num_directory_bytes, self.block_size);
-    }
+    /// The total number of blocks in the file. NumBlocks * BlockSize should equal the
+    /// size of the file on disk.
+    NumBlocks: u32,
+
+    /// The size of the stream directory, in bytes. The stream directory contains
+    /// information about each stream’s size and the set of blocks that it occupies.
+    /// It will be described in more detail later.
+    NumDirectoryBytes: u32,
+
+    Unknown: u32,
+
+    /// The index of a block within the MSF file. At this block is an array of
+    /// ulittle32_t’s listing the blocks that the stream directory resides on.
+    /// For large MSF files, the stream directory (which describes the block
+    /// layout of each stream) may not fit entirely on a single block. As a
+    /// result, this extra layer of indirection is introduced, whereby this
+    /// block contains the list of blocks that the stream directory occupies,
+    /// and the stream directory itself can be stitched together accordingly.
+    /// The number of ulittle32_t’s in this array is given by
+    /// ceil(NumDirectoryBytes / BlockSize).
+    BlockMapAddr: u32,
+
 };
 
 const MsfStream = struct {
     in_file: os.File,
     pos: usize,
-    blocks: ArrayList(u32),
+    blocks: []u32,
     block_size: u32,
 
     /// Implementation of InStream trait for Pdb.MsfStream
@@ -232,14 +254,12 @@ const MsfStream = struct {
         var stream = MsfStream {
             .in_file = file,
             .pos = 0,
-            .blocks = ArrayList(u32).init(allocator),
+            .blocks = try allocator.alloc(u32, block_count),
             .block_size = block_size,
             .stream = Stream {
                 .readFn = readFn,
             },
         };
-
-        try stream.blocks.resize(block_count);
 
         var file_stream = io.FileInStream.init(file);
         const in = &file_stream.stream;
@@ -248,8 +268,8 @@ const MsfStream = struct {
         warn("stream with blocks");
         var i: u32 = 0;
         while (i < block_count) : (i += 1) {
-            stream.blocks.items[i] = try in.readIntLe(u32);
-            warn(" {}", stream.blocks.items[i]);
+            stream.blocks[i] = try in.readIntLe(u32);
+            warn(" {}", stream.blocks[i]);
         }
         warn("\n");
 
@@ -270,8 +290,12 @@ const MsfStream = struct {
 
     fn read(self: *MsfStream, buffer: []u8) !usize {
         var block_id = self.pos / self.block_size;
-        var block = self.blocks.items[block_id];
+        var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
+
+        //std.debug.warn("seek {} read {}B: block_id={} block={} offset={}\n",
+        //    block * self.block_size + offset,
+        //    buffer.len, block_id, block, offset);
 
         try self.in_file.seekTo(block * self.block_size + offset);
         var file_stream = io.FileInStream.init(self.in_file);
@@ -285,11 +309,10 @@ const MsfStream = struct {
             size += 1;
 
             // If we're at the end of a block, go to the next one.
-            if (offset == self.block_size)
-            {
+            if (offset == self.block_size) {
                 offset = 0;
                 block_id += 1;
-                block = self.blocks.items[block_id];
+                block = self.blocks[block_id];
                 try self.in_file.seekTo(block * self.block_size);
             }
         }
@@ -314,9 +337,9 @@ const MsfStream = struct {
         return self.blocks.len * self.block_size;
     }
 
-    fn getFilePos(self: *const MsfStream) usize {
+    fn getFilePos(self: MsfStream) usize {
         const block_id = self.pos / self.block_size;
-        const block = self.blocks.items[block_id];
+        const block = self.blocks[block_id];
         const offset = self.pos % self.block_size;
 
         return block * self.block_size + offset;
