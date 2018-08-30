@@ -408,26 +408,36 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
 }
 
 fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
-    var coff_file: coff.Coff = undefined;
-    coff_file.in_file = try os.openSelfExe();
-    coff_file.allocator = allocator;
-    defer coff_file.in_file.close();
+    const self_file = try os.openSelfExe();
+    defer self_file.close();
 
-    try coff_file.loadHeader();
+    const coff_obj = try allocator.createOne(coff.Coff);
+    coff_obj.* = coff.Coff{
+        .in_file = self_file,
+        .allocator = allocator,
+        .coff_header = undefined,
+        .pe_header = undefined,
+        .sections = undefined,
+        .guid = undefined,
+        .age = undefined,
+    };
+
+    var di = DebugInfo{
+        .coff = coff_obj,
+        .pdb = undefined,
+    };
+
+    try di.coff.loadHeader();
 
     var path_buf: [windows.MAX_PATH]u8 = undefined;
-    const len = try coff_file.getPdbPath(path_buf[0..]);
+    const len = try di.coff.getPdbPath(path_buf[0..]);
     const raw_path = path_buf[0..len];
     std.debug.warn("pdb raw path {}\n", raw_path);
 
     const path = try os.path.resolve(allocator, raw_path);
     std.debug.warn("pdb resolved path {}\n", path);
 
-    var di = DebugInfo{
-        .pdb = undefined,
-    };
-
-    try di.pdb.openFile(allocator, path);
+    try di.pdb.openFile(di.coff, path);
 
     var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
     std.debug.warn("pdb real filepos {}\n", pdb_stream.getFilePos());
@@ -436,7 +446,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const age = try pdb_stream.stream.readIntLe(u32);
     var guid: [16]u8 = undefined;
     try pdb_stream.stream.readNoEof(guid[0..]);
-    if (!mem.eql(u8, coff_file.guid, guid) or coff_file.age != age)
+    if (!mem.eql(u8, di.coff.guid, guid) or di.coff.age != age)
         return error.InvalidDebugInfo;
     std.debug.warn("v {} s {} a {}\n", version, signature, age);
     // We validated the executable and pdb match.
@@ -644,6 +654,7 @@ pub const DebugInfo = switch (builtin.os) {
     },
     builtin.Os.windows => struct {
         pdb: pdb.Pdb,
+        coff: *coff.Coff,
     },
     builtin.Os.linux => struct {
         self_exe_file: os.File,
