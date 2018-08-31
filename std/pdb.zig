@@ -365,7 +365,8 @@ const ProcSym = packed struct {
     CodeOffset: u32,
     Segment: u16,
     Flags: ProcSymFlags,
-    Name: u8,
+    // following is a null terminated string
+    // Name: [*]u8,
 };
 
 const ProcSymFlags = packed struct {
@@ -388,6 +389,51 @@ const RecordPrefix = packed struct {
     RecordLen: u16, /// Record length, starting from &RecordKind.
     RecordKind: SymbolKind, /// Record kind enum (SymRecordKind or TypeRecordKind)
 };
+
+const LineFragmentHeader = packed struct {
+    RelocOffset: u32, /// Code offset of line contribution.
+    RelocSegment: u16, /// Code segment of line contribution.
+    Flags: LineFlags,
+    CodeSize: u32, /// Code size of this line contribution.
+};
+
+const LineFlags = packed struct {
+    LF_HaveColumns: bool, /// CV_LINES_HAVE_COLUMNS
+    unused: u15,
+};
+
+/// The following two variable length arrays appear immediately after the
+/// header.  The structure definitions follow.
+/// LineNumberEntry   Lines[NumLines];
+/// ColumnNumberEntry Columns[NumLines];
+const LineBlockFragmentHeader = packed struct {
+    /// Offset of FileChecksum entry in File
+    /// checksums buffer.  The checksum entry then
+    /// contains another offset into the string
+    /// table of the actual name.
+    NameIndex: u32,
+    NumLines: u32,
+    BlockSize: u32, /// code size of block, in bytes
+};
+
+
+const LineNumberEntry = packed struct {
+    Offset: u32, /// Offset to start of code bytes for line number
+    Flags: u32,
+
+    /// TODO runtime crash when I make the actual type of Flags this
+    const Flags = packed struct {
+        Start: u24,
+        End: u7,
+        IsStatement: bool,
+    };
+};
+
+const ColumnNumberEntry = packed struct {
+    StartColumn: u16,
+    EndColumn: u16,
+};
+
 
 pub const Pdb = struct {
     in_file: os.File,
@@ -537,16 +583,82 @@ pub const Pdb = struct {
                 return error.InvalidDebugInfo;
         } else return error.MissingDebugInfo;
 
-        std.debug.warn("found in {s}: {}\n", ([*]u8)((*[1]u8)(&proc_sym.Name)), proc_sym);
+        std.debug.warn("found in {s}: {}\n", @ptrCast([*]u8, proc_sym) + @sizeOf(ProcSym), proc_sym);
 
         if (mod.mod_info.C11ByteSize != 0)
             return error.InvalidDebugInfo;
 
-        if (mod.mod_info.C13ByteSize != 0) {
-            std.debug.warn("read C13 line info\n");
+        if (mod.mod_info.C13ByteSize == 0) {
+            return error.MissingDebugInfo;
         }
 
-        // TODO: locate corresponding source line information
+        const line_info = try self.allocator.alloc(u8, mod.mod_info.C13ByteSize);
+        std.debug.warn("read C13 line info {} bytes\n", line_info.len);
+        try modi.stream.readNoEof(line_info);
+
+        var line_index: usize = 0;
+        while (line_index != line_info.len) {
+            std.debug.warn("unknown bytes: {x2} {x2} {x2} {x2}  {x2} {x2} {x2} {x2}\n",
+                line_info[line_index+0],
+                line_info[line_index+1],
+                line_info[line_index+2],
+                line_info[line_index+3],
+                line_info[line_index+4],
+                line_info[line_index+5],
+                line_info[line_index+6],
+                line_info[line_index+7],
+            );
+            line_index += 8;
+
+            const line_hdr = @ptrCast(*LineFragmentHeader, &line_info[line_index]);
+            if (line_hdr.RelocSegment == 0) return error.MissingDebugInfo;
+            std.debug.warn("{}\n", line_hdr);
+            line_index += @sizeOf(LineFragmentHeader);
+
+            const block_hdr = @ptrCast(*LineBlockFragmentHeader, &line_info[line_index]);
+            std.debug.warn("{}\n", block_hdr);
+            line_index += @sizeOf(LineBlockFragmentHeader);
+
+            const has_column = line_hdr.Flags.LF_HaveColumns;
+            std.debug.warn("has column: {}\n", has_column);
+
+            const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
+            const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
+            if (address >= frag_vaddr_start and address < frag_vaddr_end) {
+                std.debug.warn("found line listing\n");
+                var line_i: usize = 0;
+                const start_line_index = line_index;
+                while (line_i < block_hdr.NumLines) : (line_i += 1) {
+                    const line_num_entry = @ptrCast(*LineNumberEntry, &line_info[line_index]);
+                    line_index += @sizeOf(LineNumberEntry);
+                    const flags = @ptrCast(*LineNumberEntry.Flags, &line_num_entry.Flags);
+                    std.debug.warn("{} {}\n", line_num_entry, flags);
+                    const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
+                    const vaddr_end = if (flags.End == 0) frag_vaddr_end else vaddr_start + flags.End;
+                    std.debug.warn("test {x} <= {x} < {x}\n", vaddr_start, address, vaddr_end);
+                    if (address >= vaddr_start and address < vaddr_end) {
+                        std.debug.warn("{} line {}\n", block_hdr.NameIndex, flags.Start);
+                        if (has_column) {
+                            line_index = start_line_index + @sizeOf(LineNumberEntry) * block_hdr.NumLines;
+                            line_index += @sizeOf(ColumnNumberEntry) * line_i;
+                            const col_num_entry = @ptrCast(*ColumnNumberEntry, &line_info[line_index]);
+                            std.debug.warn("col {}\n", col_num_entry.StartColumn);
+                        }
+                        return;
+                    }
+                }
+                return error.MissingDebugInfo;
+            } else {
+                line_index += @sizeOf(LineNumberEntry) * block_hdr.NumLines;
+                if (has_column)
+                    line_index += @sizeOf(ColumnNumberEntry) * block_hdr.NumLines;
+            }
+
+            if (line_index > mod.mod_info.C13ByteSize)
+                return error.InvalidDebugInfo;
+        }
+
+        std.debug.warn("end line info\n");
     }
 };
 

@@ -210,7 +210,7 @@ pub fn InStream(comptime ReadError: type) type {
 
         pub fn readStruct(self: *Self, comptime T: type, ptr: *T) !void {
             // Only extern and packed structs have defined in-memory layout.
-            assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
+            comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
             return self.readNoEof(@sliceToBytes((*[1]T)(ptr)[0..]));
         }
     };
