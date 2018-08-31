@@ -3029,9 +3029,10 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                 ? trans_do_loop(c, scope, (const DoStmt *)stmt)
                 : trans_while_loop(c, scope, (const WhileStmt *)stmt);
 
-            assert(while_node->type == NodeTypeWhileExpr);
-            if (while_node != nullptr && while_node->data.while_expr.body == nullptr) {
-                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+            if (while_node != nullptr) {
+                assert(while_node->type == NodeTypeWhileExpr);
+                if (while_node->data.while_expr.body == nullptr)
+                    while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
             }
             return wrap_stmt(out_node, out_child_scope, scope, while_node);
         }
