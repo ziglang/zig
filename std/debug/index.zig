@@ -455,31 +455,63 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const name_bytes = try allocator.alloc(u8, name_bytes_len);
     try pdb_stream.stream.readNoEof(name_bytes);
 
-    //const HashTableHeader = packed struct {
-    //    Size: u32,
-    //    Capacity: u32,
+    const HashTableHeader = packed struct {
+        Size: u32,
+        Capacity: u32,
 
-    //    fn maxLoad(cap: u32) u32 {
-    //        return cap * 2 / 3 + 1;
-    //    }
-    //};
-    //var hash_tbl_hdr: HashTableHeader = undefined;
-    //try pdb_stream.stream.readStruct(Header, &hash_tbl_hdr);
-    //if (hash_tbl_hdr.Capacity == 0)
-    //    return error.InvalidDebugInfo;
+        fn maxLoad(cap: u32) u32 {
+            return cap * 2 / 3 + 1;
+        }
+    };
+    var hash_tbl_hdr: HashTableHeader = undefined;
+    try pdb_stream.stream.readStruct(HashTableHeader, &hash_tbl_hdr);
+    if (hash_tbl_hdr.Capacity == 0)
+        return error.InvalidDebugInfo;
 
-    //if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
-    //    return error.InvalidDebugInfo;
+    if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
+        return error.InvalidDebugInfo;
 
-    //std.debug.warn("{}\n", hash_tbl_hdr);
+    std.debug.warn("{}\n", hash_tbl_hdr);
 
-    //var more_buf: [100]u8 = undefined;
-    //const more_len = try pdb_stream.stream.read(more_buf[0..]);
-    //for (more_buf[0..more_len]) |x| {
-    //    std.debug.warn("{x2} {c}\n", x, x);
-    //}
+    const present = try readSparseBitVector(&pdb_stream.stream, allocator);
+    if (present.len != hash_tbl_hdr.Size)
+        return error.InvalidDebugInfo;
+    const deleted = try readSparseBitVector(&pdb_stream.stream, allocator);
+
+    const Bucket = struct {
+        first: u32,
+        second: u32,
+    };
+    const bucket_list = try allocator.alloc(Bucket, present.len);
+    const string_table_index = for (present) |_| {
+        const name_offset = try pdb_stream.stream.readIntLe(u32);
+        const name_index = try pdb_stream.stream.readIntLe(u32);
+        const name = mem.toSlice(u8, name_bytes.ptr + name_offset);
+        if (mem.eql(u8, name, "/names")) {
+            break name_index;
+        }
+    } else return error.MissingDebugInfo;
+
+    di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return error.InvalidDebugInfo;
 
     return di;
+}
+
+fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
+    const num_words = try stream.readIntLe(u32);
+    var word_i: usize = 0;
+    var list = ArrayList(usize).init(allocator);
+    while (word_i != num_words) : (word_i += 1) {
+        const word = try stream.readIntLe(u32);
+        var bit_i: u5 = 0;
+        while (true) : (bit_i += 1) {
+            if (word & (u32(1) << bit_i) != 0) {
+                try list.append(word_i * 32 + bit_i);
+            }
+            if (bit_i == @maxValue(u5)) break;
+        }
+    }
+    return list.toOwnedSlice();
 }
 
 fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {

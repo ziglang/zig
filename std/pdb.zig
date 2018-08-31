@@ -406,6 +406,7 @@ pub const Pdb = struct {
     in_file: os.File,
     allocator: *mem.Allocator,
     coff: *coff.Coff,
+    string_table: *MsfStream,
 
     msf: Msf,
 
