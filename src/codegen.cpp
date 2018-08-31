@@ -935,7 +935,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
         msg_arg,
         stack_trace_arg,
     };
-    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, ZigLLVM_FnInlineAuto, "");
+    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, fn_val, args, 2, false, llvm_cc, ZigLLVM_FnInlineAuto, "");
     LLVMSetTailCall(call_instruction, true);
     LLVMBuildUnreachable(g->builder);
 }
@@ -1370,7 +1370,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMValueRef addr_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr_val, &ptr_index, 1, "");
     LLVMValueRef this_addr_val = LLVMBuildLoad(g->builder, addr_ptr, "");
     LLVMValueRef args[] = {dest_stack_trace_ptr, this_addr_val};
-    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
+    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, false, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
     LLVMValueRef prev_frames_left = LLVMBuildLoad(g->builder, frames_left_ptr, "");
     LLVMValueRef new_frames_left = LLVMBuildNUWSub(g->builder, prev_frames_left, usize_one, "");
     LLVMValueRef done_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, new_frames_left, usize_zero, "");
@@ -1439,7 +1439,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     LLVMValueRef return_address = LLVMBuildPtrToInt(g->builder, return_address_ptr, usize_type_ref, "");
 
     LLVMValueRef args[] = { err_ret_trace_ptr, return_address };
-    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
+    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, false, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
     LLVMBuildRetVoid(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
@@ -1609,7 +1609,7 @@ static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val, Scope *sc
         err_ret_trace_val,
         err_val,
     };
-    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 2, get_llvm_cc(g, CallingConventionUnspecified),
+    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 2, false, get_llvm_cc(g, CallingConventionUnspecified),
         ZigLLVM_FnInlineAuto, "");
     LLVMSetTailCall(call_instruction, true);
     LLVMBuildUnreachable(g->builder);
@@ -1896,7 +1896,7 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
     LLVMValueRef args[] = {
         get_cur_err_ret_trace_val(g, save_err_ret_addr_instruction->base.scope),
     };
-    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 1,
+    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 1, false,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
     return call_instruction;
 }
@@ -3171,7 +3171,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     
     if (instruction->new_stack == nullptr) {
         result = ZigLLVMBuildCall(g->builder, fn_val,
-                gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
+                    gen_param_values, (unsigned)gen_param_index, first_arg_ret, llvm_cc, fn_inline, "");
     } else {
         LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
         LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
@@ -3180,7 +3180,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMValueRef old_stack_ref = LLVMBuildCall(g->builder, stacksave_fn_val, nullptr, 0, "");
         gen_set_stack_pointer(g, new_stack_addr);
         result = ZigLLVMBuildCall(g->builder, fn_val,
-                gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
+                gen_param_values, (unsigned)gen_param_index, first_arg_ret, llvm_cc, fn_inline, "");
         LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
     }
 
@@ -3704,7 +3704,7 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
     LLVMValueRef enum_name_function = get_enum_tag_name_function(g, enum_type);
 
     LLVMValueRef enum_tag_value = ir_llvm_value(g, instruction->target);
-    return ZigLLVMBuildCall(g->builder, enum_name_function, &enum_tag_value, 1,
+    return ZigLLVMBuildCall(g->builder, enum_name_function, &enum_tag_value, 1, false,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
 }
 
@@ -4662,7 +4662,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     args.append(allocator_val);
     args.append(coro_size);
     args.append(alignment_val);
-    ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length,
+    ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length, false,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
     LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_err_index, "");
     LLVMValueRef err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
@@ -4713,7 +4713,7 @@ static LLVMValueRef ir_render_coro_alloc_helper(CodeGen *g, IrExecutable *execut
     params.append(LLVMGetParam(g->cur_fn_val, err_code_ptr_arg_index));
     params.append(coro_size);
 
-    return ZigLLVMBuildCall(g->builder, fn_val, params.items, params.length,
+    return ZigLLVMBuildCall(g->builder, fn_val, params.items, params.length, false,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
 }
 
@@ -4763,7 +4763,7 @@ static LLVMValueRef ir_render_merge_err_ret_traces(CodeGen *g, IrExecutable *exe
     LLVMValueRef dest_trace_ptr = ir_llvm_value(g, instruction->dest_err_ret_trace_ptr);
 
     LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
-    ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+    ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2, false, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
     return nullptr;
 }
 

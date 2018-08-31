@@ -65,7 +65,7 @@ enum ZigLLVM_FnInline {
     ZigLLVM_FnInlineNever,
 };
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, unsigned CC, enum ZigLLVM_FnInline fn_inline, const char *Name);
+        unsigned NumArgs, bool SRet, unsigned CC, enum ZigLLVM_FnInline fn_inline, const char *Name);
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
