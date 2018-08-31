@@ -92,65 +92,6 @@ const Module = struct {
     obj_file_name: []u8,
 };
 
-/// Distinguishes individual records in the Symbols subsection of a .debug$S
-/// section. Equivalent to SYM_ENUM_e in cvinfo.h.
-pub const SymbolRecordKind = enum(u16) {
-    InlineesSym = 4456,
-    ScopeEndSym = 6,
-    InlineSiteEnd = 4430,
-    ProcEnd = 4431,
-    Thunk32Sym = 4354,
-    TrampolineSym = 4396,
-    SectionSym = 4406,
-    CoffGroupSym = 4407,
-    ExportSym = 4408,
-    ProcSym = 4367,
-    GlobalProcSym = 4368,
-    ProcIdSym = 4422,
-    GlobalProcIdSym = 4423,
-    DPCProcSym = 4437,
-    DPCProcIdSym = 4438,
-    RegisterSym = 4358,
-    PublicSym32 = 4366,
-    ProcRefSym = 4389,
-    LocalProcRef = 4391,
-    EnvBlockSym = 4413,
-    InlineSiteSym = 4429,
-    LocalSym = 4414,
-    DefRangeSym = 4415,
-    DefRangeSubfieldSym = 4416,
-    DefRangeRegisterSym = 4417,
-    DefRangeFramePointerRelSym = 4418,
-    DefRangeSubfieldRegisterSym = 4419,
-    DefRangeFramePointerRelFullScopeSym = 4420,
-    DefRangeRegisterRelSym = 4421,
-    BlockSym = 4355,
-    LabelSym = 4357,
-    ObjNameSym = 4353,
-    Compile2Sym = 4374,
-    Compile3Sym = 4412,
-    FrameProcSym = 4114,
-    CallSiteInfoSym = 4409,
-    FileStaticSym = 4435,
-    HeapAllocationSiteSym = 4446,
-    FrameCookieSym = 4410,
-    CallerSym = 4442,
-    CalleeSym = 4443,
-    UDTSym = 4360,
-    CobolUDT = 4361,
-    BuildInfoSym = 4428,
-    BPRelativeSym = 4363,
-    RegRelativeSym = 4369,
-    ConstantSym = 4359,
-    ManagedConstant = 4397,
-    DataSym = 4364,
-    GlobalData = 4365,
-    ManagedLocalData = 4380,
-    ManagedGlobalData = 4381,
-    ThreadLocalDataSym = 4370,
-    GlobalTLS = 4371,
-};
-
 /// Duplicate copy of SymbolRecordKind, but using the official CV names. Useful
 /// for reference purposes and when dealing with unknown record types.
 pub const SymbolKind = packed enum(u16) {
@@ -434,6 +375,32 @@ const ColumnNumberEntry = packed struct {
     EndColumn: u16,
 };
 
+/// Checksum bytes follow.
+const FileChecksumEntryHeader = packed struct {
+    FileNameOffset: u32, /// Byte offset of filename in global string table.
+    ChecksumSize: u8, /// Number of bytes of checksum.
+    ChecksumKind: u8, /// FileChecksumKind
+};
+
+const DebugSubsectionKind = packed enum(u32) {
+  None = 0,
+  Symbols = 0xf1,
+  Lines = 0xf2,
+  StringTable = 0xf3,
+  FileChecksums = 0xf4,
+  FrameData = 0xf5,
+  InlineeLines = 0xf6,
+  CrossScopeImports = 0xf7,
+  CrossScopeExports = 0xf8,
+
+  // These appear to relate to .Net assembly info.
+  ILLines = 0xf9,
+  FuncMDTokenMap = 0xfa,
+  TypeMDTokenMap = 0xfb,
+  MergedAssemblyInput = 0xfc,
+
+  CoffSymbolRVA = 0xfd,
+};
 
 pub const Pdb = struct {
     in_file: os.File,
@@ -569,14 +536,17 @@ pub const Pdb = struct {
             const prefix = @ptrCast(*RecordPrefix, &symbols[symbol_i]);
             if (prefix.RecordLen < 2)
                 return error.InvalidDebugInfo;
-            if (prefix.RecordKind == SymbolKind.S_LPROC32) {
-                const proc_sym = @ptrCast(*ProcSym, &symbols[symbol_i + @sizeOf(RecordPrefix)]);
-                const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
-                const vaddr_end = vaddr_start + proc_sym.CodeSize;
-                std.debug.warn("  {}\n", proc_sym);
-                if (address >= vaddr_start and address < vaddr_end) {
-                    break proc_sym;
-                }
+            switch (prefix.RecordKind) {
+                SymbolKind.S_LPROC32 => {
+                    const proc_sym = @ptrCast(*ProcSym, &symbols[symbol_i + @sizeOf(RecordPrefix)]);
+                    const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
+                    const vaddr_end = vaddr_start + proc_sym.CodeSize;
+                    std.debug.warn("  {}\n", proc_sym);
+                    if (address >= vaddr_start and address < vaddr_end) {
+                        break proc_sym;
+                    }
+                },
+                else => {},
             }
             symbol_i += prefix.RecordLen + @sizeOf(u16);
             if (symbol_i > symbols.len)
@@ -592,73 +562,94 @@ pub const Pdb = struct {
             return error.MissingDebugInfo;
         }
 
-        const line_info = try self.allocator.alloc(u8, mod.mod_info.C13ByteSize);
-        std.debug.warn("read C13 line info {} bytes\n", line_info.len);
-        try modi.stream.readNoEof(line_info);
+        const subsect_info = try self.allocator.alloc(u8, mod.mod_info.C13ByteSize);
+        std.debug.warn("read C13 line info {} bytes\n", subsect_info.len);
+        const line_info_file_pos = modi.getFilePos();
+        try modi.stream.readNoEof(subsect_info);
 
-        var line_index: usize = 0;
-        while (line_index != line_info.len) {
-            std.debug.warn("unknown bytes: {x2} {x2} {x2} {x2}  {x2} {x2} {x2} {x2}\n",
-                line_info[line_index+0],
-                line_info[line_index+1],
-                line_info[line_index+2],
-                line_info[line_index+3],
-                line_info[line_index+4],
-                line_info[line_index+5],
-                line_info[line_index+6],
-                line_info[line_index+7],
-            );
-            line_index += 8;
+        const DebugSubsectionHeader = packed struct {
+            Kind: DebugSubsectionKind, /// codeview::DebugSubsectionKind enum
+            Length: u32, /// number of bytes occupied by this record.
+        };
+        var sect_offset: usize = 0;
+        var skip_len: usize = undefined;
+        var have_line_info: bool = false;
+        subsections: while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
+            const subsect_hdr = @ptrCast(*DebugSubsectionHeader, &subsect_info[sect_offset]);
+            skip_len = subsect_hdr.Length;
+            sect_offset += @sizeOf(DebugSubsectionHeader);
 
-            const line_hdr = @ptrCast(*LineFragmentHeader, &line_info[line_index]);
-            if (line_hdr.RelocSegment == 0) return error.MissingDebugInfo;
-            std.debug.warn("{}\n", line_hdr);
-            line_index += @sizeOf(LineFragmentHeader);
+            switch (subsect_hdr.Kind) {
+                DebugSubsectionKind.Lines => {
+                    if (have_line_info)
+                        continue :subsections;
 
-            const block_hdr = @ptrCast(*LineBlockFragmentHeader, &line_info[line_index]);
-            std.debug.warn("{}\n", block_hdr);
-            line_index += @sizeOf(LineBlockFragmentHeader);
+                    var line_index: usize = sect_offset;
 
-            const has_column = line_hdr.Flags.LF_HaveColumns;
-            std.debug.warn("has column: {}\n", has_column);
+                    const line_hdr = @ptrCast(*LineFragmentHeader, &subsect_info[line_index]);
+                    if (line_hdr.RelocSegment == 0) return error.MissingDebugInfo;
+                    std.debug.warn("{}\n", line_hdr);
+                    line_index += @sizeOf(LineFragmentHeader);
 
-            const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
-            const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
-            if (address >= frag_vaddr_start and address < frag_vaddr_end) {
-                std.debug.warn("found line listing\n");
-                var line_i: usize = 0;
-                const start_line_index = line_index;
-                while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                    const line_num_entry = @ptrCast(*LineNumberEntry, &line_info[line_index]);
-                    line_index += @sizeOf(LineNumberEntry);
-                    const flags = @ptrCast(*LineNumberEntry.Flags, &line_num_entry.Flags);
-                    std.debug.warn("{} {}\n", line_num_entry, flags);
-                    const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                    const vaddr_end = if (flags.End == 0) frag_vaddr_end else vaddr_start + flags.End;
-                    std.debug.warn("test {x} <= {x} < {x}\n", vaddr_start, address, vaddr_end);
-                    if (address >= vaddr_start and address < vaddr_end) {
-                        std.debug.warn("{} line {}\n", block_hdr.NameIndex, flags.Start);
-                        if (has_column) {
-                            line_index = start_line_index + @sizeOf(LineNumberEntry) * block_hdr.NumLines;
-                            line_index += @sizeOf(ColumnNumberEntry) * line_i;
-                            const col_num_entry = @ptrCast(*ColumnNumberEntry, &line_info[line_index]);
-                            std.debug.warn("col {}\n", col_num_entry.StartColumn);
+                    const block_hdr = @ptrCast(*LineBlockFragmentHeader, &subsect_info[line_index]);
+                    std.debug.warn("{}\n", block_hdr);
+                    line_index += @sizeOf(LineBlockFragmentHeader);
+
+                    const has_column = line_hdr.Flags.LF_HaveColumns;
+                    std.debug.warn("has column: {}\n", has_column);
+
+                    const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
+                    const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
+                    if (address >= frag_vaddr_start and address < frag_vaddr_end) {
+                        std.debug.warn("found line listing\n");
+                        var line_i: usize = 0;
+                        const start_line_index = line_index;
+                        while (line_i < block_hdr.NumLines) : (line_i += 1) {
+                            const line_num_entry = @ptrCast(*LineNumberEntry, &subsect_info[line_index]);
+                            line_index += @sizeOf(LineNumberEntry);
+                            const flags = @ptrCast(*LineNumberEntry.Flags, &line_num_entry.Flags);
+                            std.debug.warn("{} {}\n", line_num_entry, flags);
+                            const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
+                            const vaddr_end = if (flags.End == 0) frag_vaddr_end else vaddr_start + flags.End;
+                            std.debug.warn("test {x} <= {x} < {x}\n", vaddr_start, address, vaddr_end);
+                            if (address >= vaddr_start and address < vaddr_end) {
+                                std.debug.warn("{} line {}\n", block_hdr.NameIndex, flags.Start);
+                                if (has_column) {
+                                    line_index = start_line_index + @sizeOf(LineNumberEntry) * block_hdr.NumLines;
+                                    line_index += @sizeOf(ColumnNumberEntry) * line_i;
+                                    const col_num_entry = @ptrCast(*ColumnNumberEntry, &subsect_info[line_index]);
+                                    std.debug.warn("col {}\n", col_num_entry.StartColumn);
+                                }
+                                have_line_info = true;
+                                continue :subsections;
+                            }
                         }
-                        return;
+                        return error.MissingDebugInfo;
                     }
-                }
-                return error.MissingDebugInfo;
-            } else {
-                line_index += @sizeOf(LineNumberEntry) * block_hdr.NumLines;
-                if (has_column)
-                    line_index += @sizeOf(ColumnNumberEntry) * block_hdr.NumLines;
+
+                },
+                DebugSubsectionKind.FileChecksums => {
+                    var chksum_index: usize = sect_offset;
+
+                    while (chksum_index != subsect_info.len) {
+                        const chksum_hdr = @ptrCast(*FileChecksumEntryHeader, &subsect_info[chksum_index]);
+                        std.debug.warn("{}\n", chksum_hdr);
+                        const len = @sizeOf(FileChecksumEntryHeader) + chksum_hdr.ChecksumSize;
+                        chksum_index += len + (len % 4);
+                        if (chksum_index > subsect_info.len)
+                            return error.InvalidDebugInfo;
+                    }
+
+                },
+                else => {
+                    std.debug.warn("ignore subsection {}\n", @tagName(subsect_hdr.Kind));
+                },
             }
 
-            if (line_index > mod.mod_info.C13ByteSize)
+            if (sect_offset > subsect_info.len)
                 return error.InvalidDebugInfo;
         }
-
-        std.debug.warn("end line info\n");
+        std.debug.warn("end subsections\n");
     }
 };
 

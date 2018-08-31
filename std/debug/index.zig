@@ -451,6 +451,34 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     std.debug.warn("v {} s {} a {}\n", version, signature, age);
     // We validated the executable and pdb match.
 
+    const name_bytes_len = try pdb_stream.stream.readIntLe(u32);
+    const name_bytes = try allocator.alloc(u8, name_bytes_len);
+    try pdb_stream.stream.readNoEof(name_bytes);
+
+    //const HashTableHeader = packed struct {
+    //    Size: u32,
+    //    Capacity: u32,
+
+    //    fn maxLoad(cap: u32) u32 {
+    //        return cap * 2 / 3 + 1;
+    //    }
+    //};
+    //var hash_tbl_hdr: HashTableHeader = undefined;
+    //try pdb_stream.stream.readStruct(Header, &hash_tbl_hdr);
+    //if (hash_tbl_hdr.Capacity == 0)
+    //    return error.InvalidDebugInfo;
+
+    //if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
+    //    return error.InvalidDebugInfo;
+
+    //std.debug.warn("{}\n", hash_tbl_hdr);
+
+    //var more_buf: [100]u8 = undefined;
+    //const more_len = try pdb_stream.stream.read(more_buf[0..]);
+    //for (more_buf[0..more_len]) |x| {
+    //    std.debug.warn("{x2} {c}\n", x, x);
+    //}
+
     return di;
 }
 
