@@ -9,6 +9,118 @@ const Endian = builtin.Endian;
 const readInt = std.mem.readInt;
 const writeInt = std.mem.writeInt;
 
+// Based on Supercop's ref10 implementation.
+pub const X25519 = struct {
+    pub const secret_length = 32;
+    pub const minimum_key_length = 32;
+
+    fn trim_scalar(s: []u8) void {
+        s[0] &= 248;
+        s[31] &= 127;
+        s[31] |= 64;
+    }
+
+    fn scalar_bit(s: []const u8, i: usize) i32 {
+        return (s[i >> 3] >> @intCast(u3, i & 7)) & 1;
+    }
+
+    pub fn create(out: []u8, private_key: []const u8, public_key: []const u8) bool {
+        std.debug.assert(out.len >= secret_length);
+        std.debug.assert(private_key.len >= minimum_key_length);
+        std.debug.assert(public_key.len >= minimum_key_length);
+
+        var storage: [7]Fe = undefined;
+
+        var x1 = &storage[0];
+        var x2 = &storage[1];
+        var z2 = &storage[2];
+        var x3 = &storage[3];
+        var z3 = &storage[4];
+        var t0 = &storage[5];
+        var t1 = &storage[6];
+
+        // computes the scalar product
+        fe_frombytes(x1, public_key);
+
+        // restrict the possible scalar values
+        var e: [32]u8 = undefined;
+        for (e[0..]) |_, i| {
+            e[i] = private_key[i];
+        }
+        trim_scalar(e[0..]);
+
+        // computes the actual scalar product (the result is in x2 and z2)
+
+        // Montgomery ladder
+        // In projective coordinates, to avoid divisons: x = X / Z
+        // We don't care about the y coordinate, it's only 1 bit of information
+        fe_1(x2);
+        fe_0(z2); // "zero" point
+        fe_copy(x3, x1);
+        fe_1(z3);
+
+        var swap: i32 = 0;
+        var pos: isize = 254;
+        while (pos >= 0) : (pos -= 1) {
+            // constant time conditional swap before ladder step
+            const b = scalar_bit(e, @intCast(usize, pos));
+            swap ^= b; // xor trick avoids swapping at the end of the loop
+            fe_cswap(x2, x3, swap);
+            fe_cswap(z2, z3, swap);
+            swap = b; // anticipates one last swap after the loop
+
+            // Montgomery ladder step: replaces (P2, P3) by (P2*2, P2+P3)
+            // with differential addition
+            fe_sub(t0, x3, z3);
+            fe_sub(t1, x2, z2);
+            fe_add(x2, x2, z2);
+            fe_add(z2, x3, z3);
+            fe_mul(z3, t0, x2);
+            fe_mul(z2, z2, t1);
+            fe_sq(t0, t1);
+            fe_sq(t1, x2);
+            fe_add(x3, z3, z2);
+            fe_sub(z2, z3, z2);
+            fe_mul(x2, t1, t0);
+            fe_sub(t1, t1, t0);
+            fe_sq(z2, z2);
+            fe_mul121666(z3, t1);
+            fe_sq(x3, x3);
+            fe_add(t0, t0, z3);
+            fe_mul(z3, x1, z2);
+            fe_mul(z2, t1, t0);
+        }
+
+        // last swap is necessary to compensate for the xor trick
+        // Note: after this swap, P3 == P2 + P1.
+        fe_cswap(x2, x3, swap);
+        fe_cswap(z2, z3, swap);
+
+        // normalises the coordinates: x == X / Z
+        fe_invert(z2, z2);
+        fe_mul(x2, x2, z2);
+        fe_tobytes(out, x2);
+
+        x1.secure_zero();
+        x2.secure_zero();
+        x3.secure_zero();
+        t0.secure_zero();
+        t1.secure_zero();
+        z2.secure_zero();
+        z3.secure_zero();
+        std.mem.secureZero(u8, e[0..]);
+
+        // Returns false if the output is all zero
+        // (happens with some malicious public keys)
+        return !zerocmp(u8, out);
+    }
+
+    pub fn createPublicKey(public_key: []const u8, private_key: []const u8) bool {
+        var base_point = []u8{9} ++ []u8{0} ** 31;
+        return create(public_key, private_key, base_point);
+    }
+};
+
 // Constant time compare to zero.
 fn zerocmp(comptime T: type, a: []const T) bool {
     var s: T = 0;
@@ -144,7 +256,9 @@ fn load24_le(s: []const u8) u32 {
     return s[0] | (u32(s[1]) << 8) | (u32(s[2]) << 16);
 }
 
-fn fe_frombytes(h: *Fe, s: [32]u8) void {
+fn fe_frombytes(h: *Fe, s: []const u8) void {
+    std.debug.assert(s.len >= 32);
+
     var t: [10]i64 = undefined;
 
     t[0] = readInt(s[0..4], u32, Endian.Little);
@@ -469,113 +583,6 @@ fn fe_isnonzero(f: *const Fe) bool {
     return isneg;
 }
 
-///////////////
-/// X-25519 /// Taken from Supercop's ref10 implementation.
-///////////////
-fn trim_scalar(s: []u8) void {
-    s[0] &= 248;
-    s[31] &= 127;
-    s[31] |= 64;
-}
-
-fn scalar_bit(s: []const u8, i: usize) i32 {
-    return (s[i >> 3] >> @intCast(u3, i & 7)) & 1;
-}
-
-pub fn crypto_x25519(raw_shared_secret: []u8, your_secret_key: [32]u8, their_public_key: [32]u8) bool {
-    std.debug.assert(raw_shared_secret.len >= 32);
-
-    var storage: [7]Fe = undefined;
-
-    var x1 = &storage[0];
-    var x2 = &storage[1];
-    var z2 = &storage[2];
-    var x3 = &storage[3];
-    var z3 = &storage[4];
-    var t0 = &storage[5];
-    var t1 = &storage[6];
-
-    // computes the scalar product
-    fe_frombytes(x1, their_public_key);
-
-    // restrict the possible scalar values
-    var e: [32]u8 = undefined;
-    for (e[0..]) |_, i| {
-        e[i] = your_secret_key[i];
-    }
-    trim_scalar(e[0..]);
-
-    // computes the actual scalar product (the result is in x2 and z2)
-
-    // Montgomery ladder
-    // In projective coordinates, to avoid divisons: x = X / Z
-    // We don't care about the y coordinate, it's only 1 bit of information
-    fe_1(x2);
-    fe_0(z2); // "zero" point
-    fe_copy(x3, x1);
-    fe_1(z3);
-
-    var swap: i32 = 0;
-    var pos: isize = 254;
-    while (pos >= 0) : (pos -= 1) {
-        // constant time conditional swap before ladder step
-        const b = scalar_bit(e, @intCast(usize, pos));
-        swap ^= b; // xor trick avoids swapping at the end of the loop
-        fe_cswap(x2, x3, swap);
-        fe_cswap(z2, z3, swap);
-        swap = b; // anticipates one last swap after the loop
-
-        // Montgomery ladder step: replaces (P2, P3) by (P2*2, P2+P3)
-        // with differential addition
-        fe_sub(t0, x3, z3);
-        fe_sub(t1, x2, z2);
-        fe_add(x2, x2, z2);
-        fe_add(z2, x3, z3);
-        fe_mul(z3, t0, x2);
-        fe_mul(z2, z2, t1);
-        fe_sq(t0, t1);
-        fe_sq(t1, x2);
-        fe_add(x3, z3, z2);
-        fe_sub(z2, z3, z2);
-        fe_mul(x2, t1, t0);
-        fe_sub(t1, t1, t0);
-        fe_sq(z2, z2);
-        fe_mul121666(z3, t1);
-        fe_sq(x3, x3);
-        fe_add(t0, t0, z3);
-        fe_mul(z3, x1, z2);
-        fe_mul(z2, t1, t0);
-    }
-
-    // last swap is necessary to compensate for the xor trick
-    // Note: after this swap, P3 == P2 + P1.
-    fe_cswap(x2, x3, swap);
-    fe_cswap(z2, z3, swap);
-
-    // normalises the coordinates: x == X / Z
-    fe_invert(z2, z2);
-    fe_mul(x2, x2, z2);
-    fe_tobytes(raw_shared_secret, x2);
-
-    x1.secure_zero();
-    x2.secure_zero();
-    x3.secure_zero();
-    t0.secure_zero();
-    t1.secure_zero();
-    z2.secure_zero();
-    z3.secure_zero();
-    std.mem.secureZero(u8, e[0..]);
-
-    // Returns false if the output is all zero
-    // (happens with some malicious public keys)
-    return !zerocmp(u8, raw_shared_secret);
-}
-
-pub fn crypto_x25519_public_key(public_key: []u8, secret_key: [32]u8) void {
-    var base_point = []u8{9} ++ []u8{0} ** 31;
-    crypto_x25519(public_key, secret_key, base_point);
-}
-
 test "x25519 rfc7748 vector1" {
     const secret_key = "\xa5\x46\xe3\x6b\xf0\x52\x7c\x9d\x3b\x16\x15\x4b\x82\x46\x5e\xdd\x62\x14\x4c\x0a\xc1\xfc\x5a\x18\x50\x6a\x22\x44\xba\x44\x9a\xc4";
     const public_key = "\xe6\xdb\x68\x67\x58\x30\x30\xdb\x35\x94\xc1\xa4\x24\xb1\x5f\x7c\x72\x66\x24\xec\x26\xb3\x35\x3b\x10\xa9\x03\xa6\xd0\xab\x1c\x4c";
@@ -584,7 +591,7 @@ test "x25519 rfc7748 vector1" {
 
     var output: [32]u8 = undefined;
 
-    std.debug.assert(crypto_x25519(output[0..], secret_key, public_key));
+    std.debug.assert(X25519.create(output[0..], secret_key, public_key));
     std.debug.assert(std.mem.eql(u8, output, expected_output));
 }
 
@@ -596,7 +603,7 @@ test "x25519 rfc7748 vector2" {
 
     var output: [32]u8 = undefined;
 
-    std.debug.assert(crypto_x25519(output[0..], secret_key, public_key));
+    std.debug.assert(X25519.create(output[0..], secret_key, public_key));
     std.debug.assert(std.mem.eql(u8, output, expected_output));
 }
 
@@ -610,7 +617,7 @@ test "x25519 rfc7748 one iteration" {
     var i: usize = 0;
     while (i < 1) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.debug.assert(crypto_x25519(output[0..], k, u));
+        std.debug.assert(X25519.create(output[0..], k, u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
@@ -634,7 +641,7 @@ test "x25519 rfc7748 1,000 iterations" {
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.debug.assert(crypto_x25519(output[0..], k, u));
+        std.debug.assert(X25519.create(output[0..], k, u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
@@ -657,7 +664,7 @@ test "x25519 rfc7748 1,000,000 iterations" {
     var i: usize = 0;
     while (i < 1000000) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.debug.assert(crypto_x25519(output[0..], k, u));
+        std.debug.assert(X25519.create(output[0..], k, u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);

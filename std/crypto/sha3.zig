@@ -13,8 +13,8 @@ pub const Sha3_512 = Keccak(512, 0x06);
 fn Keccak(comptime bits: usize, comptime delim: u8) type {
     return struct {
         const Self = this;
-        const block_size = 200;
-        const digest_size = bits / 8;
+        const block_length = 200;
+        const digest_length = bits / 8;
 
         s: [200]u8,
         offset: usize,
@@ -297,8 +297,8 @@ test "sha3-256 streaming" {
 }
 
 test "sha3-256 aligned final" {
-    var block = []u8{0} ** Sha3_256.block_size;
-    var out: [Sha3_256.digest_size]u8 = undefined;
+    var block = []u8{0} ** Sha3_256.block_length;
+    var out: [Sha3_256.digest_length]u8 = undefined;
 
     var h = Sha3_256.init();
     h.update(block);
@@ -368,8 +368,8 @@ test "sha3-512 streaming" {
 }
 
 test "sha3-512 aligned final" {
-    var block = []u8{0} ** Sha3_512.block_size;
-    var out: [Sha3_512.digest_size]u8 = undefined;
+    var block = []u8{0} ** Sha3_512.block_length;
+    var out: [Sha3_512.digest_length]u8 = undefined;
 
     var h = Sha3_512.init();
     h.update(block);
