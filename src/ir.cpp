@@ -3779,7 +3779,14 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
 
     // TODO put a variable of same name with invalid type in global scope
     // so that future references to this same name will find a variable with an invalid type
-    add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
+    ScopeNearest scope_nearest;
+    scope_nearest.tuning_namelimit = 30;
+    if ( find_nearest_scope(irb->codegen, scope, variable_name, &scope_nearest) ) {
+        ErrorMsg *msg = add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'; did you mean '%s'?", buf_ptr(variable_name), buf_ptr(scope_nearest.name)));
+        add_error_note(irb->codegen, msg, scope_nearest.decl_node, buf_sprintf("'%s' declared here", buf_ptr(scope_nearest.name)));
+    } else {
+        add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
+    }
     return irb->codegen->invalid_instruction;
 }
 
