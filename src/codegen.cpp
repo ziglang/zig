@@ -4662,7 +4662,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     args.append(allocator_val);
     args.append(coro_size);
     args.append(alignment_val);
-    ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length, false,
+    ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length, true,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
     LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_err_index, "");
     LLVMValueRef err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
