@@ -248,7 +248,8 @@ static ZigFindWindowsSdkError find_81_version(ZigWindowsSDKPrivate *priv) {
         if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             int c0 = 0, c1 = 0;
             sscanf(ffd.cFileName, "winv%d.%d", &c0, &c1);
-            if ((c0 > v0) || (c1 > v1)) {
+
+            if ( (c0 > v0) || (c0 == v0 && c1 > v1) ) {
                 v0 = c0, v1 = c1;
                 free((void*)priv->base.version81_ptr);
                 priv->base.version81_ptr = strdup(ffd.cFileName);
