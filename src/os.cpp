@@ -125,7 +125,7 @@ static void populate_termination(Termination *term, int status) {
 static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args, Termination *term) {
     pid_t pid = fork();
     if (pid == -1)
-        zig_panic("fork failed");
+        zig_panic("fork failed: %s", strerror(errno));
     if (pid == 0) {
         // child
         const char **argv = allocate<const char *>(args.length + 2);
@@ -839,9 +839,9 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
     if ((err = pipe(stderr_pipe)))
         zig_panic("pipe failed");
 
-    pid_t pid = fork();
+    pid_t pid = vfork();
     if (pid == -1)
-        zig_panic("fork failed");
+        zig_panic("fork failed: %s", strerror(errno));
     if (pid == 0) {
         // child
         if (dup2(stdin_pipe[0], STDIN_FILENO) == -1)
