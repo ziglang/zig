@@ -3719,6 +3719,62 @@ Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
     return nullptr;
 }
 
+bool find_nearest_scope(CodeGen *g, Scope *scope, Buf *name, ScopeNearest *nearest) {
+    nearest->distance = SIZE_MAX;
+    nearest->scope = nullptr;
+    nearest->name = nullptr;
+
+    // we must resolve all the use decls
+    ImportTableEntry *import = get_scope_import(scope);
+    for (size_t i = 0; i < import->use_decls.length; i += 1) {
+        AstNode *use_decl_node = import->use_decls.at(i);
+        if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
+            preview_use_decl(g, use_decl_node);
+            resolve_use_decl(g, use_decl_node);
+        }
+    }
+
+    while (scope) {
+        if (scope->id == ScopeIdDecls) {
+            ScopeDecls *decls_scope = (ScopeDecls *)scope;
+            auto it = decls_scope->decl_table.entry_iterator();
+            for (;;) {
+                auto *entry = it.next();
+                if (!entry)
+                    break;
+                if (buf_len(entry->value->name) > nearest->tuning_namelimit)
+                    continue;
+                size_t d = levenshtein( buf_ptr(name)
+                                      , buf_len(name)
+                                      , buf_ptr(entry->value->name)
+                                      , buf_len(entry->value->name) );
+                if (d < nearest->distance) {
+                    nearest->decl_node = entry->value->source_node;
+                    nearest->distance = d;
+                    nearest->name = entry->value->name;
+                    nearest->scope = scope;
+                }
+            }
+        } else if (scope->id == ScopeIdVarDecl) {
+            ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
+            if (buf_len(&var_scope->var->name) > nearest->tuning_namelimit)
+                continue;
+            size_t d = levenshtein( buf_ptr(name)
+                                  , buf_len(name)
+                                  , buf_ptr(&var_scope->var->name)
+                                  , buf_len(&var_scope->var->name) );
+            if (d < nearest->distance) {
+                nearest->decl_node = var_scope->var->decl_node;
+                nearest->distance = d;
+                nearest->name = &var_scope->var->name;
+                nearest->scope = scope;
+            }
+        }
+        scope = scope->parent;
+    }
+    return nearest->decl_node != nullptr && nearest->name != nullptr;
+}
+
 VariableTableEntry *find_variable(CodeGen *g, Scope *scope, Buf *name) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {

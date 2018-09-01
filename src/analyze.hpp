@@ -50,6 +50,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
 
 VariableTableEntry *find_variable(CodeGen *g, Scope *orig_context, Buf *name);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
+bool find_nearest_scope(CodeGen *g, Scope *scope, Buf *name, ScopeNearest *nearest);
 void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *source_node);
 bool type_is_codegen_pointer(TypeTableEntry *type);
 
