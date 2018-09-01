@@ -1959,6 +1959,17 @@ struct ScopeCoroPrelude {
     Scope base;
 };
 
+// used by `find_nearest` to return nearest scope to name
+struct ScopeNearest {
+  size_t distance;
+  Buf *name;
+  Scope *scope;
+  AstNode *decl_node;
+
+  //tuning variables
+  size_t tuning_namelimit;
+};
+
 // synchronized with code in define_builtin_compile_vars
 enum AtomicOrder {
     AtomicOrderUnordered,
