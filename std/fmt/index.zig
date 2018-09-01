@@ -350,6 +350,11 @@ pub fn formatText(
             comptime var width = 0;
             if (fmt.len > 1) width = comptime (parseUnsigned(usize, fmt[1..], 10) catch unreachable);
             return formatBuf(bytes, width, context, Errors, output);
+        } else if ((fmt[0] == 'x') or (fmt[0] == 'X') ) {
+            for (bytes) |c| {
+                try formatInt(c, 16, fmt[0] == 'X', 0, context, Errors, output);
+            }
+            return;
         } else @compileError("Unknown format character: " ++ []u8{fmt[0]});
     }
     return output(context, bytes);
@@ -1270,6 +1275,12 @@ test "fmt.format" {
         const inst = E.Two;
 
         try testFmt("E.Two", "{}", inst);
+    }
+    //print bytes as hex
+    {
+        const some_bytes = "\xCA\xFE\xBA\xBE";
+        try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", some_bytes);
+        try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", some_bytes);
     }
 }
 
