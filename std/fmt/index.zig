@@ -1276,6 +1276,12 @@ test "fmt.format" {
 
         try testFmt("E.Two", "{}", inst);
     }
+    //print bytes as hex
+    {
+        const some_bytes = "\xCA\xFE\xBA\xBE";
+        try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", some_bytes);
+        try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", some_bytes);
+    }
 }
 
 fn testFmt(expected: []const u8, comptime template: []const u8, args: ...) !void {
