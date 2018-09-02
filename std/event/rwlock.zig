@@ -7,7 +7,7 @@ const AtomicOrder = builtin.AtomicOrder;
 const Loop = std.event.Loop;
 
 /// Thread-safe async/await lock.
-/// Does not make any syscalls - coroutines which are waiting for the lock are suspended, and
+/// coroutines which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 /// Many readers can hold the lock at the same time; however locking for writing is exclusive.
 /// When a read lock is held, it will not be released until the reader queue is empty.
