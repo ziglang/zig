@@ -189,10 +189,14 @@ ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref) {
   return wrap(Type::getTokenTy(*unwrap(context_ref)));
 }
 
+// TODO Generalize SRet to an NumArgs length array of LLVMAttributeRef
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, unsigned CC, ZigLLVM_FnInline fn_inline, const char *Name)
+        unsigned NumArgs, bool SRet, unsigned CC, ZigLLVM_FnInline fn_inline, const char *Name)
 {
     CallInst *call_inst = CallInst::Create(unwrap(Fn), makeArrayRef(unwrap(Args), NumArgs), Name);
+    if (SRet) {
+        call_inst->addAttribute(1, Attribute::StructRet);
+    }
     call_inst->setCallingConv(CC);
     switch (fn_inline) {
         case ZigLLVM_FnInlineAuto:
