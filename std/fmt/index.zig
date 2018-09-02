@@ -352,7 +352,7 @@ pub fn formatText(
             return formatBuf(bytes, width, context, Errors, output);
         } else if ((fmt[0] == 'x') or (fmt[0] == 'X') ) {
             for (bytes) |c| {
-                try formatInt(c, 16, fmt[0] == 'X', 0, context, Errors, output);
+                try formatInt(c, 16, fmt[0] == 'X', 2, context, Errors, output);
             }
             return;
         } else @compileError("Unknown format character: " ++ []u8{fmt[0]});
@@ -1281,6 +1281,8 @@ test "fmt.format" {
         const some_bytes = "\xCA\xFE\xBA\xBE";
         try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", some_bytes);
         try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", some_bytes);
+        const bytes_with_zeros = "\x00\x0E\xBA\xBE";
+        try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", bytes_with_zeros);
     }
 }
 
