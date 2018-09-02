@@ -263,8 +263,8 @@ pub const CompareOutputContext = struct {
             var stdout = Buffer.initNull(b.allocator);
             var stderr = Buffer.initNull(b.allocator);
 
-            var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
-            var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
+            var stdout_file_in_stream = io.FileInStream.init(child.stdout.?);
+            var stderr_file_in_stream = io.FileInStream.init(child.stderr.?);
 
             stdout_file_in_stream.stream.readAllBuffer(&stdout, max_stdout_size) catch unreachable;
             stderr_file_in_stream.stream.readAllBuffer(&stderr, max_stdout_size) catch unreachable;
@@ -578,8 +578,8 @@ pub const CompileErrorContext = struct {
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
 
-            var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
-            var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
+            var stdout_file_in_stream = io.FileInStream.init(child.stdout.?);
+            var stderr_file_in_stream = io.FileInStream.init(child.stderr.?);
 
             stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size) catch unreachable;
             stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size) catch unreachable;
@@ -842,8 +842,8 @@ pub const TranslateCContext = struct {
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
 
-            var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
-            var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
+            var stdout_file_in_stream = io.FileInStream.init(child.stdout.?);
+            var stderr_file_in_stream = io.FileInStream.init(child.stderr.?);
 
             stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size) catch unreachable;
             stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size) catch unreachable;

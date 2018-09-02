@@ -2149,6 +2149,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
         Os.windows => {
+            var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
             const utf16le_slice = try selfExePathW(&utf16le_buf);
             // Trust that Windows gives us valid UTF-16LE.
             const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;

@@ -209,8 +209,8 @@ pub const ChildProcess = struct {
         defer Buffer.deinit(&stdout);
         defer Buffer.deinit(&stderr);
 
-        var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
-        var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
+        var stdout_file_in_stream = io.FileInStream.init(child.stdout.?);
+        var stderr_file_in_stream = io.FileInStream.init(child.stderr.?);
 
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
         try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);

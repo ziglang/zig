@@ -19,7 +19,7 @@ test "write a file, read it, then delete it" {
         var file = try os.File.openWrite(tmp_file_name);
         defer file.close();
 
-        var file_out_stream = io.FileOutStream.init(&file);
+        var file_out_stream = io.FileOutStream.init(file);
         var buf_stream = io.BufferedOutStream(io.FileOutStream.Error).init(&file_out_stream.stream);
         const st = &buf_stream.stream;
         try st.print("begin");
@@ -35,7 +35,7 @@ test "write a file, read it, then delete it" {
         const expected_file_size = "begin".len + data.len + "end".len;
         assert(file_size == expected_file_size);
 
-        var file_in_stream = io.FileInStream.init(&file);
+        var file_in_stream = io.FileInStream.init(file);
         var buf_stream = io.BufferedInStream(io.FileInStream.Error).init(&file_in_stream.stream);
         const st = &buf_stream.stream;
         const contents = try st.readAllAlloc(allocator, 2 * 1024);

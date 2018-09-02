@@ -353,7 +353,7 @@ pub const SectionHeader = struct {
 };
 
 pub const Elf = struct {
-    in_file: *os.File,
+    in_file: os.File,
     auto_close_stream: bool,
     is_64: bool,
     endian: builtin.Endian,
@@ -376,7 +376,7 @@ pub const Elf = struct {
     }
 
     /// Call close when done.
-    pub fn openFile(elf: *Elf, allocator: *mem.Allocator, file: *os.File) !void {
+    pub fn openFile(elf: *Elf, allocator: *mem.Allocator, file: os.File) !void {
         elf.allocator = allocator;
         elf.in_file = file;
         elf.auto_close_stream = false;

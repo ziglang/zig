@@ -862,7 +862,7 @@ fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
     di.self_exe_file = try os.openSelfExe();
     errdefer di.self_exe_file.close();
 
-    try di.elf.openFile(allocator, &di.self_exe_file);
+    try di.elf.openFile(allocator, di.self_exe_file);
     errdefer di.elf.close();
 
     di.debug_info = (try di.elf.findSection(".debug_info")) orelse return error.MissingDebugInfo;
@@ -1067,7 +1067,7 @@ pub const DebugInfo = switch (builtin.os) {
         }
 
         pub fn readString(self: *DebugInfo) ![]u8 {
-            var in_file_stream = io.FileInStream.init(&self.self_exe_file);
+            var in_file_stream = io.FileInStream.init(self.self_exe_file);
             const in_stream = &in_file_stream.stream;
             return readStringRaw(self.allocator(), in_stream);
         }
@@ -1403,7 +1403,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
 }
 
 fn parseAbbrevTable(st: *DebugInfo) !AbbrevTable {
-    const in_file = &st.self_exe_file;
+    const in_file = st.self_exe_file;
     var in_file_stream = io.FileInStream.init(in_file);
     const in_stream = &in_file_stream.stream;
     var result = AbbrevTable.init(st.allocator());
@@ -1454,7 +1454,7 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
 }
 
 fn parseDie(st: *DebugInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
-    const in_file = &st.self_exe_file;
+    const in_file = st.self_exe_file;
     var in_file_stream = io.FileInStream.init(in_file);
     const in_stream = &in_file_stream.stream;
     const abbrev_code = try readULeb128(in_stream);
@@ -1676,7 +1676,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
 fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, target_address: usize) !LineInfo {
     const compile_unit_cwd = try compile_unit.die.getAttrString(di, DW.AT_comp_dir);
 
-    const in_file = &di.self_exe_file;
+    const in_file = di.self_exe_file;
     const debug_line_end = di.debug_line.offset + di.debug_line.size;
     var this_offset = di.debug_line.offset;
     var this_index: usize = 0;
@@ -1856,7 +1856,7 @@ fn scanAllCompileUnits(st: *DebugInfo) !void {
     var this_unit_offset = st.debug_info.offset;
     var cu_index: usize = 0;
 
-    var in_file_stream = io.FileInStream.init(&st.self_exe_file);
+    var in_file_stream = io.FileInStream.init(st.self_exe_file);
     const in_stream = &in_file_stream.stream;
 
     while (this_unit_offset < debug_info_end) {
@@ -1922,7 +1922,7 @@ fn scanAllCompileUnits(st: *DebugInfo) !void {
 }
 
 fn findCompileUnit(st: *DebugInfo, target_address: u64) !*const CompileUnit {
-    var in_file_stream = io.FileInStream.init(&st.self_exe_file);
+    var in_file_stream = io.FileInStream.init(st.self_exe_file);
     const in_stream = &in_file_stream.stream;
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
         if (compile_unit.pc_range) |range| {
