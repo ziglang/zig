@@ -34,13 +34,13 @@ pub fn getStdIn() GetStdIoErrs!File {
 
 /// Implementation of InStream trait for File
 pub const FileInStream = struct {
-    file: *File,
+    file: File,
     stream: Stream,
 
     pub const Error = @typeOf(File.read).ReturnType.ErrorSet;
     pub const Stream = InStream(Error);
 
-    pub fn init(file: *File) FileInStream {
+    pub fn init(file: File) FileInStream {
         return FileInStream{
             .file = file,
             .stream = Stream{ .readFn = readFn },
@@ -55,13 +55,13 @@ pub const FileInStream = struct {
 
 /// Implementation of OutStream trait for File
 pub const FileOutStream = struct {
-    file: *File,
+    file: File,
     stream: Stream,
 
     pub const Error = File.WriteError;
     pub const Stream = OutStream(Error);
 
-    pub fn init(file: *File) FileOutStream {
+    pub fn init(file: File) FileOutStream {
         return FileOutStream{
             .file = file,
             .stream = Stream{ .writeFn = writeFn },
@@ -210,7 +210,7 @@ pub fn InStream(comptime ReadError: type) type {
 
         pub fn readStruct(self: *Self, comptime T: type, ptr: *T) !void {
             // Only extern and packed structs have defined in-memory layout.
-            assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
+            comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
             return self.readNoEof(@sliceToBytes((*[1]T)(ptr)[0..]));
         }
     };
@@ -280,7 +280,7 @@ pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptim
     const buf = try allocator.alignedAlloc(u8, A, size);
     errdefer allocator.free(buf);
 
-    var adapter = FileInStream.init(&file);
+    var adapter = FileInStream.init(file);
     try adapter.stream.readNoEof(buf[0..size]);
     return buf;
 }
@@ -592,7 +592,7 @@ pub const BufferedAtomicFile = struct {
         self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.File.default_mode);
         errdefer self.atomic_file.deinit();
 
-        self.file_stream = FileOutStream.init(&self.atomic_file.file);
+        self.file_stream = FileOutStream.init(self.atomic_file.file);
         self.buffered_stream = BufferedOutStream(FileOutStream.Error).init(&self.file_stream.stream);
         return self;
     }
@@ -622,7 +622,7 @@ test "import io tests" {
 
 pub fn readLine(buf: []u8) !usize {
     var stdin = getStdIn() catch return error.StdInUnavailable;
-    var adapter = FileInStream.init(&stdin);
+    var adapter = FileInStream.init(stdin);
     var stream = &adapter.stream;
     var index: usize = 0;
     while (true) {

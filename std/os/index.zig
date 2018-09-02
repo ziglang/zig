@@ -57,6 +57,7 @@ pub const windowsWaitSingle = windows_util.windowsWaitSingle;
 pub const windowsWrite = windows_util.windowsWrite;
 pub const windowsIsCygwinPty = windows_util.windowsIsCygwinPty;
 pub const windowsOpen = windows_util.windowsOpen;
+pub const windowsOpenW = windows_util.windowsOpenW;
 pub const windowsLoadDll = windows_util.windowsLoadDll;
 pub const windowsUnloadDll = windows_util.windowsUnloadDll;
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
@@ -660,6 +661,7 @@ pub fn getBaseAddress() usize {
             return phdr - @sizeOf(ElfHeader);
         },
         builtin.Os.macosx => return @ptrToInt(&std.c._mh_execute_header),
+        builtin.Os.windows => return @ptrToInt(windows.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
 }
@@ -2068,7 +2070,7 @@ fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []cons
 }
 
 // TODO make this a build variable that you can set
-const unexpected_error_tracing = false;
+const unexpected_error_tracing = true;
 const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
     Unexpected,
@@ -2087,8 +2089,9 @@ pub fn unexpectedErrorPosix(errno: usize) UnexpectedError {
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
 pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
-    if (true) {
+    if (unexpected_error_tracing) {
         debug.warn("unexpected GetLastError(): {}\n", err);
+        @breakpoint();
         debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -2103,15 +2106,33 @@ pub fn openSelfExe() !os.File {
             buf[self_exe_path.len] = 0;
             return os.File.openReadC(self_exe_path.ptr);
         },
+        Os.windows => {
+            var buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
+            const wide_slice = try selfExePathW(&buf);
+            return os.File.openReadW(wide_slice.ptr);
+        },
         else => @compileError("Unsupported OS"),
     }
 }
 
 test "openSelfExe" {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => (try openSelfExe()).close(),
-        else => return error.SkipZigTest, // Unsupported OS
+        Os.linux, Os.macosx, Os.ios, Os.windows => (try openSelfExe()).close(),
+        else => return error.SkipZigTest, // Unsupported OS.
     }
+}
+
+pub fn selfExePathW(out_buffer: *[windows_util.PATH_MAX_WIDE]u16) ![]u16 {
+    const casted_len = @intCast(windows.DWORD, out_buffer.len); // TODO shouldn't need this cast
+    const rc = windows.GetModuleFileNameW(null, out_buffer, casted_len);
+    assert(rc <= out_buffer.len);
+    if (rc == 0) {
+        const err = windows.GetLastError();
+        switch (err) {
+            else => return unexpectedErrorWindows(err),
+        }
+    }
+    return out_buffer[0..rc];
 }
 
 /// Get the path to the current executable.
@@ -2129,16 +2150,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
         Os.windows => {
             var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
-            const casted_len = @intCast(windows.DWORD, utf16le_buf.len); // TODO shouldn't need this cast
-            const rc = windows.GetModuleFileNameW(null, &utf16le_buf, casted_len);
-            assert(rc <= utf16le_buf.len);
-            if (rc == 0) {
-                const err = windows.GetLastError();
-                switch (err) {
-                    else => return unexpectedErrorWindows(err),
-                }
-            }
-            const utf16le_slice = utf16le_buf[0..rc];
+            const utf16le_slice = try selfExePathW(&utf16le_buf);
             // Trust that Windows gives us valid UTF-16LE.
             const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
             return out_buffer[0..end_index];

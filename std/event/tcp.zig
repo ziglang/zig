@@ -145,11 +145,11 @@ test "listen on a port, send bytes, receive bytes" {
                 cancel @handle();
             }
         }
-        async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: *const std.os.File) !void {
+        async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: std.os.File) !void {
             const addr = _addr.*; // TODO https://github.com/ziglang/zig/issues/733
-            var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
+            var socket = _socket; // TODO https://github.com/ziglang/zig/issues/733
 
-            var adapter = std.io.FileOutStream.init(&socket);
+            var adapter = std.io.FileOutStream.init(socket);
             var stream = &adapter.stream;
             try stream.print("hello from server\n");
         }

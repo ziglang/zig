@@ -49,14 +49,14 @@ pub fn main() !void {
 
     var stderr_file = io.getStdErr();
     var stderr_file_stream: io.FileOutStream = undefined;
-    var stderr_stream = if (stderr_file) |*f| x: {
+    var stderr_stream = if (stderr_file) |f| x: {
         stderr_file_stream = io.FileOutStream.init(f);
         break :x &stderr_file_stream.stream;
     } else |err| err;
 
     var stdout_file = io.getStdOut();
     var stdout_file_stream: io.FileOutStream = undefined;
-    var stdout_stream = if (stdout_file) |*f| x: {
+    var stdout_stream = if (stdout_file) |f| x: {
         stdout_file_stream = io.FileOutStream.init(f);
         break :x &stdout_file_stream.stream;
     } else |err| err;

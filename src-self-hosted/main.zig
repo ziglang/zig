@@ -55,11 +55,11 @@ pub fn main() !void {
     const allocator = std.heap.c_allocator;
 
     var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = std.io.FileOutStream.init(&stdout_file);
+    var stdout_out_stream = std.io.FileOutStream.init(stdout_file);
     stdout = &stdout_out_stream.stream;
 
     stderr_file = try std.io.getStdErr();
-    var stderr_out_stream = std.io.FileOutStream.init(&stderr_file);
+    var stderr_out_stream = std.io.FileOutStream.init(stderr_file);
     stderr = &stderr_out_stream.stream;
 
     const args = try os.argsAlloc(allocator);
@@ -491,7 +491,7 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
                 stderr.print("Build {} compile errors:\n", count) catch os.exit(1);
                 for (msgs) |msg| {
                     defer msg.destroy();
-                    msg.printToFile(&stderr_file, color) catch os.exit(1);
+                    msg.printToFile(stderr_file, color) catch os.exit(1);
                 }
             },
         }
@@ -619,7 +619,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         }
 
         var stdin_file = try io.getStdIn();
-        var stdin = io.FileInStream.init(&stdin_file);
+        var stdin = io.FileInStream.init(stdin_file);
 
         const source_code = try stdin.stream.readAllAlloc(allocator, max_src_size);
         defer allocator.free(source_code);
@@ -635,7 +635,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
             const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, &tree, "<stdin>");
             defer msg.destroy();
 
-            try msg.printToFile(&stderr_file, color);
+            try msg.printToFile(stderr_file, color);
         }
         if (tree.errors.len != 0) {
             os.exit(1);
@@ -772,7 +772,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
         const msg = try errmsg.Msg.createFromParseError(fmt.loop.allocator, parse_error, &tree, file_path);
         defer fmt.loop.allocator.destroy(msg);
 
-        try msg.printToFile(&stderr_file, fmt.color);
+        try msg.printToFile(stderr_file, fmt.color);
     }
     if (tree.errors.len != 0) {
         fmt.any_error = true;
