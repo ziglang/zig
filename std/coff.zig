@@ -83,7 +83,6 @@ pub const Coff = struct {
     fn loadOptionalHeader(self: *Coff, file_stream: *io.FileInStream) !void {
         const in = &file_stream.stream;
         self.pe_header.magic = try in.readIntLe(u16);
-        std.debug.warn("reading pe optional\n");
         // For now we're only interested in finding the reference to the .pdb,
         // so we'll skip most of this header, which size is different in 32
         // 64 bits by the way.
@@ -97,11 +96,9 @@ pub const Coff = struct {
         else
             return error.InvalidPEMagic;
 
-        std.debug.warn("skipping {}\n", skip_size);
         try self.in_file.seekForward(skip_size);
 
         const number_of_rva_and_sizes = try in.readIntLe(u32);
-        //std.debug.warn("indicating {} data dirs\n", number_of_rva_and_sizes);
         if (number_of_rva_and_sizes != IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
             return error.InvalidPEHeader;
 
@@ -110,9 +107,7 @@ pub const Coff = struct {
                 .virtual_address = try in.readIntLe(u32),
                 .size = try in.readIntLe(u32),
             };
-            //std.debug.warn("data_dir @ {x}, size {}\n", data_dir.virtual_address, data_dir.size);
         }
-        std.debug.warn("loaded data directories\n");
     }
 
     pub fn getPdbPath(self: *Coff, buffer: []u8) !usize {
@@ -123,7 +118,6 @@ pub const Coff = struct {
         // debug_directory.
         const debug_dir = &self.pe_header.data_directory[DEBUG_DIRECTORY];
         const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
-        std.debug.warn("file offset {x}\n", file_offset);
         try self.in_file.seekTo(file_offset + debug_dir.size);
 
         var file_stream = io.FileInStream.init(self.in_file);
@@ -134,7 +128,6 @@ pub const Coff = struct {
         // 'RSDS' indicates PDB70 format, used by lld.
         if (!mem.eql(u8, cv_signature, "RSDS"))
             return error.InvalidPEMagic;
-        std.debug.warn("cv_signature {}\n", cv_signature);
         try in.readNoEof(self.guid[0..]);
         self.age = try in.readIntLe(u32);
 
@@ -181,7 +174,6 @@ pub const Coff = struct {
                 },
             });
         }
-        std.debug.warn("loaded {} sections\n", self.coff_header.number_of_sections);
     }
 
     pub fn getSection(self: *Coff, comptime name: []const u8) ?*Section {

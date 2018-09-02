@@ -20,6 +20,17 @@ pub const runtime_safety = switch (builtin.mode) {
     builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => false,
 };
 
+const Module = struct {
+    mod_info: pdb.ModInfo,
+    module_name: []u8,
+    obj_file_name: []u8,
+
+    populated: bool,
+    symbols: []u8,
+    subsect_info: []u8,
+    checksums: []u32,
+};
+
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 var stderr_file: os.File = undefined;
@@ -258,12 +269,277 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: us
     }
 }
 
-fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_address: usize, tty_color: bool) !void {
+    const allocator = getDebugInfoAllocator();
     const base_address = os.getBaseAddress();
-    const relative_address = address - base_address;
-    std.debug.warn("{x} - {x} => {x}\n", address, base_address, relative_address);
-    try di.pdb.getSourceLine(relative_address);
-    return error.UnsupportedDebugInfo;
+    const relative_address = relocated_address - base_address;
+
+    var coff_section: *coff.Section = undefined;
+    const mod_index = for (di.sect_contribs) |sect_contrib| {
+        coff_section = &di.coff.sections.toSlice()[sect_contrib.Section];
+
+        const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
+        const vaddr_end = vaddr_start + sect_contrib.Size;
+        if (relative_address >= vaddr_start and relative_address < vaddr_end) {
+            break sect_contrib.ModuleIndex;
+        }
+    } else {
+        // we have no information to add to the address
+        if (tty_color) {
+            try out_stream.print("???:?:?: ");
+            setTtyColor(TtyColor.Dim);
+            try out_stream.print("0x{x} in ??? (???)", relocated_address);
+            setTtyColor(TtyColor.Reset);
+            try out_stream.print("\n\n\n");
+        } else {
+            try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", relocated_address);
+        }
+        return;
+    };
+
+    const mod = &di.modules[mod_index];
+    try populateModule(di, mod);
+    const obj_basename = os.path.basename(mod.obj_file_name);
+
+    var symbol_i: usize = 0;
+    const symbol_name = while (symbol_i != mod.symbols.len) {
+        const prefix = @ptrCast(*pdb.RecordPrefix, &mod.symbols[symbol_i]);
+        if (prefix.RecordLen < 2)
+            return error.InvalidDebugInfo;
+        switch (prefix.RecordKind) {
+            pdb.SymbolKind.S_LPROC32 => {
+                const proc_sym = @ptrCast(*pdb.ProcSym, &mod.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
+                const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
+                const vaddr_end = vaddr_start + proc_sym.CodeSize;
+                if (relative_address >= vaddr_start and relative_address < vaddr_end) {
+                    break mem.toSliceConst(u8, @ptrCast([*]u8, proc_sym) + @sizeOf(pdb.ProcSym));
+                }
+            },
+            else => {},
+        }
+        symbol_i += prefix.RecordLen + @sizeOf(u16);
+        if (symbol_i > mod.symbols.len)
+            return error.InvalidDebugInfo;
+    } else "???";
+
+    const subsect_info = mod.subsect_info;
+
+    var sect_offset: usize = 0;
+    var skip_len: usize = undefined;
+    const opt_line_info = subsections: while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
+        const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &subsect_info[sect_offset]);
+        skip_len = subsect_hdr.Length;
+        sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
+
+        switch (subsect_hdr.Kind) {
+            pdb.DebugSubsectionKind.Lines => {
+                var line_index: usize = sect_offset;
+
+                const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
+                if (line_hdr.RelocSegment == 0) return error.MissingDebugInfo;
+                line_index += @sizeOf(pdb.LineFragmentHeader);
+
+                const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
+                line_index += @sizeOf(pdb.LineBlockFragmentHeader);
+
+                const has_column = line_hdr.Flags.LF_HaveColumns;
+
+                const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
+                const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
+                if (relative_address >= frag_vaddr_start and relative_address < frag_vaddr_end) {
+                    var line_i: usize = 0;
+                    const start_line_index = line_index;
+                    while (line_i < block_hdr.NumLines) : (line_i += 1) {
+                        const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
+                        line_index += @sizeOf(pdb.LineNumberEntry);
+                        const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
+                        const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
+                        const vaddr_end = if (flags.End == 0) frag_vaddr_end else vaddr_start + flags.End;
+                        if (relative_address >= vaddr_start and relative_address < vaddr_end) {
+                            const chksum_index = block_hdr.NameIndex;
+                            std.debug.warn("looking up checksum {}\n", chksum_index);
+                            const strtab_offset = mod.checksums[chksum_index];
+                            try di.pdb.string_table.seekTo(@sizeOf(pdb.PDBStringTableHeader) + strtab_offset);
+                            const source_file_name = try di.pdb.string_table.readNullTermString(allocator);
+                            const line = flags.Start;
+                            const column = if (has_column) blk: {
+                                line_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
+                                line_index += @sizeOf(pdb.ColumnNumberEntry) * line_i;
+                                const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[line_index]);
+                                break :blk col_num_entry.StartColumn;
+                            } else 0;
+                            break :subsections LineInfo{
+                                .allocator = allocator,
+                                .file_name = source_file_name,
+                                .line = line,
+                                .column = column,
+                            };
+                        }
+                    }
+                    break :subsections null;
+                }
+            },
+            else => {},
+        }
+
+        if (sect_offset > subsect_info.len)
+            return error.InvalidDebugInfo;
+    } else null;
+    
+    if (tty_color) {
+        if (opt_line_info) |li| {
+            try out_stream.print("{}:{}:{}: ", li.file_name, li.line, li.column);
+        } else {
+            try out_stream.print("???:?:?: ");
+        }
+        setTtyColor(TtyColor.Dim);
+        try out_stream.print("0x{x} in {} ({})", relocated_address, symbol_name, obj_basename);
+        setTtyColor(TtyColor.Reset);
+
+        if (opt_line_info) |line_info| {
+            try out_stream.print("\n");
+            if (printLineFromFile(out_stream, line_info)) {
+                if (line_info.column == 0) {
+                    try out_stream.write("\n");
+                } else {
+                    {
+                        var col_i: usize = 1;
+                        while (col_i < line_info.column) : (col_i += 1) {
+                            try out_stream.writeByte(' ');
+                        }
+                    }
+                    setTtyColor(TtyColor.Green);
+                    try out_stream.write("^");
+                    setTtyColor(TtyColor.Reset);
+                    try out_stream.write("\n");
+                }
+            } else |err| switch (err) {
+                error.EndOfFile => {},
+                else => return err,
+            }
+        } else {
+            try out_stream.print("\n\n\n");
+        }
+    } else {
+        if (opt_line_info) |li| {
+            try out_stream.print("{}:{}:{}: 0x{x} in {} ({})\n\n\n", li.file_name, li.line, li.column, relocated_address, symbol_name, obj_basename);
+        } else {
+            try out_stream.print("???:?:?: 0x{x} in {} ({})\n\n\n", relocated_address, symbol_name, obj_basename);
+        }
+    }
+}
+
+const TtyColor = enum{
+    Red,
+    Green,
+    Cyan,
+    White,
+    Dim,
+    Bold,
+    Reset,
+};
+
+/// TODO this is a special case hack right now. clean it up and maybe make it part of std.fmt
+fn setTtyColor(tty_color: TtyColor) void {
+    const S = struct {
+        var attrs: windows.WORD = undefined;
+        var init_attrs = false;
+    };
+    if (!S.init_attrs) {
+        S.init_attrs = true;
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        // TODO handle error
+        _ = windows.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
+        S.attrs = info.wAttributes;
+    }
+
+    // TODO handle errors
+    switch (tty_color) {
+        TtyColor.Red => {
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED|windows.FOREGROUND_INTENSITY);
+        },
+        TtyColor.Green => {
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN|windows.FOREGROUND_INTENSITY);
+        },
+        TtyColor.Cyan => {
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle,
+                windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE|windows.FOREGROUND_INTENSITY);
+        },
+        TtyColor.White, TtyColor.Bold => {
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle,
+                windows.FOREGROUND_RED|windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE|windows.FOREGROUND_INTENSITY);
+        },
+        TtyColor.Dim => {
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle,
+                windows.FOREGROUND_RED|windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE);
+        },
+        TtyColor.Reset => {
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
+        },
+    }
+}
+
+fn populateModule(di: *DebugInfo, mod: *Module) !void {
+    if (mod.populated)
+        return;
+    const allocator = getDebugInfoAllocator();
+
+    if (mod.mod_info.C11ByteSize != 0)
+        return error.InvalidDebugInfo;
+
+    if (mod.mod_info.C13ByteSize == 0)
+        return error.MissingDebugInfo;
+
+    const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.MissingDebugInfo;
+
+    const signature = try modi.stream.readIntLe(u32);
+    if (signature != 4)
+        return error.InvalidDebugInfo;
+
+    mod.symbols = try allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
+    try modi.stream.readNoEof(mod.symbols);
+
+    mod.subsect_info = try allocator.alloc(u8, mod.mod_info.C13ByteSize);
+    try modi.stream.readNoEof(mod.subsect_info);
+
+    var checksum_list = ArrayList(u32).init(allocator);
+    var sect_offset: usize = 0;
+    var skip_len: usize = undefined;
+    while (sect_offset != mod.subsect_info.len) : (sect_offset += skip_len) {
+        const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &mod.subsect_info[sect_offset]);
+        skip_len = subsect_hdr.Length;
+        sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
+
+        switch (subsect_hdr.Kind) {
+            pdb.DebugSubsectionKind.FileChecksums => {
+                var chksum_index: usize = sect_offset;
+
+                while (chksum_index != mod.subsect_info.len) {
+                    const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[chksum_index]);
+                    std.debug.warn("{} {}\n", checksum_list.len, chksum_hdr);
+                    try checksum_list.append(chksum_hdr.FileNameOffset);
+                    const len = @sizeOf(pdb.FileChecksumEntryHeader) + chksum_hdr.ChecksumSize;
+                    chksum_index += len + (len % 4);
+                    if (chksum_index > mod.subsect_info.len)
+                        return error.InvalidDebugInfo;
+                }
+
+            },
+            else => {},
+        }
+
+        if (sect_offset > mod.subsect_info.len)
+            return error.InvalidDebugInfo;
+    }
+    mod.checksums = checksum_list.toOwnedSlice();
+
+    for (mod.checksums) |strtab_offset| {
+        try di.pdb.string_table.seekTo(@sizeOf(pdb.PDBStringTableHeader) + strtab_offset);
+        const source_file_name = try di.pdb.string_table.readNullTermString(allocator);
+        std.debug.warn("{}={}\n", strtab_offset, source_file_name);
+    }
+
+    mod.populated = true;
 }
 
 fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
@@ -425,6 +701,8 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     var di = DebugInfo{
         .coff = coff_obj,
         .pdb = undefined,
+        .sect_contribs = undefined,
+        .modules = undefined,
     };
 
     try di.coff.loadHeader();
@@ -432,15 +710,12 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     var path_buf: [windows.MAX_PATH]u8 = undefined;
     const len = try di.coff.getPdbPath(path_buf[0..]);
     const raw_path = path_buf[0..len];
-    std.debug.warn("pdb raw path {}\n", raw_path);
 
     const path = try os.path.resolve(allocator, raw_path);
-    std.debug.warn("pdb resolved path {}\n", path);
 
     try di.pdb.openFile(di.coff, path);
 
     var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
-    std.debug.warn("pdb real filepos {}\n", pdb_stream.getFilePos());
     const version = try pdb_stream.stream.readIntLe(u32);
     const signature = try pdb_stream.stream.readIntLe(u32);
     const age = try pdb_stream.stream.readIntLe(u32);
@@ -448,51 +723,119 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     try pdb_stream.stream.readNoEof(guid[0..]);
     if (!mem.eql(u8, di.coff.guid, guid) or di.coff.age != age)
         return error.InvalidDebugInfo;
-    std.debug.warn("v {} s {} a {}\n", version, signature, age);
     // We validated the executable and pdb match.
 
-    const name_bytes_len = try pdb_stream.stream.readIntLe(u32);
-    const name_bytes = try allocator.alloc(u8, name_bytes_len);
-    try pdb_stream.stream.readNoEof(name_bytes);
+    const string_table_index = str_tab_index: {
+        const name_bytes_len = try pdb_stream.stream.readIntLe(u32);
+        const name_bytes = try allocator.alloc(u8, name_bytes_len);
+        try pdb_stream.stream.readNoEof(name_bytes);
 
-    const HashTableHeader = packed struct {
-        Size: u32,
-        Capacity: u32,
+        const HashTableHeader = packed struct {
+            Size: u32,
+            Capacity: u32,
 
-        fn maxLoad(cap: u32) u32 {
-            return cap * 2 / 3 + 1;
+            fn maxLoad(cap: u32) u32 {
+                return cap * 2 / 3 + 1;
+            }
+        };
+        var hash_tbl_hdr: HashTableHeader = undefined;
+        try pdb_stream.stream.readStruct(HashTableHeader, &hash_tbl_hdr);
+        if (hash_tbl_hdr.Capacity == 0)
+            return error.InvalidDebugInfo;
+
+        if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
+            return error.InvalidDebugInfo;
+
+        const present = try readSparseBitVector(&pdb_stream.stream, allocator);
+        if (present.len != hash_tbl_hdr.Size)
+            return error.InvalidDebugInfo;
+        const deleted = try readSparseBitVector(&pdb_stream.stream, allocator);
+
+        const Bucket = struct {
+            first: u32,
+            second: u32,
+        };
+        const bucket_list = try allocator.alloc(Bucket, present.len);
+        for (present) |_| {
+            const name_offset = try pdb_stream.stream.readIntLe(u32);
+            const name_index = try pdb_stream.stream.readIntLe(u32);
+            const name = mem.toSlice(u8, name_bytes.ptr + name_offset);
+            if (mem.eql(u8, name, "/names")) {
+                break :str_tab_index name_index;
+            }
         }
+        return error.MissingDebugInfo;
     };
-    var hash_tbl_hdr: HashTableHeader = undefined;
-    try pdb_stream.stream.readStruct(HashTableHeader, &hash_tbl_hdr);
-    if (hash_tbl_hdr.Capacity == 0)
-        return error.InvalidDebugInfo;
-
-    if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
-        return error.InvalidDebugInfo;
-
-    std.debug.warn("{}\n", hash_tbl_hdr);
-
-    const present = try readSparseBitVector(&pdb_stream.stream, allocator);
-    if (present.len != hash_tbl_hdr.Size)
-        return error.InvalidDebugInfo;
-    const deleted = try readSparseBitVector(&pdb_stream.stream, allocator);
-
-    const Bucket = struct {
-        first: u32,
-        second: u32,
-    };
-    const bucket_list = try allocator.alloc(Bucket, present.len);
-    const string_table_index = for (present) |_| {
-        const name_offset = try pdb_stream.stream.readIntLe(u32);
-        const name_index = try pdb_stream.stream.readIntLe(u32);
-        const name = mem.toSlice(u8, name_bytes.ptr + name_offset);
-        if (mem.eql(u8, name, "/names")) {
-            break name_index;
-        }
-    } else return error.MissingDebugInfo;
 
     di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return error.InvalidDebugInfo;
+    di.pdb.dbi = di.pdb.getStream(pdb.StreamType.Dbi) orelse return error.MissingDebugInfo;
+
+    const dbi = di.pdb.dbi;
+
+    // Dbi Header
+    var dbi_stream_header: pdb.DbiStreamHeader = undefined;
+    try dbi.stream.readStruct(pdb.DbiStreamHeader, &dbi_stream_header);
+    const mod_info_size = dbi_stream_header.ModInfoSize;
+    const section_contrib_size = dbi_stream_header.SectionContributionSize;
+
+    var modules = ArrayList(Module).init(allocator);
+
+    // Module Info Substream
+    var mod_info_offset: usize = 0;
+    while (mod_info_offset != mod_info_size) {
+        var mod_info: pdb.ModInfo = undefined;
+        try dbi.stream.readStruct(pdb.ModInfo, &mod_info);
+        var this_record_len: usize = @sizeOf(pdb.ModInfo);
+
+        const module_name = try dbi.readNullTermString(allocator);
+        this_record_len += module_name.len + 1;
+
+        const obj_file_name = try dbi.readNullTermString(allocator);
+        this_record_len += obj_file_name.len + 1;
+
+        const march_forward_bytes = this_record_len % 4;
+        if (march_forward_bytes != 0) {
+            try dbi.seekForward(march_forward_bytes);
+            this_record_len += march_forward_bytes;
+        }
+
+        try modules.append(Module{
+            .mod_info = mod_info,
+            .module_name = module_name,
+            .obj_file_name = obj_file_name,
+
+            .populated = false,
+            .symbols = undefined,
+            .subsect_info = undefined,
+            .checksums = undefined,
+        });
+
+        mod_info_offset += this_record_len;
+        if (mod_info_offset > mod_info_size)
+            return error.InvalidDebugInfo;
+    }
+
+    di.modules = modules.toOwnedSlice();
+
+    // Section Contribution Substream
+    var sect_contribs = ArrayList(pdb.SectionContribEntry).init(allocator);
+    var sect_cont_offset: usize = 0;
+    if (section_contrib_size != 0) {
+        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.stream.readIntLe(u32));
+        if (ver != pdb.SectionContrSubstreamVersion.Ver60)
+            return error.InvalidDebugInfo;
+        sect_cont_offset += @sizeOf(u32);
+    }
+    while (sect_cont_offset != section_contrib_size) {
+        const entry = try sect_contribs.addOne();
+        try dbi.stream.readStruct(pdb.SectionContribEntry, entry);
+        sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
+
+        if (sect_cont_offset > section_contrib_size)
+            return error.InvalidDebugInfo;
+    }
+
+    di.sect_contribs = sect_contribs.toOwnedSlice();
 
     return di;
 }
@@ -715,6 +1058,8 @@ pub const DebugInfo = switch (builtin.os) {
     builtin.Os.windows => struct {
         pdb: pdb.Pdb,
         coff: *coff.Coff,
+        sect_contribs: []pdb.SectionContribEntry,
+        modules: []Module,
     },
     builtin.Os.linux => struct {
         self_exe_file: os.File,

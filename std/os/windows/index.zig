@@ -15,6 +15,7 @@ test "import" {
 
 pub const ERROR = @import("error.zig");
 
+pub const SHORT = c_short;
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
@@ -364,3 +365,15 @@ pub const FILE_FLAG_RANDOM_ACCESS = 0x10000000;
 pub const FILE_FLAG_SESSION_AWARE = 0x00800000;
 pub const FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
 pub const FILE_FLAG_WRITE_THROUGH = 0x80000000;
+
+pub const SMALL_RECT = extern struct {
+    Left: SHORT,
+    Top: SHORT,
+    Right: SHORT,
+    Bottom: SHORT,
+};
+
+pub const COORD = extern struct {
+    X: SHORT,
+    Y: SHORT,
+};

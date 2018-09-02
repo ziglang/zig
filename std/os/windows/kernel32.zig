@@ -72,6 +72,8 @@ pub extern "kernel32" stdcallcc fn GetCommandLineA() LPSTR;
 
 pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) BOOL;
 
+pub extern "kernel32" stdcallcc fn GetConsoleScreenBufferInfo(hConsoleOutput: HANDLE, lpConsoleScreenBufferInfo: *CONSOLE_SCREEN_BUFFER_INFO) BOOL;
+
 pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: DWORD, lpBuffer: ?[*]CHAR) DWORD;
 pub extern "kernel32" stdcallcc fn GetCurrentDirectoryW(nBufferLength: DWORD, lpBuffer: ?[*]WCHAR) DWORD;
 
@@ -179,6 +181,8 @@ pub extern "kernel32" stdcallcc fn ReadFile(
 
 pub extern "kernel32" stdcallcc fn RemoveDirectoryA(lpPathName: LPCSTR) BOOL;
 
+pub extern "kernel32" stdcallcc fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) BOOL;
+
 pub extern "kernel32" stdcallcc fn SetFilePointerEx(
     in_fFile: HANDLE,
     in_liDistanceToMove: LARGE_INTEGER,
@@ -234,3 +238,17 @@ pub const FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
 pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
 pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
 pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
+
+
+pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
+    dwSize: COORD,
+    dwCursorPosition: COORD,
+    wAttributes: WORD,
+    srWindow: SMALL_RECT,
+    dwMaximumWindowSize: COORD,
+};
+
+pub const FOREGROUND_BLUE = 1;
+pub const FOREGROUND_GREEN = 2;
+pub const FOREGROUND_RED = 4;
+pub const FOREGROUND_INTENSITY = 8;

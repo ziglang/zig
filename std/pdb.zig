@@ -10,7 +10,7 @@ const coff = std.coff;
 const ArrayList = std.ArrayList;
 
 // https://llvm.org/docs/PDB/DbiStream.html#stream-header
-const DbiStreamHeader = packed struct {
+pub const DbiStreamHeader = packed struct {
     VersionSignature: i32,
     VersionHeader: u32,
     Age: u32,
@@ -33,7 +33,7 @@ const DbiStreamHeader = packed struct {
     Padding: u32,
 };
 
-const SectionContribEntry = packed struct {
+pub const SectionContribEntry = packed struct {
     Section: u16,
     Padding1: [2]u8,
     Offset: u32,
@@ -45,7 +45,7 @@ const SectionContribEntry = packed struct {
     RelocCrc: u32,
 };
 
-const ModInfo = packed struct {
+pub const ModInfo = packed struct {
     Unused1: u32,
     SectionContr: SectionContribEntry,
     Flags: u16,
@@ -63,12 +63,12 @@ const ModInfo = packed struct {
     //ObjFileName: char[],
 };
 
-const SectionMapHeader = packed struct {
+pub const SectionMapHeader = packed struct {
   Count: u16,    /// Number of segment descriptors
   LogCount: u16, /// Number of logical segment descriptors
 };
 
-const SectionMapEntry = packed struct {
+pub const SectionMapEntry = packed struct {
   Flags: u16 ,         /// See the SectionMapEntryFlags enum below.
   Ovl: u16 ,           /// Logical overlay number
   Group: u16 ,         /// Group index into descriptor array.
@@ -84,12 +84,6 @@ pub const StreamType = enum(u16) {
     Tpi = 2,
     Dbi = 3,
     Ipi = 4,
-};
-
-const Module = struct {
-    mod_info: ModInfo,
-    module_name: []u8,
-    obj_file_name: []u8,
 };
 
 /// Duplicate copy of SymbolRecordKind, but using the official CV names. Useful
@@ -293,9 +287,9 @@ pub const SymbolKind = packed enum(u16) {
     S_GTHREAD32 = 4371,
 };
 
-const TypeIndex = u32;
+pub const TypeIndex = u32;
 
-const ProcSym = packed struct {
+pub const ProcSym = packed struct {
     Parent: u32 ,
     End: u32 ,
     Next: u32 ,
@@ -310,7 +304,7 @@ const ProcSym = packed struct {
     // Name: [*]u8,
 };
 
-const ProcSymFlags = packed struct {
+pub const ProcSymFlags = packed struct {
     HasFP: bool,
     HasIRET: bool,
     HasFRET: bool,
@@ -321,24 +315,24 @@ const ProcSymFlags = packed struct {
     HasOptimizedDebugInfo: bool,
 };
 
-const SectionContrSubstreamVersion  = enum(u32) {
+pub const SectionContrSubstreamVersion  = enum(u32) {
   Ver60 = 0xeffe0000 + 19970605,
   V2 = 0xeffe0000 + 20140516
 };
 
-const RecordPrefix = packed struct {
+pub const RecordPrefix = packed struct {
     RecordLen: u16, /// Record length, starting from &RecordKind.
     RecordKind: SymbolKind, /// Record kind enum (SymRecordKind or TypeRecordKind)
 };
 
-const LineFragmentHeader = packed struct {
+pub const LineFragmentHeader = packed struct {
     RelocOffset: u32, /// Code offset of line contribution.
     RelocSegment: u16, /// Code segment of line contribution.
     Flags: LineFlags,
     CodeSize: u32, /// Code size of this line contribution.
 };
 
-const LineFlags = packed struct {
+pub const LineFlags = packed struct {
     LF_HaveColumns: bool, /// CV_LINES_HAVE_COLUMNS
     unused: u15,
 };
@@ -347,7 +341,7 @@ const LineFlags = packed struct {
 /// header.  The structure definitions follow.
 /// LineNumberEntry   Lines[NumLines];
 /// ColumnNumberEntry Columns[NumLines];
-const LineBlockFragmentHeader = packed struct {
+pub const LineBlockFragmentHeader = packed struct {
     /// Offset of FileChecksum entry in File
     /// checksums buffer.  The checksum entry then
     /// contains another offset into the string
@@ -358,7 +352,7 @@ const LineBlockFragmentHeader = packed struct {
 };
 
 
-const LineNumberEntry = packed struct {
+pub const LineNumberEntry = packed struct {
     Offset: u32, /// Offset to start of code bytes for line number
     Flags: u32,
 
@@ -370,19 +364,19 @@ const LineNumberEntry = packed struct {
     };
 };
 
-const ColumnNumberEntry = packed struct {
+pub const ColumnNumberEntry = packed struct {
     StartColumn: u16,
     EndColumn: u16,
 };
 
 /// Checksum bytes follow.
-const FileChecksumEntryHeader = packed struct {
+pub const FileChecksumEntryHeader = packed struct {
     FileNameOffset: u32, /// Byte offset of filename in global string table.
     ChecksumSize: u8, /// Number of bytes of checksum.
     ChecksumKind: u8, /// FileChecksumKind
 };
 
-const DebugSubsectionKind = packed enum(u32) {
+pub const DebugSubsectionKind = packed enum(u32) {
   None = 0,
   Symbols = 0xf1,
   Lines = 0xf2,
@@ -402,11 +396,25 @@ const DebugSubsectionKind = packed enum(u32) {
   CoffSymbolRVA = 0xfd,
 };
 
+
+pub const DebugSubsectionHeader = packed struct {
+    Kind: DebugSubsectionKind, /// codeview::DebugSubsectionKind enum
+    Length: u32, /// number of bytes occupied by this record.
+};
+
+
+pub const PDBStringTableHeader = packed struct {
+    Signature: u32, /// PDBStringTableSignature
+    HashVersion: u32, /// 1 or 2
+    ByteSize: u32, /// Number of bytes of names buffer.
+};
+
 pub const Pdb = struct {
     in_file: os.File,
     allocator: *mem.Allocator,
     coff: *coff.Coff,
     string_table: *MsfStream,
+    dbi: *MsfStream,
 
     msf: Msf,
 
@@ -427,230 +435,6 @@ pub const Pdb = struct {
     pub fn getStream(self: *Pdb, stream: StreamType) ?*MsfStream {
         const id = @enumToInt(stream);
         return self.getStreamById(id);
-    }
-
-    pub fn getSourceLine(self: *Pdb, address: usize) !void {
-        const dbi = self.getStream(StreamType.Dbi) orelse return error.InvalidDebugInfo;
-
-        // Dbi Header
-        var header: DbiStreamHeader = undefined;
-        try dbi.stream.readStruct(DbiStreamHeader, &header);
-        std.debug.warn("{}\n", header);
-        warn("after header dbi stream at {} (file offset)\n", dbi.getFilePos());
-
-        var modules = ArrayList(Module).init(self.allocator);
-
-        // Module Info Substream
-        var mod_info_offset: usize = 0;
-        while (mod_info_offset != header.ModInfoSize) {
-            var mod_info: ModInfo = undefined;
-            try dbi.stream.readStruct(ModInfo, &mod_info);
-            std.debug.warn("{}\n", mod_info);
-            var this_record_len: usize = @sizeOf(ModInfo);
-
-            const module_name = try dbi.readNullTermString(self.allocator);
-            std.debug.warn("module_name '{}'\n", module_name);
-            this_record_len += module_name.len + 1;
-
-            const obj_file_name = try dbi.readNullTermString(self.allocator);
-            std.debug.warn("obj_file_name '{}'\n", obj_file_name);
-            this_record_len += obj_file_name.len + 1;
-
-            const march_forward_bytes = this_record_len % 4;
-            if (march_forward_bytes != 0) {
-                try dbi.seekForward(march_forward_bytes);
-                this_record_len += march_forward_bytes;
-            }
-
-            try modules.append(Module{
-                .mod_info = mod_info,
-                .module_name = module_name,
-                .obj_file_name = obj_file_name,
-            });
-
-            mod_info_offset += this_record_len;
-            if (mod_info_offset > header.ModInfoSize)
-                return error.InvalidDebugInfo;
-        }
-
-        // Section Contribution Substream
-        var sect_contribs = ArrayList(SectionContribEntry).init(self.allocator);
-        std.debug.warn("looking at Section Contributinos now\n");
-        var sect_cont_offset: usize = 0;
-        if (header.SectionContributionSize != 0) {
-            const ver = @intToEnum(SectionContrSubstreamVersion, try dbi.stream.readIntLe(u32));
-            if (ver != SectionContrSubstreamVersion.Ver60)
-                return error.InvalidDebugInfo;
-            sect_cont_offset += @sizeOf(u32);
-        }
-        while (sect_cont_offset != header.SectionContributionSize) {
-            const entry = try sect_contribs.addOne();
-            try dbi.stream.readStruct(SectionContribEntry, entry);
-            std.debug.warn("{}\n", entry);
-            sect_cont_offset += @sizeOf(SectionContribEntry);
-
-            if (sect_cont_offset > header.SectionContributionSize)
-                return error.InvalidDebugInfo;
-        }
-        //std.debug.warn("looking at section map now\n");
-        //if (header.SectionMapSize == 0)
-        //    return error.MissingDebugInfo;
-
-        //var sect_map_hdr: SectionMapHeader = undefined;
-        //try dbi.stream.readStruct(SectionMapHeader, &sect_map_hdr);
-
-        //const sect_entries = try self.allocator.alloc(SectionMapEntry, sect_map_hdr.Count);
-        //const as_bytes = @sliceToBytes(sect_entries);
-        //if (as_bytes.len + @sizeOf(SectionMapHeader) != header.SectionMapSize)
-        //    return error.InvalidDebugInfo;
-        //try dbi.stream.readNoEof(as_bytes);
-
-        //for (sect_entries) |sect_entry| {
-        //    std.debug.warn("{}\n", sect_entry);
-        //}
-
-        var coff_section: *coff.Section = undefined;
-        const mod_index = for (sect_contribs.toSlice()) |sect_contrib| {
-            coff_section = &self.coff.sections.toSlice()[sect_contrib.Section];
-            std.debug.warn("looking in coff name: {}\n", mem.toSliceConst(u8, &coff_section.header.name));
-
-            const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
-            const vaddr_end = vaddr_start + sect_contrib.Size;
-            if (address >= vaddr_start and address < vaddr_end) {
-                std.debug.warn("found sect contrib: {}\n", sect_contrib);
-                break sect_contrib.ModuleIndex;
-            }
-        } else return error.MissingDebugInfo;
-
-        const mod = &modules.toSlice()[mod_index];
-        const modi = self.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.InvalidDebugInfo;
-
-        const signature = try modi.stream.readIntLe(u32);
-        if (signature != 4)
-            return error.InvalidDebugInfo;
-
-        const symbols = try self.allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
-        std.debug.warn("read {} bytes of symbol info\n", symbols.len);
-        try modi.stream.readNoEof(symbols);
-        var symbol_i: usize = 0;
-        const proc_sym = while (symbol_i != symbols.len) {
-            const prefix = @ptrCast(*RecordPrefix, &symbols[symbol_i]);
-            if (prefix.RecordLen < 2)
-                return error.InvalidDebugInfo;
-            switch (prefix.RecordKind) {
-                SymbolKind.S_LPROC32 => {
-                    const proc_sym = @ptrCast(*ProcSym, &symbols[symbol_i + @sizeOf(RecordPrefix)]);
-                    const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
-                    const vaddr_end = vaddr_start + proc_sym.CodeSize;
-                    std.debug.warn("  {}\n", proc_sym);
-                    if (address >= vaddr_start and address < vaddr_end) {
-                        break proc_sym;
-                    }
-                },
-                else => {},
-            }
-            symbol_i += prefix.RecordLen + @sizeOf(u16);
-            if (symbol_i > symbols.len)
-                return error.InvalidDebugInfo;
-        } else return error.MissingDebugInfo;
-
-        std.debug.warn("found in {s}: {}\n", @ptrCast([*]u8, proc_sym) + @sizeOf(ProcSym), proc_sym);
-
-        if (mod.mod_info.C11ByteSize != 0)
-            return error.InvalidDebugInfo;
-
-        if (mod.mod_info.C13ByteSize == 0) {
-            return error.MissingDebugInfo;
-        }
-
-        const subsect_info = try self.allocator.alloc(u8, mod.mod_info.C13ByteSize);
-        std.debug.warn("read C13 line info {} bytes\n", subsect_info.len);
-        const line_info_file_pos = modi.getFilePos();
-        try modi.stream.readNoEof(subsect_info);
-
-        const DebugSubsectionHeader = packed struct {
-            Kind: DebugSubsectionKind, /// codeview::DebugSubsectionKind enum
-            Length: u32, /// number of bytes occupied by this record.
-        };
-        var sect_offset: usize = 0;
-        var skip_len: usize = undefined;
-        var have_line_info: bool = false;
-        subsections: while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
-            const subsect_hdr = @ptrCast(*DebugSubsectionHeader, &subsect_info[sect_offset]);
-            skip_len = subsect_hdr.Length;
-            sect_offset += @sizeOf(DebugSubsectionHeader);
-
-            switch (subsect_hdr.Kind) {
-                DebugSubsectionKind.Lines => {
-                    if (have_line_info)
-                        continue :subsections;
-
-                    var line_index: usize = sect_offset;
-
-                    const line_hdr = @ptrCast(*LineFragmentHeader, &subsect_info[line_index]);
-                    if (line_hdr.RelocSegment == 0) return error.MissingDebugInfo;
-                    std.debug.warn("{}\n", line_hdr);
-                    line_index += @sizeOf(LineFragmentHeader);
-
-                    const block_hdr = @ptrCast(*LineBlockFragmentHeader, &subsect_info[line_index]);
-                    std.debug.warn("{}\n", block_hdr);
-                    line_index += @sizeOf(LineBlockFragmentHeader);
-
-                    const has_column = line_hdr.Flags.LF_HaveColumns;
-                    std.debug.warn("has column: {}\n", has_column);
-
-                    const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
-                    const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
-                    if (address >= frag_vaddr_start and address < frag_vaddr_end) {
-                        std.debug.warn("found line listing\n");
-                        var line_i: usize = 0;
-                        const start_line_index = line_index;
-                        while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                            const line_num_entry = @ptrCast(*LineNumberEntry, &subsect_info[line_index]);
-                            line_index += @sizeOf(LineNumberEntry);
-                            const flags = @ptrCast(*LineNumberEntry.Flags, &line_num_entry.Flags);
-                            std.debug.warn("{} {}\n", line_num_entry, flags);
-                            const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                            const vaddr_end = if (flags.End == 0) frag_vaddr_end else vaddr_start + flags.End;
-                            std.debug.warn("test {x} <= {x} < {x}\n", vaddr_start, address, vaddr_end);
-                            if (address >= vaddr_start and address < vaddr_end) {
-                                std.debug.warn("{} line {}\n", block_hdr.NameIndex, flags.Start);
-                                if (has_column) {
-                                    line_index = start_line_index + @sizeOf(LineNumberEntry) * block_hdr.NumLines;
-                                    line_index += @sizeOf(ColumnNumberEntry) * line_i;
-                                    const col_num_entry = @ptrCast(*ColumnNumberEntry, &subsect_info[line_index]);
-                                    std.debug.warn("col {}\n", col_num_entry.StartColumn);
-                                }
-                                have_line_info = true;
-                                continue :subsections;
-                            }
-                        }
-                        return error.MissingDebugInfo;
-                    }
-
-                },
-                DebugSubsectionKind.FileChecksums => {
-                    var chksum_index: usize = sect_offset;
-
-                    while (chksum_index != subsect_info.len) {
-                        const chksum_hdr = @ptrCast(*FileChecksumEntryHeader, &subsect_info[chksum_index]);
-                        std.debug.warn("{}\n", chksum_hdr);
-                        const len = @sizeOf(FileChecksumEntryHeader) + chksum_hdr.ChecksumSize;
-                        chksum_index += len + (len % 4);
-                        if (chksum_index > subsect_info.len)
-                            return error.InvalidDebugInfo;
-                    }
-
-                },
-                else => {
-                    std.debug.warn("ignore subsection {}\n", @tagName(subsect_hdr.Kind));
-                },
-            }
-
-            if (sect_offset > subsect_info.len)
-                return error.InvalidDebugInfo;
-        }
-        std.debug.warn("end subsections\n");
     }
 };
 
@@ -687,13 +471,11 @@ const Msf = struct {
         );
 
         const stream_count = try self.directory.stream.readIntLe(u32);
-        warn("stream count {}\n", stream_count);
 
         const stream_sizes = try allocator.alloc(u32, stream_count);
         for (stream_sizes) |*s| {
             const size = try self.directory.stream.readIntLe(u32);
             s.* = blockCountFromSize(size, superblock.BlockSize);
-            warn("stream {}B {} blocks\n", size, s.*);
         }
 
         self.streams = try allocator.alloc(MsfStream, stream_count);
@@ -784,13 +566,10 @@ const MsfStream = struct {
         const in = &file_stream.stream;
         try file.seekTo(pos);
 
-        warn("stream with blocks");
         var i: u32 = 0;
         while (i < block_count) : (i += 1) {
             stream.blocks[i] = try in.readIntLe(u32);
-            warn(" {}", stream.blocks[i]);
         }
-        warn("\n");
 
         return stream;
     }
@@ -811,10 +590,6 @@ const MsfStream = struct {
         var block_id = self.pos / self.block_size;
         var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
-
-        //std.debug.warn("seek {} read {}B: block_id={} block={} offset={}\n",
-        //    block * self.block_size + offset,
-        //    buffer.len, block_id, block, offset);
 
         try self.in_file.seekTo(block * self.block_size + offset);
         var file_stream = io.FileInStream.init(self.in_file);
