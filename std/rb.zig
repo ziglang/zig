@@ -19,7 +19,7 @@ const ReplaceError = error{NotEqual};
 ///     node: rb.Node,
 ///     value: i32,
 /// };
-/// fn number(node: *Node) Number {
+/// fn number(node: *rb.Node) Number {
 ///     return @fieldParentPtr(Number, "node", node);
 /// }
 pub const Node = struct {
