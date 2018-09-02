@@ -28,7 +28,7 @@ const Module = struct {
     populated: bool,
     symbols: []u8,
     subsect_info: []u8,
-    checksums: []u32,
+    checksum_offset: ?usize,
 };
 
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
@@ -276,6 +276,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
 
     var coff_section: *coff.Section = undefined;
     const mod_index = for (di.sect_contribs) |sect_contrib| {
+        if (sect_contrib.Section >= di.coff.sections.len) continue;
         coff_section = &di.coff.sections.toSlice()[sect_contrib.Section];
 
         const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
@@ -326,72 +327,80 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
 
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
-    const opt_line_info = subsections: while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
-        const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &subsect_info[sect_offset]);
-        skip_len = subsect_hdr.Length;
-        sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
+    const opt_line_info = subsections: {
+        const checksum_offset = mod.checksum_offset orelse break :subsections null;
+        while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
+            const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &subsect_info[sect_offset]);
+            skip_len = subsect_hdr.Length;
+            sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
 
-        switch (subsect_hdr.Kind) {
-            pdb.DebugSubsectionKind.Lines => {
-                var line_index: usize = sect_offset;
+            switch (subsect_hdr.Kind) {
+                pdb.DebugSubsectionKind.Lines => {
+                    var line_index: usize = sect_offset;
 
-                const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
-                if (line_hdr.RelocSegment == 0) return error.MissingDebugInfo;
-                line_index += @sizeOf(pdb.LineFragmentHeader);
+                    const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
+                    if (line_hdr.RelocSegment == 0) return error.MissingDebugInfo;
+                    line_index += @sizeOf(pdb.LineFragmentHeader);
 
-                const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
-                line_index += @sizeOf(pdb.LineBlockFragmentHeader);
+                    const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
+                    line_index += @sizeOf(pdb.LineBlockFragmentHeader);
 
-                const has_column = line_hdr.Flags.LF_HaveColumns;
+                    const has_column = line_hdr.Flags.LF_HaveColumns;
 
-                const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
-                const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
-                if (relative_address >= frag_vaddr_start and relative_address < frag_vaddr_end) {
-                    var line_i: usize = 0;
-                    const start_line_index = line_index;
-                    while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                        const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
-                        line_index += @sizeOf(pdb.LineNumberEntry);
-                        const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
-                        const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                        const vaddr_end = if (flags.End == 0) frag_vaddr_end else vaddr_start + flags.End;
-                        if (relative_address >= vaddr_start and relative_address < vaddr_end) {
-                            const chksum_index = block_hdr.NameIndex;
-                            std.debug.warn("looking up checksum {}\n", chksum_index);
-                            const strtab_offset = mod.checksums[chksum_index];
-                            try di.pdb.string_table.seekTo(@sizeOf(pdb.PDBStringTableHeader) + strtab_offset);
-                            const source_file_name = try di.pdb.string_table.readNullTermString(allocator);
-                            const line = flags.Start;
-                            const column = if (has_column) blk: {
-                                line_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
-                                line_index += @sizeOf(pdb.ColumnNumberEntry) * line_i;
-                                const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[line_index]);
-                                break :blk col_num_entry.StartColumn;
-                            } else 0;
-                            break :subsections LineInfo{
-                                .allocator = allocator,
-                                .file_name = source_file_name,
-                                .line = line,
-                                .column = column,
-                            };
+                    const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
+                    const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
+                    if (relative_address >= frag_vaddr_start and relative_address < frag_vaddr_end) {
+                        var line_i: usize = 0;
+                        const start_line_index = line_index;
+                        while (line_i < block_hdr.NumLines) : (line_i += 1) {
+                            const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
+                            line_index += @sizeOf(pdb.LineNumberEntry);
+                            const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
+                            const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
+                            const vaddr_end = if (flags.End == 0) frag_vaddr_end else vaddr_start + flags.End;
+                            if (relative_address >= vaddr_start and relative_address < vaddr_end) {
+                                const subsect_index = checksum_offset + block_hdr.NameIndex;
+                                const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[subsect_index]);
+                                const strtab_offset = @sizeOf(pdb.PDBStringTableHeader) + chksum_hdr.FileNameOffset;
+                                try di.pdb.string_table.seekTo(strtab_offset);
+                                const source_file_name = try di.pdb.string_table.readNullTermString(allocator);
+                                const line = flags.Start;
+                                const column = if (has_column) blk: {
+                                    line_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
+                                    line_index += @sizeOf(pdb.ColumnNumberEntry) * line_i;
+                                    const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[line_index]);
+                                    break :blk col_num_entry.StartColumn;
+                                } else 0;
+                                break :subsections LineInfo{
+                                    .allocator = allocator,
+                                    .file_name = source_file_name,
+                                    .line = line,
+                                    .column = column,
+                                };
+                            }
                         }
+                        break :subsections null;
                     }
-                    break :subsections null;
-                }
-            },
-            else => {},
-        }
+                },
+                else => {},
+            }
 
-        if (sect_offset > subsect_info.len)
-            return error.InvalidDebugInfo;
-    } else null;
+            if (sect_offset > subsect_info.len)
+                return error.InvalidDebugInfo;
+        } else {
+            break :subsections null;
+        }
+    };
     
     if (tty_color) {
+        setTtyColor(TtyColor.White);
         if (opt_line_info) |li| {
-            try out_stream.print("{}:{}:{}: ", li.file_name, li.line, li.column);
+            try out_stream.print("{}:{}:{}", li.file_name, li.line, li.column);
         } else {
-            try out_stream.print("???:?:?: ");
+            try out_stream.print("???:?:?");
         }
+        setTtyColor(TtyColor.Reset);
+        try out_stream.print(": ");
         setTtyColor(TtyColor.Dim);
         try out_stream.print("0x{x} in {} ({})", relocated_address, symbol_name, obj_basename);
         setTtyColor(TtyColor.Reset);
@@ -470,8 +479,7 @@ fn setTtyColor(tty_color: TtyColor) void {
                 windows.FOREGROUND_RED|windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE|windows.FOREGROUND_INTENSITY);
         },
         TtyColor.Dim => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle,
-                windows.FOREGROUND_RED|windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
         },
         TtyColor.Reset => {
             _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
@@ -502,7 +510,6 @@ fn populateModule(di: *DebugInfo, mod: *Module) !void {
     mod.subsect_info = try allocator.alloc(u8, mod.mod_info.C13ByteSize);
     try modi.stream.readNoEof(mod.subsect_info);
 
-    var checksum_list = ArrayList(u32).init(allocator);
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
     while (sect_offset != mod.subsect_info.len) : (sect_offset += skip_len) {
@@ -512,31 +519,14 @@ fn populateModule(di: *DebugInfo, mod: *Module) !void {
 
         switch (subsect_hdr.Kind) {
             pdb.DebugSubsectionKind.FileChecksums => {
-                var chksum_index: usize = sect_offset;
-
-                while (chksum_index != mod.subsect_info.len) {
-                    const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[chksum_index]);
-                    std.debug.warn("{} {}\n", checksum_list.len, chksum_hdr);
-                    try checksum_list.append(chksum_hdr.FileNameOffset);
-                    const len = @sizeOf(pdb.FileChecksumEntryHeader) + chksum_hdr.ChecksumSize;
-                    chksum_index += len + (len % 4);
-                    if (chksum_index > mod.subsect_info.len)
-                        return error.InvalidDebugInfo;
-                }
-
+                mod.checksum_offset = sect_offset;
+                break;
             },
             else => {},
         }
 
         if (sect_offset > mod.subsect_info.len)
             return error.InvalidDebugInfo;
-    }
-    mod.checksums = checksum_list.toOwnedSlice();
-
-    for (mod.checksums) |strtab_offset| {
-        try di.pdb.string_table.seekTo(@sizeOf(pdb.PDBStringTableHeader) + strtab_offset);
-        const source_file_name = try di.pdb.string_table.readNullTermString(allocator);
-        std.debug.warn("{}={}\n", strtab_offset, source_file_name);
     }
 
     mod.populated = true;
@@ -807,7 +797,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
             .populated = false,
             .symbols = undefined,
             .subsect_info = undefined,
-            .checksums = undefined,
+            .checksum_offset = null,
         });
 
         mod_info_offset += this_record_len;
