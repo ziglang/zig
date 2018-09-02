@@ -352,7 +352,7 @@ pub fn formatText(
             return formatBuf(bytes, width, context, Errors, output);
         } else if ((fmt[0] == 'x') or (fmt[0] == 'X') ) {
             for (bytes) |c| {
-                try formatInt(c, 16, fmt[0] == 'X', 0, context, Errors, output);
+                try formatInt(c, 16, fmt[0] == 'X', 2, context, Errors, output);
             }
             return;
         } else @compileError("Unknown format character: " ++ []u8{fmt[0]});
