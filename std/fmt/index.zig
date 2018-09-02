@@ -1281,6 +1281,8 @@ test "fmt.format" {
         const some_bytes = "\xCA\xFE\xBA\xBE";
         try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", some_bytes);
         try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", some_bytes);
+        const bytes_with_zeros = "\x00\xFE\xBA\xBE";
+        try testFmt("lowercase: 00febabe\n", "lowercase: {x}\n", bytes_with_zeros);
     }
 }
 
