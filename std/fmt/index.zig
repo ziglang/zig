@@ -1331,3 +1331,23 @@ pub fn isWhiteSpace(byte: u8) bool {
         else => false,
     };
 }
+
+// depends on https://github.com/ziglang/zig/pull/1454
+pub fn hexToBytes(input: []const u8, out: []u8) !void {
+  if (out.len * 2 < input.len)
+    return error.InvalidLength;
+
+  var i: usize = 0;
+  while (i < input.len) : (i += 2) {
+    out[i/2]  = (try charToDigit(input[i], 36)) << 4;
+    out[i/2] +=  try charToDigit(input[i+1], 36);
+  }
+}
+
+test "fmt.hexToBytes" {
+  const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
+  var pb: [32]u8 = undefined;
+  try hexToBytes(test_hex_str, pb[0..]);
+  try testFmt(test_hex_str, "{X}", pb);
+}
+
