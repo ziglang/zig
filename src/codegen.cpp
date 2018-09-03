@@ -3101,6 +3101,12 @@ static void gen_set_stack_pointer(CodeGen *g, LLVMValueRef aligned_end_addr) {
     LLVMBuildCall(g->builder, write_register_fn_val, params, 2, "");
 }
 
+static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
+    unsigned attr_kind_id = LLVMGetEnumAttributeKindForName("sret", 4);
+    LLVMAttributeRef sret_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), attr_kind_id, 1);
+    LLVMAddCallSiteAttribute(call_instr, 1, sret_attr);
+}
+
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
     LLVMValueRef fn_val;
     TypeTableEntry *fn_type;
@@ -3196,6 +3202,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (!ret_has_bits) {
         return nullptr;
     } else if (first_arg_ret) {
+        set_call_instr_sret(g, result);
         return instruction->tmp_ptr;
     } else if (handle_is_ptr(src_return_type)) {
         auto store_instr = LLVMBuildStore(g->builder, result, instruction->tmp_ptr);
@@ -4662,8 +4669,9 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     args.append(allocator_val);
     args.append(coro_size);
     args.append(alignment_val);
-    ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length,
+    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+    set_call_instr_sret(g, call_instruction);
     LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_err_index, "");
     LLVMValueRef err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
     LLVMBuildStore(g->builder, err_val, err_code_ptr);
