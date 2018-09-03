@@ -3186,7 +3186,11 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
             {
                 IrInstruction *return_value;
                 if (expr_node) {
+                    // Temporarily set this so that if we return a type it gets the name of the function
+                    FnTableEntry *prev_name_fn = irb->exec->name_fn;
+                    irb->exec->name_fn = exec_fn_entry(irb->exec);
                     return_value = ir_gen_node(irb, expr_node, scope);
+                    irb->exec->name_fn = prev_name_fn;
                     if (return_value == irb->codegen->invalid_instruction)
                         return irb->codegen->invalid_instruction;
                 } else {
@@ -6481,20 +6485,17 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
 static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name, AstNode *source_node) {
     if (exec->name) {
         return exec->name;
+    } else if (exec->name_fn != nullptr) {
+        Buf *name = buf_alloc();
+        buf_append_buf(name, &exec->name_fn->symbol_name);
+        buf_appendf(name, "(");
+        render_instance_name_recursive(codegen, name, &exec->name_fn->fndef_scope->base, exec->begin_scope);
+        buf_appendf(name, ")");
+        return name;
     } else {
-        FnTableEntry *fn_entry = exec_fn_entry(exec);
-        if (fn_entry) {
-            Buf *name = buf_alloc();
-            buf_append_buf(name, &fn_entry->symbol_name);
-            buf_appendf(name, "(");
-            render_instance_name_recursive(codegen, name, &fn_entry->fndef_scope->base, exec->begin_scope);
-            buf_appendf(name, ")");
-            return name;
-        } else {
-            //Note: C-imports do not have valid location information
-            return buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", kind_name,
-                (source_node->owner->path != nullptr) ? buf_ptr(source_node->owner->path) : "(null)", source_node->line + 1, source_node->column + 1);
-        }
+        //Note: C-imports do not have valid location information
+        return buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", kind_name,
+            (source_node->owner->path != nullptr) ? buf_ptr(source_node->owner->path) : "(null)", source_node->line + 1, source_node->column + 1);
     }
 }
 

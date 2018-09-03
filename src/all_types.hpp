@@ -43,6 +43,7 @@ struct IrAnalyze;
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     Buf *name;
+    FnTableEntry *name_fn;
     size_t mem_slot_count;
     size_t next_debug_id;
     size_t *backward_branch_count;

@@ -1918,6 +1918,32 @@ test "linked list" {
     assert(list2.first.?.data == 1234);
 }
       {#code_end#}
+      {#header_open|struct naming#}
+      <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
+      <ul>
+          <li>If the struct is in the initialization expression of a variable, it gets named after
+          that variable.</li>
+          <li>If the struct is in the <code>return</code> expression, it gets named after
+          the function it is returning from, with the parameter values serialized.</li>
+          <li>Otherwise, the struct gets a same such as <code>(anonymous struct at file.zig:7:38)</code>.</li>
+      </ul>
+      {#code_begin|exe|struct_name#}
+const std = @import("std");
+
+pub fn main() void {
+    const Foo = struct {};
+    std.debug.warn("variable: {}\n", @typeName(Foo));
+    std.debug.warn("anonymous: {}\n", @typeName(struct {}));
+    std.debug.warn("function: {}\n", @typeName(List(i32)));
+}
+
+fn List(comptime T: type) type {
+    return struct {
+        x: T,
+    };
+}
+      {#code_end#}
+      {#header_close#}
       {#see_also|comptime|@fieldParentPtr#}
       {#header_close#}
       {#header_open|enum#}
