@@ -6693,7 +6693,10 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
                 return irb->codegen->invalid_instruction;
         }
     } else {
-        return_type = nullptr;
+        add_node_error(irb->codegen, node,
+            buf_sprintf("TODO implement inferred return types https://github.com/ziglang/zig/issues/447"));
+        return irb->codegen->invalid_instruction;
+        //return_type = nullptr;
     }
 
     IrInstruction *async_allocator_type_value = nullptr;
