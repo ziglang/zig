@@ -43,3 +43,19 @@ uint32_t ptr_hash(const void *ptr) {
 bool ptr_eq(const void *a, const void *b) {
     return a == b;
 }
+
+size_t levenshtein(const char *s, size_t ls, const char *t, size_t lt) {
+    size_t a, b, c;
+    if (!ls) return lt;
+    if (!lt) return ls;
+    if (s[ls] == t[ls]) return levenshtein(s, ls - 1, t, lt - 1);
+
+    a = levenshtein(s, ls - 1, t, lt - 1);
+    b = levenshtein(s, ls,     t, lt - 1);
+    c = levenshtein(s, ls - 1, t, lt    );
+
+    if (a > b) a = b;
+    if (a > c) a = c;
+
+    return a + 1;
+}
