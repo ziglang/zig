@@ -25,7 +25,7 @@ pub const Mutex = struct {
                 if (builtin.os == builtin.Os.linux) {
                     _ = linux.futex_wake(@ptrToInt(&self.mutex.lock), linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, 1);
                 } else {
-                    @compileError("not implemented");
+                    // spin-lock
                 }
             }
         }
@@ -48,7 +48,7 @@ pub const Mutex = struct {
                     if (builtin.os == builtin.Os.linux) {
                         _ = linux.futex_wait(@ptrToInt(&self.lock), linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, 2, null);
                     } else {
-                        @compileError("not implemented");
+                        // spin-lock
                     }
                 }
                 if (@cmpxchgWeak(u32, &self.lock, 0, 2, AtomicOrder.Acquire, AtomicOrder.Monotonic)) |value2| {
