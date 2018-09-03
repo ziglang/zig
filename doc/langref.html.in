@@ -566,7 +566,7 @@ const c_string_literal =
       {#header_close#}
       {#header_close#}
       {#header_open|Assignment#}
-      <p>Use <code>const</code> to assign a value to an identifier:</p>
+      <p>Use the <code>const</code> keyword to assign a value to an identifier:</p>
       {#code_begin|test_err|cannot assign to constant#}
 const x = 1234;
 
@@ -582,7 +582,8 @@ test "assignment" {
     foo();
 }
       {#code_end#}
-      <p>If you need a variable that you can modify, use <code>var</code>:</p>
+      <p><code>const</code> applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
+      <p>If you need a variable that you can modify, use the <code>var</code> keyword:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
@@ -1918,7 +1919,7 @@ test "linked list" {
     assert(list2.first.?.data == 1234);
 }
       {#code_end#}
-      {#header_open|struct naming#}
+      {#header_open|struct Naming#}
       <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
       <ul>
           <li>If the struct is in the initialization expression of a variable, it gets named after
