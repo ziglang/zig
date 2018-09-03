@@ -6,8 +6,6 @@ pub use @import("kernel32.zig");
 pub use @import("ntdll.zig");
 pub use @import("ole32.zig");
 pub use @import("shell32.zig");
-pub use @import("shlwapi.zig");
-pub use @import("user32.zig");
 
 test "import" {
     _ = @import("util.zig");
@@ -174,11 +172,11 @@ pub const PROCESS_INFORMATION = extern struct {
     dwThreadId: DWORD,
 };
 
-pub const STARTUPINFOA = extern struct {
+pub const STARTUPINFOW = extern struct {
     cb: DWORD,
-    lpReserved: ?LPSTR,
-    lpDesktop: ?LPSTR,
-    lpTitle: ?LPSTR,
+    lpReserved: ?LPWSTR,
+    lpDesktop: ?LPWSTR,
+    lpTitle: ?LPWSTR,
     dwX: DWORD,
     dwY: DWORD,
     dwXSize: DWORD,
@@ -238,7 +236,7 @@ pub const HEAP_NO_SERIALIZE = 0x00000001;
 pub const PTHREAD_START_ROUTINE = extern fn (LPVOID) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
-pub const WIN32_FIND_DATAA = extern struct {
+pub const WIN32_FIND_DATAW = extern struct {
     dwFileAttributes: DWORD,
     ftCreationTime: FILETIME,
     ftLastAccessTime: FILETIME,
@@ -247,8 +245,8 @@ pub const WIN32_FIND_DATAA = extern struct {
     nFileSizeLow: DWORD,
     dwReserved0: DWORD,
     dwReserved1: DWORD,
-    cFileName: [260]CHAR,
-    cAlternateFileName: [14]CHAR,
+    cFileName: [260]u16,
+    cAlternateFileName: [14]u16,
 };
 
 pub const FILETIME = extern struct {
@@ -377,3 +375,5 @@ pub const COORD = extern struct {
     X: SHORT,
     Y: SHORT,
 };
+
+pub const CREATE_UNICODE_ENVIRONMENT = 1024;

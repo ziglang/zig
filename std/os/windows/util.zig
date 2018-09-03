@@ -1,6 +1,7 @@
 const std = @import("../../index.zig");
 const builtin = @import("builtin");
 const os = std.os;
+const unicode = std.unicode;
 const windows = std.os.windows;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -156,41 +157,51 @@ pub fn windowsOpen(
 }
 
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) ![]u8 {
+pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) ![]u16 {
     // count bytes needed
-    const bytes_needed = x: {
-        var bytes_needed: usize = 1; // 1 for the final null byte
+    const max_chars_needed = x: {
+        var max_chars_needed: usize = 1; // 1 for the final null byte
         var it = env_map.iterator();
         while (it.next()) |pair| {
             // +1 for '='
             // +1 for null byte
-            bytes_needed += pair.key.len + pair.value.len + 2;
+            max_chars_needed += pair.key.len + pair.value.len + 2;
         }
-        break :x bytes_needed;
+        break :x max_chars_needed;
     };
-    const result = try allocator.alloc(u8, bytes_needed);
+    const result = try allocator.alloc(u16, max_chars_needed);
     errdefer allocator.free(result);
 
     var it = env_map.iterator();
     var i: usize = 0;
     while (it.next()) |pair| {
-        mem.copy(u8, result[i..], pair.key);
-        i += pair.key.len;
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.key);
         result[i] = '=';
         i += 1;
-        mem.copy(u8, result[i..], pair.value);
-        i += pair.value.len;
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.value);
         result[i] = 0;
         i += 1;
     }
     result[i] = 0;
-    return result;
+    i += 1;
+    return allocator.shrink(u16, result, i);
 }
 
-pub fn windowsLoadDll(allocator: *mem.Allocator, dll_path: []const u8) !windows.HMODULE {
-    const padded_buff = try cstr.addNullByte(allocator, dll_path);
-    defer allocator.free(padded_buff);
-    return windows.LoadLibraryA(padded_buff.ptr) orelse error.DllNotFound;
+pub fn windowsLoadDllW(dll_path_w: [*]const u16) !windows.HMODULE {
+    return windows.LoadLibraryW(dll_path_w) orelse {
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
+            else => return os.unexpectedErrorWindows(err),
+        }
+    };
+}
+
+pub fn windowsLoadDll(dll_path: []const u8) !windows.HMODULE {
+    const dll_path_w = try sliceToPrefixedFileW(dll_path);
+    return windowsLoadDllW(&dll_path_w);
 }
 
 pub fn windowsUnloadDll(hModule: windows.HMODULE) void {
@@ -200,27 +211,19 @@ pub fn windowsUnloadDll(hModule: windows.HMODULE) void {
 test "InvalidDll" {
     if (builtin.os != builtin.Os.windows) return error.SkipZigTest;
 
-    const DllName = "asdf.dll";
-    const allocator = std.debug.global_allocator;
-    const handle = os.windowsLoadDll(allocator, DllName) catch |err| {
-        assert(err == error.DllNotFound);
+    const handle = os.windowsLoadDll("asdf.dll") catch |err| {
+        assert(err == error.FileNotFound);
         return;
     };
+    @panic("Expected error from function");
 }
 
 pub fn windowsFindFirstFile(
-    allocator: *mem.Allocator,
     dir_path: []const u8,
-    find_file_data: *windows.WIN32_FIND_DATAA,
+    find_file_data: *windows.WIN32_FIND_DATAW,
 ) !windows.HANDLE {
-    const wild_and_null = []u8{ '\\', '*', 0 };
-    const path_with_wild_and_null = try allocator.alloc(u8, dir_path.len + wild_and_null.len);
-    defer allocator.free(path_with_wild_and_null);
-
-    mem.copy(u8, path_with_wild_and_null, dir_path);
-    mem.copy(u8, path_with_wild_and_null[dir_path.len..], wild_and_null);
-
-    const handle = windows.FindFirstFileA(path_with_wild_and_null.ptr, find_file_data);
+    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, []u16{'\\', '*', 0});
+    const handle = windows.FindFirstFileW(&dir_path_w, find_file_data);
 
     if (handle == windows.INVALID_HANDLE_VALUE) {
         const err = windows.GetLastError();
@@ -235,8 +238,8 @@ pub fn windowsFindFirstFile(
 }
 
 /// Returns `true` if there was another file, `false` otherwise.
-pub fn windowsFindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN32_FIND_DATAA) !bool {
-    if (windows.FindNextFileA(handle, find_file_data) == 0) {
+pub fn windowsFindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN32_FIND_DATAW) !bool {
+    if (windows.FindNextFileW(handle, find_file_data) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.NO_MORE_FILES => false,
@@ -297,8 +300,12 @@ pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
 }
 
 pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
+    return sliceToPrefixedSuffixedFileW(s, []u16{0});
+}
+
+pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
     // TODO well defined copy elision
-    var result: [PATH_MAX_WIDE + 1]u16 = undefined;
+    var result: [PATH_MAX_WIDE + suffix.len]u16 = undefined;
 
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
@@ -306,11 +313,12 @@ pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
     // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
     // Because we want the larger maximum path length for absolute paths, we
     // disallow forward slashes in zig std lib file functions on Windows.
-    for (s) |byte|
+    for (s) |byte| {
         switch (byte) {
-        '/', '*', '?', '"', '<', '>', '|' => return error.BadPathName,
-        else => {},
-    };
+            '/', '*', '?', '"', '<', '>', '|' => return error.BadPathName,
+            else => {},
+        }
+    }
     const start_index = if (mem.startsWith(u8, s, "\\\\") or !os.path.isAbsolute(s)) 0 else blk: {
         const prefix = []u16{ '\\', '\\', '?', '\\' };
         mem.copy(u16, result[0..], prefix);
@@ -318,7 +326,7 @@ pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
     };
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
     assert(end_index <= result.len);
-    if (end_index == result.len) return error.NameTooLong;
-    result[end_index] = 0;
+    if (end_index + suffix.len > result.len) return error.NameTooLong;
+    mem.copy(u16, result[end_index..], suffix);
     return result;
 }
