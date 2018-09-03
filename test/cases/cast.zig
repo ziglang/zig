@@ -519,3 +519,9 @@ fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
         @ptrCast([*]u8, array.?)[n] += 1;
     }
 }
+
+test "*usize to *void" {
+    var i = usize(0);
+    var v = @ptrCast(*void, &i);
+    v.* = {};
+}

@@ -2655,6 +2655,9 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
         IrInstructionPtrCast *instruction)
 {
     TypeTableEntry *wanted_type = instruction->base.value.type;
+    if (!type_has_bits(wanted_type)) {
+        return nullptr;
+    }
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     return LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
 }

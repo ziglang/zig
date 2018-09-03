@@ -19757,6 +19757,8 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
 }
 
 static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtrCast *instruction) {
+    Error err;
+
     IrInstruction *dest_type_value = instruction->dest_type->other;
     TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
     if (type_is_invalid(dest_type))
@@ -19810,9 +19812,13 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
             instruction->base.source_node, nullptr, ptr);
     casted_ptr->value.type = dest_type;
 
-    // keep the bigger alignment, it can only help
+    // Keep the bigger alignment, it can only help-
+    // unless the target is zero bits.
+    if ((err = type_ensure_zero_bits_known(ira->codegen, dest_type)))
+        return ira->codegen->builtin_types.entry_invalid;
+
     IrInstruction *result;
-    if (src_align_bytes > dest_align_bytes) {
+    if (src_align_bytes > dest_align_bytes && type_has_bits(dest_type)) {
         result = ir_align_cast(ira, casted_ptr, src_align_bytes, false);
         if (type_is_invalid(result->value.type))
             return ira->codegen->builtin_types.entry_invalid;
