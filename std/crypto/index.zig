@@ -32,13 +32,13 @@ pub const Poly1305 = @import("poly1305.zig").Poly1305;
 pub const X25519 = @import("x25519.zig").X25519;
 
 test "crypto" {
+    _ = @import("blake2.zig");
+    _ = @import("chacha20.zig");
+    _ = @import("hmac.zig");
     _ = @import("md5.zig");
+    _ = @import("poly1305.zig");
     _ = @import("sha1.zig");
     _ = @import("sha2.zig");
     _ = @import("sha3.zig");
-    _ = @import("blake2.zig");
-    _ = @import("hmac.zig");
-    _ = @import("chacha20.zig");
-    _ = @import("poly1305.zig");
     _ = @import("x25519.zig");
 }

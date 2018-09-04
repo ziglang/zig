@@ -26,7 +26,7 @@ pub const Poly1305 = struct {
     // How many bytes are there in the chunk.
     c_idx: usize,
 
-    fn secure_zero(self: *Poly1305) void {
+    fn secureZero(self: *Self) void {
         std.mem.secureZero(u8, @ptrCast([*]u8, self)[0..@sizeOf(Poly1305)]);
     }
 
@@ -53,7 +53,7 @@ pub const Poly1305 = struct {
         }
         // add 2^130 to every input block
         ctx.c[4] = 1;
-        poly_clear_c(&ctx);
+        polyClearC(&ctx);
 
         // load r and pad (r has some of its bits cleared)
         {
@@ -85,7 +85,7 @@ pub const Poly1305 = struct {
     //   ctx->r <=   0ffffffc_0ffffffc_0ffffffc_0fffffff
     // Postcondition:
     //   ctx->h <= 4_ffffffff_ffffffff_ffffffff_ffffffff
-    fn poly_block(ctx: *Poly1305) void {
+    fn polyBlock(ctx: *Self) void {
         // s = h + c, without carry propagation
         const s0 = u64(ctx.h[0]) + ctx.c[0]; // s0 <= 1_fffffffe
         const s1 = u64(ctx.h[1]) + ctx.c[1]; // s1 <= 1_fffffffe
@@ -127,7 +127,7 @@ pub const Poly1305 = struct {
     }
 
     // (re-)initializes the input counter and input buffer
-    fn poly_clear_c(ctx: *Poly1305) void {
+    fn polyClearC(ctx: *Self) void {
         ctx.c[0] = 0;
         ctx.c[1] = 0;
         ctx.c[2] = 0;
@@ -135,32 +135,32 @@ pub const Poly1305 = struct {
         ctx.c_idx = 0;
     }
 
-    fn poly_take_input(ctx: *Poly1305, input: u8) void {
+    fn polyTakeInput(ctx: *Self, input: u8) void {
         const word = ctx.c_idx >> 2;
         const byte = ctx.c_idx & 3;
         ctx.c[word] |= std.math.shl(u32, input, byte * 8);
         ctx.c_idx += 1;
     }
 
-    fn poly_update(ctx: *Poly1305, msg: []const u8) void {
+    fn polyUpdate(ctx: *Self, msg: []const u8) void {
         for (msg) |b| {
-            poly_take_input(ctx, b);
+            polyTakeInput(ctx, b);
             if (ctx.c_idx == 16) {
-                poly_block(ctx);
-                poly_clear_c(ctx);
+                polyBlock(ctx);
+                polyClearC(ctx);
             }
         }
     }
 
-    inline fn alignto(x: usize, block_size: usize) usize {
+    fn alignTo(x: usize, block_size: usize) usize {
         return ((~x) +% 1) & (block_size - 1);
     }
 
     // Feed data into the MAC context.
     pub fn update(ctx: *Self, msg: []const u8) void {
         // Align ourselves with block boundaries
-        const alignm = std.math.min(alignto(ctx.c_idx, 16), msg.len);
-        poly_update(ctx, msg[0..alignm]);
+        const alignm = std.math.min(alignTo(ctx.c_idx, 16), msg.len);
+        polyUpdate(ctx, msg[0..alignm]);
 
         var nmsg = msg[alignm..];
 
@@ -172,15 +172,15 @@ pub const Poly1305 = struct {
             ctx.c[1] = readInt(nmsg[4..8], u32, Endian.Little);
             ctx.c[2] = readInt(nmsg[8..12], u32, Endian.Little);
             ctx.c[3] = readInt(nmsg[12..16], u32, Endian.Little);
-            poly_block(ctx);
+            polyBlock(ctx);
             nmsg = nmsg[16..];
         }
         if (nb_blocks > 0) {
-            poly_clear_c(ctx);
+            polyClearC(ctx);
         }
 
         // remaining bytes
-        poly_update(ctx, nmsg[0..]);
+        polyUpdate(ctx, nmsg[0..]);
     }
 
     // Finalize the MAC and output into buffer provided by caller.
@@ -190,9 +190,9 @@ pub const Poly1305 = struct {
             // move the final 1 according to remaining input length
             // (We may add less than 2^130 to the last input block)
             ctx.c[4] = 0;
-            poly_take_input(ctx, 1);
+            polyTakeInput(ctx, 1);
             // one last hash update
-            poly_block(ctx);
+            polyBlock(ctx);
         }
 
         // check if we should subtract 2^130-5 by performing the
@@ -215,7 +215,7 @@ pub const Poly1305 = struct {
         writeInt(out[8..], @truncate(u32, uu2), Endian.Little);
         writeInt(out[12..], @truncate(u32, uu3), Endian.Little);
 
-        ctx.secure_zero();
+        ctx.secureZero();
     }
 };
 

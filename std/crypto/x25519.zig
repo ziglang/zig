@@ -14,13 +14,13 @@ pub const X25519 = struct {
     pub const secret_length = 32;
     pub const minimum_key_length = 32;
 
-    fn trim_scalar(s: []u8) void {
+    fn trimScalar(s: []u8) void {
         s[0] &= 248;
         s[31] &= 127;
         s[31] |= 64;
     }
 
-    fn scalar_bit(s: []const u8, i: usize) i32 {
+    fn scalarBit(s: []const u8, i: usize) i32 {
         return (s[i >> 3] >> @intCast(u3, i & 7)) & 1;
     }
 
@@ -30,7 +30,6 @@ pub const X25519 = struct {
         std.debug.assert(public_key.len >= minimum_key_length);
 
         var storage: [7]Fe = undefined;
-
         var x1 = &storage[0];
         var x2 = &storage[1];
         var z2 = &storage[2];
@@ -40,74 +39,74 @@ pub const X25519 = struct {
         var t1 = &storage[6];
 
         // computes the scalar product
-        fe_frombytes(x1, public_key);
+        Fe.fromBytes(x1, public_key);
 
         // restrict the possible scalar values
         var e: [32]u8 = undefined;
         for (e[0..]) |_, i| {
             e[i] = private_key[i];
         }
-        trim_scalar(e[0..]);
+        trimScalar(e[0..]);
 
         // computes the actual scalar product (the result is in x2 and z2)
 
         // Montgomery ladder
         // In projective coordinates, to avoid divisons: x = X / Z
         // We don't care about the y coordinate, it's only 1 bit of information
-        fe_1(x2);
-        fe_0(z2); // "zero" point
-        fe_copy(x3, x1);
-        fe_1(z3);
+        Fe.init1(x2);
+        Fe.init0(z2); // "zero" point
+        Fe.copy(x3, x1);
+        Fe.init1(z3);
 
         var swap: i32 = 0;
         var pos: isize = 254;
         while (pos >= 0) : (pos -= 1) {
             // constant time conditional swap before ladder step
-            const b = scalar_bit(e, @intCast(usize, pos));
+            const b = scalarBit(e, @intCast(usize, pos));
             swap ^= b; // xor trick avoids swapping at the end of the loop
-            fe_cswap(x2, x3, swap);
-            fe_cswap(z2, z3, swap);
+            Fe.cswap(x2, x3, swap);
+            Fe.cswap(z2, z3, swap);
             swap = b; // anticipates one last swap after the loop
 
             // Montgomery ladder step: replaces (P2, P3) by (P2*2, P2+P3)
             // with differential addition
-            fe_sub(t0, x3, z3);
-            fe_sub(t1, x2, z2);
-            fe_add(x2, x2, z2);
-            fe_add(z2, x3, z3);
-            fe_mul(z3, t0, x2);
-            fe_mul(z2, z2, t1);
-            fe_sq(t0, t1);
-            fe_sq(t1, x2);
-            fe_add(x3, z3, z2);
-            fe_sub(z2, z3, z2);
-            fe_mul(x2, t1, t0);
-            fe_sub(t1, t1, t0);
-            fe_sq(z2, z2);
-            fe_mul121666(z3, t1);
-            fe_sq(x3, x3);
-            fe_add(t0, t0, z3);
-            fe_mul(z3, x1, z2);
-            fe_mul(z2, t1, t0);
+            Fe.sub(t0, x3, z3);
+            Fe.sub(t1, x2, z2);
+            Fe.add(x2, x2, z2);
+            Fe.add(z2, x3, z3);
+            Fe.mul(z3, t0, x2);
+            Fe.mul(z2, z2, t1);
+            Fe.sq(t0, t1);
+            Fe.sq(t1, x2);
+            Fe.add(x3, z3, z2);
+            Fe.sub(z2, z3, z2);
+            Fe.mul(x2, t1, t0);
+            Fe.sub(t1, t1, t0);
+            Fe.sq(z2, z2);
+            Fe.mulSmall(z3, t1, 121666);
+            Fe.sq(x3, x3);
+            Fe.add(t0, t0, z3);
+            Fe.mul(z3, x1, z2);
+            Fe.mul(z2, t1, t0);
         }
 
         // last swap is necessary to compensate for the xor trick
         // Note: after this swap, P3 == P2 + P1.
-        fe_cswap(x2, x3, swap);
-        fe_cswap(z2, z3, swap);
+        Fe.cswap(x2, x3, swap);
+        Fe.cswap(z2, z3, swap);
 
         // normalises the coordinates: x == X / Z
-        fe_invert(z2, z2);
-        fe_mul(x2, x2, z2);
-        fe_tobytes(out, x2);
+        Fe.invert(z2, z2);
+        Fe.mul(x2, x2, z2);
+        Fe.toBytes(out, x2);
 
-        x1.secure_zero();
-        x2.secure_zero();
-        x3.secure_zero();
-        t0.secure_zero();
-        t1.secure_zero();
-        z2.secure_zero();
-        z3.secure_zero();
+        x1.secureZero();
+        x2.secureZero();
+        x3.secureZero();
+        t0.secureZero();
+        t1.secureZero();
+        z2.secureZero();
+        z3.secureZero();
         std.mem.secureZero(u8, e[0..]);
 
         // Returns false if the output is all zero
@@ -140,448 +139,439 @@ fn zerocmp(comptime T: type, a: []const T) bool {
 const Fe = struct {
     b: [10]i32,
 
-    fn secure_zero(self: *Fe) void {
+    fn secureZero(self: *Fe) void {
         std.mem.secureZero(u8, @ptrCast([*]u8, self)[0..@sizeOf(Fe)]);
     }
-};
 
-fn fe_0(h: *Fe) void {
-    for (h.b) |*e| {
-        e.* = 0;
-    }
-}
-
-fn fe_1(h: *Fe) void {
-    for (h.b[1..]) |*e| {
-        e.* = 0;
-    }
-    h.b[0] = 1;
-}
-
-fn fe_copy(h: *Fe, f: *const Fe) void {
-    for (h.b) |_, i| {
-        h.b[i] = f.b[i];
-    }
-}
-
-fn fe_neg(h: *Fe, f: *const Fe) void {
-    for (h.b) |_, i| {
-        h.b[i] = -f.b[i];
-    }
-}
-
-fn fe_add(h: *Fe, f: *const Fe, g: *const Fe) void {
-    for (h.b) |_, i| {
-        h.b[i] = f.b[i] + g.b[i];
-    }
-}
-
-fn fe_sub(h: *Fe, f: *const Fe, g: *const Fe) void {
-    for (h.b) |_, i| {
-        h.b[i] = f.b[i] - g.b[i];
-    }
-}
-
-fn fe_cswap(f: *Fe, g: *Fe, b: i32) void {
-    for (f.b) |_, i| {
-        const x = (f.b[i] ^ g.b[i]) & -b;
-        f.b[i] ^= x;
-        g.b[i] ^= x;
-    }
-}
-
-fn fe_ccopy(f: *Fe, g: *const Fe, b: i32) void {
-    for (f.b) |_, i| {
-        const x = (f.b[i] ^ g.b[i]) & -b;
-        f.b[i] ^= x;
-    }
-}
-
-inline fn carryround(c: []i64, t: []i64, comptime i: comptime_int, comptime shift: comptime_int, comptime mult: comptime_int) void {
-    const j = (i + 1) % 10;
-
-    c[i] = (t[i] + (i64(1) << shift)) >> (shift + 1);
-    t[j] += c[i] * mult;
-    t[i] -= c[i] * (i64(1) << (shift + 1));
-}
-
-fn feCarry1(h: *Fe, t: []i64) void {
-    var c: [10]i64 = undefined;
-
-    var sc = c[0..];
-    var st = t[0..];
-
-    carryround(sc, st, 9, 24, 19);
-    carryround(sc, st, 1, 24, 1);
-    carryround(sc, st, 3, 24, 1);
-    carryround(sc, st, 5, 24, 1);
-    carryround(sc, st, 7, 24, 1);
-    carryround(sc, st, 0, 25, 1);
-    carryround(sc, st, 2, 25, 1);
-    carryround(sc, st, 4, 25, 1);
-    carryround(sc, st, 6, 25, 1);
-    carryround(sc, st, 8, 25, 1);
-
-    for (h.b) |_, i| {
-        h.b[i] = @intCast(i32, t[i]);
-    }
-}
-
-fn feCarry2(h: *Fe, t: []i64) void {
-    var c: [10]i64 = undefined;
-
-    var sc = c[0..];
-    var st = t[0..];
-
-    carryround(sc, st, 0, 25, 1);
-    carryround(sc, st, 4, 25, 1);
-    carryround(sc, st, 1, 24, 1);
-    carryround(sc, st, 5, 24, 1);
-    carryround(sc, st, 2, 25, 1);
-    carryround(sc, st, 6, 25, 1);
-    carryround(sc, st, 3, 24, 1);
-    carryround(sc, st, 7, 24, 1);
-    carryround(sc, st, 4, 25, 1);
-    carryround(sc, st, 8, 25, 1);
-    carryround(sc, st, 9, 24, 19);
-    carryround(sc, st, 0, 25, 1);
-
-    for (h.b) |_, i| {
-        h.b[i] = @intCast(i32, t[i]);
-    }
-}
-
-// TODO: Use readInt(u24) but double check alignment since currently it produces different values.
-fn load24_le(s: []const u8) u32 {
-    return s[0] | (u32(s[1]) << 8) | (u32(s[2]) << 16);
-}
-
-fn fe_frombytes(h: *Fe, s: []const u8) void {
-    std.debug.assert(s.len >= 32);
-
-    var t: [10]i64 = undefined;
-
-    t[0] = readInt(s[0..4], u32, Endian.Little);
-    t[1] = load24_le(s[4..7]) << 6;
-    t[2] = load24_le(s[7..10]) << 5;
-    t[3] = load24_le(s[10..13]) << 3;
-    t[4] = load24_le(s[13..16]) << 2;
-    t[5] = readInt(s[16..20], u32, Endian.Little);
-    t[6] = load24_le(s[20..23]) << 7;
-    t[7] = load24_le(s[23..26]) << 5;
-    t[8] = load24_le(s[26..29]) << 4;
-    t[9] = (load24_le(s[29..32]) & 0x7fffff) << 2;
-
-    feCarry1(h, t[0..]);
-}
-
-fn fe_mul_small(h: *Fe, f: *const Fe, comptime g: comptime_int) void {
-    var t: [10]i64 = undefined;
-
-    for (t[0..]) |_, i| {
-        t[i] = i64(f.b[i]) * g;
-    }
-
-    feCarry1(h, t[0..]);
-}
-
-fn fe_mul121666(h: *Fe, f: *const Fe) void {
-    fe_mul_small(h, f, 121666);
-}
-
-fn fe_mul(h: *Fe, f1: *const Fe, g1: *const Fe) void {
-    const f = f1.b;
-    const g = g1.b;
-
-    var F: [10]i32 = undefined;
-    var G: [10]i32 = undefined;
-
-    F[1] = f[1] * 2;
-    F[3] = f[3] * 2;
-    F[5] = f[5] * 2;
-    F[7] = f[7] * 2;
-    F[9] = f[9] * 2;
-
-    G[1] = g[1] * 19;
-    G[2] = g[2] * 19;
-    G[3] = g[3] * 19;
-    G[4] = g[4] * 19;
-    G[5] = g[5] * 19;
-    G[6] = g[6] * 19;
-    G[7] = g[7] * 19;
-    G[8] = g[8] * 19;
-    G[9] = g[9] * 19;
-
-    // t's become h
-    var t: [10]i64 = undefined;
-
-    t[0] = f[0] * i64(g[0]) + F[1] * i64(G[9]) + f[2] * i64(G[8]) + F[3] * i64(G[7]) + f[4] * i64(G[6]) + F[5] * i64(G[5]) + f[6] * i64(G[4]) + F[7] * i64(G[3]) + f[8] * i64(G[2]) + F[9] * i64(G[1]);
-    t[1] = f[0] * i64(g[1]) + f[1] * i64(g[0]) + f[2] * i64(G[9]) + f[3] * i64(G[8]) + f[4] * i64(G[7]) + f[5] * i64(G[6]) + f[6] * i64(G[5]) + f[7] * i64(G[4]) + f[8] * i64(G[3]) + f[9] * i64(G[2]);
-    t[2] = f[0] * i64(g[2]) + F[1] * i64(g[1]) + f[2] * i64(g[0]) + F[3] * i64(G[9]) + f[4] * i64(G[8]) + F[5] * i64(G[7]) + f[6] * i64(G[6]) + F[7] * i64(G[5]) + f[8] * i64(G[4]) + F[9] * i64(G[3]);
-    t[3] = f[0] * i64(g[3]) + f[1] * i64(g[2]) + f[2] * i64(g[1]) + f[3] * i64(g[0]) + f[4] * i64(G[9]) + f[5] * i64(G[8]) + f[6] * i64(G[7]) + f[7] * i64(G[6]) + f[8] * i64(G[5]) + f[9] * i64(G[4]);
-    t[4] = f[0] * i64(g[4]) + F[1] * i64(g[3]) + f[2] * i64(g[2]) + F[3] * i64(g[1]) + f[4] * i64(g[0]) + F[5] * i64(G[9]) + f[6] * i64(G[8]) + F[7] * i64(G[7]) + f[8] * i64(G[6]) + F[9] * i64(G[5]);
-    t[5] = f[0] * i64(g[5]) + f[1] * i64(g[4]) + f[2] * i64(g[3]) + f[3] * i64(g[2]) + f[4] * i64(g[1]) + f[5] * i64(g[0]) + f[6] * i64(G[9]) + f[7] * i64(G[8]) + f[8] * i64(G[7]) + f[9] * i64(G[6]);
-    t[6] = f[0] * i64(g[6]) + F[1] * i64(g[5]) + f[2] * i64(g[4]) + F[3] * i64(g[3]) + f[4] * i64(g[2]) + F[5] * i64(g[1]) + f[6] * i64(g[0]) + F[7] * i64(G[9]) + f[8] * i64(G[8]) + F[9] * i64(G[7]);
-    t[7] = f[0] * i64(g[7]) + f[1] * i64(g[6]) + f[2] * i64(g[5]) + f[3] * i64(g[4]) + f[4] * i64(g[3]) + f[5] * i64(g[2]) + f[6] * i64(g[1]) + f[7] * i64(g[0]) + f[8] * i64(G[9]) + f[9] * i64(G[8]);
-    t[8] = f[0] * i64(g[8]) + F[1] * i64(g[7]) + f[2] * i64(g[6]) + F[3] * i64(g[5]) + f[4] * i64(g[4]) + F[5] * i64(g[3]) + f[6] * i64(g[2]) + F[7] * i64(g[1]) + f[8] * i64(g[0]) + F[9] * i64(G[9]);
-    t[9] = f[0] * i64(g[9]) + f[1] * i64(g[8]) + f[2] * i64(g[7]) + f[3] * i64(g[6]) + f[4] * i64(g[5]) + f[5] * i64(g[4]) + f[6] * i64(g[3]) + f[7] * i64(g[2]) + f[8] * i64(g[1]) + f[9] * i64(g[0]);
-
-    feCarry2(h, t[0..]);
-}
-
-// we could use fe_mul() for this, but this is significantly faster
-fn fe_sq(h: *Fe, fz: *const Fe) void {
-    const f0 = fz.b[0];
-    const f1 = fz.b[1];
-    const f2 = fz.b[2];
-    const f3 = fz.b[3];
-    const f4 = fz.b[4];
-    const f5 = fz.b[5];
-    const f6 = fz.b[6];
-    const f7 = fz.b[7];
-    const f8 = fz.b[8];
-    const f9 = fz.b[9];
-
-    const f0_2 = f0 * 2;
-    const f1_2 = f1 * 2;
-    const f2_2 = f2 * 2;
-    const f3_2 = f3 * 2;
-    const f4_2 = f4 * 2;
-    const f5_2 = f5 * 2;
-    const f6_2 = f6 * 2;
-    const f7_2 = f7 * 2;
-    const f5_38 = f5 * 38;
-    const f6_19 = f6 * 19;
-    const f7_38 = f7 * 38;
-    const f8_19 = f8 * 19;
-    const f9_38 = f9 * 38;
-
-    var t: [10]i64 = undefined;
-
-    t[0] = f0 * i64(f0) + f1_2 * i64(f9_38) + f2_2 * i64(f8_19) + f3_2 * i64(f7_38) + f4_2 * i64(f6_19) + f5 * i64(f5_38);
-    t[1] = f0_2 * i64(f1) + f2 * i64(f9_38) + f3_2 * i64(f8_19) + f4 * i64(f7_38) + f5_2 * i64(f6_19);
-    t[2] = f0_2 * i64(f2) + f1_2 * i64(f1) + f3_2 * i64(f9_38) + f4_2 * i64(f8_19) + f5_2 * i64(f7_38) + f6 * i64(f6_19);
-    t[3] = f0_2 * i64(f3) + f1_2 * i64(f2) + f4 * i64(f9_38) + f5_2 * i64(f8_19) + f6 * i64(f7_38);
-    t[4] = f0_2 * i64(f4) + f1_2 * i64(f3_2) + f2 * i64(f2) + f5_2 * i64(f9_38) + f6_2 * i64(f8_19) + f7 * i64(f7_38);
-    t[5] = f0_2 * i64(f5) + f1_2 * i64(f4) + f2_2 * i64(f3) + f6 * i64(f9_38) + f7_2 * i64(f8_19);
-    t[6] = f0_2 * i64(f6) + f1_2 * i64(f5_2) + f2_2 * i64(f4) + f3_2 * i64(f3) + f7_2 * i64(f9_38) + f8 * i64(f8_19);
-    t[7] = f0_2 * i64(f7) + f1_2 * i64(f6) + f2_2 * i64(f5) + f3_2 * i64(f4) + f8 * i64(f9_38);
-    t[8] = f0_2 * i64(f8) + f1_2 * i64(f7_2) + f2_2 * i64(f6) + f3_2 * i64(f5_2) + f4 * i64(f4) + f9 * i64(f9_38);
-    t[9] = f0_2 * i64(f9) + f1_2 * i64(f8) + f2_2 * i64(f7) + f3_2 * i64(f6) + f4 * i64(f5_2);
-
-    feCarry2(h, t[0..]);
-}
-
-fn fe_sq2(h: *Fe, f: *const Fe) void {
-    fe_sq(h, f);
-    fe_mul_small(h, h, 2);
-}
-
-// This could be simplified, but it would be slower
-fn fe_invert(out: *Fe, z: *const Fe) void {
-    var i: usize = undefined;
-
-    var t: [4]Fe = undefined;
-    var t0 = &t[0];
-    var t1 = &t[1];
-    var t2 = &t[2];
-    var t3 = &t[3];
-
-    fe_sq(t0, z);
-    fe_sq(t1, t0);
-    fe_sq(t1, t1);
-    fe_mul(t1, z, t1);
-    fe_mul(t0, t0, t1);
-
-    fe_sq(t2, t0);
-    fe_mul(t1, t1, t2);
-
-    fe_sq(t2, t1);
-    i = 1;
-    while (i < 5) : (i += 1) fe_sq(t2, t2);
-    fe_mul(t1, t2, t1);
-
-    fe_sq(t2, t1);
-    i = 1;
-    while (i < 10) : (i += 1) fe_sq(t2, t2);
-    fe_mul(t2, t2, t1);
-
-    fe_sq(t3, t2);
-    i = 1;
-    while (i < 20) : (i += 1) fe_sq(t3, t3);
-    fe_mul(t2, t3, t2);
-
-    fe_sq(t2, t2);
-    i = 1;
-    while (i < 10) : (i += 1) fe_sq(t2, t2);
-    fe_mul(t1, t2, t1);
-
-    fe_sq(t2, t1);
-    i = 1;
-    while (i < 50) : (i += 1) fe_sq(t2, t2);
-    fe_mul(t2, t2, t1);
-
-    fe_sq(t3, t2);
-    i = 1;
-    while (i < 100) : (i += 1) fe_sq(t3, t3);
-    fe_mul(t2, t3, t2);
-
-    fe_sq(t2, t2);
-    i = 1;
-    while (i < 50) : (i += 1) fe_sq(t2, t2);
-    fe_mul(t1, t2, t1);
-
-    fe_sq(t1, t1);
-    i = 1;
-    while (i < 5) : (i += 1) fe_sq(t1, t1);
-    fe_mul(out, t1, t0);
-
-    t0.secure_zero();
-    t1.secure_zero();
-    t2.secure_zero();
-    t3.secure_zero();
-}
-
-// This could be simplified, but it would be slower
-fn fe_pow22523(out: *Fe, z: *const Fe) void {
-    var i: usize = undefined;
-
-    var t: [3]Fe = undefined;
-    var t0 = &t[0];
-    var t1 = &t[1];
-    var t2 = &t[2];
-
-    fe_sq(t0, z);
-    fe_sq(t1, t0);
-    fe_sq(t1, t1);
-    fe_mul(t1, z, t1);
-    fe_mul(t0, t0, t1);
-
-    fe_sq(t0, t0);
-    fe_mul(t0, t1, t0);
-
-    fe_sq(t1, t0);
-    i = 1;
-    while (i < 5) : (i += 1) fe_sq(t1, t1);
-    fe_mul(t0, t1, t0);
-
-    fe_sq(t1, t0);
-    i = 1;
-    while (i < 10) : (i += 1) fe_sq(t1, t1);
-    fe_mul(t1, t1, t0);
-
-    fe_sq(t2, t1);
-    i = 1;
-    while (i < 20) : (i += 1) fe_sq(t2, t2);
-    fe_mul(t1, t2, t1);
-
-    fe_sq(t1, t1);
-    i = 1;
-    while (i < 10) : (i += 1) fe_sq(t1, t1);
-    fe_mul(t0, t1, t0);
-
-    fe_sq(t1, t0);
-    i = 1;
-    while (i < 50) : (i += 1) fe_sq(t1, t1);
-    fe_mul(t1, t1, t0);
-
-    fe_sq(t2, t1);
-    i = 1;
-    while (i < 100) : (i += 1) fe_sq(t2, t2);
-    fe_mul(t1, t2, t1);
-
-    fe_sq(t1, t1);
-    i = 1;
-    while (i < 50) : (i += 1) fe_sq(t1, t1);
-    fe_mul(t0, t1, t0);
-
-    fe_sq(t0, t0);
-    i = 1;
-    while (i < 2) : (i += 1) fe_sq(t0, t0);
-    fe_mul(out, t0, z);
-
-    t0.secure_zero();
-    t1.secure_zero();
-    t2.secure_zero();
-}
-
-inline fn tobytesround(c: []i64, t: []i64, comptime i: comptime_int, comptime shift: comptime_int) void {
-    c[i] = t[i] >> shift;
-    if (i + 1 < 10) {
-        t[i + 1] += c[i];
-    }
-    t[i] -= c[i] * (i32(1) << shift);
-}
-
-fn fe_tobytes(s: []u8, h: *const Fe) void {
-    std.debug.assert(s.len >= 32);
-
-    var t: [10]i64 = undefined;
-    for (h.b[0..]) |_, i| {
-        t[i] = h.b[i];
-    }
-
-    var q = (19 * t[9] + ((i32(1) << 24))) >> 25;
-    {
-        var i: usize = 0;
-        while (i < 5) : (i += 1) {
-            q += t[2 * i];
-            q >>= 26;
-            q += t[2 * i + 1];
-            q >>= 25;
+    fn init0(h: *Fe) void {
+        for (h.b) |*e| {
+            e.* = 0;
         }
     }
-    t[0] += 19 * q;
 
-    var c: [10]i64 = undefined;
-
-    var st = t[0..];
-    var sc = c[0..];
-
-    tobytesround(sc, st, 0, 26);
-    tobytesround(sc, st, 1, 25);
-    tobytesround(sc, st, 2, 26);
-    tobytesround(sc, st, 3, 25);
-    tobytesround(sc, st, 4, 26);
-    tobytesround(sc, st, 5, 25);
-    tobytesround(sc, st, 6, 26);
-    tobytesround(sc, st, 7, 25);
-    tobytesround(sc, st, 8, 26);
-    tobytesround(sc, st, 9, 25);
-
-    var ut: [10]u32 = undefined;
-    for (ut[0..]) |_, i| {
-        ut[i] = @bitCast(u32, @intCast(i32, t[i]));
+    fn init1(h: *Fe) void {
+        for (h.b[1..]) |*e| {
+            e.* = 0;
+        }
+        h.b[0] = 1;
     }
 
-    writeInt(s[0..], (ut[0] >> 0) | (ut[1] << 26), Endian.Little);
-    writeInt(s[4..], (ut[1] >> 6) | (ut[2] << 19), Endian.Little);
-    writeInt(s[8..], (ut[2] >> 13) | (ut[3] << 13), Endian.Little);
-    writeInt(s[12..], (ut[3] >> 19) | (ut[4] << 6), Endian.Little);
-    writeInt(s[16..], (ut[5] >> 0) | (ut[6] << 25), Endian.Little);
-    writeInt(s[20..], (ut[6] >> 7) | (ut[7] << 19), Endian.Little);
-    writeInt(s[24..], (ut[7] >> 13) | (ut[8] << 12), Endian.Little);
-    writeInt(s[28..], (ut[8] >> 20) | (ut[9] << 6), Endian.Little);
+    fn copy(h: *Fe, f: *const Fe) void {
+        for (h.b) |_, i| {
+            h.b[i] = f.b[i];
+        }
+    }
 
-    std.mem.secureZero(i64, t[0..]);
-}
+    fn neg(h: *Fe, f: *const Fe) void {
+        for (h.b) |_, i| {
+            h.b[i] = -f.b[i];
+        }
+    }
 
-//  Parity check.  Returns 0 if even, 1 if odd
-fn fe_isnegative(f: *const Fe) bool {
-    var s: [32]u8 = undefined;
-    fe_tobytes(s[0..], f);
-    const isneg = s[0] & 1;
-    s.secure_zero();
-    return isneg;
-}
+    fn add(h: *Fe, f: *const Fe, g: *const Fe) void {
+        for (h.b) |_, i| {
+            h.b[i] = f.b[i] + g.b[i];
+        }
+    }
 
-fn fe_isnonzero(f: *const Fe) bool {
-    var s: [32]u8 = undefined;
-    fe_tobytes(s[0..], f);
-    const isnonzero = zerocmp(u8, s[0..]);
-    s.secure_zero();
-    return isneg;
-}
+    fn sub(h: *Fe, f: *const Fe, g: *const Fe) void {
+        for (h.b) |_, i| {
+            h.b[i] = f.b[i] - g.b[i];
+        }
+    }
+
+    fn cswap(f: *Fe, g: *Fe, b: i32) void {
+        for (f.b) |_, i| {
+            const x = (f.b[i] ^ g.b[i]) & -b;
+            f.b[i] ^= x;
+            g.b[i] ^= x;
+        }
+    }
+
+    fn ccopy(f: *Fe, g: *const Fe, b: i32) void {
+        for (f.b) |_, i| {
+            const x = (f.b[i] ^ g.b[i]) & -b;
+            f.b[i] ^= x;
+        }
+    }
+
+    inline fn carryRound(c: []i64, t: []i64, comptime i: comptime_int, comptime shift: comptime_int, comptime mult: comptime_int) void {
+        const j = (i + 1) % 10;
+
+        c[i] = (t[i] + (i64(1) << shift)) >> (shift + 1);
+        t[j] += c[i] * mult;
+        t[i] -= c[i] * (i64(1) << (shift + 1));
+    }
+
+    fn carry1(h: *Fe, t: []i64) void {
+        var c: [10]i64 = undefined;
+
+        var sc = c[0..];
+        var st = t[0..];
+
+        carryRound(sc, st, 9, 24, 19);
+        carryRound(sc, st, 1, 24, 1);
+        carryRound(sc, st, 3, 24, 1);
+        carryRound(sc, st, 5, 24, 1);
+        carryRound(sc, st, 7, 24, 1);
+        carryRound(sc, st, 0, 25, 1);
+        carryRound(sc, st, 2, 25, 1);
+        carryRound(sc, st, 4, 25, 1);
+        carryRound(sc, st, 6, 25, 1);
+        carryRound(sc, st, 8, 25, 1);
+
+        for (h.b) |_, i| {
+            h.b[i] = @intCast(i32, t[i]);
+        }
+    }
+
+    fn carry2(h: *Fe, t: []i64) void {
+        var c: [10]i64 = undefined;
+
+        var sc = c[0..];
+        var st = t[0..];
+
+        carryRound(sc, st, 0, 25, 1);
+        carryRound(sc, st, 4, 25, 1);
+        carryRound(sc, st, 1, 24, 1);
+        carryRound(sc, st, 5, 24, 1);
+        carryRound(sc, st, 2, 25, 1);
+        carryRound(sc, st, 6, 25, 1);
+        carryRound(sc, st, 3, 24, 1);
+        carryRound(sc, st, 7, 24, 1);
+        carryRound(sc, st, 4, 25, 1);
+        carryRound(sc, st, 8, 25, 1);
+        carryRound(sc, st, 9, 24, 19);
+        carryRound(sc, st, 0, 25, 1);
+
+        for (h.b) |_, i| {
+            h.b[i] = @intCast(i32, t[i]);
+        }
+    }
+
+    fn fromBytes(h: *Fe, s: []const u8) void {
+        std.debug.assert(s.len >= 32);
+
+        var t: [10]i64 = undefined;
+
+        t[0] = readInt(s[0..4], u32, Endian.Little);
+        t[1] = readInt(s[4..7], u32, Endian.Little) << 6;
+        t[2] = readInt(s[7..10], u32, Endian.Little) << 5;
+        t[3] = readInt(s[10..13], u32, Endian.Little) << 3;
+        t[4] = readInt(s[13..16], u32, Endian.Little) << 2;
+        t[5] = readInt(s[16..20], u32, Endian.Little);
+        t[6] = readInt(s[20..23], u32, Endian.Little) << 7;
+        t[7] = readInt(s[23..26], u32, Endian.Little) << 5;
+        t[8] = readInt(s[26..29], u32, Endian.Little) << 4;
+        t[9] = (readInt(s[29..32], u32, Endian.Little) & 0x7fffff) << 2;
+
+        carry1(h, t[0..]);
+    }
+
+    fn mulSmall(h: *Fe, f: *const Fe, comptime g: comptime_int) void {
+        var t: [10]i64 = undefined;
+
+        for (t[0..]) |_, i| {
+            t[i] = i64(f.b[i]) * g;
+        }
+
+        carry1(h, t[0..]);
+    }
+
+    fn mul(h: *Fe, f1: *const Fe, g1: *const Fe) void {
+        const f = f1.b;
+        const g = g1.b;
+
+        var F: [10]i32 = undefined;
+        var G: [10]i32 = undefined;
+
+        F[1] = f[1] * 2;
+        F[3] = f[3] * 2;
+        F[5] = f[5] * 2;
+        F[7] = f[7] * 2;
+        F[9] = f[9] * 2;
+
+        G[1] = g[1] * 19;
+        G[2] = g[2] * 19;
+        G[3] = g[3] * 19;
+        G[4] = g[4] * 19;
+        G[5] = g[5] * 19;
+        G[6] = g[6] * 19;
+        G[7] = g[7] * 19;
+        G[8] = g[8] * 19;
+        G[9] = g[9] * 19;
+
+        // t's become h
+        var t: [10]i64 = undefined;
+
+        t[0] = f[0] * i64(g[0]) + F[1] * i64(G[9]) + f[2] * i64(G[8]) + F[3] * i64(G[7]) + f[4] * i64(G[6]) + F[5] * i64(G[5]) + f[6] * i64(G[4]) + F[7] * i64(G[3]) + f[8] * i64(G[2]) + F[9] * i64(G[1]);
+        t[1] = f[0] * i64(g[1]) + f[1] * i64(g[0]) + f[2] * i64(G[9]) + f[3] * i64(G[8]) + f[4] * i64(G[7]) + f[5] * i64(G[6]) + f[6] * i64(G[5]) + f[7] * i64(G[4]) + f[8] * i64(G[3]) + f[9] * i64(G[2]);
+        t[2] = f[0] * i64(g[2]) + F[1] * i64(g[1]) + f[2] * i64(g[0]) + F[3] * i64(G[9]) + f[4] * i64(G[8]) + F[5] * i64(G[7]) + f[6] * i64(G[6]) + F[7] * i64(G[5]) + f[8] * i64(G[4]) + F[9] * i64(G[3]);
+        t[3] = f[0] * i64(g[3]) + f[1] * i64(g[2]) + f[2] * i64(g[1]) + f[3] * i64(g[0]) + f[4] * i64(G[9]) + f[5] * i64(G[8]) + f[6] * i64(G[7]) + f[7] * i64(G[6]) + f[8] * i64(G[5]) + f[9] * i64(G[4]);
+        t[4] = f[0] * i64(g[4]) + F[1] * i64(g[3]) + f[2] * i64(g[2]) + F[3] * i64(g[1]) + f[4] * i64(g[0]) + F[5] * i64(G[9]) + f[6] * i64(G[8]) + F[7] * i64(G[7]) + f[8] * i64(G[6]) + F[9] * i64(G[5]);
+        t[5] = f[0] * i64(g[5]) + f[1] * i64(g[4]) + f[2] * i64(g[3]) + f[3] * i64(g[2]) + f[4] * i64(g[1]) + f[5] * i64(g[0]) + f[6] * i64(G[9]) + f[7] * i64(G[8]) + f[8] * i64(G[7]) + f[9] * i64(G[6]);
+        t[6] = f[0] * i64(g[6]) + F[1] * i64(g[5]) + f[2] * i64(g[4]) + F[3] * i64(g[3]) + f[4] * i64(g[2]) + F[5] * i64(g[1]) + f[6] * i64(g[0]) + F[7] * i64(G[9]) + f[8] * i64(G[8]) + F[9] * i64(G[7]);
+        t[7] = f[0] * i64(g[7]) + f[1] * i64(g[6]) + f[2] * i64(g[5]) + f[3] * i64(g[4]) + f[4] * i64(g[3]) + f[5] * i64(g[2]) + f[6] * i64(g[1]) + f[7] * i64(g[0]) + f[8] * i64(G[9]) + f[9] * i64(G[8]);
+        t[8] = f[0] * i64(g[8]) + F[1] * i64(g[7]) + f[2] * i64(g[6]) + F[3] * i64(g[5]) + f[4] * i64(g[4]) + F[5] * i64(g[3]) + f[6] * i64(g[2]) + F[7] * i64(g[1]) + f[8] * i64(g[0]) + F[9] * i64(G[9]);
+        t[9] = f[0] * i64(g[9]) + f[1] * i64(g[8]) + f[2] * i64(g[7]) + f[3] * i64(g[6]) + f[4] * i64(g[5]) + f[5] * i64(g[4]) + f[6] * i64(g[3]) + f[7] * i64(g[2]) + f[8] * i64(g[1]) + f[9] * i64(g[0]);
+
+        carry2(h, t[0..]);
+    }
+
+    // we could use Fe.mul() for this, but this is significantly faster
+    fn sq(h: *Fe, fz: *const Fe) void {
+        const f0 = fz.b[0];
+        const f1 = fz.b[1];
+        const f2 = fz.b[2];
+        const f3 = fz.b[3];
+        const f4 = fz.b[4];
+        const f5 = fz.b[5];
+        const f6 = fz.b[6];
+        const f7 = fz.b[7];
+        const f8 = fz.b[8];
+        const f9 = fz.b[9];
+
+        const f0_2 = f0 * 2;
+        const f1_2 = f1 * 2;
+        const f2_2 = f2 * 2;
+        const f3_2 = f3 * 2;
+        const f4_2 = f4 * 2;
+        const f5_2 = f5 * 2;
+        const f6_2 = f6 * 2;
+        const f7_2 = f7 * 2;
+        const f5_38 = f5 * 38;
+        const f6_19 = f6 * 19;
+        const f7_38 = f7 * 38;
+        const f8_19 = f8 * 19;
+        const f9_38 = f9 * 38;
+
+        var t: [10]i64 = undefined;
+
+        t[0] = f0 * i64(f0) + f1_2 * i64(f9_38) + f2_2 * i64(f8_19) + f3_2 * i64(f7_38) + f4_2 * i64(f6_19) + f5 * i64(f5_38);
+        t[1] = f0_2 * i64(f1) + f2 * i64(f9_38) + f3_2 * i64(f8_19) + f4 * i64(f7_38) + f5_2 * i64(f6_19);
+        t[2] = f0_2 * i64(f2) + f1_2 * i64(f1) + f3_2 * i64(f9_38) + f4_2 * i64(f8_19) + f5_2 * i64(f7_38) + f6 * i64(f6_19);
+        t[3] = f0_2 * i64(f3) + f1_2 * i64(f2) + f4 * i64(f9_38) + f5_2 * i64(f8_19) + f6 * i64(f7_38);
+        t[4] = f0_2 * i64(f4) + f1_2 * i64(f3_2) + f2 * i64(f2) + f5_2 * i64(f9_38) + f6_2 * i64(f8_19) + f7 * i64(f7_38);
+        t[5] = f0_2 * i64(f5) + f1_2 * i64(f4) + f2_2 * i64(f3) + f6 * i64(f9_38) + f7_2 * i64(f8_19);
+        t[6] = f0_2 * i64(f6) + f1_2 * i64(f5_2) + f2_2 * i64(f4) + f3_2 * i64(f3) + f7_2 * i64(f9_38) + f8 * i64(f8_19);
+        t[7] = f0_2 * i64(f7) + f1_2 * i64(f6) + f2_2 * i64(f5) + f3_2 * i64(f4) + f8 * i64(f9_38);
+        t[8] = f0_2 * i64(f8) + f1_2 * i64(f7_2) + f2_2 * i64(f6) + f3_2 * i64(f5_2) + f4 * i64(f4) + f9 * i64(f9_38);
+        t[9] = f0_2 * i64(f9) + f1_2 * i64(f8) + f2_2 * i64(f7) + f3_2 * i64(f6) + f4 * i64(f5_2);
+
+        carry2(h, t[0..]);
+    }
+
+    fn sq2(h: *Fe, f: *const Fe) void {
+        Fe.sq(h, f);
+        Fe.mul_small(h, h, 2);
+    }
+
+    // This could be simplified, but it would be slower
+    fn invert(out: *Fe, z: *const Fe) void {
+        var i: usize = undefined;
+
+        var t: [4]Fe = undefined;
+        var t0 = &t[0];
+        var t1 = &t[1];
+        var t2 = &t[2];
+        var t3 = &t[3];
+
+        Fe.sq(t0, z);
+        Fe.sq(t1, t0);
+        Fe.sq(t1, t1);
+        Fe.mul(t1, z, t1);
+        Fe.mul(t0, t0, t1);
+
+        Fe.sq(t2, t0);
+        Fe.mul(t1, t1, t2);
+
+        Fe.sq(t2, t1);
+        i = 1;
+        while (i < 5) : (i += 1) Fe.sq(t2, t2);
+        Fe.mul(t1, t2, t1);
+
+        Fe.sq(t2, t1);
+        i = 1;
+        while (i < 10) : (i += 1) Fe.sq(t2, t2);
+        Fe.mul(t2, t2, t1);
+
+        Fe.sq(t3, t2);
+        i = 1;
+        while (i < 20) : (i += 1) Fe.sq(t3, t3);
+        Fe.mul(t2, t3, t2);
+
+        Fe.sq(t2, t2);
+        i = 1;
+        while (i < 10) : (i += 1) Fe.sq(t2, t2);
+        Fe.mul(t1, t2, t1);
+
+        Fe.sq(t2, t1);
+        i = 1;
+        while (i < 50) : (i += 1) Fe.sq(t2, t2);
+        Fe.mul(t2, t2, t1);
+
+        Fe.sq(t3, t2);
+        i = 1;
+        while (i < 100) : (i += 1) Fe.sq(t3, t3);
+        Fe.mul(t2, t3, t2);
+
+        Fe.sq(t2, t2);
+        i = 1;
+        while (i < 50) : (i += 1) Fe.sq(t2, t2);
+        Fe.mul(t1, t2, t1);
+
+        Fe.sq(t1, t1);
+        i = 1;
+        while (i < 5) : (i += 1) Fe.sq(t1, t1);
+        Fe.mul(out, t1, t0);
+
+        t0.secureZero();
+        t1.secureZero();
+        t2.secureZero();
+        t3.secureZero();
+    }
+
+    // This could be simplified, but it would be slower
+    fn pow22523(out: *Fe, z: *const Fe) void {
+        var i: usize = undefined;
+
+        var t: [3]Fe = undefined;
+        var t0 = &t[0];
+        var t1 = &t[1];
+        var t2 = &t[2];
+
+        Fe.sq(t0, z);
+        Fe.sq(t1, t0);
+        Fe.sq(t1, t1);
+        Fe.mul(t1, z, t1);
+        Fe.mul(t0, t0, t1);
+
+        Fe.sq(t0, t0);
+        Fe.mul(t0, t1, t0);
+
+        Fe.sq(t1, t0);
+        i = 1;
+        while (i < 5) : (i += 1) Fe.sq(t1, t1);
+        Fe.mul(t0, t1, t0);
+
+        Fe.sq(t1, t0);
+        i = 1;
+        while (i < 10) : (i += 1) Fe.sq(t1, t1);
+        Fe.mul(t1, t1, t0);
+
+        Fe.sq(t2, t1);
+        i = 1;
+        while (i < 20) : (i += 1) Fe.sq(t2, t2);
+        Fe.mul(t1, t2, t1);
+
+        Fe.sq(t1, t1);
+        i = 1;
+        while (i < 10) : (i += 1) Fe.sq(t1, t1);
+        Fe.mul(t0, t1, t0);
+
+        Fe.sq(t1, t0);
+        i = 1;
+        while (i < 50) : (i += 1) Fe.sq(t1, t1);
+        Fe.mul(t1, t1, t0);
+
+        Fe.sq(t2, t1);
+        i = 1;
+        while (i < 100) : (i += 1) Fe.sq(t2, t2);
+        Fe.mul(t1, t2, t1);
+
+        Fe.sq(t1, t1);
+        i = 1;
+        while (i < 50) : (i += 1) Fe.sq(t1, t1);
+        Fe.mul(t0, t1, t0);
+
+        Fe.sq(t0, t0);
+        i = 1;
+        while (i < 2) : (i += 1) Fe.sq(t0, t0);
+        Fe.mul(out, t0, z);
+
+        t0.secureZero();
+        t1.secureZero();
+        t2.secureZero();
+    }
+
+    inline fn toBytesRound(c: []i64, t: []i64, comptime i: comptime_int, comptime shift: comptime_int) void {
+        c[i] = t[i] >> shift;
+        if (i + 1 < 10) {
+            t[i + 1] += c[i];
+        }
+        t[i] -= c[i] * (i32(1) << shift);
+    }
+
+    fn toBytes(s: []u8, h: *const Fe) void {
+        std.debug.assert(s.len >= 32);
+
+        var t: [10]i64 = undefined;
+        for (h.b[0..]) |_, i| {
+            t[i] = h.b[i];
+        }
+
+        var q = (19 * t[9] + ((i32(1) << 24))) >> 25;
+        {
+            var i: usize = 0;
+            while (i < 5) : (i += 1) {
+                q += t[2 * i];
+                q >>= 26;
+                q += t[2 * i + 1];
+                q >>= 25;
+            }
+        }
+        t[0] += 19 * q;
+
+        var c: [10]i64 = undefined;
+
+        var st = t[0..];
+        var sc = c[0..];
+
+        toBytesRound(sc, st, 0, 26);
+        toBytesRound(sc, st, 1, 25);
+        toBytesRound(sc, st, 2, 26);
+        toBytesRound(sc, st, 3, 25);
+        toBytesRound(sc, st, 4, 26);
+        toBytesRound(sc, st, 5, 25);
+        toBytesRound(sc, st, 6, 26);
+        toBytesRound(sc, st, 7, 25);
+        toBytesRound(sc, st, 8, 26);
+        toBytesRound(sc, st, 9, 25);
+
+        var ut: [10]u32 = undefined;
+        for (ut[0..]) |_, i| {
+            ut[i] = @bitCast(u32, @intCast(i32, t[i]));
+        }
+
+        writeInt(s[0..], (ut[0] >> 0) | (ut[1] << 26), Endian.Little);
+        writeInt(s[4..], (ut[1] >> 6) | (ut[2] << 19), Endian.Little);
+        writeInt(s[8..], (ut[2] >> 13) | (ut[3] << 13), Endian.Little);
+        writeInt(s[12..], (ut[3] >> 19) | (ut[4] << 6), Endian.Little);
+        writeInt(s[16..], (ut[5] >> 0) | (ut[6] << 25), Endian.Little);
+        writeInt(s[20..], (ut[6] >> 7) | (ut[7] << 19), Endian.Little);
+        writeInt(s[24..], (ut[7] >> 13) | (ut[8] << 12), Endian.Little);
+        writeInt(s[28..], (ut[8] >> 20) | (ut[9] << 6), Endian.Little);
+
+        std.mem.secureZero(i64, t[0..]);
+    }
+
+    //  Parity check.  Returns 0 if even, 1 if odd
+    fn isNegative(f: *const Fe) bool {
+        var s: [32]u8 = undefined;
+        Fe.toBytes(s[0..], f);
+        const isneg = s[0] & 1;
+        s.secureZero();
+        return isneg;
+    }
+
+    fn isNonZero(f: *const Fe) bool {
+        var s: [32]u8 = undefined;
+        Fe.toBytes(s[0..], f);
+        const isnonzero = zerocmp(u8, s[0..]);
+        s.secureZero();
+        return isneg;
+    }
+};
 
 test "x25519 rfc7748 vector1" {
     const secret_key = "\xa5\x46\xe3\x6b\xf0\x52\x7c\x9d\x3b\x16\x15\x4b\x82\x46\x5e\xdd\x62\x14\x4c\x0a\xc1\xfc\x5a\x18\x50\x6a\x22\x44\xba\x44\x9a\xc4";

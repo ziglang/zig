@@ -168,11 +168,6 @@ pub fn main() !void {
     }
 
     inline for (hashes) |H| {
-        // TODO: Inverted early continue case here segfaults compiler. Create reduced test case.
-        //
-        // if (filter != null and std.mem.indexOf(u8, H.name, filter.?) == null) {
-        //     continue;
-        // }
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkHash(H.ty, mode(32 * MiB));
             try printPad(stdout, H.name);
