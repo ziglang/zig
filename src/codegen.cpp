@@ -3106,7 +3106,7 @@ static void gen_set_stack_pointer(CodeGen *g, LLVMValueRef aligned_end_addr) {
 
 static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
     unsigned attr_kind_id = LLVMGetEnumAttributeKindForName("sret", 4);
-    LLVMAttributeRef sret_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), attr_kind_id, 1);
+    LLVMAttributeRef sret_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), attr_kind_id, 0);
     LLVMAddCallSiteAttribute(call_instr, 1, sret_attr);
 }
 
