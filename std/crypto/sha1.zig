@@ -26,8 +26,8 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
 
 pub const Sha1 = struct {
     const Self = this;
-    const block_size = 64;
-    const digest_size = 20;
+    const block_length = 64;
+    const digest_length = 20;
 
     s: [5]u32,
     // Streaming Cache
@@ -292,8 +292,8 @@ test "sha1 streaming" {
 }
 
 test "sha1 aligned final" {
-    var block = []u8{0} ** Sha1.block_size;
-    var out: [Sha1.digest_size]u8 = undefined;
+    var block = []u8{0} ** Sha1.block_length;
+    var out: [Sha1.digest_length]u8 = undefined;
 
     var h = Sha1.init();
     h.update(block);

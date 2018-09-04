@@ -32,24 +32,28 @@ fn salsa20_wordtobyte(out: []u8, input: [16]u32) void {
         x[i] = input[i];
 
     const rounds = comptime []QuarterRound{
-        Rp( 0, 4, 8,12),
-        Rp( 1, 5, 9,13),
-        Rp( 2, 6,10,14),
-        Rp( 3, 7,11,15),
-        Rp( 0, 5,10,15),
-        Rp( 1, 6,11,12),
-        Rp( 2, 7, 8,13),
-        Rp( 3, 4, 9,14),
+        Rp(0, 4, 8, 12),
+        Rp(1, 5, 9, 13),
+        Rp(2, 6, 10, 14),
+        Rp(3, 7, 11, 15),
+        Rp(0, 5, 10, 15),
+        Rp(1, 6, 11, 12),
+        Rp(2, 7, 8, 13),
+        Rp(3, 4, 9, 14),
     };
 
     comptime var j: usize = 0;
     inline while (j < 20) : (j += 2) {
         // two-round cycles
         inline for (rounds) |r| {
-            x[r.a] +%= x[r.b]; x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], u32(16));
-            x[r.c] +%= x[r.d]; x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], u32(12));
-            x[r.a] +%= x[r.b]; x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a],  u32(8));
-            x[r.c] +%= x[r.d]; x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c],  u32(7));
+            x[r.a] +%= x[r.b];
+            x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], u32(16));
+            x[r.c] +%= x[r.d];
+            x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], u32(12));
+            x[r.a] +%= x[r.b];
+            x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], u32(8));
+            x[r.c] +%= x[r.d];
+            x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], u32(7));
         }
     }
 
@@ -166,9 +170,8 @@ pub fn chaCha20With64BitNonce(out: []u8, in: []const u8, counter: u64, key: [32]
             var remaining_blocks: u32 = @intCast(u32, (in.len / big_block));
             var i: u32 = 0;
             while (remaining_blocks > 0) : (remaining_blocks -= 1) {
-                chaCha20_internal(out[cursor..cursor + big_block], in[cursor..cursor + big_block], k, c);
-                c[1] += 1; // upper 32-bit of counter, generic chaCha20_internal() doesn't
-                           // know about this.
+                chaCha20_internal(out[cursor .. cursor + big_block], in[cursor .. cursor + big_block], k, c);
+                c[1] += 1; // upper 32-bit of counter, generic chaCha20_internal() doesn't know about this.
                 cursor += big_block;
             }
         }
@@ -199,16 +202,16 @@ test "crypto.chacha20 test vector sunscreen" {
     const input = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     var result: [114]u8 = undefined;
     const key = []u8{
-         0, 1, 2, 3, 4, 5, 6, 7,
-         8, 9,10,11,12,13,14,15,
-        16,17,18,19,20,21,22,23,
-        24,25,26,27,28,29,30,31,
+        0, 1, 2, 3, 4, 5, 6, 7,
+        8, 9, 10, 11, 12, 13, 14, 15,
+        16, 17, 18, 19, 20, 21, 22, 23,
+        24, 25, 26, 27, 28, 29, 30, 31,
     };
     const nonce = []u8{
-         0, 0, 0, 0,
-         0, 0, 0, 0x4a,
-         0, 0, 0, 0,
-     };
+        0, 0, 0, 0,
+        0, 0, 0, 0x4a,
+        0, 0, 0, 0,
+    };
 
     chaCha20IETF(result[0..], input[0..], 1, key, nonce);
     assert(mem.eql(u8, expected_result, result));
@@ -248,7 +251,7 @@ test "crypto.chacha20 test vector 1" {
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     };
-    const nonce = []u8{0, 0, 0, 0, 0, 0, 0, 0};
+    const nonce = []u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
     assert(mem.eql(u8, expected_result, result));
@@ -282,7 +285,7 @@ test "crypto.chacha20 test vector 2" {
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 1,
     };
-    const nonce = []u8{0, 0, 0, 0, 0, 0, 0, 0};
+    const nonce = []u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
     assert(mem.eql(u8, expected_result, result));
@@ -316,7 +319,7 @@ test "crypto.chacha20 test vector 3" {
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     };
-    const nonce = []u8{0, 0, 0, 0, 0, 0, 0, 1};
+    const nonce = []u8{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
     assert(mem.eql(u8, expected_result, result));
@@ -350,7 +353,7 @@ test "crypto.chacha20 test vector 4" {
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     };
-    const nonce = []u8{1, 0, 0, 0, 0, 0, 0, 0};
+    const nonce = []u8{ 1, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
     assert(mem.eql(u8, expected_result, result));
