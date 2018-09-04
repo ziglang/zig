@@ -21,14 +21,24 @@ pub const Blake2b512 = blake2.Blake2b512;
 
 const hmac = @import("hmac.zig");
 pub const HmacMd5 = hmac.HmacMd5;
-pub const HmacSha1 = hmac.Sha1;
-pub const HmacSha256 = hmac.Sha256;
+pub const HmacSha1 = hmac.HmacSha1;
+pub const HmacSha256 = hmac.HmacSha256;
+
+const import_chaCha20 = @import("chacha20.zig");
+pub const chaCha20IETF = import_chaCha20.chaCha20IETF;
+pub const chaCha20With64BitNonce = import_chaCha20.chaCha20With64BitNonce;
+
+pub const Poly1305 = @import("poly1305.zig").Poly1305;
+pub const X25519 = @import("x25519.zig").X25519;
 
 test "crypto" {
+    _ = @import("blake2.zig");
+    _ = @import("chacha20.zig");
+    _ = @import("hmac.zig");
     _ = @import("md5.zig");
+    _ = @import("poly1305.zig");
     _ = @import("sha1.zig");
     _ = @import("sha2.zig");
     _ = @import("sha3.zig");
-    _ = @import("blake2.zig");
-    _ = @import("hmac.zig");
+    _ = @import("x25519.zig");
 }

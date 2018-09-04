@@ -29,8 +29,8 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) RoundPar
 
 pub const Md5 = struct {
     const Self = this;
-    const block_size = 64;
-    const digest_size = 16;
+    const block_length = 64;
+    const digest_length = 16;
 
     s: [4]u32,
     // Streaming Cache
@@ -271,8 +271,8 @@ test "md5 streaming" {
 }
 
 test "md5 aligned final" {
-    var block = []u8{0} ** Md5.block_size;
-    var out: [Md5.digest_size]u8 = undefined;
+    var block = []u8{0} ** Md5.block_length;
+    var out: [Md5.digest_length]u8 = undefined;
 
     var h = Md5.init();
     h.update(block);

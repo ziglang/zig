@@ -2,6 +2,49 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "switch with invalid expression parameter",
+        \\export fn entry() void {
+        \\    Test(i32);
+        \\}
+        \\fn Test(comptime T: type) void {
+        \\    const x = switch (T) {
+        \\        []u8 => |x| 123,
+        \\        i32 => |x| 456,
+        \\        else => unreachable,
+        \\    };
+        \\}
+    ,
+        ".tmp_source.zig:7:17: error: switch on type 'type' provides no expression parameter",
+    );
+
+    cases.add(
+        "function protoype with no body",
+        \\fn foo() void;
+        \\export fn entry() void {
+        \\    foo();
+        \\}
+    ,
+        ".tmp_source.zig:1:1: error: non-extern function has no body",
+    );
+
+    cases.add(
+        "@typeInfo causing depend on itself compile error",
+        \\const start = struct {
+        \\    fn crash() bug() {
+        \\        return bug;
+        \\    }
+        \\};
+        \\fn bug() void {
+        \\    _ = @typeInfo(start).Struct;
+        \\}
+        \\export fn entry() void {
+        \\    var boom = start.crash();
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: 'crash' depends on itself",
+    );
+
+    cases.add(
         "@handle() called outside of function definition",
         \\var handle_undef: promise = undefined;
         \\var handle_dummy: promise = @handle();

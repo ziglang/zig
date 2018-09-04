@@ -3075,12 +3075,19 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                     trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
         case Stmt::DeclStmtClass:
             return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
+        case Stmt::DoStmtClass:
         case Stmt::WhileStmtClass: {
-            AstNode *while_node = trans_while_loop(c, scope, (const WhileStmt *)stmt);
+            AstNode *while_node = sc == Stmt::DoStmtClass
+                ? trans_do_loop(c, scope, (const DoStmt *)stmt)
+                : trans_while_loop(c, scope, (const WhileStmt *)stmt);
+
+            if (while_node == nullptr)
+                return ErrorUnexpected;
+
             assert(while_node->type == NodeTypeWhileExpr);
-            if (while_node->data.while_expr.body == nullptr) {
+            if (while_node->data.while_expr.body == nullptr)
                 while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
-            }
+
             return wrap_stmt(out_node, out_child_scope, scope, while_node);
         }
         case Stmt::IfStmtClass:
@@ -3105,14 +3112,6 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
         case Stmt::UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
-        case Stmt::DoStmtClass: {
-            AstNode *while_node = trans_do_loop(c, scope, (const DoStmt *)stmt);
-            assert(while_node->type == NodeTypeWhileExpr);
-            if (while_node->data.while_expr.body == nullptr) {
-                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
-            }
-            return wrap_stmt(out_node, out_child_scope, scope, while_node);
-        }
         case Stmt::ForStmtClass: {
             AstNode *node = trans_for_loop(c, scope, (const ForStmt *)stmt);
             return wrap_stmt(out_node, out_child_scope, scope, node);

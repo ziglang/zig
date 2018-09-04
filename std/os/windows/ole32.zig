@@ -5,7 +5,6 @@ pub extern "ole32.dll" stdcallcc fn CoUninitialize() void;
 pub extern "ole32.dll" stdcallcc fn CoGetCurrentProcess() DWORD;
 pub extern "ole32.dll" stdcallcc fn CoInitializeEx(pvReserved: LPVOID, dwCoInit: DWORD) HRESULT;
 
-
 pub const COINIT_APARTMENTTHREADED = COINIT.COINIT_APARTMENTTHREADED;
 pub const COINIT_MULTITHREADED = COINIT.COINIT_MULTITHREADED;
 pub const COINIT_DISABLE_OLE1DDE = COINIT.COINIT_DISABLE_OLE1DDE;

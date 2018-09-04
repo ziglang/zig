@@ -9,9 +9,7 @@ const Color = enum(u1) {
 const Red = Color.Red;
 const Black = Color.Black;
 
-const ReplaceError = error {
-    NotEqual,
-};
+const ReplaceError = error{NotEqual};
 
 /// Insert this into your struct that you want to add to a red-black tree.
 /// Do not use a pointer. Turn the *rb.Node results of the functions in rb
@@ -21,13 +19,15 @@ const ReplaceError = error {
 ///     node: rb.Node,
 ///     value: i32,
 /// };
-/// fn number(node: *Node) Number {
+/// fn number(node: *rb.Node) Number {
 ///     return @fieldParentPtr(Number, "node", node);
 /// }
 pub const Node = struct {
     left: ?*Node,
     right: ?*Node,
-    parent_and_color: usize, /// parent | color
+
+    /// parent | color
+    parent_and_color: usize,
 
     pub fn next(constnode: *Node) ?*Node {
         var node = constnode;
@@ -130,7 +130,7 @@ pub const Node = struct {
 
 pub const Tree = struct {
     root: ?*Node,
-    compareFn: fn(*Node, *Node) mem.Compare,
+    compareFn: fn (*Node, *Node) mem.Compare,
 
     /// If you have a need for a version that caches this, please file a bug.
     pub fn first(tree: *Tree) ?*Node {
@@ -180,7 +180,7 @@ pub const Tree = struct {
         while (node.get_parent()) |*parent| {
             if (parent.*.is_black())
                 break;
-                                              // the root is always black
+            // the root is always black
             var grandpa = parent.*.get_parent() orelse unreachable;
 
             if (parent.* == grandpa.left) {
@@ -206,7 +206,7 @@ pub const Tree = struct {
                 }
             } else {
                 var maybe_uncle = grandpa.left;
-                
+
                 if (maybe_uncle) |uncle| {
                     if (uncle.is_black())
                         break;
@@ -259,7 +259,7 @@ pub const Tree = struct {
             if (node.left == null) {
                 next = node.right.?; // Not both null as per above
             } else if (node.right == null) {
-                next = node.left.?;  // Not both null as per above
+                next = node.left.?; // Not both null as per above
             } else
                 next = node.right.?.get_first(); // Just checked for null above
 
@@ -313,7 +313,7 @@ pub const Tree = struct {
             var parent = maybe_parent.?;
             if (node == parent.left) {
                 var sibling = parent.right.?; // Same number of black nodes.
-                
+
                 if (sibling.is_red()) {
                     sibling.set_color(Black);
                     parent.set_color(Red);
@@ -321,7 +321,8 @@ pub const Tree = struct {
                     sibling = parent.right.?; // Just rotated
                 }
                 if ((if (sibling.left) |n| n.is_black() else true) and
-                    (if (sibling.right) |n| n.is_black() else true)) {
+                    (if (sibling.right) |n| n.is_black() else true))
+                {
                     sibling.set_color(Red);
                     node = parent;
                     maybe_parent = parent.get_parent();
@@ -341,7 +342,7 @@ pub const Tree = struct {
                 break;
             } else {
                 var sibling = parent.left.?; // Same number of black nodes.
-                
+
                 if (sibling.is_red()) {
                     sibling.set_color(Black);
                     parent.set_color(Red);
@@ -349,7 +350,8 @@ pub const Tree = struct {
                     sibling = parent.left.?; // Just rotated
                 }
                 if ((if (sibling.left) |n| n.is_black() else true) and
-                    (if (sibling.right) |n| n.is_black() else true)) {
+                    (if (sibling.right) |n| n.is_black() else true))
+                {
                     sibling.set_color(Red);
                     node = parent;
                     maybe_parent = parent.get_parent();
@@ -397,7 +399,7 @@ pub const Tree = struct {
         new.* = old.*;
     }
 
-    pub fn init(tree: *Tree, f: fn(*Node, *Node) mem.Compare) void {
+    pub fn init(tree: *Tree, f: fn (*Node, *Node) mem.Compare) void {
         tree.root = null;
         tree.compareFn = f;
     }

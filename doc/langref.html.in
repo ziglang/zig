@@ -566,7 +566,7 @@ const c_string_literal =
       {#header_close#}
       {#header_close#}
       {#header_open|Assignment#}
-      <p>Use <code>const</code> to assign a value to an identifier:</p>
+      <p>Use the <code>const</code> keyword to assign a value to an identifier:</p>
       {#code_begin|test_err|cannot assign to constant#}
 const x = 1234;
 
@@ -582,7 +582,8 @@ test "assignment" {
     foo();
 }
       {#code_end#}
-      <p>If you need a variable that you can modify, use <code>var</code>:</p>
+      <p><code>const</code> applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
+      <p>If you need a variable that you can modify, use the <code>var</code> keyword:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
@@ -1918,6 +1919,32 @@ test "linked list" {
     assert(list2.first.?.data == 1234);
 }
       {#code_end#}
+      {#header_open|struct Naming#}
+      <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
+      <ul>
+          <li>If the struct is in the initialization expression of a variable, it gets named after
+          that variable.</li>
+          <li>If the struct is in the <code>return</code> expression, it gets named after
+          the function it is returning from, with the parameter values serialized.</li>
+          <li>Otherwise, the struct gets a same such as <code>(anonymous struct at file.zig:7:38)</code>.</li>
+      </ul>
+      {#code_begin|exe|struct_name#}
+const std = @import("std");
+
+pub fn main() void {
+    const Foo = struct {};
+    std.debug.warn("variable: {}\n", @typeName(Foo));
+    std.debug.warn("anonymous: {}\n", @typeName(struct {}));
+    std.debug.warn("function: {}\n", @typeName(List(i32)));
+}
+
+fn List(comptime T: type) type {
+    return struct {
+        x: T,
+    };
+}
+      {#code_end#}
+      {#header_close#}
       {#see_also|comptime|@fieldParentPtr#}
       {#header_close#}
       {#header_open|enum#}
@@ -2179,6 +2206,39 @@ test "@tagName" {
       sorts the order of the tag and union field by the largest alignment.
       </p>
       {#header_close#}
+      {#header_open|blocks#}
+      <p>
+      Blocks are used to limit the scope of variable declarations:
+      </p>
+      {#code_begin|test_err|undeclared identifier#}
+test "access variable after block scope" {
+    {
+        var x: i32 = 1;
+    }
+    x += 1;
+}
+      {#code_end#}
+      <p>Blocks are expressions. When labeled, <code>break</code> can be used
+      to return a value from the block:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "labeled break from labeled block expression" {
+    var y: i32 = 123;
+
+    const x = blk: {
+        y += 1;
+        break :blk y;
+    };
+    assert(x == 124);
+    assert(y == 124);
+}
+      {#code_end#}
+      <p>Here, <code>blk</code> can be any name.</p>
+      {#see_also|Labeled while|Labeled for#}
+      {#header_close#}
       {#header_open|switch#}
       {#code_begin|test|switch#}
 const assert = @import("std").debug.assert;
@@ -2374,6 +2434,28 @@ fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
     } else false;
 }
       {#code_end#}
+      {#header_open|Labeled while#}
+      <p>When a <code>while</code> loop is labeled, it can be referenced from a <code>break</code>
+      or <code>continue</code> from within a nested loop:</p>
+      {#code_begin|test#}
+test "nested break" {
+    outer: while (true) {
+        while (true) {
+            break :outer;
+        }
+    }
+}
+
+test "nested continue" {
+    var i: usize = 0;
+    outer: while (i < 10) : (i += 1) {
+        while (true) {
+            continue :outer;
+        }
+    }
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|while with Optionals#}
       <p>
       Just like {#link|if#} expressions, while loops can take an optional as the
@@ -2560,6 +2642,37 @@ test "for else" {
     };
 }
       {#code_end#}
+      {#header_open|Labeled for#}
+      <p>When a <code>for</code> loop is labeled, it can be referenced from a <code>break</code>
+      or <code>continue</code> from within a nested loop:</p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "nested break" {
+    var count: usize = 0;
+    outer: for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
+        for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
+            count += 1;
+            break :outer;
+        }
+    }
+    assert(count == 1);
+}
+
+test "nested continue" {
+    var count: usize = 0;
+    outer: for ([]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }) |_| {
+        for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
+            count += 1;
+            continue :outer;
+        }
+    }
+
+    assert(count == 8);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|inline for#}
       <p>
       For loops can be inlined. This causes the loop to be unrolled, which
@@ -7057,6 +7170,61 @@ const c = @cImport({
 });
       {#code_end#}
       {#see_also|@cImport|@cInclude|@cDefine|@cUndef|@import#}
+      {#header_close#}
+      {#header_open|Exporting a C Library#}
+      <p>
+      One of the primary use cases for Zig is exporting a library with the C ABI for other programming languages
+      to call into. The <code>export</code> keyword in front of functions, variables, and types causes them to
+      be part of the library API:
+      </p>
+      <p class="file">mathtest.zig</p>
+      {#code_begin|syntax#}
+export fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
+      <p>To make a shared library:</p>
+      <pre><code class="shell">$ zig build-lib mathtest.zig
+</code></pre>
+      <p>To make a static library:</p>
+      <pre><code class="shell">$ zig build-lib mathtest.zig --static
+</code></pre>
+      <p>Here is an example with the {#link|Zig Build System#}:</p>
+      <p class="file">test.c</p>
+      <pre><code class="cpp">// This header is generated by zig from mathtest.zig
+#include "mathtest.h"
+#include &lt;assert.h&gt;
+
+int main(int argc, char **argv) {
+    assert(add(42, 1337) == 1379);
+    return 0;
+}</code></pre>
+      <p class="file">build.zig</p>
+      {#code_begin|syntax#}
+const Builder = @import("std").build.Builder;
+
+pub fn build(b: *Builder) void {
+    const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
+
+    const exe = b.addCExecutable("test");
+    exe.addCompileFlags([][]const u8{"-std=c99"});
+    exe.addSourceFile("test.c");
+    exe.linkLibrary(lib);
+
+    b.default_step.dependOn(&exe.step);
+
+    const run_cmd = b.addCommand(".", b.env_map, [][]const u8{exe.getOutputPath()});
+    run_cmd.step.dependOn(&exe.step);
+
+    const test_step = b.step("test", "Test the program");
+    test_step.dependOn(&run_cmd.step);
+}
+      {#code_end#}
+      <p class="file">terminal</p>
+      <pre><code class="shell">$ zig build
+$ ./test
+$ echo $?
+0</code></pre>
       {#header_close#}
       {#header_open|Mixing Object Files#}
       <p>

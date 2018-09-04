@@ -185,7 +185,7 @@ pub const TestContext = struct {
                 try stderr.write("build incorrectly failed:\n");
                 for (msgs) |msg| {
                     defer msg.destroy();
-                    try msg.printToFile(&stderr, errmsg.Color.Auto);
+                    try msg.printToFile(stderr, errmsg.Color.Auto);
                 }
             },
         }
@@ -234,7 +234,7 @@ pub const TestContext = struct {
                 var stderr = try std.io.getStdErr();
                 for (msgs) |msg| {
                     defer msg.destroy();
-                    try msg.printToFile(&stderr, errmsg.Color.Auto);
+                    try msg.printToFile(stderr, errmsg.Color.Auto);
                 }
                 std.debug.warn("============\n");
                 return error.TestFailed;

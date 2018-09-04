@@ -71,8 +71,7 @@ fn testBreakOuter() void {
     var array = "aoeu";
     var count: usize = 0;
     outer: for (array) |_| {
-        // TODO shouldn't get error for redeclaring "_"
-        for (array) |_2| {
+        for (array) |_| {
             count += 1;
             break :outer;
         }
@@ -89,8 +88,7 @@ fn testContinueOuter() void {
     var array = "aoeu";
     var counter: usize = 0;
     outer: for (array) |_| {
-        // TODO shouldn't get error for redeclaring "_"
-        for (array) |_2| {
+        for (array) |_| {
             counter += 1;
             continue :outer;
         }

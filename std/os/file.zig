@@ -48,16 +48,21 @@ pub const File = struct {
             return openReadC(&path_c);
         }
         if (is_windows) {
-            const handle = try os.windowsOpen(
-                path,
-                windows.GENERIC_READ,
-                windows.FILE_SHARE_READ,
-                windows.OPEN_EXISTING,
-                windows.FILE_ATTRIBUTE_NORMAL,
-            );
-            return openHandle(handle);
+            const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return openReadW(&path_w);
         }
         @compileError("Unsupported OS");
+    }
+
+    pub fn openReadW(path_w: [*]const u16) OpenError!File {
+        const handle = try os.windowsOpenW(
+            path_w,
+            windows.GENERIC_READ,
+            windows.FILE_SHARE_READ,
+            windows.OPEN_EXISTING,
+            windows.FILE_ATTRIBUTE_NORMAL,
+        );
+        return openHandle(handle);
     }
 
     /// Calls `openWriteMode` with os.File.default_mode for the mode.
@@ -74,17 +79,22 @@ pub const File = struct {
             const fd = try os.posixOpen(path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(
-                path,
-                windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
-                windows.CREATE_ALWAYS,
-                windows.FILE_ATTRIBUTE_NORMAL,
-            );
-            return openHandle(handle);
+            const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return openWriteModeW(&path_w, file_mode);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
         }
+    }
+
+    pub fn openWriteModeW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
+        const handle = try os.windowsOpenW(
+            path_w,
+            windows.GENERIC_WRITE,
+            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            windows.CREATE_ALWAYS,
+            windows.FILE_ATTRIBUTE_NORMAL,
+        );
+        return openHandle(handle);
     }
 
     /// If the path does not exist it will be created.
@@ -96,17 +106,22 @@ pub const File = struct {
             const fd = try os.posixOpen(path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(
-                path,
-                windows.GENERIC_WRITE,
-                windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
-                windows.CREATE_NEW,
-                windows.FILE_ATTRIBUTE_NORMAL,
-            );
-            return openHandle(handle);
+            const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return openWriteNoClobberW(&path_w, file_mode);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
         }
+    }
+
+    pub fn openWriteNoClobberW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
+        const handle = try os.windowsOpenW(
+            path_w,
+            windows.GENERIC_WRITE,
+            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            windows.CREATE_NEW,
+            windows.FILE_ATTRIBUTE_NORMAL,
+        );
+        return openHandle(handle);
     }
 
     pub fn openHandle(handle: os.FileHandle) File {
@@ -190,17 +205,16 @@ pub const File = struct {
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
-    pub fn close(self: *File) void {
+    pub fn close(self: File) void {
         os.close(self.handle);
-        self.handle = undefined;
     }
 
     /// Calls `os.isTty` on `self.handle`.
-    pub fn isTty(self: *File) bool {
+    pub fn isTty(self: File) bool {
         return os.isTty(self.handle);
     }
 
-    pub fn seekForward(self: *File, amount: isize) !void {
+    pub fn seekForward(self: File, amount: isize) !void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const result = posix.lseek(self.handle, amount, posix.SEEK_CUR);
@@ -231,7 +245,7 @@ pub const File = struct {
         }
     }
 
-    pub fn seekTo(self: *File, pos: usize) !void {
+    pub fn seekTo(self: File, pos: usize) !void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const ipos = try math.cast(isize, pos);
@@ -256,6 +270,7 @@ pub const File = struct {
                     const err = windows.GetLastError();
                     return switch (err) {
                         windows.ERROR.INVALID_PARAMETER => unreachable,
+                        windows.ERROR.INVALID_HANDLE => unreachable,
                         else => os.unexpectedErrorWindows(err),
                     };
                 }
@@ -264,7 +279,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getPos(self: *File) !usize {
+    pub fn getPos(self: File) !usize {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const result = posix.lseek(self.handle, 0, posix.SEEK_CUR);
@@ -300,7 +315,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getEndPos(self: *File) !usize {
+    pub fn getEndPos(self: File) !usize {
         if (is_posix) {
             const stat = try os.posixFStat(self.handle);
             return @intCast(usize, stat.size);
@@ -325,7 +340,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn mode(self: *File) ModeError!Mode {
+    pub fn mode(self: File) ModeError!Mode {
         if (is_posix) {
             var stat: posix.Stat = undefined;
             const err = posix.getErrno(posix.fstat(self.handle, &stat));
@@ -359,7 +374,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn read(self: *File, buffer: []u8) ReadError!usize {
+    pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (is_posix) {
             var index: usize = 0;
             while (index < buffer.len) {
@@ -407,7 +422,7 @@ pub const File = struct {
 
     pub const WriteError = os.WindowsWriteError || os.PosixWriteError;
 
-    pub fn write(self: *File, bytes: []const u8) WriteError!void {
+    pub fn write(self: File, bytes: []const u8) WriteError!void {
         if (is_posix) {
             try os.posixWrite(self.handle, bytes);
         } else if (is_windows) {

@@ -1575,7 +1575,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
 
         switch (type_entry->id) {
             case TypeTableEntryIdInvalid:
-                return g->builtin_types.entry_invalid;
+                zig_unreachable();
             case TypeTableEntryIdUnreachable:
             case TypeTableEntryIdUndefined:
             case TypeTableEntryIdNull:
@@ -1680,14 +1680,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdMetaType:
-            if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                add_node_error(g, fn_proto->return_type,
-                    buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
-                    buf_ptr(&fn_type_id.return_type->name),
-                    calling_convention_name(fn_type_id.cc)));
-                return g->builtin_types.entry_invalid;
-            }
-            return get_generic_fn_type(g, &fn_type_id);
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -1703,6 +1695,11 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdPromise:
+            if ((err = type_ensure_zero_bits_known(g, fn_type_id.return_type)))
+                return g->builtin_types.entry_invalid;
+            if (type_requires_comptime(fn_type_id.return_type)) {
+                return get_generic_fn_type(g, &fn_type_id);
+            }
             break;
     }
 
@@ -3245,6 +3242,13 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
     } else if (tld->id == TldIdFn) {
         assert(tld->source_node->type == NodeTypeFnProto);
         is_export = tld->source_node->data.fn_proto.is_export;
+
+        if (!is_export && !tld->source_node->data.fn_proto.is_extern &&
+            tld->source_node->data.fn_proto.fn_def_node == nullptr)
+        {
+            add_node_error(g, tld->source_node, buf_sprintf("non-extern function has no body"));
+            return;
+        }
     }
     if (is_export) {
         g->resolve_queue.append(tld);
@@ -5620,8 +5624,6 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
     if (type_entry->id == TypeTableEntryIdInt) {
         const_val->special = ConstValSpecialStatic;
         eval_min_max_value_int(g, type_entry, &const_val->data.x_bigint, is_max);
-    } else if (type_entry->id == TypeTableEntryIdFloat) {
-        zig_panic("TODO analyze_min_max_value float");
     } else if (type_entry->id == TypeTableEntryIdBool) {
         const_val->special = ConstValSpecialStatic;
         const_val->data.x_bool = is_max;

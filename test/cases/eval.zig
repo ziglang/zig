@@ -652,3 +652,25 @@ fn loopNTimes(comptime n: usize) void {
     comptime var i = 0;
     inline while (i < n) : (i += 1) {}
 }
+
+test "variable inside inline loop that has different types on different iterations" {
+    testVarInsideInlineLoop(true, u32(42));
+}
+
+fn testVarInsideInlineLoop(args: ...) void {
+    comptime var i = 0;
+    inline while (i < args.len) : (i += 1) {
+        const x = args[i];
+        if (i == 0) assert(x);
+        if (i == 1) assert(x == 42);
+    }
+}
+
+test "inline for with same type but different values" {
+    var res: usize = 0;
+    inline for ([]type{ [2]u8, [1]u8, [2]u8 }) |T| {
+        var a: T = undefined;
+        res += a.len;
+    }
+    assert(res == 5);
+}

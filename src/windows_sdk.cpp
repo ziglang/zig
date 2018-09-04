@@ -204,7 +204,11 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
                 // https://developer.microsoft.com/en-us/windows/downloads/sdk-archive
                 c2 = 26624;
             }
-            if ((c0 > v0) || (c1 > v1) || (c2 > v2) || (c3 > v3)) {
+
+            if ( (c0 > v0)
+              || (c0 == v0 && c1 > v1)
+              || (c0 == v0 && c1 == v1 && c2 > v2)
+              || (c0 == v0 && c1 == v1 && c2 == v2 && c3 > v3) ) {
                 v0 = c0, v1 = c1, v2 = c2, v3 = c3;
                 free((void*)priv->base.version10_ptr);
                 priv->base.version10_ptr = strdup(ffd.cFileName);
@@ -244,7 +248,8 @@ static ZigFindWindowsSdkError find_81_version(ZigWindowsSDKPrivate *priv) {
         if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             int c0 = 0, c1 = 0;
             sscanf(ffd.cFileName, "winv%d.%d", &c0, &c1);
-            if ((c0 > v0) || (c1 > v1)) {
+
+            if ( (c0 > v0) || (c0 == v0 && c1 > v1) ) {
                 v0 = c0, v1 = c1;
                 free((void*)priv->base.version81_ptr);
                 priv->base.version81_ptr = strdup(ffd.cFileName);

@@ -1,3 +1,20 @@
+test "zig fmt: correctly move doc comments on struct fields" {
+    try testTransform(
+        \\pub const section_64 = extern struct {
+        \\    sectname: [16]u8, /// name of this section
+        \\    segname: [16]u8,  /// segment this section goes in
+        \\};
+    ,
+        \\pub const section_64 = extern struct {
+        \\    /// name of this section
+        \\    sectname: [16]u8,
+        \\    /// segment this section goes in
+        \\    segname: [16]u8,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: preserve space between async fn definitions" {
     try testCanonical(
         \\async fn a() void {}
@@ -1848,7 +1865,7 @@ var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
     var stderr_file = try io.getStdErr();
-    var stderr = &io.FileOutStream.init(&stderr_file).stream;
+    var stderr = &io.FileOutStream.init(stderr_file).stream;
 
     var tree = try std.zig.parse(allocator, source);
     defer tree.deinit();

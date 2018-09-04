@@ -272,7 +272,7 @@ pub const Msg = struct {
         try stream.write("\n");
     }
 
-    pub fn printToFile(msg: *const Msg, file: *os.File, color: Color) !void {
+    pub fn printToFile(msg: *const Msg, file: os.File, color: Color) !void {
         const color_on = switch (color) {
             Color.Auto => file.isTty(),
             Color.On => true,

@@ -40,11 +40,11 @@ pub fn main() !void {
     var out_file = try os.File.openWrite(out_file_name);
     defer out_file.close();
 
-    var file_in_stream = io.FileInStream.init(&in_file);
+    var file_in_stream = io.FileInStream.init(in_file);
 
     const input_file_bytes = try file_in_stream.stream.readAllAlloc(allocator, max_doc_file_size);
 
-    var file_out_stream = io.FileOutStream.init(&out_file);
+    var file_out_stream = io.FileOutStream.init(out_file);
     var buffered_out_stream = io.BufferedOutStream(io.FileOutStream.Error).init(&file_out_stream.stream);
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);

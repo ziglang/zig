@@ -3,10 +3,9 @@ const assert = std.debug.assert;
 
 pub use @import("advapi32.zig");
 pub use @import("kernel32.zig");
+pub use @import("ntdll.zig");
 pub use @import("ole32.zig");
 pub use @import("shell32.zig");
-pub use @import("shlwapi.zig");
-pub use @import("user32.zig");
 
 test "import" {
     _ = @import("util.zig");
@@ -14,6 +13,7 @@ test "import" {
 
 pub const ERROR = @import("error.zig");
 
+pub const SHORT = c_short;
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
@@ -172,11 +172,11 @@ pub const PROCESS_INFORMATION = extern struct {
     dwThreadId: DWORD,
 };
 
-pub const STARTUPINFOA = extern struct {
+pub const STARTUPINFOW = extern struct {
     cb: DWORD,
-    lpReserved: ?LPSTR,
-    lpDesktop: ?LPSTR,
-    lpTitle: ?LPSTR,
+    lpReserved: ?LPWSTR,
+    lpDesktop: ?LPWSTR,
+    lpTitle: ?LPWSTR,
     dwX: DWORD,
     dwY: DWORD,
     dwXSize: DWORD,
@@ -236,7 +236,7 @@ pub const HEAP_NO_SERIALIZE = 0x00000001;
 pub const PTHREAD_START_ROUTINE = extern fn (LPVOID) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
-pub const WIN32_FIND_DATAA = extern struct {
+pub const WIN32_FIND_DATAW = extern struct {
     dwFileAttributes: DWORD,
     ftCreationTime: FILETIME,
     ftLastAccessTime: FILETIME,
@@ -245,8 +245,8 @@ pub const WIN32_FIND_DATAA = extern struct {
     nFileSizeLow: DWORD,
     dwReserved0: DWORD,
     dwReserved1: DWORD,
-    cFileName: [260]CHAR,
-    cAlternateFileName: [14]CHAR,
+    cFileName: [260]u16,
+    cAlternateFileName: [14]u16,
 };
 
 pub const FILETIME = extern struct {
@@ -288,27 +288,27 @@ pub const GUID = extern struct {
         assert(str[index] == '{');
         index += 1;
 
-        guid.Data1 = std.fmt.parseUnsigned(c_ulong, str[index..index + 8], 16) catch unreachable;
+        guid.Data1 = std.fmt.parseUnsigned(c_ulong, str[index .. index + 8], 16) catch unreachable;
         index += 8;
 
         assert(str[index] == '-');
         index += 1;
 
-        guid.Data2 = std.fmt.parseUnsigned(c_ushort, str[index..index + 4], 16) catch unreachable;
+        guid.Data2 = std.fmt.parseUnsigned(c_ushort, str[index .. index + 4], 16) catch unreachable;
         index += 4;
 
         assert(str[index] == '-');
         index += 1;
 
-        guid.Data3 = std.fmt.parseUnsigned(c_ushort, str[index..index + 4], 16) catch unreachable;
+        guid.Data3 = std.fmt.parseUnsigned(c_ushort, str[index .. index + 4], 16) catch unreachable;
         index += 4;
 
         assert(str[index] == '-');
         index += 1;
 
-        guid.Data4[0] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+        guid.Data4[0] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
         index += 2;
-        guid.Data4[1] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+        guid.Data4[1] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
         index += 2;
 
         assert(str[index] == '-');
@@ -316,7 +316,7 @@ pub const GUID = extern struct {
 
         var i: usize = 2;
         while (i < guid.Data4.len) : (i += 1) {
-            guid.Data4[i] = std.fmt.parseUnsigned(u8, str[index..index + 2], 16) catch unreachable;
+            guid.Data4[i] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
             index += 2;
         }
 
@@ -363,3 +363,17 @@ pub const FILE_FLAG_RANDOM_ACCESS = 0x10000000;
 pub const FILE_FLAG_SESSION_AWARE = 0x00800000;
 pub const FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
 pub const FILE_FLAG_WRITE_THROUGH = 0x80000000;
+
+pub const SMALL_RECT = extern struct {
+    Left: SHORT,
+    Top: SHORT,
+    Right: SHORT,
+    Bottom: SHORT,
+};
+
+pub const COORD = extern struct {
+    X: SHORT,
+    Y: SHORT,
+};
+
+pub const CREATE_UNICODE_ENVIRONMENT = 1024;

@@ -340,7 +340,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     const node_ptr = try ctx.container_decl.fields_and_decls.addOne();
                     node_ptr.* = &node.base;
 
-                    stack.append(State{ .FieldListCommaOrEnd = ctx.container_decl }) catch unreachable;
+                    try stack.append(State{
+                        .FieldListCommaOrEnd = FieldCtx{
+                            .doc_comments = &node.doc_comments,
+                            .container_decl = ctx.container_decl,
+                        },
+                    });
                     try stack.append(State{ .Expression = OptionalCtx{ .Required = &node.type_expr } });
                     try stack.append(State{ .ExpectToken = Token.Id.Colon });
                     continue;
@@ -458,7 +463,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                                 const node_ptr = try container_decl.fields_and_decls.addOne();
                                 node_ptr.* = &node.base;
 
-                                try stack.append(State{ .FieldListCommaOrEnd = container_decl });
+                                try stack.append(State{
+                                    .FieldListCommaOrEnd = FieldCtx{
+                                        .doc_comments = &node.doc_comments,
+                                        .container_decl = container_decl,
+                                    },
+                                });
                                 try stack.append(State{ .TypeExprBegin = OptionalCtx{ .Required = &node.type_expr } });
                                 try stack.append(State{ .ExpectToken = Token.Id.Colon });
                                 continue;
@@ -473,7 +483,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                                 });
                                 try container_decl.fields_and_decls.push(&node.base);
 
-                                stack.append(State{ .FieldListCommaOrEnd = container_decl }) catch unreachable;
+                                try stack.append(State{
+                                    .FieldListCommaOrEnd = FieldCtx{
+                                        .doc_comments = &node.doc_comments,
+                                        .container_decl = container_decl,
+                                    },
+                                });
                                 try stack.append(State{ .FieldInitValue = OptionalCtx{ .RequiredNull = &node.value_expr } });
                                 try stack.append(State{ .TypeExprBegin = OptionalCtx{ .RequiredNull = &node.type_expr } });
                                 try stack.append(State{ .IfToken = Token.Id.Colon });
@@ -488,7 +503,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                                 });
                                 try container_decl.fields_and_decls.push(&node.base);
 
-                                stack.append(State{ .FieldListCommaOrEnd = container_decl }) catch unreachable;
+                                try stack.append(State{
+                                    .FieldListCommaOrEnd = FieldCtx{
+                                        .doc_comments = &node.doc_comments,
+                                        .container_decl = container_decl,
+                                    },
+                                });
                                 try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &node.value } });
                                 try stack.append(State{ .IfToken = Token.Id.Equal });
                                 continue;
@@ -1265,17 +1285,35 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                 }
             },
-            State.FieldListCommaOrEnd => |container_decl| {
-                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RBrace)) {
-                    ExpectCommaOrEndResult.end_token => |maybe_end| if (maybe_end) |end| {
-                        container_decl.rbrace_token = end;
-                        continue;
-                    } else {
-                        try stack.append(State{ .ContainerDecl = container_decl });
+            State.FieldListCommaOrEnd => |field_ctx| {
+                const end_token = nextToken(&tok_it, &tree);
+                const end_token_index = end_token.index;
+                const end_token_ptr = end_token.ptr;
+                switch (end_token_ptr.id) {
+                    Token.Id.Comma => {
+                        if (eatToken(&tok_it, &tree, Token.Id.DocComment)) |doc_comment_token| {
+                            const loc = tree.tokenLocation(end_token_ptr.end, doc_comment_token);
+                            if (loc.line == 0) {
+                                try pushDocComment(arena, doc_comment_token, field_ctx.doc_comments);
+                            } else {
+                                prevToken(&tok_it, &tree);
+                            }
+                        }
+
+                        try stack.append(State{ .ContainerDecl = field_ctx.container_decl });
                         continue;
                     },
-                    ExpectCommaOrEndResult.parse_error => |e| {
-                        try tree.errors.push(e);
+                    Token.Id.RBrace => {
+                        field_ctx.container_decl.rbrace_token = end_token_index;
+                        continue;
+                    },
+                    else => {
+                        try tree.errors.push(Error{
+                            .ExpectedCommaOrEnd = Error.ExpectedCommaOrEnd{
+                                .token = end_token_index,
+                                .end_id = end_token_ptr.id,
+                            },
+                        });
                         return tree;
                     },
                 }
@@ -2813,6 +2851,11 @@ const ExprListCtx = struct {
     ptr: *TokenIndex,
 };
 
+const FieldCtx = struct {
+    container_decl: *ast.Node.ContainerDecl,
+    doc_comments: *?*ast.Node.DocComment,
+};
+
 fn ListSave(comptime List: type) type {
     return struct {
         list: *List,
@@ -2950,7 +2993,7 @@ const State = union(enum) {
     ExprListCommaOrEnd: ExprListCtx,
     FieldInitListItemOrEnd: ListSave(ast.Node.SuffixOp.Op.InitList),
     FieldInitListCommaOrEnd: ListSave(ast.Node.SuffixOp.Op.InitList),
-    FieldListCommaOrEnd: *ast.Node.ContainerDecl,
+    FieldListCommaOrEnd: FieldCtx,
     FieldInitValue: OptionalCtx,
     ErrorTagListItemOrEnd: ListSave(ast.Node.ErrorSetDecl.DeclList),
     ErrorTagListCommaOrEnd: ListSave(ast.Node.ErrorSetDecl.DeclList),

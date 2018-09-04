@@ -43,6 +43,7 @@ struct IrAnalyze;
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     Buf *name;
+    FnTableEntry *name_fn;
     size_t mem_slot_count;
     size_t next_debug_id;
     size_t *backward_branch_count;
@@ -1805,6 +1806,11 @@ struct VariableTableEntry {
     VarLinkage linkage;
     IrInstruction *decl_instruction;
     uint32_t align_bytes;
+
+    // In an inline loop, multiple variables may be created,
+    // In this case, a reference to a variable should follow
+    // this pointer to the redefined variable.
+    VariableTableEntry *next_var;
 };
 
 struct ErrorTableEntry {
