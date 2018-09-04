@@ -9532,6 +9532,19 @@ static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrInstr
     return new_bb;
 }
 
+static IrBasicBlock *ir_get_new_bb_runtime(IrAnalyze *ira, IrBasicBlock *old_bb, IrInstruction *ref_old_instruction) {
+    assert(ref_old_instruction != nullptr);
+    IrBasicBlock *new_bb = ir_get_new_bb(ira, old_bb, ref_old_instruction);
+    if (new_bb->must_be_comptime_source_instr) {
+        ErrorMsg *msg = ir_add_error(ira, ref_old_instruction,
+            buf_sprintf("control flow attempts to use compile-time variable at runtime"));
+        add_error_note(ira->codegen, msg, new_bb->must_be_comptime_source_instr->source_node,
+                buf_sprintf("compile-time variable assigned here"));
+        return nullptr;
+    }
+    return new_bb;
+}
+
 static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *const_predecessor_bb) {
     ira->instruction_index = 0;
     ira->old_irb.current_basic_block = old_bb;
@@ -13891,15 +13904,9 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
     if (is_comptime || old_dest_block->ref_count == 1)
         return ir_inline_bb(ira, &br_instruction->base, old_dest_block);
 
-    IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block, &br_instruction->base);
-
-    if (new_bb->must_be_comptime_source_instr) {
-        ErrorMsg *msg = ir_add_error(ira, &br_instruction->base,
-            buf_sprintf("control flow attempts to use compile-time variable at runtime"));
-        add_error_note(ira->codegen, msg, new_bb->must_be_comptime_source_instr->source_node,
-                buf_sprintf("compile-time variable assigned here"));
+    IrBasicBlock *new_bb = ir_get_new_bb_runtime(ira, old_dest_block, &br_instruction->base);
+    if (new_bb == nullptr)
         return ir_unreach_error(ira);
-    }
 
     ir_build_br_from(&ira->new_irb, &br_instruction->base, new_bb);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
@@ -13925,7 +13932,10 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
         if (is_comptime || old_dest_block->ref_count == 1)
             return ir_inline_bb(ira, &cond_br_instruction->base, old_dest_block);
 
-        IrBasicBlock *new_dest_block = ir_get_new_bb(ira, old_dest_block, &cond_br_instruction->base);
+        IrBasicBlock *new_dest_block = ir_get_new_bb_runtime(ira, old_dest_block, &cond_br_instruction->base);
+        if (new_dest_block == nullptr)
+            return ir_unreach_error(ira);
+
         ir_build_br_from(&ira->new_irb, &cond_br_instruction->base, new_dest_block);
         return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
     }
@@ -13936,8 +13946,14 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
         return ir_unreach_error(ira);
 
     assert(cond_br_instruction->then_block != cond_br_instruction->else_block);
-    IrBasicBlock *new_then_block = ir_get_new_bb(ira, cond_br_instruction->then_block, &cond_br_instruction->base);
-    IrBasicBlock *new_else_block = ir_get_new_bb(ira, cond_br_instruction->else_block, &cond_br_instruction->base);
+    IrBasicBlock *new_then_block = ir_get_new_bb_runtime(ira, cond_br_instruction->then_block, &cond_br_instruction->base);
+    if (new_then_block == nullptr)
+        return ir_unreach_error(ira);
+
+    IrBasicBlock *new_else_block = ir_get_new_bb_runtime(ira, cond_br_instruction->else_block, &cond_br_instruction->base);
+    if (new_else_block == nullptr)
+        return ir_unreach_error(ira);
+
     ir_build_cond_br_from(&ira->new_irb, &cond_br_instruction->base,
             casted_condition, new_then_block, new_else_block, nullptr);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
