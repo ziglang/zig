@@ -17,8 +17,7 @@
 #include "util.hpp"
 
 struct IrExecContext {
-    ConstExprValue *mem_slot_list;
-    size_t mem_slot_count;
+    ZigList<ConstExprValue *> mem_slot_list;
 };
 
 struct IrBuilder {
@@ -12496,13 +12495,20 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         }
     }
 
-    if (var->value->type != nullptr && var->value->type != result_type && !is_comptime_var) {
+    if (var->value->type != nullptr && !is_comptime_var) {
         // This is at least the second time we've seen this variable declaration during analysis.
         // This means that this is actually a different variable due to, e.g. an inline while loop.
         // We make a new variable so that it can hold a different type, and so the debug info can
         // be distinct.
         VariableTableEntry *new_var = create_local_var(ira->codegen, var->decl_node, var->child_scope,
             &var->name, var->src_is_const, var->gen_is_const, var->shadowable, var->is_comptime, true);
+        new_var->owner_exec = var->owner_exec;
+        if (var->mem_slot_index != SIZE_MAX) {
+            ConstExprValue *vals = create_const_vals(1);
+            new_var->mem_slot_index = ira->exec_context.mem_slot_list.length;
+            ira->exec_context.mem_slot_list.append(vals);
+        }
+
         var->next_var = new_var;
         var = new_var;
     }
@@ -12525,10 +12531,9 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
 
     if (casted_init_value->value.special != ConstValSpecialRuntime) {
         if (var->mem_slot_index != SIZE_MAX) {
-            assert(var->mem_slot_index < ira->exec_context.mem_slot_count);
-            ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-            copy_const_val(mem_slot, &casted_init_value->value,
-                    !is_comptime_var || var->gen_is_const);
+            assert(var->mem_slot_index < ira->exec_context.mem_slot_list.length);
+            ConstExprValue *mem_slot = ira->exec_context.mem_slot_list.at(var->mem_slot_index);
+            copy_const_val(mem_slot, &casted_init_value->value, !is_comptime_var || var->gen_is_const);
 
             if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
                 ir_build_const_from(ira, &decl_var_instruction->base);
@@ -13012,8 +13017,8 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
             assert(var->owner_exec != nullptr);
             assert(var->owner_exec->analysis != nullptr);
             IrExecContext *exec_context = &var->owner_exec->analysis->exec_context;
-            assert(var->mem_slot_index < exec_context->mem_slot_count);
-            mem_slot = &exec_context->mem_slot_list[var->mem_slot_index];
+            assert(var->mem_slot_index < exec_context->mem_slot_list.length);
+            mem_slot = exec_context->mem_slot_list.at(var->mem_slot_index);
         }
     }
 
@@ -21228,8 +21233,11 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
     ira->new_irb.codegen = codegen;
     ira->new_irb.exec = new_exec;
 
-    ira->exec_context.mem_slot_count = ira->old_irb.exec->mem_slot_count;
-    ira->exec_context.mem_slot_list = create_const_vals(ira->exec_context.mem_slot_count);
+    ConstExprValue *vals = create_const_vals(ira->old_irb.exec->mem_slot_count);
+    ira->exec_context.mem_slot_list.resize(ira->old_irb.exec->mem_slot_count);
+    for (size_t i = 0; i < ira->exec_context.mem_slot_list.length; i += 1) {
+        ira->exec_context.mem_slot_list.items[i] = &vals[i];
+    }
 
     IrBasicBlock *old_entry_bb = ira->old_irb.exec->basic_block_list.at(0);
     IrBasicBlock *new_entry_bb = ir_get_new_bb(ira, old_entry_bb, nullptr);

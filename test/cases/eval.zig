@@ -665,3 +665,12 @@ fn testVarInsideInlineLoop(args: ...) void {
         if (i == 1) assert(x == 42);
     }
 }
+
+test "inline for with same type but different values" {
+    var res: usize = 0;
+    inline for ([]type{ [2]u8, [1]u8, [2]u8 }) |T| {
+        var a: T = undefined;
+        res += a.len;
+    }
+    assert(res == 5);
+}
