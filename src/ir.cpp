@@ -1446,8 +1446,6 @@ static IrInstruction *ir_build_var_decl(IrBuilder *irb, Scope *scope, AstNode *s
     if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(init_value, irb->current_basic_block);
 
-    var->decl_instruction = &decl_var_instruction->base;
-
     return &decl_var_instruction->base;
 }
 
@@ -12433,8 +12431,6 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         return var->value->type;
     }
 
-    var->ref_count = 0;
-
     TypeTableEntry *explicit_type = nullptr;
     IrInstruction *var_type = nullptr;
     if (decl_var_instruction->var_type != nullptr) {
@@ -12503,6 +12499,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         VariableTableEntry *new_var = create_local_var(ira->codegen, var->decl_node, var->child_scope,
             &var->name, var->src_is_const, var->gen_is_const, var->shadowable, var->is_comptime, true);
         new_var->owner_exec = var->owner_exec;
+        new_var->align_bytes = var->align_bytes;
         if (var->mem_slot_index != SIZE_MAX) {
             ConstExprValue *vals = create_const_vals(1);
             new_var->mem_slot_index = ira->exec_context.mem_slot_list.length;
@@ -12512,6 +12509,9 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         var->next_var = new_var;
         var = new_var;
     }
+
+    // This must be done after possibly creating a new variable above
+    var->ref_count = 0;
 
     var->value->type = result_type;
     assert(var->value->type);
