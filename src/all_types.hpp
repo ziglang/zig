@@ -1806,7 +1806,6 @@ struct VariableTableEntry {
     IrExecutable *owner_exec;
     size_t ref_count;
     VarLinkage linkage;
-    IrInstruction *decl_instruction;
     uint32_t align_bytes;
 
     // In an inline loop, multiple variables may be created,
