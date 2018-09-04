@@ -2,6 +2,17 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@noInlineCall on an inline function",
+        \\inline fn foo() void {}
+        \\
+        \\export fn entry() void {
+        \\    @noInlineCall(foo);
+        \\}
+    ,
+        ".tmp_source.zig:4:5: error: no-inline call of inline function",
+    );
+
+    cases.add(
         "comptime continue inside runtime switch",
         \\export fn entry() void {
         \\    var p: i32 = undefined;

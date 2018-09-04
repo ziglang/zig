@@ -13644,6 +13644,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         return ir_finish_anal(ira, result->value.type);
     }
 
+    if (fn_entry != nullptr && fn_entry->fn_inline == FnInlineAlways && fn_inline == FnInlineNever) {
+        ir_add_error(ira, &call_instruction->base,
+            buf_sprintf("no-inline call of inline function"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
             fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr, casted_new_stack);
