@@ -407,6 +407,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
+    "${CMAKE_SOURCE_DIR}/src/blake2b.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/c_tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
