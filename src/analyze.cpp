@@ -5624,8 +5624,6 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
     if (type_entry->id == TypeTableEntryIdInt) {
         const_val->special = ConstValSpecialStatic;
         eval_min_max_value_int(g, type_entry, &const_val->data.x_bigint, is_max);
-    } else if (type_entry->id == TypeTableEntryIdFloat) {
-        zig_panic("TODO analyze_min_max_value float");
     } else if (type_entry->id == TypeTableEntryIdBool) {
         const_val->special = ConstValSpecialStatic;
         const_val->data.x_bool = is_max;

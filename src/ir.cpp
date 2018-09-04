@@ -16482,12 +16482,6 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
                 eval_min_max_value(ira->codegen, target_type, out_val, is_max);
                 return ira->codegen->builtin_types.entry_num_lit_int;
             }
-        case TypeTableEntryIdFloat:
-            {
-                ConstExprValue *out_val = ir_build_const_from(ira, source_instruction);
-                eval_min_max_value(ira->codegen, target_type, out_val, is_max);
-                return ira->codegen->builtin_types.entry_num_lit_float;
-            }
         case TypeTableEntryIdBool:
         case TypeTableEntryIdVoid:
             {
@@ -16496,7 +16490,7 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
                 return target_type;
             }
         case TypeTableEntryIdEnum:
-            zig_panic("TODO min/max value for enum type");
+        case TypeTableEntryIdFloat:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdPointer:
