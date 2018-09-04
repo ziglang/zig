@@ -2,6 +2,116 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "comptime continue inside runtime switch",
+        \\export fn entry() void {
+        \\    var p: i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        switch (p) {
+        \\            11 => continue,
+        \\            else => {},
+        \\        }
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:6:19: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while error",
+        \\export fn entry() void {
+        \\    var p: error!usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p) |_| {
+        \\            continue :outer;
+        \\        } else |_| {}
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:6:13: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while optional",
+        \\export fn entry() void {
+        \\    var p: ?usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p) |_| continue :outer;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:23: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while bool",
+        \\export fn entry() void {
+        \\    var p: usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p == 11) continue :outer;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:25: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if error",
+        \\export fn entry() void {
+        \\    var p: error!i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p) |_| continue else |_| {}
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:20: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if optional",
+        \\export fn entry() void {
+        \\    var p: ?i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p) |_| continue;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:20: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if bool",
+        \\export fn entry() void {
+        \\    var p: usize = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p == 11) continue;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:22: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
         "switch with invalid expression parameter",
         \\export fn entry() void {
         \\    Test(i32);

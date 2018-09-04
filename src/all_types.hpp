@@ -1836,6 +1836,7 @@ enum ScopeId {
     ScopeIdFnDef,
     ScopeIdCompTime,
     ScopeIdCoroPrelude,
+    ScopeIdRuntime,
 };
 
 struct Scope {
@@ -1926,6 +1927,15 @@ struct ScopeLoop {
     IrInstruction *is_comptime;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
+};
+
+// This scope blocks certain things from working such as comptime continue
+// inside a runtime if expression.
+// NodeTypeIfBoolExpr, NodeTypeWhileExpr, NodeTypeForExpr
+struct ScopeRuntime {
+    Scope base;
+
+    IrInstruction *is_comptime;
 };
 
 // This scope is created for a suspend block in order to have labeled
@@ -2147,6 +2157,7 @@ enum IrInstructionId {
     IrInstructionIdErrSetCast,
     IrInstructionIdToBytes,
     IrInstructionIdFromBytes,
+    IrInstructionIdCheckRuntimeScope,
 };
 
 struct IrInstruction {
@@ -3234,6 +3245,13 @@ struct IrInstructionSqrt {
 
     IrInstruction *type;
     IrInstruction *op;
+};
+
+struct IrInstructionCheckRuntimeScope {
+    IrInstruction base;
+
+    IrInstruction *scope_is_comptime;
+    IrInstruction *is_comptime;
 };
 
 static const size_t slice_ptr_index = 0;

@@ -157,6 +157,13 @@ ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
+Scope *create_runtime_scope(AstNode *node, Scope *parent, IrInstruction *is_comptime) {
+    ScopeRuntime *scope = allocate<ScopeRuntime>(1);
+    scope->is_comptime = is_comptime;
+    init_scope(&scope->base, ScopeIdRuntime, node, parent);
+    return &scope->base;
+}
+
 ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
     ScopeSuspend *scope = allocate<ScopeSuspend>(1);
@@ -3770,6 +3777,7 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope) {
             case ScopeIdSuspend:
             case ScopeIdCompTime:
             case ScopeIdCoroPrelude:
+            case ScopeIdRuntime:
                 scope = scope->parent;
                 continue;
             case ScopeIdFnDef:

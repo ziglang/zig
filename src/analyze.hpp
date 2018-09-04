@@ -111,6 +111,7 @@ ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_en
 ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import);
 Scope *create_comptime_scope(AstNode *node, Scope *parent);
 Scope *create_coro_prelude_scope(AstNode *node, Scope *parent);
+Scope *create_runtime_scope(AstNode *node, Scope *parent, IrInstruction *is_comptime);
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);

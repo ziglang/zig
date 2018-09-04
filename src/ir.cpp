@@ -832,6 +832,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSqrt *) {
     return IrInstructionIdSqrt;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCheckRuntimeScope *) {
+    return IrInstructionIdCheckRuntimeScope;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2974,6 +2978,17 @@ static IrInstruction *ir_build_sqrt(IrBuilder *irb, Scope *scope, AstNode *sourc
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *scope_is_comptime, IrInstruction *is_comptime) {
+    IrInstructionCheckRuntimeScope *instruction = ir_build_instruction<IrInstructionCheckRuntimeScope>(irb, scope, source_node);
+    instruction->scope_is_comptime = scope_is_comptime;
+    instruction->is_comptime = is_comptime;
+
+    ir_ref_instruction(scope_is_comptime, irb->current_basic_block);
+    ir_ref_instruction(is_comptime, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -2999,6 +3014,7 @@ static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_sco
             case ScopeIdLoop:
             case ScopeIdSuspend:
             case ScopeIdCompTime:
+            case ScopeIdRuntime:
                 scope = scope->parent;
                 continue;
             case ScopeIdDeferExpr:
@@ -3051,6 +3067,7 @@ static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
             case ScopeIdLoop:
             case ScopeIdSuspend:
             case ScopeIdCompTime:
+            case ScopeIdRuntime:
                 scope = scope->parent;
                 continue;
             case ScopeIdDeferExpr:
@@ -4980,7 +4997,8 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
-    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, scope);
+    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
+    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, subexpr_scope);
     if (then_expr_result == irb->codegen->invalid_instruction)
         return then_expr_result;
     IrBasicBlock *after_then_block = irb->current_basic_block;
@@ -4990,7 +5008,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
     ir_set_cursor_at_end_and_append_block(irb, else_block);
     IrInstruction *else_expr_result;
     if (else_node) {
-        else_expr_result = ir_gen_node(irb, else_node, scope);
+        else_expr_result = ir_gen_node(irb, else_node, subexpr_scope);
         if (else_expr_result == irb->codegen->invalid_instruction)
             return else_expr_result;
     } else {
@@ -5271,6 +5289,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ir_should_inline(irb->exec, scope) || node->data.while_expr.is_inline);
     ir_build_br(irb, scope, node, cond_block, is_comptime);
 
+    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
     Buf *var_symbol = node->data.while_expr.var_symbol;
     Buf *err_symbol = node->data.while_expr.err_symbol;
     if (err_symbol != nullptr) {
@@ -5281,13 +5300,13 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         VariableTableEntry *payload_var;
         if (var_symbol) {
             // TODO make it an error to write to payload variable
-            payload_var = ir_create_var(irb, symbol_node, scope, var_symbol,
+            payload_var = ir_create_var(irb, symbol_node, subexpr_scope, var_symbol,
                     true, false, false, is_comptime);
             payload_scope = payload_var->child_scope;
         } else {
-            payload_scope = scope;
+            payload_scope = subexpr_scope;
         }
-        IrInstruction *err_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, scope, LValPtr);
+        IrInstruction *err_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, subexpr_scope, LValPtr);
         if (err_val_ptr == irb->codegen->invalid_instruction)
             return err_val_ptr;
         IrInstruction *err_val = ir_build_load_ptr(irb, scope, node->data.while_expr.condition, err_val_ptr);
@@ -5367,12 +5386,14 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         return ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
     } else if (var_symbol != nullptr) {
         ir_set_cursor_at_end_and_append_block(irb, cond_block);
+        Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
         // TODO make it an error to write to payload variable
         AstNode *symbol_node = node; // TODO make more accurate
-        VariableTableEntry *payload_var = ir_create_var(irb, symbol_node, scope, var_symbol,
+
+        VariableTableEntry *payload_var = ir_create_var(irb, symbol_node, subexpr_scope, var_symbol,
                 true, false, false, is_comptime);
         Scope *child_scope = payload_var->child_scope;
-        IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, scope, LValPtr);
+        IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, subexpr_scope, LValPtr);
         if (maybe_val_ptr == irb->codegen->invalid_instruction)
             return maybe_val_ptr;
         IrInstruction *maybe_val = ir_build_load_ptr(irb, scope, node->data.while_expr.condition, maybe_val_ptr);
@@ -5456,7 +5477,9 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ZigList<IrInstruction *> incoming_values = {0};
         ZigList<IrBasicBlock *> incoming_blocks = {0};
 
-        ScopeLoop *loop_scope = create_loop_scope(node, scope);
+        Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
+
+        ScopeLoop *loop_scope = create_loop_scope(node, subexpr_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
         loop_scope->is_comptime = is_comptime;
@@ -5474,7 +5497,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(irb, continue_block);
-            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, scope);
+            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, subexpr_scope);
             if (expr_result == irb->codegen->invalid_instruction)
                 return expr_result;
             if (!instr_is_unreachable(expr_result))
@@ -5485,7 +5508,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         if (else_node) {
             ir_set_cursor_at_end_and_append_block(irb, else_block);
 
-            else_result = ir_gen_node(irb, else_node, scope);
+            else_result = ir_gen_node(irb, else_node, subexpr_scope);
             if (else_result == irb->codegen->invalid_instruction)
                 return else_result;
             if (!instr_is_unreachable(else_result))
@@ -5828,20 +5851,21 @@ static IrInstruction *ir_gen_test_expr(IrBuilder *irb, Scope *scope, AstNode *no
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
+    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
     Scope *var_scope;
     if (var_symbol) {
         IrInstruction *var_type = nullptr;
         bool is_shadowable = false;
         bool is_const = true;
-        VariableTableEntry *var = ir_create_var(irb, node, scope,
+        VariableTableEntry *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-        IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, scope, node, maybe_val_ptr, false);
-        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
-        ir_build_var_decl(irb, scope, node, var, var_type, nullptr, var_value);
+        IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, subexpr_scope, node, maybe_val_ptr, false);
+        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, subexpr_scope, node, var_ptr_value);
+        ir_build_var_decl(irb, subexpr_scope, node, var, var_type, nullptr, var_value);
         var_scope = var->child_scope;
     } else {
-        var_scope = scope;
+        var_scope = subexpr_scope;
     }
     IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var_scope);
     if (then_expr_result == irb->codegen->invalid_instruction)
@@ -5853,7 +5877,7 @@ static IrInstruction *ir_gen_test_expr(IrBuilder *irb, Scope *scope, AstNode *no
     ir_set_cursor_at_end_and_append_block(irb, else_block);
     IrInstruction *else_expr_result;
     if (else_node) {
-        else_expr_result = ir_gen_node(irb, else_node, scope);
+        else_expr_result = ir_gen_node(irb, else_node, subexpr_scope);
         if (else_expr_result == irb->codegen->invalid_instruction)
             return else_expr_result;
     } else {
@@ -5902,20 +5926,21 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
 
+    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
     Scope *var_scope;
     if (var_symbol) {
         IrInstruction *var_type = nullptr;
         bool is_shadowable = false;
-        IrInstruction *var_is_comptime = force_comptime ? ir_build_const_bool(irb, scope, node, true) : ir_build_test_comptime(irb, scope, node, err_val);
-        VariableTableEntry *var = ir_create_var(irb, node, scope,
+        IrInstruction *var_is_comptime = force_comptime ? ir_build_const_bool(irb, subexpr_scope, node, true) : ir_build_test_comptime(irb, subexpr_scope, node, err_val);
+        VariableTableEntry *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, var_is_const, var_is_const, is_shadowable, var_is_comptime);
 
-        IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, scope, node, err_val_ptr, false);
-        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
-        ir_build_var_decl(irb, scope, node, var, var_type, nullptr, var_value);
+        IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, subexpr_scope, node, err_val_ptr, false);
+        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, subexpr_scope, node, var_ptr_value);
+        ir_build_var_decl(irb, subexpr_scope, node, var, var_type, nullptr, var_value);
         var_scope = var->child_scope;
     } else {
-        var_scope = scope;
+        var_scope = subexpr_scope;
     }
     IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var_scope);
     if (then_expr_result == irb->codegen->invalid_instruction)
@@ -5933,14 +5958,14 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
             IrInstruction *var_type = nullptr;
             bool is_shadowable = false;
             bool is_const = true;
-            VariableTableEntry *var = ir_create_var(irb, node, scope,
+            VariableTableEntry *var = ir_create_var(irb, node, subexpr_scope,
                     err_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-            IrInstruction *var_value = ir_build_unwrap_err_code(irb, scope, node, err_val_ptr);
-            ir_build_var_decl(irb, scope, node, var, var_type, nullptr, var_value);
+            IrInstruction *var_value = ir_build_unwrap_err_code(irb, subexpr_scope, node, err_val_ptr);
+            ir_build_var_decl(irb, subexpr_scope, node, var, var_type, nullptr, var_value);
             err_var_scope = var->child_scope;
         } else {
-            err_var_scope = scope;
+            err_var_scope = subexpr_scope;
         }
         else_expr_result = ir_gen_node(irb, else_node, err_var_scope);
         if (else_expr_result == irb->codegen->invalid_instruction)
@@ -6037,6 +6062,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     ZigList<IrInstructionCheckSwitchProngsRange> check_ranges = {0};
 
     // First do the else and the ranges
+    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
     Scope *comptime_scope = create_comptime_scope(node, scope);
     AstNode *else_prong = nullptr;
     for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
@@ -6054,7 +6080,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
             IrBasicBlock *prev_block = irb->current_basic_block;
             ir_set_cursor_at_end_and_append_block(irb, else_block);
-            if (!ir_gen_switch_prong_expr(irb, scope, node, prong_node, end_block,
+            if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, &incoming_blocks, &incoming_values))
             {
                 return irb->codegen->invalid_instruction;
@@ -6121,7 +6147,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                         range_block_no, is_comptime));
 
             ir_set_cursor_at_end_and_append_block(irb, range_block_yes);
-            if (!ir_gen_switch_prong_expr(irb, scope, node, prong_node, end_block,
+            if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, &incoming_blocks, &incoming_values))
             {
                 return irb->codegen->invalid_instruction;
@@ -6165,7 +6191,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
         IrBasicBlock *prev_block = irb->current_basic_block;
         ir_set_cursor_at_end_and_append_block(irb, prong_block);
-        if (!ir_gen_switch_prong_expr(irb, scope, node, prong_node, end_block,
+        if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
             is_comptime, var_is_comptime, target_value_ptr, only_item_value, &incoming_blocks, &incoming_values))
         {
             return irb->codegen->invalid_instruction;
@@ -6308,6 +6334,8 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *continue_scope, Ast
     // * defer expression scope => error, cannot break out of defer expression
     // * loop scope => OK
 
+    ZigList<ScopeRuntime *> runtime_scopes = {};
+
     Scope *search_scope = continue_scope;
     ScopeLoop *loop_scope;
     for (;;) {
@@ -6330,6 +6358,9 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *continue_scope, Ast
                 loop_scope = this_loop_scope;
                 break;
             }
+        } else if (search_scope->id == ScopeIdRuntime) {
+            ScopeRuntime *scope_runtime = (ScopeRuntime *)search_scope;
+            runtime_scopes.append(scope_runtime);
         }
         search_scope = search_scope->parent;
     }
@@ -6339,6 +6370,11 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *continue_scope, Ast
         is_comptime = ir_build_const_bool(irb, continue_scope, node, true);
     } else {
         is_comptime = loop_scope->is_comptime;
+    }
+
+    for (size_t i = 0; i < runtime_scopes.length; i += 1) {
+        ScopeRuntime *scope_runtime = runtime_scopes.at(i);
+        ir_mark_gen(ir_build_check_runtime_scope(irb, continue_scope, node, scope_runtime->is_comptime, is_comptime));
     }
 
     IrBasicBlock *dest_block = loop_scope->continue_block;
@@ -20910,6 +20946,29 @@ static TypeTableEntry *ir_analyze_instruction_int_to_enum(IrAnalyze *ira, IrInst
     return result->value.type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_check_runtime_scope(IrAnalyze *ira, IrInstructionCheckRuntimeScope *instruction) {
+    IrInstruction *block_comptime_inst = instruction->scope_is_comptime->other;
+    bool scope_is_comptime;
+    if (!ir_resolve_bool(ira, block_comptime_inst, &scope_is_comptime))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *is_comptime_inst = instruction->is_comptime->other;
+    bool is_comptime;
+    if (!ir_resolve_bool(ira, is_comptime_inst, &is_comptime))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (!scope_is_comptime && is_comptime) {
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+            buf_sprintf("comptime control flow inside runtime block"));
+        add_error_note(ira->codegen, msg, block_comptime_inst->source_node,
+                buf_sprintf("runtime block created here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ir_build_const_from(ira, &instruction->base);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -21186,6 +21245,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_to_enum(ira, (IrInstructionIntToEnum *)instruction);
         case IrInstructionIdEnumToInt:
             return ir_analyze_instruction_enum_to_int(ira, (IrInstructionEnumToInt *)instruction);
+        case IrInstructionIdCheckRuntimeScope:
+            return ir_analyze_instruction_check_runtime_scope(ira, (IrInstructionCheckRuntimeScope *)instruction);
     }
     zig_unreachable();
 }
@@ -21301,6 +21362,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdOverflowOp: // TODO when we support multiple returns this can be side effect free
         case IrInstructionIdCheckSwitchProngs:
         case IrInstructionIdCheckStatementIsVoid:
+        case IrInstructionIdCheckRuntimeScope:
         case IrInstructionIdPanic:
         case IrInstructionIdSetEvalBranchQuota:
         case IrInstructionIdPtrType:

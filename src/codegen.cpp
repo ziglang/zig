@@ -678,6 +678,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdSuspend:
         case ScopeIdCompTime:
         case ScopeIdCoroPrelude:
+        case ScopeIdRuntime:
             return get_di_scope(g, scope->parent);
     }
     zig_unreachable();
@@ -4869,6 +4870,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdFromBytes:
         case IrInstructionIdToBytes:
         case IrInstructionIdEnumToInt:
+        case IrInstructionIdCheckRuntimeScope:
             zig_unreachable();
 
         case IrInstructionIdReturn:
