@@ -234,6 +234,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "invalid type on std.math.minValue",
+        \\export fn entry() void {
+        \\    _ = @import("std").math.minValue(f32);
+        \\}
+    ,
+        ": error: minValue not implemented for f32",
+    );
+
+    cases.add(
+        "invalid type on std.math.maxValue",
+        \\export fn entry() void {
+        \\    _ = @import("std").math.maxValue(f32);
+        \\}
+    ,
+        ": error: maxValue not implemented for f32",
+    );
+
+    cases.add(
         "@noInlineCall on an inline function",
         \\inline fn foo() void {}
         \\
