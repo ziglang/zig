@@ -242,6 +242,30 @@ test "math.max" {
     assert(max(i32(-1), i32(2)) == 2);
 }
 
+/// This function returns the minimum value of the integer type T.
+/// The result is a compile time constant.
+pub fn minValue(comptime T: type) @typeOf(42) {
+    comptime {
+        return switch (T) {
+          u1, u2, u3, u4, u5,
+          u6, u7, u8, u16, u32, u64, u128 => 0,
+          i1 => -1,
+          i2 => -2,
+          i3 => -4,
+          i4 => -8,
+          i5 => -16,
+          i6 => -32,
+          i7 => -64,
+          i8 => -128,
+          i16 => -32768,
+          i32 => -2147483648,
+          i64 => -9223372036854775808,
+          i128 => -170141183460469231731687303715884105728,
+          else => @compileError("minValue not implemented for " ++ @typeName(T)),
+        };
+    }
+}
+
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
