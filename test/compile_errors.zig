@@ -496,6 +496,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "non float passed to @floatToInt",
+        \\export fn entry() void {
+        \\    const x = @floatToInt(i32, 54);
+        \\}
+    ,
+        ".tmp_source.zig:2:32: error: expected float type, found 'comptime_int'",
+    );
+
+    cases.add(
         "use implicit casts to assign null to non-nullable pointer",
         \\export fn entry() void {
         \\    var x: i32 = 1234;

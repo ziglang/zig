@@ -18497,6 +18497,12 @@ static TypeTableEntry *ir_analyze_instruction_float_to_int(IrAnalyze *ira, IrIns
     if (type_is_invalid(target->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    if (target->value.type->id != TypeTableEntryIdFloat && target->value.type->id != TypeTableEntryIdComptimeFloat) {
+        ir_add_error(ira, instruction->target, buf_sprintf("expected float type, found '%s'",
+                    buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     IrInstruction *result = ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpFloatToInt, false);
     ir_link_new_instruction(result, &instruction->base);
     return dest_type;
