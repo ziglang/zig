@@ -356,6 +356,7 @@ fn testFloatToInts() void {
     expectFloatToInt(f32, 255.1, u8, 255);
     expectFloatToInt(f32, 127.2, i8, 127);
     expectFloatToInt(f32, -128.2, i8, -128);
+    expectFloatToInt(comptime_int, 1234, i16, 1234);
 }
 
 fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) void {
