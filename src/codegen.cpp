@@ -6866,19 +6866,16 @@ static void define_builtin_compile_vars(CodeGen *g) {
     ensure_cache_dir(g);
     os_write_file(builtin_zig_path, contents);
 
-    int err;
-    Buf *abs_full_path = buf_alloc();
-    if ((err = os_path_real(builtin_zig_path, abs_full_path))) {
-        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(builtin_zig_path), err_str(err));
-        exit(1);
-    }
+    Buf *resolved_path = buf_alloc();
+    Buf *resolve_paths[] = {builtin_zig_path};
+    *resolved_path = os_path_resolve(resolve_paths, 1);
 
     assert(g->root_package);
     assert(g->std_package);
     g->compile_var_package = new_package(buf_ptr(&g->cache_dir), builtin_zig_basename);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
-    g->compile_var_import = add_source_file(g, g->compile_var_package, abs_full_path, contents);
+    g->compile_var_import = add_source_file(g, g->compile_var_package, resolved_path, contents);
     scan_import(g, g->compile_var_import);
 }
 
@@ -7034,17 +7031,17 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
     Buf *code_basename = buf_create_from_str(basename);
     Buf path_to_code_src = BUF_INIT;
     os_path_join(g->zig_std_special_dir, code_basename, &path_to_code_src);
-    Buf *abs_full_path = buf_alloc();
-    int err;
-    if ((err = os_path_real(&path_to_code_src, abs_full_path))) {
-        zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
-    }
+
+    Buf *resolve_paths[] = {&path_to_code_src};
+    Buf *resolved_path = buf_alloc();
+    *resolved_path = os_path_resolve(resolve_paths, 1);
     Buf *import_code = buf_alloc();
-    if ((err = os_fetch_file_path(abs_full_path, import_code, false))) {
+    int err;
+    if ((err = os_fetch_file_path(resolved_path, import_code, false))) {
         zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
 
-    return add_source_file(g, package, abs_full_path, import_code);
+    return add_source_file(g, package, resolved_path, import_code);
 }
 
 static PackageTableEntry *create_bootstrap_pkg(CodeGen *g, PackageTableEntry *pkg_with_main) {
@@ -7122,20 +7119,18 @@ static void gen_root_source(CodeGen *g) {
     Buf *rel_full_path = buf_alloc();
     os_path_join(&g->root_package->root_src_dir, &g->root_package->root_src_path, rel_full_path);
 
-    Buf *abs_full_path = buf_alloc();
-    int err;
-    if ((err = os_path_real(rel_full_path, abs_full_path))) {
-        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(rel_full_path), err_str(err));
-        exit(1);
-    }
+    Buf *resolved_path = buf_alloc();
+    Buf *resolve_paths[] = {rel_full_path};
+    *resolved_path = os_path_resolve(resolve_paths, 1);
 
     Buf *source_code = buf_alloc();
+    int err;
     if ((err = os_fetch_file_path(rel_full_path, source_code, true))) {
         fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(rel_full_path), err_str(err));
         exit(1);
     }
 
-    g->root_import = add_source_file(g, g->root_package, abs_full_path, source_code);
+    g->root_import = add_source_file(g, g->root_package, resolved_path, source_code);
 
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);

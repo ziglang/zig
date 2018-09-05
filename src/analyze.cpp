@@ -4236,9 +4236,9 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     node->data.use.value = result;
 }
 
-ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code) {
+ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *resolved_path, Buf *source_code) {
     if (g->verbose_tokenize) {
-        fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(abs_full_path));
+        fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(resolved_path));
         fprintf(stderr, "----------------\n");
         fprintf(stderr, "%s\n", buf_ptr(source_code));
 
@@ -4250,7 +4250,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
     tokenize(source_code, &tokenization);
 
     if (tokenization.err) {
-        ErrorMsg *err = err_msg_create_with_line(abs_full_path, tokenization.err_line, tokenization.err_column,
+        ErrorMsg *err = err_msg_create_with_line(resolved_path, tokenization.err_line, tokenization.err_column,
                 source_code, tokenization.line_offsets, tokenization.err);
 
         print_err_msg(err, g->err_color);
@@ -4268,7 +4268,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
     import_entry->package = package;
     import_entry->source_code = source_code;
     import_entry->line_offsets = tokenization.line_offsets;
-    import_entry->path = abs_full_path;
+    import_entry->path = resolved_path;
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
@@ -4278,10 +4278,10 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
 
     Buf *src_dirname = buf_alloc();
     Buf *src_basename = buf_alloc();
-    os_path_split(abs_full_path, src_dirname, src_basename);
+    os_path_split(resolved_path, src_dirname, src_basename);
 
     import_entry->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
-    g->import_table.put(abs_full_path, import_entry);
+    g->import_table.put(resolved_path, import_entry);
     g->import_queue.append(import_entry);
 
     import_entry->decls_scope = create_decls_scope(import_entry->root, nullptr, nullptr, import_entry);

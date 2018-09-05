@@ -16131,29 +16131,20 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
     os_path_join(search_dir, import_target_path, &full_path);
 
     Buf *import_code = buf_alloc();
-    Buf *abs_full_path = buf_alloc();
-    int err;
-    if ((err = os_path_real(&full_path, abs_full_path))) {
-        if (err == ErrorFileNotFound) {
-            ir_add_error_node(ira, source_node,
-                    buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
-            return ira->codegen->builtin_types.entry_invalid;
-        } else {
-            ira->codegen->error_during_imports = true;
-            ir_add_error_node(ira, source_node,
-                    buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-    }
+    Buf *resolved_path = buf_alloc();
 
-    auto import_entry = ira->codegen->import_table.maybe_get(abs_full_path);
+    Buf *resolve_paths[] = { &full_path, };
+    *resolved_path = os_path_resolve(resolve_paths, 1);
+
+    auto import_entry = ira->codegen->import_table.maybe_get(resolved_path);
     if (import_entry) {
         ConstExprValue *out_val = ir_build_const_from(ira, &import_instruction->base);
         out_val->data.x_import = import_entry->value;
         return ira->codegen->builtin_types.entry_namespace;
     }
 
-    if ((err = os_fetch_file_path(abs_full_path, import_code, true))) {
+    int err;
+    if ((err = os_fetch_file_path(resolved_path, import_code, true))) {
         if (err == ErrorFileNotFound) {
             ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
@@ -16164,7 +16155,7 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
-    ImportTableEntry *target_import = add_source_file(ira->codegen, target_package, abs_full_path, import_code);
+    ImportTableEntry *target_import = add_source_file(ira->codegen, target_package, resolved_path, import_code);
 
     scan_import(ira->codegen, target_import);
 
