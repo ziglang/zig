@@ -1543,22 +1543,16 @@ struct LinkLib {
     bool provided_explicitly;
 };
 
+// When adding fields, check if they should be added to the hash computation in build_with_cache
 struct CodeGen {
+    //////////////////////////// Runtime State
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
     LLVMBuilderRef builder;
     ZigLLVMDIBuilder *dbuilder;
     ZigLLVMDICompileUnit *compile_unit;
     ZigLLVMDIFile *compile_unit_file;
-
-    ZigList<LinkLib *> link_libs_list;
     LinkLib *libc_link_lib;
-
-    // add -framework [name] args to linker
-    ZigList<Buf *> darwin_frameworks;
-    // add -rpath [name] args to linker
-    ZigList<Buf *> rpath_list;
-
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
@@ -1574,7 +1568,6 @@ struct CodeGen {
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
     HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
-
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
@@ -1620,7 +1613,20 @@ struct CodeGen {
         ZigType *entry_promise;
     } builtin_types;
 
+    //////////////////////////// Participates in Input Parameter Cache Hash
+    ZigList<LinkLib *> link_libs_list;
+    // add -framework [name] args to linker
+    ZigList<Buf *> darwin_frameworks;
+    // add -rpath [name] args to linker
+    ZigList<Buf *> rpath_list;
+
     EmitFileType emit_file_type;
+    BuildMode build_mode;
+    OutType out_type;
+
+
+    //////////////////////////// Unsorted
+
     ZigTarget zig_target;
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
@@ -1647,7 +1653,6 @@ struct CodeGen {
     Buf *ar_path;
     ZigWindowsSDK *win_sdk;
     Buf triple_str;
-    BuildMode build_mode;
     bool is_test_build;
     bool have_err_ret_tracing;
     uint32_t target_os_index;
@@ -1657,13 +1662,13 @@ struct CodeGen {
     LLVMTargetMachineRef target_machine;
     ZigLLVMDIFile *dummy_di_file;
     bool is_native_target;
-    PackageTableEntry *root_package;
+    PackageTableEntry *root_package; // participates in cache hash
     PackageTableEntry *std_package;
     PackageTableEntry *panic_package;
     PackageTableEntry *test_runner_package;
     PackageTableEntry *compile_var_package;
     ImportTableEntry *compile_var_import;
-    Buf *root_out_name;
+    Buf *root_out_name; // participates in cache hash
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
     Buf *mmacosx_version_min;
@@ -1676,7 +1681,6 @@ struct CodeGen {
     size_t fn_defs_index;
     ZigList<TldVar *> global_vars;
 
-    OutType out_type;
     ZigFn *cur_fn;
     ZigFn *main_fn;
     ZigFn *panic_fn;
