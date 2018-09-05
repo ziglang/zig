@@ -15,6 +15,7 @@ comptime {
     _ = @import("cases/bugs/394.zig");
     _ = @import("cases/bugs/655.zig");
     _ = @import("cases/bugs/656.zig");
+    _ = @import("cases/bugs/726.zig");
     _ = @import("cases/bugs/828.zig");
     _ = @import("cases/bugs/920.zig");
     _ = @import("cases/byval_arg_var.zig");
