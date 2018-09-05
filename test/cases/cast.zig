@@ -464,7 +464,7 @@ test "@bytesToSlice keeps pointer alignment" {
 }
 
 test "@intCast i32 to u7" {
-    var x: u128 = @maxValue(u128);
+    var x: u128 = std.math.maxValue(u128);
     var y: i32 = 120;
     var z = x >> @intCast(u7, y);
     assert(z == 0xff);

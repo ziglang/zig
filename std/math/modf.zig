@@ -101,7 +101,7 @@ fn modf64(x: f64) modf64_result {
         return result;
     }
 
-    const mask = u64(@maxValue(u64) >> 12) >> @intCast(u6, e);
+    const mask = u64(std.math.maxValue(u64) >> 12) >> @intCast(u6, e);
     if (u & mask == 0) {
         result.ipart = x;
         result.fpart = @bitCast(f64, us);

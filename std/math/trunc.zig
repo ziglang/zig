@@ -29,7 +29,7 @@ fn trunc32(x: f32) f32 {
         e = 1;
     }
 
-    m = u32(@maxValue(u32)) >> @intCast(u5, e);
+    m = u32(std.math.maxValue(u32)) >> @intCast(u5, e);
     if (u & m == 0) {
         return x;
     } else {
@@ -50,7 +50,7 @@ fn trunc64(x: f64) f64 {
         e = 1;
     }
 
-    m = u64(@maxValue(u64)) >> @intCast(u6, e);
+    m = u64(std.math.maxValue(u64)) >> @intCast(u6, e);
     if (u & m == 0) {
         return x;
     } else {

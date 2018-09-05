@@ -13,7 +13,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     const ph = @intToPtr(*elf.Phdr, ph_addr);
 
     var maybe_dynv: ?[*]usize = null;
-    var base: usize = @maxValue(usize);
+    var base: usize = std.math.maxValue(usize);
     {
         var i: usize = 0;
         while (i < eh.e_phnum) : ({
@@ -29,7 +29,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         }
     }
     const dynv = maybe_dynv orelse return 0;
-    if (base == @maxValue(usize)) return 0;
+    if (base == std.math.maxValue(usize)) return 0;
 
     var maybe_strings: ?[*]u8 = null;
     var maybe_syms: ?[*]elf.Sym = null;

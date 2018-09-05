@@ -1,4 +1,5 @@
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 
 var foo: u8 align(4) = 100;

@@ -69,7 +69,7 @@ fn tanh32(x: f32) f32 {
 fn tanh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const w = @intCast(u32, u >> 32);
-    const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
+    const ax = @bitCast(f64, u & (std.math.maxValue(u64) >> 1));
 
     var t: f64 = undefined;
 

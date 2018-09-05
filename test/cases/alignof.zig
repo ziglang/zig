@@ -1,4 +1,5 @@
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 
 const Foo = struct {
@@ -8,7 +9,7 @@ const Foo = struct {
 };
 
 test "@alignOf(T) before referencing T" {
-    comptime assert(@alignOf(Foo) != @maxValue(usize));
+    comptime assert(@alignOf(Foo) != std.math.maxValue(usize));
     if (builtin.arch == builtin.Arch.x86_64) {
         comptime assert(@alignOf(Foo) == 4);
     }

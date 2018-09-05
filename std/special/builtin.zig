@@ -1,6 +1,7 @@
 // These functions are provided when not linking against libc because LLVM
 // sometimes generates code that calls them.
 
+const std = @import("std");
 const builtin = @import("builtin");
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
@@ -190,7 +191,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         }) {}
         ux <<= @intCast(log2uint, @bitCast(u32, -ex + 1));
     } else {
-        ux &= @maxValue(uint) >> exp_bits;
+        ux &= std.math.maxValue(uint) >> exp_bits;
         ux |= 1 << digits;
     }
     if (ey == 0) {
@@ -201,7 +202,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         }) {}
         uy <<= @intCast(log2uint, @bitCast(u32, -ey + 1));
     } else {
-        uy &= @maxValue(uint) >> exp_bits;
+        uy &= std.math.maxValue(uint) >> exp_bits;
         uy |= 1 << digits;
     }
 
@@ -247,7 +248,7 @@ fn isNan(comptime T: type, bits: T) bool {
     } else if (T == u32) {
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == u64) {
-        return (bits & (@maxValue(u64) >> 1)) > (u64(0x7ff) << 52);
+        return (bits & (std.math.maxValue(u64) >> 1)) > (u64(0x7ff) << 52);
     } else {
         unreachable;
     }

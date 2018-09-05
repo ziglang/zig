@@ -17,7 +17,7 @@ pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typ
         TypeId.ComptimeFloat => return T(@sqrt(f64, x)), // TODO upgrade to f128
         TypeId.Float => return @sqrt(T, x),
         TypeId.ComptimeInt => comptime {
-            if (x > @maxValue(u128)) {
+            if (x > std.math.maxValue(u128)) {
                 @compileError("sqrt not implemented for comptime_int greater than 128 bits");
             }
             if (x < 0) {

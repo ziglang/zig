@@ -317,7 +317,7 @@ pub const Loop = struct {
                     windows.INVALID_HANDLE_VALUE,
                     null,
                     undefined,
-                    @maxValue(windows.DWORD),
+                    std.math.maxValue(windows.DWORD),
                 );
                 errdefer os.close(self.os_data.io_port);
 

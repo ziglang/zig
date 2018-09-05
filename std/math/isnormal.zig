@@ -15,7 +15,7 @@ pub fn isNormal(x: var) bool {
         },
         f64 => {
             const bits = @bitCast(u64, x);
-            return (bits + (1 << 52)) & (@maxValue(u64) >> 1) >= (1 << 53);
+            return (bits + (1 << 52)) & (std.math.maxValue(u64) >> 1) >= (1 << 53);
         },
         else => {
             @compileError("isNormal not implemented for " ++ @typeName(T));

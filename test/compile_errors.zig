@@ -537,10 +537,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "optional pointer to void in extern struct",
         \\comptime {
-        \\    _ = @IntType(false, @maxValue(u32) + 1);
+        \\    _ = @IntType(false, @import("std").math.maxValue(u32) + 1);
         \\}
     ,
-        ".tmp_source.zig:2:40: error: integer value 4294967296 cannot be implicitly casted to type 'u32'",
+        ".tmp_source.zig:2:57: error: integer value 4294967296 cannot be implicitly casted to type 'u32'",
     );
 
     cases.add(

@@ -15,7 +15,7 @@ pub fn isNan(x: var) bool {
         },
         f64 => {
             const bits = @bitCast(u64, x);
-            return (bits & (@maxValue(u64) >> 1)) > (u64(0x7FF) << 52);
+            return (bits & (std.math.maxValue(u64) >> 1)) > (u64(0x7FF) << 52);
         },
         else => {
             @compileError("isNan not implemented for " ++ @typeName(T));

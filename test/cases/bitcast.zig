@@ -1,4 +1,5 @@
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "@bitCast i32 -> u32" {
     testBitCast_i32_u32();
@@ -6,8 +7,8 @@ test "@bitCast i32 -> u32" {
 }
 
 fn testBitCast_i32_u32() void {
-    assert(conv(-1) == @maxValue(u32));
-    assert(conv2(@maxValue(u32)) == -1);
+    assert(conv(-1) == std.math.maxValue(u32));
+    assert(conv2(std.math.maxValue(u32)) == -1);
 }
 
 fn conv(x: i32) u32 {

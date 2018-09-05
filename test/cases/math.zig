@@ -1,4 +1,5 @@
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "division" {
     testDivision();
@@ -179,30 +180,30 @@ test "const number literal" {
 const ten = 10;
 
 test "unsigned wrapping" {
-    testUnsignedWrappingEval(@maxValue(u32));
-    comptime testUnsignedWrappingEval(@maxValue(u32));
+    testUnsignedWrappingEval(std.math.maxValue(u32));
+    comptime testUnsignedWrappingEval(std.math.maxValue(u32));
 }
 fn testUnsignedWrappingEval(x: u32) void {
     const zero = x +% 1;
     assert(zero == 0);
     const orig = zero -% 1;
-    assert(orig == @maxValue(u32));
+    assert(orig == std.math.maxValue(u32));
 }
 
 test "signed wrapping" {
-    testSignedWrappingEval(@maxValue(i32));
-    comptime testSignedWrappingEval(@maxValue(i32));
+    testSignedWrappingEval(std.math.maxValue(i32));
+    comptime testSignedWrappingEval(std.math.maxValue(i32));
 }
 fn testSignedWrappingEval(x: i32) void {
     const min_val = x +% 1;
-    assert(min_val == @minValue(i32));
+    assert(min_val == std.math.minValue(i32));
     const max_val = min_val -% 1;
-    assert(max_val == @maxValue(i32));
+    assert(max_val == std.math.maxValue(i32));
 }
 
 test "negation wrapping" {
-    testNegationWrappingEval(@minValue(i16));
-    comptime testNegationWrappingEval(@minValue(i16));
+    testNegationWrappingEval(std.math.minValue(i16));
+    comptime testNegationWrappingEval(std.math.minValue(i16));
 }
 fn testNegationWrappingEval(x: i16) void {
     assert(x == -32768);
@@ -311,8 +312,8 @@ test "hex float literal within range" {
 }
 
 test "truncating shift left" {
-    testShlTrunc(@maxValue(u16));
-    comptime testShlTrunc(@maxValue(u16));
+    testShlTrunc(std.math.maxValue(u16));
+    comptime testShlTrunc(std.math.maxValue(u16));
 }
 fn testShlTrunc(x: u16) void {
     const shifted = x << 1;
@@ -320,8 +321,8 @@ fn testShlTrunc(x: u16) void {
 }
 
 test "truncating shift right" {
-    testShrTrunc(@maxValue(u16));
-    comptime testShrTrunc(@maxValue(u16));
+    testShrTrunc(std.math.maxValue(u16));
+    comptime testShrTrunc(std.math.maxValue(u16));
 }
 fn testShrTrunc(x: u16) void {
     const shifted = x >> 1;

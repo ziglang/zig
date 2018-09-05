@@ -151,7 +151,7 @@ pub fn log2_64(x_: f64) f64 {
     // hi + lo = f - hfsq + s * (hfsq + R) ~ log(1 + f)
     var hi = f - hfsq;
     var hii = @bitCast(u64, hi);
-    hii &= u64(@maxValue(u64)) << 32;
+    hii &= u64(std.math.maxValue(u64)) << 32;
     hi = @bitCast(f64, hii);
     const lo = f - hi - hfsq + s * (hfsq + R);
 

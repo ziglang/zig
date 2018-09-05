@@ -31,7 +31,7 @@ fn fabs32(x: f32) f32 {
 
 fn fabs64(x: f64) f64 {
     var u = @bitCast(u64, x);
-    u &= @maxValue(u64) >> 1;
+    u &= std.math.maxValue(u64) >> 1;
     return @bitCast(f64, u);
 }
 
