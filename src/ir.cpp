@@ -236,7 +236,7 @@ static size_t exec_next_mem_slot(IrExecutable *exec) {
     return result;
 }
 
-static FnTableEntry *exec_fn_entry(IrExecutable *exec) {
+static ZigFn *exec_fn_entry(IrExecutable *exec) {
     return exec->fn_entry;
 }
 
@@ -1019,7 +1019,7 @@ static IrInstruction *ir_build_const_type(IrBuilder *irb, Scope *scope, AstNode 
     return instruction;
 }
 
-static IrInstruction *ir_create_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, FnTableEntry *fn_entry) {
+static IrInstruction *ir_create_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigFn *fn_entry) {
     IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = fn_entry->type_entry;
     const_instruction->base.value.special = ConstValSpecialStatic;
@@ -1029,7 +1029,7 @@ static IrInstruction *ir_create_const_fn(IrBuilder *irb, Scope *scope, AstNode *
     return &const_instruction->base;
 }
 
-static IrInstruction *ir_build_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, FnTableEntry *fn_entry) {
+static IrInstruction *ir_build_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigFn *fn_entry) {
     IrInstruction *instruction = ir_create_const_fn(irb, scope, source_node, fn_entry);
     ir_instruction_append(irb->current_basic_block, instruction);
     return instruction;
@@ -1062,7 +1062,7 @@ static IrInstruction *ir_build_const_bool(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_build_const_bound_fn(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    FnTableEntry *fn_entry, IrInstruction *first_arg)
+    ZigFn *fn_entry, IrInstruction *first_arg)
 {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = get_bound_fn_type(irb->codegen, fn_entry);
@@ -1199,7 +1199,7 @@ static IrInstruction *ir_build_union_field_ptr_from(IrBuilder *irb, IrInstructio
 }
 
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
+        ZigFn *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
         bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator,
         IrInstruction *new_stack)
 {
@@ -1227,7 +1227,7 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
 }
 
 static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
-        FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
+        ZigFn *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
         bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator,
         IrInstruction *new_stack)
 {
@@ -3138,7 +3138,7 @@ static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
 }
 
 static bool exec_is_async(IrExecutable *exec) {
-    FnTableEntry *fn_entry = exec_fn_entry(exec);
+    ZigFn *fn_entry = exec_fn_entry(exec);
     return fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
 }
 
@@ -3200,7 +3200,7 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeReturnExpr);
 
-    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    ZigFn *fn_entry = exec_fn_entry(irb->exec);
     if (!fn_entry) {
         add_node_error(irb->codegen, node, buf_sprintf("return expression outside function definition"));
         return irb->codegen->invalid_instruction;
@@ -3224,7 +3224,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *return_value;
                 if (expr_node) {
                     // Temporarily set this so that if we return a type it gets the name of the function
-                    FnTableEntry *prev_name_fn = irb->exec->name_fn;
+                    ZigFn *prev_name_fn = irb->exec->name_fn;
                     irb->exec->name_fn = exec_fn_entry(irb->exec);
                     return_value = ir_gen_node(irb, expr_node, scope);
                     irb->exec->name_fn = prev_name_fn;
@@ -3403,7 +3403,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
     Scope *outer_block_scope = &scope_block->base;
     Scope *child_scope = outer_block_scope;
 
-    FnTableEntry *fn_entry = scope_fn_entry(parent_scope);
+    ZigFn *fn_entry = scope_fn_entry(parent_scope);
     if (fn_entry && fn_entry->child_scope == parent_scope) {
         fn_entry->def_scope = scope_block;
     }
@@ -5686,7 +5686,7 @@ static IrInstruction *ir_gen_this_literal(IrBuilder *irb, Scope *scope, AstNode 
     if (!scope->parent)
         return ir_build_const_import(irb, scope, node, node->owner);
 
-    FnTableEntry *fn_entry = scope_get_fn_if_root(scope);
+    ZigFn *fn_entry = scope_get_fn_if_root(scope);
     if (fn_entry)
         return ir_build_const_fn(irb, scope, node, fn_entry);
 
@@ -6913,7 +6913,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     if (target_inst == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    ZigFn *fn_entry = exec_fn_entry(irb->exec);
     if (!fn_entry) {
         add_node_error(irb->codegen, node, buf_sprintf("await outside function definition"));
         return irb->codegen->invalid_instruction;
@@ -7090,7 +7090,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
 static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeSuspend);
 
-    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    ZigFn *fn_entry = exec_fn_entry(irb->exec);
     if (!fn_entry) {
         add_node_error(irb->codegen, node, buf_sprintf("suspend outside function definition"));
         return irb->codegen->invalid_instruction;
@@ -7379,7 +7379,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(irb->current_basic_block);
 
-    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    ZigFn *fn_entry = exec_fn_entry(irb->exec);
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
     IrInstruction *coro_id;
     IrInstruction *u8_ptr_type;
@@ -7590,7 +7590,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     return true;
 }
 
-bool ir_gen_fn(CodeGen *codegen, FnTableEntry *fn_entry) {
+bool ir_gen_fn(CodeGen *codegen, ZigFn *fn_entry) {
     assert(fn_entry);
 
     IrExecutable *ir_executable = &fn_entry->ir_executable;
@@ -9345,7 +9345,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
 static void ir_add_alloca(IrAnalyze *ira, IrInstruction *instruction, ZigType *type_entry) {
     if (type_has_bits(type_entry) && handle_is_ptr(type_entry)) {
-        FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
         if (fn_entry != nullptr) {
             fn_entry->alloca_list.append(instruction);
         }
@@ -9749,7 +9749,7 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
 
 IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ZigType *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
-        FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
+        ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
         IrExecutable *parent_exec)
 {
     if (expected_type != nullptr && type_is_invalid(expected_type))
@@ -9816,7 +9816,7 @@ static ZigType *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
     return const_val->data.x_type;
 }
 
-static FnTableEntry *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
+static ZigFn *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
     if (fn_value == ira->codegen->invalid_instruction)
         return nullptr;
 
@@ -9996,7 +9996,7 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
 
         ZigType *child_type = wanted_type->data.pointer.child_type;
         if (type_has_bits(child_type)) {
-            FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+            ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
             assert(fn_entry);
             fn_entry->alloca_list.append(new_instruction);
         }
@@ -10046,7 +10046,7 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
     new_instruction->value.type = ptr_type;
     new_instruction->value.data.rh_ptr = RuntimeHintPtrStack;
     if (type_has_bits(ptr_type)) {
-        FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
         assert(fn_entry);
         fn_entry->alloca_list.append(new_instruction);
     }
@@ -12644,7 +12644,7 @@ static ZigType *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstructionDec
 
     ir_build_var_decl_from(&ira->new_irb, &decl_var_instruction->base, var, var_type, nullptr, casted_init_value);
 
-    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (fn_entry)
         fn_entry->variable_list.append(var);
 
@@ -12685,7 +12685,7 @@ static ZigType *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructionExpor
             zig_unreachable();
         case TypeTableEntryIdFn: {
             assert(target->value.data.x_ptr.special == ConstPtrSpecialFunction);
-            FnTableEntry *fn_entry = target->value.data.x_ptr.data.fn.fn_entry;
+            ZigFn *fn_entry = target->value.data.x_ptr.data.fn.fn_entry;
             CallingConvention cc = fn_entry->type_entry->data.fn.fn_type_id.cc;
             switch (cc) {
                 case CallingConventionUnspecified: {
@@ -12822,7 +12822,7 @@ static ZigType *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructionExpor
 }
 
 static bool exec_has_err_ret_trace(CodeGen *g, IrExecutable *exec) {
-    FnTableEntry *fn_entry = exec_fn_entry(exec);
+    ZigFn *fn_entry = exec_fn_entry(exec);
     return fn_entry != nullptr && fn_entry->calls_or_awaits_errorable_fn && g->have_err_ret_tracing;
 }
 
@@ -12878,7 +12878,7 @@ static ZigType *ir_analyze_instruction_error_union(IrAnalyze *ira,
 }
 
 IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr, ImplicitAllocatorId id) {
-    FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ZigFn *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (parent_fn_entry == nullptr) {
         ir_add_error(ira, source_instr, buf_sprintf("no implicit allocator available"));
         return ira->codegen->invalid_instruction;
@@ -12913,7 +12913,7 @@ IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_i
     zig_unreachable();
 }
 
-static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, FnTableEntry *fn_entry, ZigType *fn_type,
+static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, ZigFn *fn_entry, ZigType *fn_type,
     IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count, IrInstruction *async_allocator_inst)
 {
     Buf *alloc_field_name = buf_create_from_str(ASYNC_ALLOC_FIELD_NAME);
@@ -12988,7 +12988,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
 static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_node,
     IrInstruction *arg, Scope **child_scope, size_t *next_proto_i,
     GenericFnTypeId *generic_id, FnTypeId *fn_type_id, IrInstruction **casted_args,
-    FnTableEntry *impl_fn)
+    ZigFn *impl_fn)
 {
     AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(*next_proto_i);
     assert(param_decl_node->type == NodeTypeParamDecl);
@@ -13067,7 +13067,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     return true;
 }
 
-static VariableTableEntry *get_fn_var_by_index(FnTableEntry *fn_entry, size_t index) {
+static VariableTableEntry *get_fn_var_by_index(ZigFn *fn_entry, size_t index) {
     size_t next_var_i = 0;
     FnGenParamInfo *gen_param_info = fn_entry->type_entry->data.fn.gen_param_info;
     assert(gen_param_info != nullptr);
@@ -13157,7 +13157,7 @@ no_mem_slot:
 }
 
 static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instruction,
-    FnTableEntry *fn_entry, ZigType *fn_type, IrInstruction *fn_ref,
+    ZigFn *fn_entry, ZigType *fn_type, IrInstruction *fn_ref,
     IrInstruction *first_arg_ptr, bool comptime_fn_call, FnInline fn_inline)
 {
     Error err;
@@ -13382,7 +13382,7 @@ static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instr
 
         // Fork a scope of the function with known values for the parameters.
         Scope *parent_scope = fn_entry->fndef_scope->base.parent;
-        FnTableEntry *impl_fn = create_fn(fn_proto_node);
+        ZigFn *impl_fn = create_fn(fn_proto_node);
         impl_fn->param_source_nodes = allocate<AstNode *>(new_fn_arg_count);
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
         impl_fn->fndef_scope = create_fndef_scope(impl_fn->body_node, parent_scope, impl_fn);
@@ -13430,7 +13430,7 @@ static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instr
         bool found_first_var_arg = false;
         size_t first_var_arg;
 
-        FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
+        ZigFn *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
         assert(parent_fn_entry);
         for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
             IrInstruction *arg = call_instruction->args[call_i]->other;
@@ -13605,7 +13605,7 @@ static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instr
         return ir_finish_anal(ira, return_type);
     }
 
-    FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ZigFn *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_type_id->return_type != nullptr);
     assert(parent_fn_entry != nullptr);
     if (fn_type_can_fail(fn_type_id)) {
@@ -13734,14 +13734,14 @@ static ZigType *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionCall *c
             ir_link_new_instruction(cast_instruction, &call_instruction->base);
             return ir_finish_anal(ira, cast_instruction->value.type);
         } else if (fn_ref->value.type->id == TypeTableEntryIdFn) {
-            FnTableEntry *fn_table_entry = ir_resolve_fn(ira, fn_ref);
+            ZigFn *fn_table_entry = ir_resolve_fn(ira, fn_ref);
             if (fn_table_entry == nullptr)
                 return ira->codegen->builtin_types.entry_invalid;
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
                 fn_ref, nullptr, is_comptime, call_instruction->fn_inline);
         } else if (fn_ref->value.type->id == TypeTableEntryIdBoundFn) {
             assert(fn_ref->value.special == ConstValSpecialStatic);
-            FnTableEntry *fn_table_entry = fn_ref->value.data.x_bound_fn.fn;
+            ZigFn *fn_table_entry = fn_ref->value.data.x_bound_fn.fn;
             IrInstruction *first_arg_ptr = fn_ref->value.data.x_bound_fn.first_arg;
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
                 fn_ref, first_arg_ptr, is_comptime, call_instruction->fn_inline);
@@ -14289,7 +14289,7 @@ static ZigType *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionEle
             return ira->codegen->builtin_types.entry_invalid;
         }
         size_t abs_index = start + index;
-        FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
         assert(fn_entry);
         VariableTableEntry *var = get_fn_var_by_index(fn_entry, abs_index);
         bool is_const = true;
@@ -14509,7 +14509,7 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
             if (tld->resolution == TldResolutionInvalid)
                 return ira->codegen->invalid_instruction;
             TldFn *tld_fn = (TldFn *)tld;
-            FnTableEntry *fn_entry = tld_fn->fn_entry;
+            ZigFn *fn_entry = tld_fn->fn_entry;
             if (type_is_invalid(fn_entry->type_entry))
                 return ira->codegen->invalid_instruction;
 
@@ -14703,7 +14703,7 @@ static ZigType *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_instru
         case TldIdFn:
         {
             TldFn *tld_fn = (TldFn *)tld;
-            FnTableEntry *fn_entry = tld_fn->fn_entry;
+            ZigFn *fn_entry = tld_fn->fn_entry;
             assert(fn_entry->type_entry);
 
             if (type_is_invalid(fn_entry->type_entry))
@@ -15306,7 +15306,7 @@ static ZigType *ir_analyze_instruction_set_cold(IrAnalyze *ira, IrInstructionSet
     if (!ir_resolve_bool(ira, is_cold_value, &want_cold))
         return ira->codegen->builtin_types.entry_invalid;
 
-    FnTableEntry *fn_entry = scope_fn_entry(instruction->base.scope);
+    ZigFn *fn_entry = scope_fn_entry(instruction->base.scope);
     if (fn_entry == nullptr) {
         ir_add_error(ira, &instruction->base, buf_sprintf("@setCold outside function"));
         return ira->codegen->builtin_types.entry_invalid;
@@ -15345,7 +15345,7 @@ static ZigType *ir_analyze_instruction_set_runtime_safety(IrAnalyze *ira,
             break;
         } else if (scope->id == ScopeIdFnDef) {
             ScopeFnDef *def_scope = (ScopeFnDef *)scope;
-            FnTableEntry *target_fn = def_scope->fn_entry;
+            ZigFn *target_fn = def_scope->fn_entry;
             assert(target_fn->def_scope != nullptr);
             safety_off_ptr = &target_fn->def_scope->safety_off;
             safety_set_node_ptr = &target_fn->def_scope->safety_set_node;
@@ -15406,7 +15406,7 @@ static ZigType *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
         fast_math_set_node_ptr = &block_scope->fast_math_set_node;
     } else if (target_type->id == TypeTableEntryIdFn) {
         assert(target_val->data.x_ptr.special == ConstPtrSpecialFunction);
-        FnTableEntry *target_fn = target_val->data.x_ptr.data.fn.fn_entry;
+        ZigFn *target_fn = target_val->data.x_ptr.data.fn.fn_entry;
         assert(target_fn->def_scope);
         fast_math_on_ptr = &target_fn->def_scope->fast_math_on;
         fast_math_set_node_ptr = &target_fn->def_scope->fast_math_set_node;
@@ -17023,7 +17023,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
         // Skip comptime blocks and test functions.
         if (curr_entry->value->id != TldIdCompTime) {
             if (curr_entry->value->id == TldIdFn) {
-                FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
+                ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                 if (fn_entry->is_test)
                     continue;
             }
@@ -17049,7 +17049,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
         if (curr_entry->value->id == TldIdCompTime) {
             continue;
         } else if (curr_entry->value->id == TldIdFn) {
-            FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
+            ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
             if (fn_entry->is_test)
                 continue;
         }
@@ -17105,7 +17105,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
                     // 2: Data.Fn: Data.FnDef
                     bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 2);
 
-                    FnTableEntry *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
+                    ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                     assert(!fn_entry->is_test);
 
                     AstNodeFnProto *fn_node = (AstNodeFnProto *)(fn_entry->proto_node);
@@ -19276,7 +19276,7 @@ static ZigType *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrInstructi
 static ZigType *ir_analyze_instruction_handle(IrAnalyze *ira, IrInstructionHandle *instruction) {
     ir_build_handle_from(&ira->new_irb, &instruction->base);
 
-    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_entry != nullptr);
     return get_promise_type(ira->codegen, fn_entry->type_entry->data.fn.fn_type_id.return_type);
 }
@@ -20339,7 +20339,7 @@ static ZigType *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
         case TldIdFn:
         {
             TldFn *tld_fn = (TldFn *)tld;
-            FnTableEntry *fn_entry = tld_fn->fn_entry;
+            ZigFn *fn_entry = tld_fn->fn_entry;
             assert(fn_entry->type_entry);
 
             if (tld_fn->extern_lib_name != nullptr) {
@@ -20470,7 +20470,7 @@ static ZigType *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (fn_entry == nullptr) {
         ir_add_error(ira, &instruction->base, buf_sprintf("@setAlignStack outside function"));
         return ira->codegen->builtin_types.entry_invalid;
@@ -20631,7 +20631,7 @@ static ZigType *ir_analyze_instruction_coro_begin(IrAnalyze *ira, IrInstructionC
     if (type_is_invalid(coro_mem_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_entry != nullptr);
     IrInstruction *result = ir_build_coro_begin(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
             coro_id, coro_mem_ptr);
@@ -20923,7 +20923,7 @@ static ZigType *ir_analyze_instruction_await_bookkeeping(IrAnalyze *ira, IrInstr
     if (type_is_invalid(promise_result_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_entry != nullptr);
 
     if (type_can_fail(promise_result_type)) {
@@ -21440,7 +21440,7 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
     old_exec->analysis = ira;
     ira->codegen = codegen;
 
-    FnTableEntry *fn_entry = exec_fn_entry(old_exec);
+    ZigFn *fn_entry = exec_fn_entry(old_exec);
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
     ira->explicit_return_type = is_async ? get_promise_type(codegen, expected_type) : expected_type;
 

@@ -25,7 +25,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type);
 static Error ATTRIBUTE_MUST_USE resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type);
 static Error ATTRIBUTE_MUST_USE resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type);
 static Error ATTRIBUTE_MUST_USE resolve_union_zero_bits(CodeGen *g, ZigType *union_type);
-static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
+static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     if (node->owner->c_import_node != nullptr) {
@@ -171,7 +171,7 @@ ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
-ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
+ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, ZigFn *fn_entry) {
     ScopeFnDef *scope = allocate<ScopeFnDef>(1);
     init_scope(&scope->base, ScopeIdFnDef, node, parent);
     scope->fn_entry = fn_entry;
@@ -991,7 +991,7 @@ ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const c
     return entry;
 }
 
-ZigType *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry) {
+ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry) {
     ZigType *fn_type = fn_entry->type_entry;
     assert(fn_type->id == TypeTableEntryIdFn);
     if (fn_type->data.fn.bound_fn_parent)
@@ -1485,7 +1485,7 @@ static bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
     zig_unreachable();
 }
 
-ZigType *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry) {
+ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     ZigType *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "@typeOf(%s).ReturnType.ErrorSet", buf_ptr(&fn_entry->symbol_name));
@@ -1501,7 +1501,7 @@ ZigType *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry) {
     return err_set_type;
 }
 
-static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, FnTableEntry *fn_entry) {
+static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, ZigFn *fn_entry) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
     Error err;
@@ -3038,8 +3038,8 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, uint8_t sep) {
     buf_append_buf(buf, tld->name);
 }
 
-FnTableEntry *create_fn_raw(FnInline inline_value) {
-    FnTableEntry *fn_entry = allocate<FnTableEntry>(1);
+ZigFn *create_fn_raw(FnInline inline_value) {
+    ZigFn *fn_entry = allocate<ZigFn>(1);
 
     fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
     fn_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
@@ -3050,12 +3050,12 @@ FnTableEntry *create_fn_raw(FnInline inline_value) {
     return fn_entry;
 }
 
-FnTableEntry *create_fn(AstNode *proto_node) {
+ZigFn *create_fn(AstNode *proto_node) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     FnInline inline_value = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
-    FnTableEntry *fn_entry = create_fn_raw(inline_value);
+    ZigFn *fn_entry = create_fn_raw(inline_value);
 
     fn_entry->proto_node = proto_node;
     fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :
@@ -3081,7 +3081,7 @@ static void wrong_panic_prototype(CodeGen *g, AstNode *proto_node, ZigType *fn_t
                 buf_ptr(&fn_type->name)));
 }
 
-static void typecheck_panic_fn(CodeGen *g, FnTableEntry *panic_fn) {
+static void typecheck_panic_fn(CodeGen *g, ZigFn *panic_fn) {
     AstNode *proto_node = panic_fn->proto_node;
     assert(proto_node->type == NodeTypeFnProto);
     ZigType *fn_type = panic_fn->type_entry;
@@ -3118,7 +3118,7 @@ ZigType *get_test_fn_type(CodeGen *g) {
     return g->test_fn_type;
 }
 
-void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc) {
+void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc) {
     if (ccc) {
         if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
             g->have_c_main = true;
@@ -3154,7 +3154,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         AstNode *fn_def_node = fn_proto->fn_def_node;
 
-        FnTableEntry *fn_table_entry = create_fn(source_node);
+        ZigFn *fn_table_entry = create_fn(source_node);
         get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
         if (fn_proto->is_export) {
@@ -3215,7 +3215,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             }
         }
     } else if (source_node->type == NodeTypeTestDecl) {
-        FnTableEntry *fn_table_entry = create_fn_raw(FnInlineAuto);
+        ZigFn *fn_table_entry = create_fn_raw(FnInlineAuto);
 
         get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
@@ -3750,7 +3750,7 @@ VariableTableEntry *find_variable(CodeGen *g, Scope *scope, Buf *name) {
     return nullptr;
 }
 
-FnTableEntry *scope_fn_entry(Scope *scope) {
+ZigFn *scope_fn_entry(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdFnDef) {
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
@@ -3761,7 +3761,7 @@ FnTableEntry *scope_fn_entry(Scope *scope) {
     return nullptr;
 }
 
-FnTableEntry *scope_get_fn_if_root(Scope *scope) {
+ZigFn *scope_get_fn_if_root(Scope *scope) {
     assert(scope);
     scope = scope->parent;
     while (scope) {
@@ -3981,7 +3981,7 @@ bool get_ptr_const(ZigType *type) {
     }
 }
 
-AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
+AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index) {
     if (fn_entry->param_source_nodes)
         return fn_entry->param_source_nodes[index];
     else if (fn_entry->proto_node)
@@ -3990,7 +3990,7 @@ AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
         return nullptr;
 }
 
-static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry) {
+static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -4032,7 +4032,7 @@ static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entr
 }
 
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node) {
-    FnTableEntry *infer_fn = err_set_type->data.error_set.infer_fn;
+    ZigFn *infer_fn = err_set_type->data.error_set.infer_fn;
     if (infer_fn != nullptr) {
         if (infer_fn->anal_state == FnAnalStateInvalid) {
             return false;
@@ -4052,7 +4052,7 @@ bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *sour
     return true;
 }
 
-void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_type_node) {
+void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node) {
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -4113,7 +4113,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
     fn_table_entry->anal_state = FnAnalStateComplete;
 }
 
-static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
+static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     assert(fn_table_entry->anal_state != FnAnalStateProbing);
     if (fn_table_entry->anal_state != FnAnalStateReady)
         return;
@@ -4349,7 +4349,7 @@ void semantic_analyze(CodeGen *g) {
         }
 
         for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
-            FnTableEntry *fn_entry = g->fn_defs.at(g->fn_defs_index);
+            ZigFn *fn_entry = g->fn_defs.at(g->fn_defs_index);
             analyze_fn_body(g, fn_entry);
         }
     }
@@ -4602,11 +4602,11 @@ static uint32_t hash_size(size_t x) {
     return (uint32_t)(x % UINT32_MAX);
 }
 
-uint32_t fn_table_entry_hash(FnTableEntry* value) {
+uint32_t fn_table_entry_hash(ZigFn* value) {
     return ptr_hash(value);
 }
 
-bool fn_table_entry_eql(FnTableEntry *a, FnTableEntry *b) {
+bool fn_table_entry_eql(ZigFn *a, ZigFn *b) {
     return ptr_eq(a, b);
 }
 
@@ -5669,7 +5669,7 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigTy
             return;
         case ConstPtrSpecialFunction:
             {
-                FnTableEntry *fn_entry = const_val->data.x_ptr.data.fn.fn_entry;
+                ZigFn *fn_entry = const_val->data.x_ptr.data.fn.fn_entry;
                 buf_appendf(buf, "@ptrCast(%s, %s)", buf_ptr(&const_val->type->name), buf_ptr(&fn_entry->symbol_name));
                 return;
             }
@@ -5751,7 +5751,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             {
                 assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
                 assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
-                FnTableEntry *fn_entry = const_val->data.x_ptr.data.fn.fn_entry;
+                ZigFn *fn_entry = const_val->data.x_ptr.data.fn.fn_entry;
                 buf_appendf(buf, "%s", buf_ptr(&fn_entry->symbol_name));
                 return;
             }
@@ -5837,7 +5837,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdBoundFn:
             {
-                FnTableEntry *fn_entry = const_val->data.x_bound_fn.fn;
+                ZigFn *fn_entry = const_val->data.x_bound_fn.fn;
                 buf_appendf(buf, "(bound fn %s)", buf_ptr(&fn_entry->symbol_name));
                 return;
             }

@@ -31,7 +31,7 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
         AstNode *decl_node, const char *name, ContainerLayout layout);
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payload_type);
-ZigType *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry);
+ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
 ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *name);
 ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
         ZigType *field_types[], size_t field_count);
@@ -77,17 +77,17 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 void scan_import(CodeGen *g, ImportTableEntry *import);
 void preview_use_decl(CodeGen *g, AstNode *node);
 void resolve_use_decl(CodeGen *g, AstNode *node);
-FnTableEntry *scope_fn_entry(Scope *scope);
+ZigFn *scope_fn_entry(Scope *scope);
 ImportTableEntry *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     bool is_const, ConstExprValue *init_value, Tld *src_tld);
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
-FnTableEntry *create_fn(AstNode *proto_node);
-FnTableEntry *create_fn_raw(FnInline inline_value, GlobalLinkageId linkage);
+ZigFn *create_fn(AstNode *proto_node);
+ZigFn *create_fn_raw(FnInline inline_value, GlobalLinkageId linkage);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
-AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index);
-FnTableEntry *scope_get_fn_if_root(Scope *scope);
+AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
+ZigFn *scope_get_fn_if_root(Scope *scope);
 bool type_requires_comptime(ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE ensure_complete_type(CodeGen *g, ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE type_ensure_zero_bits_known(CodeGen *g, ZigType *type_entry);
@@ -98,7 +98,7 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
 void eval_min_max_value_int(CodeGen *g, ZigType *int_type, BigInt *bigint, bool is_max);
 
 void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val);
-void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_type_node);
+void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node);
 
 ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);
@@ -107,7 +107,7 @@ Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
 ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);
 ScopeLoop *create_loop_scope(AstNode *node, Scope *parent);
 ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent);
-ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
+ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, ZigFn *fn_entry);
 ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, ZigType *container_type, ImportTableEntry *import);
 Scope *create_comptime_scope(AstNode *node, Scope *parent);
 Scope *create_coro_prelude_scope(AstNode *node, Scope *parent);
@@ -190,14 +190,14 @@ ZigType *get_align_amt_type(CodeGen *g);
 PackageTableEntry *new_anonymous_package(void);
 
 Buf *const_value_to_buffer(ConstExprValue *const_val);
-void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc);
+void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc);
 
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
 ZigType *get_ptr_to_stack_trace_type(CodeGen *g);
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node);
 
-ZigType *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry);
+ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry);
 
 uint32_t get_coro_frame_align_bytes(CodeGen *g);
 bool fn_type_can_fail(FnTypeId *fn_type_id);

@@ -11,11 +11,11 @@
 #include "all_types.hpp"
 
 bool ir_gen(CodeGen *g, AstNode *node, Scope *scope, IrExecutable *ir_executable);
-bool ir_gen_fn(CodeGen *g, FnTableEntry *fn_entry);
+bool ir_gen_fn(CodeGen *g, ZigFn *fn_entry);
 
 IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ZigType *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
-        FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
+        ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
         IrExecutable *parent_exec);
 
 ZigType *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutable *new_executable,

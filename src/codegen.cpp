@@ -430,7 +430,7 @@ static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
     zig_unreachable();
 }
 
-static uint32_t get_err_ret_trace_arg_index(CodeGen *g, FnTableEntry *fn_table_entry) {
+static uint32_t get_err_ret_trace_arg_index(CodeGen *g, ZigFn *fn_table_entry) {
     if (!g->have_err_ret_tracing) {
         return UINT32_MAX;
     }
@@ -446,7 +446,7 @@ static uint32_t get_err_ret_trace_arg_index(CodeGen *g, FnTableEntry *fn_table_e
     return first_arg_ret ? 1 : 0;
 }
 
-static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
+static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
 
@@ -628,7 +628,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         {
             assert(scope->parent);
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
-            FnTableEntry *fn_table_entry = fn_scope->fn_entry;
+            ZigFn *fn_table_entry = fn_scope->fn_entry;
             if (!fn_table_entry->proto_node)
                 return get_di_scope(g, scope->parent);
             unsigned line_number = (unsigned)(fn_table_entry->proto_node->line == 0) ?
@@ -3637,7 +3637,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
 
     LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
     LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
-    FnTableEntry *prev_cur_fn = g->cur_fn;
+    ZigFn *prev_cur_fn = g->cur_fn;
     LLVMValueRef prev_cur_fn_val = g->cur_fn_val;
 
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
@@ -4635,7 +4635,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
 
     LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
     LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
-    FnTableEntry *prev_cur_fn = g->cur_fn;
+    ZigFn *prev_cur_fn = g->cur_fn;
     LLVMValueRef prev_cur_fn_val = g->cur_fn_val;
 
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
@@ -5037,7 +5037,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
     zig_unreachable();
 }
 
-static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
+static void ir_render(CodeGen *g, ZigFn *fn_entry) {
     assert(fn_entry);
 
     IrExecutable *executable = &fn_entry->analyzed_executable;
@@ -5688,7 +5688,7 @@ static void generate_error_name_table(CodeGen *g) {
     LLVMSetAlignment(g->err_name_table, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(err_name_table_init)));
 }
 
-static void build_all_basic_blocks(CodeGen *g, FnTableEntry *fn) {
+static void build_all_basic_blocks(CodeGen *g, ZigFn *fn) {
     IrExecutable *executable = &fn->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
@@ -5747,7 +5747,7 @@ static void report_errors_and_maybe_exit(CodeGen *g) {
 
 static void validate_inline_fns(CodeGen *g) {
     for (size_t i = 0; i < g->inline_fns.length; i += 1) {
-        FnTableEntry *fn_entry = g->inline_fns.at(i);
+        ZigFn *fn_entry = g->inline_fns.at(i);
         LLVMValueRef fn_val = LLVMGetNamedFunction(g->module, fn_entry->llvm_name);
         if (fn_val != nullptr) {
             add_node_error(g, fn_entry->proto_node, buf_sprintf("unable to inline function"));
@@ -5864,7 +5864,7 @@ static void do_code_gen(CodeGen *g) {
 
     // Generate function definitions.
     for (size_t fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
-        FnTableEntry *fn_table_entry = g->fn_defs.at(fn_i);
+        ZigFn *fn_table_entry = g->fn_defs.at(fn_i);
 
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);
         g->cur_fn = fn_table_entry;
@@ -7083,7 +7083,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
     test_fn_array->data.x_array.s_none.elements = create_const_vals(g->test_fns.length);
 
     for (size_t i = 0; i < g->test_fns.length; i += 1) {
-        FnTableEntry *test_fn_entry = g->test_fns.at(i);
+        ZigFn *test_fn_entry = g->test_fns.at(i);
 
         ConstExprValue *this_val = &test_fn_array->data.x_array.s_none.elements[i];
         this_val->special = ConstValSpecialStatic;
@@ -7483,7 +7483,7 @@ static void gen_h_file(CodeGen *g) {
     Buf h_buf = BUF_INIT;
     buf_resize(&h_buf, 0);
     for (size_t fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
-        FnTableEntry *fn_table_entry = g->fn_defs.at(fn_def_i);
+        ZigFn *fn_table_entry = g->fn_defs.at(fn_def_i);
 
         if (fn_table_entry->export_list.length == 0)
             continue;

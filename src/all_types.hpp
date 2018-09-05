@@ -20,7 +20,7 @@
 
 struct AstNode;
 struct ImportTableEntry;
-struct FnTableEntry;
+struct ZigFn;
 struct Scope;
 struct ScopeBlock;
 struct ScopeFnDef;
@@ -43,7 +43,7 @@ struct IrAnalyze;
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     Buf *name;
-    FnTableEntry *name_fn;
+    ZigFn *name_fn;
     size_t mem_slot_count;
     size_t next_debug_id;
     size_t *backward_branch_count;
@@ -51,7 +51,7 @@ struct IrExecutable {
     bool invalid;
     bool is_inline;
     bool is_generic_instantiation;
-    FnTableEntry *fn_entry;
+    ZigFn *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
     IrExecutable *parent_exec;
@@ -191,7 +191,7 @@ struct ConstPtrValue {
             uint64_t addr;
         } hard_coded_addr;
         struct {
-            FnTableEntry *fn_entry;
+            ZigFn *fn_entry;
         } fn;
     } data;
 };
@@ -202,7 +202,7 @@ struct ConstErrValue {
 };
 
 struct ConstBoundFnValue {
-    FnTableEntry *fn;
+    ZigFn *fn;
     IrInstruction *first_arg;
 };
 
@@ -345,7 +345,7 @@ struct TldVar {
 struct TldFn {
     Tld base;
 
-    FnTableEntry *fn_entry;
+    ZigFn *fn_entry;
     Buf *extern_lib_name;
 };
 
@@ -977,7 +977,7 @@ struct FnTypeParamInfo {
 };
 
 struct GenericFnTypeId {
-    FnTableEntry *fn_entry;
+    ZigFn *fn_entry;
     ConstExprValue *params;
     size_t param_count;
 };
@@ -1080,7 +1080,7 @@ struct TypeTableEntryErrorUnion {
 struct TypeTableEntryErrorSet {
     uint32_t err_count;
     ErrorTableEntry **errors;
-    FnTableEntry *infer_fn;
+    ZigFn *infer_fn;
 };
 
 struct TypeTableEntryEnum {
@@ -1282,7 +1282,7 @@ struct FnExport {
     GlobalLinkageId linkage;
 };
 
-struct FnTableEntry {
+struct ZigFn {
     LLVMValueRef llvm_value;
     const char *llvm_name;
     AstNode *proto_node;
@@ -1323,8 +1323,8 @@ struct FnTableEntry {
     bool calls_or_awaits_errorable_fn;
 };
 
-uint32_t fn_table_entry_hash(FnTableEntry*);
-bool fn_table_entry_eql(FnTableEntry *a, FnTableEntry *b);
+uint32_t fn_table_entry_hash(ZigFn*);
+bool fn_table_entry_eql(ZigFn *a, ZigFn *b);
 
 enum BuiltinFnId {
     BuiltinFnIdInvalid,
@@ -1567,7 +1567,7 @@ struct CodeGen {
     HashMap<TypeId, ZigType *, type_id_hash, type_id_eql> type_table;
     HashMap<FnTypeId *, ZigType *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
-    HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
+    HashMap<GenericFnTypeId *, ZigFn *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
@@ -1672,14 +1672,14 @@ struct CodeGen {
     const char *linker_script;
 
     // The function definitions this module includes.
-    ZigList<FnTableEntry *> fn_defs;
+    ZigList<ZigFn *> fn_defs;
     size_t fn_defs_index;
     ZigList<TldVar *> global_vars;
 
     OutType out_type;
-    FnTableEntry *cur_fn;
-    FnTableEntry *main_fn;
-    FnTableEntry *panic_fn;
+    ZigFn *cur_fn;
+    ZigFn *main_fn;
+    ZigFn *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
     LLVMValueRef cur_err_ret_trace_val_arg;
@@ -1734,7 +1734,7 @@ struct CodeGen {
     const char **llvm_argv;
     size_t llvm_argv_len;
 
-    ZigList<FnTableEntry *> test_fns;
+    ZigList<ZigFn *> test_fns;
     ZigType *test_fn_type;
 
     bool each_lib_rpath;
@@ -1766,7 +1766,7 @@ struct CodeGen {
     Buf cache_dir;
     Buf *out_h_path;
 
-    ZigList<FnTableEntry *> inline_fns;
+    ZigList<ZigFn *> inline_fns;
     ZigList<AstNode *> tld_ref_source_node_stack;
 
     ZigType *align_amt_type;
@@ -1960,7 +1960,7 @@ struct ScopeCompTime {
 struct ScopeFnDef {
     Scope base;
 
-    FnTableEntry *fn_entry;
+    ZigFn *fn_entry;
 };
 
 // This scope is created to indicate that the code in the scope
@@ -2356,7 +2356,7 @@ struct IrInstructionCall {
     IrInstruction base;
 
     IrInstruction *fn_ref;
-    FnTableEntry *fn_entry;
+    ZigFn *fn_entry;
     size_t arg_count;
     IrInstruction **args;
     bool is_comptime;
