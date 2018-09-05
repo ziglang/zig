@@ -1343,8 +1343,6 @@ enum BuiltinFnId {
     BuiltinFnIdMemset,
     BuiltinFnIdSizeof,
     BuiltinFnIdAlignOf,
-    BuiltinFnIdMaxValue,
-    BuiltinFnIdMinValue,
     BuiltinFnIdMemberCount,
     BuiltinFnIdMemberType,
     BuiltinFnIdMemberName,
@@ -2081,8 +2079,6 @@ enum IrInstructionId {
     IrInstructionIdCUndef,
     IrInstructionIdArrayLen,
     IrInstructionIdRef,
-    IrInstructionIdMinValue,
-    IrInstructionIdMaxValue,
     IrInstructionIdCompileErr,
     IrInstructionIdCompileLog,
     IrInstructionIdErrName,
@@ -2607,18 +2603,6 @@ struct IrInstructionRef {
     LLVMValueRef tmp_ptr;
     bool is_const;
     bool is_volatile;
-};
-
-struct IrInstructionMinValue {
-    IrInstruction base;
-
-    IrInstruction *value;
-};
-
-struct IrInstructionMaxValue {
-    IrInstruction base;
-
-    IrInstruction *value;
 };
 
 struct IrInstructionCompileErr {
