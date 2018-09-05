@@ -457,7 +457,7 @@ pub fn absInt(x: var) !@typeOf(x) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
 
-    if (x == std.math.minValue(@typeOf(x))) {
+    if (x == minInt(@typeOf(x))) {
         return error.Overflow;
     } else {
         @setRuntimeSafety(false);
@@ -479,7 +479,7 @@ pub const absFloat = @import("fabs.zig").fabs;
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minValue(T) and denominator == -1) return error.Overflow;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     return @divTrunc(numerator, denominator);
 }
 
@@ -500,7 +500,7 @@ fn testDivTrunc() void {
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minValue(T) and denominator == -1) return error.Overflow;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     return @divFloor(numerator, denominator);
 }
 
@@ -521,7 +521,7 @@ fn testDivFloor() void {
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minValue(T) and denominator == -1) return error.Overflow;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     const result = @divTrunc(numerator, denominator);
     if (result * denominator != numerator) return error.UnexpectedRemainder;
     return result;
@@ -605,8 +605,8 @@ test "math.absCast" {
     assert(absCast(i32(999)) == 999);
     assert(@typeOf(absCast(i32(999))) == u32);
 
-    assert(absCast(i32(std.math.minValue(i32))) == -std.math.minValue(i32));
-    assert(@typeOf(absCast(i32(std.math.minValue(i32)))) == u32);
+    assert(absCast(i32(minInt(i32))) == -minInt(i32));
+    assert(@typeOf(absCast(i32(minInt(i32)))) == u32);
 }
 
 /// Returns the negation of the integer parameter.
@@ -615,9 +615,9 @@ pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
     if (@typeOf(x).is_signed) return negate(x);
 
     const int = @IntType(true, @typeOf(x).bit_count);
-    if (x > -std.math.minValue(int)) return error.Overflow;
+    if (x > -minInt(int)) return error.Overflow;
 
-    if (x == -std.math.minValue(int)) return std.math.minValue(int);
+    if (x == -minInt(int)) return minInt(int);
 
     return -@intCast(int, x);
 }
@@ -626,10 +626,10 @@ test "math.negateCast" {
     assert((negateCast(u32(999)) catch unreachable) == -999);
     assert(@typeOf(negateCast(u32(999)) catch unreachable) == i32);
 
-    assert((negateCast(u32(-std.math.minValue(i32))) catch unreachable) == std.math.minValue(i32));
-    assert(@typeOf(negateCast(u32(-std.math.minValue(i32))) catch unreachable) == i32);
+    assert((negateCast(u32(-minInt(i32))) catch unreachable) == minInt(i32));
+    assert(@typeOf(negateCast(u32(-minInt(i32))) catch unreachable) == i32);
 
-    if (negateCast(u32(std.math.maxValue(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
+    if (negateCast(u32(maxInt(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
 }
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
@@ -637,9 +637,9 @@ test "math.negateCast" {
 pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
     comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Int); // must pass an integer
-    if (std.math.maxValue(@typeOf(x)) > std.math.maxValue(T) and x > std.math.maxValue(T)) {
+    if (maxInt(@typeOf(x)) > maxInt(T) and x > maxInt(T)) {
         return error.Overflow;
-    } else if (std.math.minValue(@typeOf(x)) < std.math.minValue(T) and x < std.math.minValue(T)) {
+    } else if (minInt(@typeOf(x)) < minInt(T) and x < minInt(T)) {
         return error.Overflow;
     } else {
         return @intCast(T, x);
