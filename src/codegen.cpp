@@ -5490,7 +5490,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                 LLVMTypeRef union_type_ref = type_entry->data.unionation.union_type_ref;
 
                 if (type_entry->data.unionation.gen_field_count == 0) {
-                    if (type_entry->data.unionation.gen_tag_index == SIZE_MAX) {
+                    if (type_entry->data.unionation.tag_type == nullptr) {
                         return nullptr;
                     } else {
                         return bigint_to_llvm_const(type_entry->data.unionation.tag_type->type_ref,
