@@ -266,6 +266,40 @@ pub fn minValue(comptime T: type) @typeOf(42) {
     }
 }
 
+/// This function returns the maximum value of the integer type T.
+/// The result is a compile time constant.
+pub fn maxValue(comptime T: type) @typeOf(42) {
+    comptime {
+        return switch (T) {
+            u1 => 1,
+            i1 => 0,
+            u2 => 3,
+            i2 => 1,
+            u3 => 7,
+            i3 => 3,
+            u4 => 15,
+            i4 => 7,
+            u5 => 31,
+            i5 => 15,
+            u6 => 63,
+            i6 => 31,
+            u7 => 127,
+            i7 => 63,
+            u8 => 255,
+            i8 => 127,
+            u16 => 65535,
+            i16 => 32767,
+            u32 => 4294967295,
+            i32 => 2147483647,
+            u64 => 18446744073709551615,
+            i64 => 9223372036854775807,
+            u128 => 340282366920938463463374607431768211455,
+            i128 => 170141183460469231731687303715884105727,
+            else => @compileError("maxValue not implemented for " ++ @typeName(T)),
+        };
+    }
+}
+
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
