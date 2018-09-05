@@ -1857,7 +1857,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
     return nullptr;
 }
 
-static void gen_var_debug_decl(CodeGen *g, VariableTableEntry *var) {
+static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
     AstNode *source_node = var->decl_node;
     ZigLLVMDILocation *debug_loc = ZigLLVMGetDebugLoc((unsigned)source_node->line + 1,
             (unsigned)source_node->column + 1, get_di_scope(g, var->parent_scope));
@@ -2862,7 +2862,7 @@ static LLVMValueRef get_memset_fn_val(CodeGen *g) {
 static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         IrInstructionDeclVar *decl_var_instruction)
 {
-    VariableTableEntry *var = decl_var_instruction->var;
+    ZigVar *var = decl_var_instruction->var;
 
     if (!type_has_bits(var->value->type))
         return nullptr;
@@ -2955,7 +2955,7 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
-    VariableTableEntry *var = instruction->var;
+    ZigVar *var = instruction->var;
     if (type_has_bits(var->value->type)) {
         assert(var->value_ref);
         return var->value_ref;
@@ -3370,7 +3370,7 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
         }
 
         if (!is_return) {
-            VariableTableEntry *variable = instruction->output_vars[i];
+            ZigVar *variable = instruction->output_vars[i];
             assert(variable);
             param_types[param_index] = LLVMTypeOf(variable->value_ref);
             param_values[param_index] = variable->value_ref;
@@ -5699,7 +5699,7 @@ static void build_all_basic_blocks(CodeGen *g, ZigFn *fn) {
     LLVMPositionBuilderAtEnd(g->builder, entry_bb->llvm_block);
 }
 
-static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef init_val,
+static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
     ZigType *type_entry)
 {
     if (g->strip_debug_symbols) {
@@ -5788,7 +5788,7 @@ static void do_code_gen(CodeGen *g) {
     // Generate module level variables
     for (size_t i = 0; i < g->global_vars.length; i += 1) {
         TldVar *tld_var = g->global_vars.at(i);
-        VariableTableEntry *var = tld_var->var;
+        ZigVar *var = tld_var->var;
 
         if (var->value->type->id == TypeTableEntryIdComptimeFloat) {
             // Generate debug info for it but that's it.
@@ -5949,7 +5949,7 @@ static void do_code_gen(CodeGen *g) {
 
         // create debug variable declarations for variables and allocate all local variables
         for (size_t var_i = 0; var_i < fn_table_entry->variable_list.length; var_i += 1) {
-            VariableTableEntry *var = fn_table_entry->variable_list.at(var_i);
+            ZigVar *var = fn_table_entry->variable_list.at(var_i);
 
             if (!type_has_bits(var->value->type)) {
                 continue;
@@ -6027,7 +6027,7 @@ static void do_code_gen(CodeGen *g) {
             if (info->gen_index == SIZE_MAX)
                 continue;
 
-            VariableTableEntry *variable = fn_table_entry->variable_list.at(next_var_i);
+            ZigVar *variable = fn_table_entry->variable_list.at(next_var_i);
             assert(variable->src_arg_index != SIZE_MAX);
             next_var_i += 1;
 

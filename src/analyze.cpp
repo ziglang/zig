@@ -129,7 +129,7 @@ ScopeDeferExpr *create_defer_expr_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
-Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var) {
+Scope *create_var_scope(AstNode *node, Scope *parent, ZigVar *var) {
     ScopeVarDecl *scope = allocate<ScopeVarDecl>(1);
     init_scope(&scope->base, ScopeIdVarDecl, node, parent);
     scope->var = var;
@@ -3501,12 +3501,12 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
 
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
-VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
+ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     bool is_const, ConstExprValue *value, Tld *src_tld)
 {
     assert(value);
 
-    VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
+    ZigVar *variable_entry = allocate<ZigVar>(1);
     variable_entry->value = value;
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = false;
@@ -3519,7 +3519,7 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
     if (!type_is_invalid(value->type)) {
         variable_entry->align_bytes = get_abi_alignment(g, value->type);
 
-        VariableTableEntry *existing_var = find_variable(g, parent_scope, name);
+        ZigVar *existing_var = find_variable(g, parent_scope, name);
         if (existing_var && !existing_var->shadowable) {
             ErrorMsg *msg = add_node_error(g, source_node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
@@ -3726,7 +3726,7 @@ Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
     return nullptr;
 }
 
-VariableTableEntry *find_variable(CodeGen *g, Scope *scope, Buf *name) {
+ZigVar *find_variable(CodeGen *g, Scope *scope, Buf *name) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
@@ -4015,7 +4015,7 @@ static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
             add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
         }
 
-        VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
+        ZigVar *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
                 param_name, true, create_const_runtime(param_type), nullptr);
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
@@ -5429,7 +5429,7 @@ Error type_ensure_zero_bits_known(CodeGen *g, ZigType *type_entry) {
     return ErrorNone;
 }
 
-bool ir_get_var_is_comptime(VariableTableEntry *var) {
+bool ir_get_var_is_comptime(ZigVar *var) {
     if (!var->is_comptime)
         return false;
     if (var->is_comptime->other)

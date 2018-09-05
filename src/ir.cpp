@@ -145,7 +145,7 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg);
 static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
     IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type);
-static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction, VariableTableEntry *var);
+static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction, ZigVar *var);
 static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op);
 static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LVal lval);
 static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_align);
@@ -277,7 +277,7 @@ static void ir_ref_instruction(IrInstruction *instruction, IrBasicBlock *cur_bb)
         ir_ref_bb(instruction->owner_bb);
 }
 
-static void ir_ref_var(VariableTableEntry *var) {
+static void ir_ref_var(ZigVar *var) {
     var->ref_count += 1;
 }
 
@@ -1114,7 +1114,7 @@ static IrInstruction *ir_build_bin_op_from(IrBuilder *irb, IrInstruction *old_in
     return new_instruction;
 }
 
-static IrInstruction *ir_build_var_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, VariableTableEntry *var) {
+static IrInstruction *ir_build_var_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigVar *var) {
     IrInstructionVarPtr *instruction = ir_build_instruction<IrInstructionVarPtr>(irb, scope, source_node);
     instruction->var = var;
 
@@ -1459,7 +1459,7 @@ static IrInstruction *ir_build_store_ptr_from(IrBuilder *irb, IrInstruction *old
 }
 
 static IrInstruction *ir_build_var_decl(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        VariableTableEntry *var, IrInstruction *var_type, IrInstruction *align_value, IrInstruction *init_value)
+        ZigVar *var, IrInstruction *var_type, IrInstruction *align_value, IrInstruction *init_value)
 {
     IrInstructionDeclVar *decl_var_instruction = ir_build_instruction<IrInstructionDeclVar>(irb, scope, source_node);
     decl_var_instruction->base.value.special = ConstValSpecialStatic;
@@ -1477,7 +1477,7 @@ static IrInstruction *ir_build_var_decl(IrBuilder *irb, Scope *scope, AstNode *s
 }
 
 static IrInstruction *ir_build_var_decl_from(IrBuilder *irb, IrInstruction *old_instruction,
-        VariableTableEntry *var, IrInstruction *var_type, IrInstruction *align_value, IrInstruction *init_value)
+        ZigVar *var, IrInstruction *var_type, IrInstruction *align_value, IrInstruction *init_value)
 {
     IrInstruction *new_instruction = ir_build_var_decl(irb, old_instruction->scope,
             old_instruction->source_node, var, var_type, align_value, init_value);
@@ -1622,7 +1622,7 @@ static IrInstruction *ir_build_slice_type(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_build_asm(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction **input_list,
-        IrInstruction **output_types, VariableTableEntry **output_vars, size_t return_count, bool has_side_effects)
+        IrInstruction **output_types, ZigVar **output_vars, size_t return_count, bool has_side_effects)
 {
     IrInstructionAsm *instruction = ir_build_instruction<IrInstructionAsm>(irb, scope, source_node);
     instruction->input_list = input_list;
@@ -1646,7 +1646,7 @@ static IrInstruction *ir_build_asm(IrBuilder *irb, Scope *scope, AstNode *source
 }
 
 static IrInstruction *ir_build_asm_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction **input_list,
-        IrInstruction **output_types, VariableTableEntry **output_vars, size_t return_count, bool has_side_effects)
+        IrInstruction **output_types, ZigVar **output_vars, size_t return_count, bool has_side_effects)
 {
     IrInstruction *new_instruction = ir_build_asm(irb, old_instruction->scope,
             old_instruction->source_node, input_list, output_types, output_vars, return_count, has_side_effects);
@@ -3320,11 +3320,11 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
     zig_unreachable();
 }
 
-static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
+static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
         Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstruction *is_comptime,
         bool skip_name_check)
 {
-    VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
+    ZigVar *variable_entry = allocate<ZigVar>(1);
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = is_shadowable;
     variable_entry->mem_slot_index = SIZE_MAX;
@@ -3336,7 +3336,7 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
         buf_init_from_buf(&variable_entry->name, name);
 
         if (!skip_name_check) {
-            VariableTableEntry *existing_var = find_variable(codegen, parent_scope, name);
+            ZigVar *existing_var = find_variable(codegen, parent_scope, name);
             if (existing_var && !existing_var->shadowable) {
                 ErrorMsg *msg = add_node_error(codegen, node,
                         buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
@@ -3377,11 +3377,11 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
 
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // After you call this function var->child_scope has the variable in scope
-static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *scope, Buf *name,
+static ZigVar *ir_create_var(IrBuilder *irb, AstNode *node, Scope *scope, Buf *name,
         bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstruction *is_comptime)
 {
     bool is_underscored = name ? buf_eql_str(name, "_") : false;
-    VariableTableEntry *var = create_local_var(irb->codegen, node, scope,
+    ZigVar *var = create_local_var(irb->codegen, node, scope,
             (is_underscored ? nullptr : name), src_is_const, gen_is_const,
             (is_underscored ? true : is_shadowable), is_comptime, false);
     if (is_comptime != nullptr || gen_is_const) {
@@ -3799,7 +3799,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         }
     }
 
-    VariableTableEntry *var = find_variable(irb->codegen, scope, variable_name);
+    ZigVar *var = find_variable(irb->codegen, scope, variable_name);
     if (var) {
         IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, node, var);
         if (lval == LValPtr)
@@ -5258,7 +5258,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
 
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
         ir_should_inline(irb->exec, scope) || variable_declaration->is_comptime);
-    VariableTableEntry *var = ir_create_var(irb, node, scope, variable_declaration->symbol,
+    ZigVar *var = ir_create_var(irb, node, scope, variable_declaration->symbol,
         is_const, is_const, is_shadowable, is_comptime);
     // we detect IrInstructionIdDeclVar in gen_block to make sure the next node
     // is inside var->child_scope
@@ -5320,7 +5320,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
         Scope *payload_scope;
         AstNode *symbol_node = node; // TODO make more accurate
-        VariableTableEntry *payload_var;
+        ZigVar *payload_var;
         if (var_symbol) {
             // TODO make it an error to write to payload variable
             payload_var = ir_create_var(irb, symbol_node, subexpr_scope, var_symbol,
@@ -5384,7 +5384,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
             // TODO make it an error to write to error variable
             AstNode *err_symbol_node = else_node; // TODO make more accurate
-            VariableTableEntry *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
+            ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
                     true, false, false, is_comptime);
             Scope *err_scope = err_var->child_scope;
             IrInstruction *err_var_value = ir_build_unwrap_err_code(irb, err_scope, err_symbol_node, err_val_ptr);
@@ -5413,7 +5413,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         // TODO make it an error to write to payload variable
         AstNode *symbol_node = node; // TODO make more accurate
 
-        VariableTableEntry *payload_var = ir_create_var(irb, symbol_node, subexpr_scope, var_symbol,
+        ZigVar *payload_var = ir_create_var(irb, symbol_node, subexpr_scope, var_symbol,
                 true, false, false, is_comptime);
         Scope *child_scope = payload_var->child_scope;
         IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, subexpr_scope, LValPtr);
@@ -5585,7 +5585,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
-    VariableTableEntry *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
+    ZigVar *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
     Scope *child_scope = elem_var->child_scope;
 
     IrInstruction *undefined_value = ir_build_const_undefined(irb, child_scope, elem_node);
@@ -5593,7 +5593,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrInstruction *elem_var_ptr = ir_build_var_ptr(irb, child_scope, node, elem_var);
 
     AstNode *index_var_source_node;
-    VariableTableEntry *index_var;
+    ZigVar *index_var;
     if (index_node) {
         index_var_source_node = index_node;
         Buf *index_var_name = index_node->data.symbol_expr.symbol;
@@ -5798,7 +5798,7 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
 
     IrInstruction **input_list = allocate<IrInstruction *>(node->data.asm_expr.input_list.length);
     IrInstruction **output_types = allocate<IrInstruction *>(node->data.asm_expr.output_list.length);
-    VariableTableEntry **output_vars = allocate<VariableTableEntry *>(node->data.asm_expr.output_list.length);
+    ZigVar **output_vars = allocate<ZigVar *>(node->data.asm_expr.output_list.length);
     size_t return_count = 0;
     bool is_volatile = node->data.asm_expr.is_volatile;
     if (!is_volatile && node->data.asm_expr.output_list.length == 0) {
@@ -5822,7 +5822,7 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
             output_types[i] = return_type;
         } else {
             Buf *variable_name = asm_output->variable_name;
-            VariableTableEntry *var = find_variable(irb->codegen, scope, variable_name);
+            ZigVar *var = find_variable(irb->codegen, scope, variable_name);
             if (var) {
                 output_vars[i] = var;
             } else {
@@ -5880,7 +5880,7 @@ static IrInstruction *ir_gen_test_expr(IrBuilder *irb, Scope *scope, AstNode *no
         IrInstruction *var_type = nullptr;
         bool is_shadowable = false;
         bool is_const = true;
-        VariableTableEntry *var = ir_create_var(irb, node, subexpr_scope,
+        ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, is_const, is_const, is_shadowable, is_comptime);
 
         IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, subexpr_scope, node, maybe_val_ptr, false);
@@ -5955,7 +5955,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
         IrInstruction *var_type = nullptr;
         bool is_shadowable = false;
         IrInstruction *var_is_comptime = force_comptime ? ir_build_const_bool(irb, subexpr_scope, node, true) : ir_build_test_comptime(irb, subexpr_scope, node, err_val);
-        VariableTableEntry *var = ir_create_var(irb, node, subexpr_scope,
+        ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, var_is_const, var_is_const, is_shadowable, var_is_comptime);
 
         IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, subexpr_scope, node, err_val_ptr, false);
@@ -5981,7 +5981,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
             IrInstruction *var_type = nullptr;
             bool is_shadowable = false;
             bool is_const = true;
-            VariableTableEntry *var = ir_create_var(irb, node, subexpr_scope,
+            ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                     err_symbol, is_const, is_const, is_shadowable, is_comptime);
 
             IrInstruction *var_value = ir_build_unwrap_err_code(irb, subexpr_scope, node, err_val_ptr);
@@ -6029,7 +6029,7 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
 
         bool is_shadowable = false;
         bool is_const = true;
-        VariableTableEntry *var = ir_create_var(irb, var_symbol_node, scope,
+        ZigVar *var = ir_create_var(irb, var_symbol_node, scope,
                 var_name, is_const, is_const, is_shadowable, var_is_comptime);
         child_scope = var->child_scope;
         IrInstruction *var_value;
@@ -6494,7 +6494,7 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
         Buf *var_name = var_node->data.symbol_expr.symbol;
         bool is_const = true;
         bool is_shadowable = false;
-        VariableTableEntry *var = ir_create_var(irb, node, parent_scope, var_name,
+        ZigVar *var = ir_create_var(irb, node, parent_scope, var_name,
             is_const, is_const, is_shadowable, is_comptime);
         err_scope = var->child_scope;
         IrInstruction *err_val = ir_build_unwrap_err_code(irb, err_scope, node, err_union_ptr);
@@ -6976,7 +6976,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrInstruction *is_canceled_mask = ir_build_const_usize(irb, scope, node, 0x1); // 0b001
     IrInstruction *is_suspended_mask = ir_build_const_usize(irb, scope, node, 0x2); // 0b010
 
-    VariableTableEntry *result_var = ir_create_var(irb, node, scope, nullptr,
+    ZigVar *result_var = ir_create_var(irb, node, scope, nullptr,
             false, false, true, const_bool_false);
     IrInstruction *target_promise_type = ir_build_typeof(irb, scope, node, target_inst);
     IrInstruction *promise_result_type = ir_build_promise_result_type(irb, scope, node, target_promise_type);
@@ -7388,12 +7388,12 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     IrInstruction *err_ret_trace_ptr;
     ZigType *return_type;
     Buf *result_ptr_field_name;
-    VariableTableEntry *coro_size_var;
+    ZigVar *coro_size_var;
     if (is_async) {
         // create the coro promise
         Scope *coro_scope = create_coro_prelude_scope(node, scope);
         const_bool_false = ir_build_const_bool(irb, coro_scope, node, false);
-        VariableTableEntry *promise_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
+        ZigVar *promise_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
 
         return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
         IrInstruction *undef = ir_build_const_undefined(irb, coro_scope, node);
@@ -7403,7 +7403,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_build_var_decl(irb, coro_scope, node, promise_var, coro_frame_type_value, nullptr, undef);
         coro_promise_ptr = ir_build_var_ptr(irb, coro_scope, node, promise_var);
 
-        VariableTableEntry *await_handle_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
+        ZigVar *await_handle_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
         IrInstruction *null_value = ir_build_const_null(irb, coro_scope, node);
         IrInstruction *await_handle_type_val = ir_build_const_type(irb, coro_scope, node,
                 get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
@@ -12518,7 +12518,7 @@ static ZigType *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructionBinOp
 
 static ZigType *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstructionDeclVar *decl_var_instruction) {
     Error err;
-    VariableTableEntry *var = decl_var_instruction->var;
+    ZigVar *var = decl_var_instruction->var;
 
     IrInstruction *init_value = decl_var_instruction->init_value->other;
     if (type_is_invalid(init_value->value.type)) {
@@ -12591,7 +12591,7 @@ static ZigType *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstructionDec
         // This means that this is actually a different variable due to, e.g. an inline while loop.
         // We make a new variable so that it can hold a different type, and so the debug info can
         // be distinct.
-        VariableTableEntry *new_var = create_local_var(ira->codegen, var->decl_node, var->child_scope,
+        ZigVar *new_var = create_local_var(ira->codegen, var->decl_node, var->child_scope,
             &var->name, var->src_is_const, var->gen_is_const, var->shadowable, var->is_comptime, true);
         new_var->owner_exec = var->owner_exec;
         new_var->align_bytes = var->align_bytes;
@@ -12902,7 +12902,7 @@ IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_i
             }
         case ImplicitAllocatorIdLocalVar:
             {
-                VariableTableEntry *coro_allocator_var = ira->old_irb.exec->coro_allocator_var;
+                ZigVar *coro_allocator_var = ira->old_irb.exec->coro_allocator_var;
                 assert(coro_allocator_var != nullptr);
                 IrInstruction *var_ptr_inst = ir_get_var_ptr(ira, source_instr, coro_allocator_var);
                 IrInstruction *result = ir_get_deref(ira, source_instr, var_ptr_inst);
@@ -12977,7 +12977,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
         return false;
 
     Buf *param_name = param_decl_node->data.param_decl.name;
-    VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
+    ZigVar *var = add_variable(ira->codegen, param_decl_node,
         *exec_scope, param_name, true, arg_val, nullptr);
     *exec_scope = var->child_scope;
     *next_proto_i += 1;
@@ -13035,7 +13035,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     Buf *param_name = param_decl_node->data.param_decl.name;
     if (!param_name) return false;
     if (!is_var_args) {
-        VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
+        ZigVar *var = add_variable(ira->codegen, param_decl_node,
             *child_scope, param_name, true, arg_val, nullptr);
         *child_scope = var->child_scope;
         var->shadowable = !comptime_arg;
@@ -13067,7 +13067,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     return true;
 }
 
-static VariableTableEntry *get_fn_var_by_index(ZigFn *fn_entry, size_t index) {
+static ZigVar *get_fn_var_by_index(ZigFn *fn_entry, size_t index) {
     size_t next_var_i = 0;
     FnGenParamInfo *gen_param_info = fn_entry->type_entry->data.fn.gen_param_info;
     assert(gen_param_info != nullptr);
@@ -13086,7 +13086,7 @@ static VariableTableEntry *get_fn_var_by_index(ZigFn *fn_entry, size_t index) {
 }
 
 static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
-        VariableTableEntry *var)
+        ZigVar *var)
 {
     Error err;
     while (var->next_var != nullptr) {
@@ -13449,7 +13449,7 @@ static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instr
                         found_first_var_arg = true;
                     }
 
-                    VariableTableEntry *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
+                    ZigVar *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
                     if (arg_var == nullptr) {
                         ir_add_error(ira, arg,
                             buf_sprintf("compiler bug: var args can't handle void. https://github.com/ziglang/zig/issues/557"));
@@ -13496,7 +13496,7 @@ static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instr
 
             ConstExprValue *var_args_val = create_const_arg_tuple(ira->codegen,
                     first_var_arg, inst_fn_type_id.param_count);
-            VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
+            ZigVar *var = add_variable(ira->codegen, param_decl_node,
                 impl_fn->child_scope, param_name, true, var_args_val, nullptr);
             impl_fn->child_scope = var->child_scope;
         }
@@ -14158,7 +14158,7 @@ static ZigType *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPhi *phi
 }
 
 static ZigType *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
-        VariableTableEntry *var)
+        ZigVar *var)
 {
     IrInstruction *result = ir_get_var_ptr(ira, instruction, var);
     ir_link_new_instruction(result, instruction);
@@ -14166,7 +14166,7 @@ static ZigType *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
 }
 
 static ZigType *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructionVarPtr *var_ptr_instruction) {
-    VariableTableEntry *var = var_ptr_instruction->var;
+    ZigVar *var = var_ptr_instruction->var;
     return ir_analyze_var_ptr(ira, &var_ptr_instruction->base, var);
 }
 
@@ -14291,7 +14291,7 @@ static ZigType *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionEle
         size_t abs_index = start + index;
         ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
         assert(fn_entry);
-        VariableTableEntry *var = get_fn_var_by_index(fn_entry, abs_index);
+        ZigVar *var = get_fn_var_by_index(fn_entry, abs_index);
         bool is_const = true;
         bool is_volatile = false;
         if (var) {
@@ -14693,7 +14693,7 @@ static ZigType *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_instru
         case TldIdVar:
         {
             TldVar *tld_var = (TldVar *)tld;
-            VariableTableEntry *var = tld_var->var;
+            ZigVar *var = tld_var->var;
             if (tld_var->extern_lib_name != nullptr) {
                 add_link_lib_symbol(ira, tld_var->extern_lib_name, &var->name, source_instruction->source_node);
             }
@@ -16976,7 +16976,7 @@ static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, Zig
     TldVar *tld = (TldVar *)entry;
     assert(tld->base.id == TldIdVar);
 
-    VariableTableEntry *var = tld->var;
+    ZigVar *var = tld->var;
 
     if ((err = ensure_complete_type(ira->codegen, var->value->type)))
         return ira->codegen->builtin_types.entry_invalid;
@@ -17074,7 +17074,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
         switch (curr_entry->value->id) {
             case TldIdVar:
                 {
-                    VariableTableEntry *var = ((TldVar *)curr_entry->value)->var;
+                    ZigVar *var = ((TldVar *)curr_entry->value)->var;
                     if ((err = ensure_complete_type(ira->codegen, var->value->type)))
                         return ErrorSemanticAnalyzeFail;
 
@@ -17191,7 +17191,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
 
                     for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++)
                     {
-                        VariableTableEntry *arg_var = fn_entry->variable_list.at(fn_arg_index);
+                        ZigVar *arg_var = fn_entry->variable_list.at(fn_arg_index);
                         ConstExprValue *fn_arg_name_val = &fn_arg_name_array->data.x_array.s_none.elements[fn_arg_index];
                         ConstExprValue *arg_name = create_const_str_lit(ira->codegen, &arg_var->name);
                         init_const_slice(ira->codegen, fn_arg_name_val, arg_name, 0, buf_len(&arg_var->name), true);
@@ -20317,7 +20317,7 @@ static ZigType *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
         case TldIdVar:
         {
             TldVar *tld_var = (TldVar *)tld;
-            VariableTableEntry *var = tld_var->var;
+            ZigVar *var = tld_var->var;
 
             IrInstruction *var_ptr = ir_get_var_ptr(ira, &instruction->base, var);
             if (type_is_invalid(var_ptr->value.type))

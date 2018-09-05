@@ -25,7 +25,7 @@ struct Scope;
 struct ScopeBlock;
 struct ScopeFnDef;
 struct ZigType;
-struct VariableTableEntry;
+struct ZigVar;
 struct ErrorTableEntry;
 struct BuiltinFnEntry;
 struct TypeStructField;
@@ -69,7 +69,7 @@ struct IrExecutable {
     IrBasicBlock *coro_normal_final;
     IrBasicBlock *coro_suspend_block;
     IrBasicBlock *coro_final_cleanup_block;
-    VariableTableEntry *coro_allocator_var;
+    ZigVar *coro_allocator_var;
 };
 
 enum OutType {
@@ -337,7 +337,7 @@ struct Tld {
 struct TldVar {
     Tld base;
 
-    VariableTableEntry *var;
+    ZigVar *var;
     Buf *extern_lib_name;
     Buf *section_name;
 };
@@ -1310,7 +1310,7 @@ struct ZigFn {
     AstNode *fn_static_eval_set_node;
 
     ZigList<IrInstruction *> alloca_list;
-    ZigList<VariableTableEntry *> variable_list;
+    ZigList<ZigVar *> variable_list;
 
     Buf *section_name;
     AstNode *set_alignstack_node;
@@ -1786,7 +1786,7 @@ enum VarLinkage {
     VarLinkageExternal,
 };
 
-struct VariableTableEntry {
+struct ZigVar {
     Buf name;
     ConstExprValue *value;
     LLVMValueRef value_ref;
@@ -1811,7 +1811,7 @@ struct VariableTableEntry {
     // In an inline loop, multiple variables may be created,
     // In this case, a reference to a variable should follow
     // this pointer to the redefined variable.
-    VariableTableEntry *next_var;
+    ZigVar *next_var;
 };
 
 struct ErrorTableEntry {
@@ -1904,7 +1904,7 @@ struct ScopeVarDecl {
     Scope base;
 
     // The variable that creates this scope
-    VariableTableEntry *var;
+    ZigVar *var;
 };
 
 // This scope is created for a @cImport
@@ -2292,7 +2292,7 @@ struct IrInstructionBinOp {
 struct IrInstructionDeclVar {
     IrInstruction base;
 
-    VariableTableEntry *var;
+    ZigVar *var;
     IrInstruction *var_type;
     IrInstruction *align_value;
     IrInstruction *init_value;
@@ -2349,7 +2349,7 @@ struct IrInstructionElemPtr {
 struct IrInstructionVarPtr {
     IrInstruction base;
 
-    VariableTableEntry *var;
+    ZigVar *var;
 };
 
 struct IrInstructionCall {
@@ -2519,7 +2519,7 @@ struct IrInstructionAsm {
     // Most information on inline assembly comes from the source node.
     IrInstruction **input_list;
     IrInstruction **output_types;
-    VariableTableEntry **output_vars;
+    ZigVar **output_vars;
     size_t return_count;
     bool has_side_effects;
 };

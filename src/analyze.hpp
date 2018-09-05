@@ -48,7 +48,7 @@ bool type_has_bits(ZigType *type_entry);
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code);
 
 
-VariableTableEntry *find_variable(CodeGen *g, Scope *orig_context, Buf *name);
+ZigVar *find_variable(CodeGen *g, Scope *orig_context, Buf *name);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
 void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *source_node);
 bool type_is_codegen_pointer(ZigType *type);
@@ -80,7 +80,7 @@ void resolve_use_decl(CodeGen *g, AstNode *node);
 ZigFn *scope_fn_entry(Scope *scope);
 ImportTableEntry *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
-VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
+ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     bool is_const, ConstExprValue *init_value, Tld *src_tld);
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 ZigFn *create_fn(AstNode *proto_node);
@@ -92,7 +92,7 @@ bool type_requires_comptime(ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE ensure_complete_type(CodeGen *g, ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE type_ensure_zero_bits_known(CodeGen *g, ZigType *type_entry);
 void complete_enum(CodeGen *g, ZigType *enum_type);
-bool ir_get_var_is_comptime(VariableTableEntry *var);
+bool ir_get_var_is_comptime(ZigVar *var);
 bool const_values_equal(ConstExprValue *a, ConstExprValue *b);
 void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_val, bool is_max);
 void eval_min_max_value_int(CodeGen *g, ZigType *int_type, BigInt *bigint, bool is_max);
@@ -103,7 +103,7 @@ void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node)
 ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);
 ScopeDeferExpr *create_defer_expr_scope(AstNode *node, Scope *parent);
-Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
+Scope *create_var_scope(AstNode *node, Scope *parent, ZigVar *var);
 ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);
 ScopeLoop *create_loop_scope(AstNode *node, Scope *parent);
 ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent);
