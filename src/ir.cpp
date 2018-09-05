@@ -16470,62 +16470,6 @@ static IrInstruction *ir_analyze_instruction_container_init_fields(IrAnalyze *ir
         instruction->field_count, instruction->fields);
 }
 
-static IrInstruction *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_instruction,
-        IrInstruction *target_type_value, bool is_max)
-{
-    ZigType *target_type = ir_resolve_type(ira, target_type_value);
-    if (type_is_invalid(target_type))
-        return ira->codegen->invalid_instruction;
-    switch (target_type->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-        case ZigTypeIdInt:
-            {
-                IrInstruction *result = ir_const(ira, source_instruction, 
-                    ira->codegen->builtin_types.entry_num_lit_int);
-                eval_min_max_value(ira->codegen, target_type, &result->value, is_max);
-                return result;
-            }
-        case ZigTypeIdBool:
-        case ZigTypeIdVoid:
-            {
-                IrInstruction *result = ir_const(ira, source_instruction, target_type);
-                eval_min_max_value(ira->codegen, target_type, &result->value, is_max);
-                return result;
-            }
-        case ZigTypeIdEnum:
-        case ZigTypeIdFloat:
-        case ZigTypeIdMetaType:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdPointer:
-        case ZigTypeIdPromise:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdOpaque:
-            {
-                const char *err_format = is_max ?
-                    "no max value available for type '%s'" :
-                    "no min value available for type '%s'";
-                ir_add_error(ira, source_instruction,
-                        buf_sprintf(err_format, buf_ptr(&target_type->name)));
-                return ira->codegen->invalid_instruction;
-            }
-    }
-    zig_unreachable();
-}
-
 static IrInstruction *ir_analyze_instruction_compile_err(IrAnalyze *ira,
         IrInstructionCompileErr *instruction)
 {
