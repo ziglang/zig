@@ -173,4 +173,9 @@ static inline void buf_upcase(Buf *buf) {
     }
 }
 
+static inline Slice<uint8_t> buf_to_slice(Buf *buf) {
+    return Slice<uint8_t>{reinterpret_cast<uint8_t*>(buf_ptr(buf)), buf_len(buf)};
+}
+
+
 #endif

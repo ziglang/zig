@@ -17974,8 +17974,11 @@ static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstr
     Buf source_dir_path = BUF_INIT;
     os_path_dirname(import->path, &source_dir_path);
 
-    Buf file_path = BUF_INIT;
-    os_path_resolve(&source_dir_path, rel_file_path, &file_path);
+    Buf *resolve_paths[] = {
+        &source_dir_path,
+        rel_file_path,
+    };
+    Buf file_path = os_path_resolve(resolve_paths, 2);
 
     // load from file system into const expr
     Buf *file_contents = buf_alloc();

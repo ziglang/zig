@@ -1763,7 +1763,7 @@ struct CodeGen {
 
     ZigList<TimeEvent> timing_events;
 
-    Buf *cache_dir;
+    Buf cache_dir;
     Buf *out_h_path;
 
     ZigList<FnTableEntry *> inline_fns;

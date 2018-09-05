@@ -243,7 +243,7 @@ void codegen_set_out_name(CodeGen *g, Buf *out_name) {
     g->root_out_name = out_name;
 }
 
-void codegen_set_cache_dir(CodeGen *g, Buf *cache_dir) {
+void codegen_set_cache_dir(CodeGen *g, Buf cache_dir) {
     g->cache_dir = cache_dir;
 }
 
@@ -5730,7 +5730,7 @@ static LLVMValueRef build_alloca(CodeGen *g, TypeTableEntry *type_entry, const c
 
 static void ensure_cache_dir(CodeGen *g) {
     int err;
-    if ((err = os_make_path(g->cache_dir))) {
+    if ((err = os_make_path(&g->cache_dir))) {
         zig_panic("unable to make cache dir: %s", err_str(err));
     }
 }
@@ -6098,7 +6098,7 @@ static void do_code_gen(CodeGen *g) {
     }
 
     Buf *output_path = buf_alloc();
-    os_path_join(g->cache_dir, o_basename, output_path);
+    os_path_join(&g->cache_dir, o_basename, output_path);
     ensure_cache_dir(g);
 
     bool is_small = g->build_mode == BuildModeSmallRelease;
@@ -6860,7 +6860,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
 
     const char *builtin_zig_basename = "builtin.zig";
     Buf *builtin_zig_path = buf_alloc();
-    os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+    os_path_join(&g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
 
     Buf *contents = codegen_generate_builtin_source(g);
     ensure_cache_dir(g);
@@ -6875,7 +6875,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
 
     assert(g->root_package);
     assert(g->std_package);
-    g->compile_var_package = new_package(buf_ptr(g->cache_dir), builtin_zig_basename);
+    g->compile_var_package = new_package(buf_ptr(&g->cache_dir), builtin_zig_basename);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->compile_var_import = add_source_file(g, g->compile_var_package, abs_full_path, contents);

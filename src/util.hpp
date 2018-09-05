@@ -186,4 +186,72 @@ static inline double zig_f16_to_double(float16_t x) {
     return z;
 }
 
+template<typename T>
+struct Optional {
+    T value;
+    bool is_some;
+
+    static inline Optional<T> some(T x) {
+        return {x, true};
+    }
+};
+
+template<typename T>
+struct Slice {
+    T *ptr;
+    size_t len;
+
+    inline Slice<T> slice(size_t start, size_t end) {
+        assert(end <= len);
+        assert(end >= start);
+        return {
+            ptr + start,
+            end - start,
+        };
+    }
+
+    inline Slice<T> sliceFrom(size_t start) {
+        assert(start <= len);
+        return {
+            ptr + start,
+            len - start,
+        };
+    }
+
+    static inline Slice<T> alloc(size_t n) {
+        return {allocate_nonzero<T>(n), n};
+    }
+};
+
+static inline Slice<uint8_t> str(const char *literal) {
+    return {(uint8_t*)(literal), strlen(literal)};
+}
+
+// Ported from std/mem.zig
+template<typename T>
+static inline bool memEql(Slice<T> a, Slice<T> b) {
+    if (a.len != b.len)
+        return false;
+    for (size_t i = 0; i < a.len; i += 1) {
+        if (a.ptr[i] != b.ptr[i])
+            return false;
+    }
+    return true;
+}
+
+// Ported from std/mem.zig
+template<typename T>
+static inline bool memStartsWith(Slice<T> haystack, Slice<T> needle) {
+    if (needle.len > haystack.len)
+        return false;
+    return memEql(haystack.slice(0, needle.len), needle);
+}
+
+// Ported from std/mem.zig
+template<typename T>
+static inline void memCopy(Slice<T> dest, Slice<T> src) {
+    assert(dest.len >= src.len);
+    memcpy(dest.ptr, src.ptr, src.len * sizeof(T));
+}
+
 #endif
