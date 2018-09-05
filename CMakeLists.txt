@@ -196,7 +196,7 @@ else()
     if(MSVC)
         set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS /w")
     else()
-      set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment -Wno-class-memaccess -Wno-unknown-warning-option")
+      set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment")
     endif()
     set_target_properties(embedded_lld_lib PROPERTIES
         COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
@@ -773,18 +773,21 @@ include_directories(
 )
 
 if(MSVC)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /w")
-elseif(MINGW)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
-else()
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror -Wall -Wno-unknown-warning-option -Wno-error=class-memaccess")
-endif()
-
-if(MSVC)
   set(EXE_CFLAGS "-std=c++11")
 else()
   set(EXE_CFLAGS "-std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
 endif()
+
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    if(MSVC)
+        set(EXE_CFLAGS "${EXE_CFLAGS} /w")
+    elseif(MINGW)
+        set(EXE_CFLAGS "${EXE_CFLAGS} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
+    else()
+        set(EXE_CFLAGS "${EXE_CFLAGS} -Werror -Wall")
+    endif()
+endif()
+
 
 set(EXE_LDFLAGS " ")
 if(MINGW)
