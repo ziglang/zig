@@ -565,18 +565,6 @@ static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
     ir_print_other_instruction(irp, instruction->value);
 }
 
-static void ir_print_min_value(IrPrint *irp, IrInstructionMinValue *instruction) {
-    fprintf(irp->f, "@minValue(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_max_value(IrPrint *irp, IrInstructionMaxValue *instruction) {
-    fprintf(irp->f, "@maxValue(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_compile_err(IrPrint *irp, IrInstructionCompileErr *instruction) {
     fprintf(irp->f, "@compileError(");
     ir_print_other_instruction(irp, instruction->msg);
@@ -1479,12 +1467,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdRef:
             ir_print_ref(irp, (IrInstructionRef *)instruction);
-            break;
-        case IrInstructionIdMinValue:
-            ir_print_min_value(irp, (IrInstructionMinValue *)instruction);
-            break;
-        case IrInstructionIdMaxValue:
-            ir_print_max_value(irp, (IrInstructionMaxValue *)instruction);
             break;
         case IrInstructionIdCompileErr:
             ir_print_compile_err(irp, (IrInstructionCompileErr *)instruction);
