@@ -245,7 +245,7 @@ test "math.max" {
 /// This function returns the minimum value of the integer type T.
 /// The result is a compile time constant.
 /// Tested in test/cases/misc.zig
-pub fn minValue(comptime T: type) @typeOf(42) {
+pub fn minInt(comptime T: type) @typeOf(42) {
     comptime {
         return switch (T) {
             u1, u2, u3, u4, u5, u6, u7,
@@ -263,11 +263,12 @@ pub fn minValue(comptime T: type) @typeOf(42) {
             i64 => -9223372036854775808,
             i128 => -170141183460469231731687303715884105728,
             else => {
-                //Calculate for Integers that we do not have cached
+                // Calculate for Integers that we do not have cached
+                // or that are platform dependent such as `usize`
                 return switch (@typeId(T)) {
                   // - (1 << (T.bit_count - 1))
                   TypeId.Int, TypeId.ComptimeInt => if (T.is_signed) -(1 << (T.bit_count - 1)) else 0,
-                  else => @compileError("minValue not implemented for " ++ @typeName(T)),
+                  else => @compileError("minInt not implemented for " ++ @typeName(T)),
                 };
             },
         };
@@ -277,7 +278,7 @@ pub fn minValue(comptime T: type) @typeOf(42) {
 /// This function returns the maximum value of the integer type T.
 /// The result is a compile time constant.
 /// Tested in test/cases/misc.zig
-pub fn maxValue(comptime T: type) @typeOf(42) {
+pub fn maxInt(comptime T: type) @typeOf(42) {
     comptime {
         return switch (T) {
             u1 => 1,
@@ -311,7 +312,7 @@ pub fn maxValue(comptime T: type) @typeOf(42) {
                   // T.is_signed=true   (1 << (T.bit_count - 1)) - 1
                   // T.is_signed=false  (1 << (T.bit_count - 0)) - 1
                   TypeId.Int, TypeId.ComptimeInt => (1 << (T.bit_count - (if (T.is_signed) 1 else 0))) - 1,
-                  else => @compileError("maxValue not implemented for " ++ @typeName(T)),
+                  else => @compileError("maxInt not implemented for " ++ @typeName(T)),
                 };
             },
         };
