@@ -6121,6 +6121,7 @@ static void do_code_gen(CodeGen *g) {
                 zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
             }
             validate_inline_fns(g);
+            g->link_objects.append(output_path);
             break;
 
         case EmitFileTypeLLVMIr:
@@ -6130,6 +6131,7 @@ static void do_code_gen(CodeGen *g) {
                 zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
             }
             validate_inline_fns(g);
+            g->link_objects.append(output_path);
             break;
 
         default:
