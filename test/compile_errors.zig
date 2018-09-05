@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "invalid type used in array type",
+        \\const Item = struct {
+        \\    field: SomeNonexistentType,
+        \\};
+        \\var items: [100]Item = undefined;
+        \\export fn entry() void {
+        \\    const a = items[0];
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: use of undeclared identifier 'SomeNonexistentType'",
+    );
+
+    cases.add(
         "@noInlineCall on an inline function",
         \\inline fn foo() void {}
         \\

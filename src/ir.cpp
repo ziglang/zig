@@ -15474,6 +15474,8 @@ static TypeTableEntry *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionA
 static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         IrInstructionArrayType *array_type_instruction)
 {
+    Error err;
+
     IrInstruction *size_value = array_type_instruction->size->other;
     uint64_t size;
     if (!ir_resolve_usize(ira, size_value, &size))
@@ -15515,6 +15517,8 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdPromise:
             {
+                if ((err = ensure_complete_type(ira->codegen, child_type)))
+                    return ira->codegen->builtin_types.entry_invalid;
                 TypeTableEntry *result_type = get_array_type(ira->codegen, child_type, size);
                 ConstExprValue *out_val = ir_build_const_from(ira, &array_type_instruction->base);
                 out_val->data.x_type = result_type;
