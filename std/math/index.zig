@@ -267,7 +267,7 @@ pub fn minValue(comptime T: type) @typeOf(42) {
                 return switch (@typeId(T)) {
                   // - (1 << (T.bit_count - 1))
                   TypeId.Int, TypeId.ComptimeInt => if (T.is_signed) -(1 << (T.bit_count - 1)) else 0,
-                  else => @compileError("maxValue not implemented for " ++ @typeName(T)),
+                  else => @compileError("minValue not implemented for " ++ @typeName(T)),
                 };
             },
         };
