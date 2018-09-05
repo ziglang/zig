@@ -244,7 +244,6 @@ test "math.max" {
 
 /// This function returns the minimum value of the integer type T.
 /// The result is a compile time constant.
-/// Tested in test/cases/misc.zig
 pub fn minInt(comptime T: type) @typeOf(42) {
     comptime {
         return switch (T) {
@@ -277,7 +276,6 @@ pub fn minInt(comptime T: type) @typeOf(42) {
 
 /// This function returns the maximum value of the integer type T.
 /// The result is a compile time constant.
-/// Tested in test/cases/misc.zig
 pub fn maxInt(comptime T: type) @typeOf(42) {
     comptime {
         return switch (T) {
@@ -317,6 +315,43 @@ pub fn maxInt(comptime T: type) @typeOf(42) {
             },
         };
     }
+}
+
+test "minInt and maxInt" {
+    assert(maxInt(u1) == 1);
+    assert(maxInt(u8) == 255);
+    assert(maxInt(u16) == 65535);
+    assert(maxInt(u32) == 4294967295);
+    assert(maxInt(u64) == 18446744073709551615);
+
+    assert(maxInt(i1) == 0);
+    assert(maxInt(i8) == 127);
+    assert(maxInt(i16) == 32767);
+    assert(maxInt(i32) == 2147483647);
+    assert(maxInt(i63) == 4611686018427387903);
+    assert(maxInt(i64) == 9223372036854775807);
+
+    assert(minInt(u1) == 0);
+    assert(minInt(u8) == 0);
+    assert(minInt(u16) == 0);
+    assert(minInt(u32) == 0);
+    assert(minInt(u63) == 0);
+    assert(minInt(u64) == 0);
+
+    assert(minInt(i1) == -1);
+    assert(minInt(i8) == -128);
+    assert(minInt(i16) == -32768);
+    assert(minInt(i32) == -2147483648);
+    assert(minInt(i63) == -4611686018427387904);
+    assert(minInt(i64) == -9223372036854775808);
+}
+
+test "max value type" {
+    // If the type of maxInt(i32) was i32 then this implicit cast to
+    // u32 would not work. But since the value is a number literal,
+    // it works fine.
+    const x: u32 = maxInt(i32);
+    assert(x == 2147483647);
 }
 
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
