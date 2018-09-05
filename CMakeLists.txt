@@ -412,6 +412,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
+    "${CMAKE_SOURCE_DIR}/src/fn_abi.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"

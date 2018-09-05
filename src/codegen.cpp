@@ -945,7 +945,7 @@ static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
 }
 
-static LLVMValueRef get_memcpy_fn_val(CodeGen *g) {
+LLVMValueRef get_memcpy_fn_val(CodeGen *g) {
     if (g->memcpy_fn_val)
         return g->memcpy_fn_val;
 

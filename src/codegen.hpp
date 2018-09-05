@@ -11,6 +11,7 @@
 #include "parser.hpp"
 #include "errmsg.hpp"
 #include "target.hpp"
+#include "zig_llvm.h"
 
 #include <stdio.h>
 
@@ -61,5 +62,6 @@ void codegen_translate_c(CodeGen *g, Buf *path);
 
 Buf *codegen_generate_builtin_source(CodeGen *g);
 
+LLVMValueRef get_memcpy_fn_val(CodeGen *g);
 
 #endif
