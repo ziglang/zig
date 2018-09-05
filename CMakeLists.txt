@@ -772,12 +772,8 @@ include_directories(
     "${CMAKE_SOURCE_DIR}/src"
 )
 
-if(MSVC)
-  set(EXE_CFLAGS "-std=c++11")
-else()
-  set(EXE_CFLAGS "-std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
-endif()
-
+# These have to go before the -Wno- flags
+set(EXE_CFLAGS "-std=c++11")
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     if(MSVC)
         set(EXE_CFLAGS "${EXE_CFLAGS} /w")
@@ -786,6 +782,12 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     else()
         set(EXE_CFLAGS "${EXE_CFLAGS} -Werror -Wall")
     endif()
+endif()
+
+if(MSVC)
+  set(EXE_CFLAGS "${EXE_CFLAGS}")
+else()
+  set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
 endif()
 
 
