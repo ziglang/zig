@@ -234,21 +234,21 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "invalid type on std.math.minValue",
+        "invalid type on std.math.minInt",
         \\export fn entry() void {
-        \\    _ = @import("std").math.minValue(f32);
+        \\    _ = @import("std").math.minInt(f32);
         \\}
     ,
-        ": error: minValue not implemented for f32",
+        ": error: minInt not implemented for f32",
     );
 
     cases.add(
-        "invalid type on std.math.maxValue",
+        "invalid type on std.math.maxInt",
         \\export fn entry() void {
-        \\    _ = @import("std").math.maxValue(f32);
+        \\    _ = @import("std").math.maxInt(f32);
         \\}
     ,
-        ": error: maxValue not implemented for f32",
+        ": error: maxInt not implemented for f32",
     );
 
     cases.add(
@@ -555,7 +555,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "optional pointer to void in extern struct",
         \\comptime {
-        \\    _ = @IntType(false, @import("std").math.maxValue(u32) + 1);
+        \\    _ = @IntType(false, @import("std").math.maxInt(u32) + 1);
         \\}
     ,
         ".tmp_source.zig:2:57: error: integer value 4294967296 cannot be implicitly casted to type 'u32'",

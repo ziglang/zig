@@ -567,7 +567,7 @@ fn testAllocatorAligned(allocator: *mem.Allocator, comptime alignment: u29) !voi
 fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
     //Maybe a platform's page_size is actually the same as or
     //  very near usize?
-    if (os.page_size << 2 > std.math.maxValue(usize)) return;
+    if (os.page_size << 2 > std.math.maxInt(usize)) return;
 
     const USizeShift = @IntType(false, std.math.log2(usize.bit_count));
     const large_align = u29(os.page_size << 2);

@@ -192,7 +192,7 @@ pub fn main() !void {
     defer stdin_buf.deinit();
 
     var stdin_adapter = stdin_file.inStream();
-    try stdin_adapter.stream.readAllBuffer(&stdin_buf, std.math.maxValue(usize));
+    try stdin_adapter.stream.readAllBuffer(&stdin_buf, std.math.maxInt(usize));
 
     var result_buf = try Buffer.initSize(global_allocator, 0);
     defer result_buf.deinit();

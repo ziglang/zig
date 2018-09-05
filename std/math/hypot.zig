@@ -21,8 +21,8 @@ fn hypot32(x: f32, y: f32) f32 {
     var ux = @bitCast(u32, x);
     var uy = @bitCast(u32, y);
 
-    ux &= std.math.maxValue(u32) >> 1;
-    uy &= std.math.maxValue(u32) >> 1;
+    ux &= std.math.maxInt(u32) >> 1;
+    uy &= std.math.maxInt(u32) >> 1;
     if (ux < uy) {
         const tmp = ux;
         ux = uy;
@@ -65,8 +65,8 @@ fn hypot64(x: f64, y: f64) f64 {
     var ux = @bitCast(u64, x);
     var uy = @bitCast(u64, y);
 
-    ux &= std.math.maxValue(u64) >> 1;
-    uy &= std.math.maxValue(u64) >> 1;
+    ux &= std.math.maxInt(u64) >> 1;
+    uy &= std.math.maxInt(u64) >> 1;
     if (ux < uy) {
         const tmp = ux;
         ux = uy;

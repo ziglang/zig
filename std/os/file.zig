@@ -385,7 +385,7 @@ pub const File = struct {
         } else if (is_windows) {
             var index: usize = 0;
             while (index < buffer.len) {
-                const want_read_count = @intCast(windows.DWORD, math.min(windows.DWORD(std.math.maxValue(windows.DWORD)), buffer.len - index));
+                const want_read_count = @intCast(windows.DWORD, math.min(windows.DWORD(std.math.maxInt(windows.DWORD)), buffer.len - index));
                 var amt_read: windows.DWORD = undefined;
                 if (windows.ReadFile(self.handle, buffer.ptr + index, want_read_count, &amt_read, null) == 0) {
                     const err = windows.GetLastError();

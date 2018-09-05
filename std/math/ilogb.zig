@@ -1,8 +1,8 @@
 // Special Cases:
 //
-// - ilogb(+-inf) = std.math.maxValue(i32)
-// - ilogb(0)     = std.math.maxValue(i32)
-// - ilogb(nan)   = std.math.maxValue(i32)
+// - ilogb(+-inf) = std.math.maxInt(i32)
+// - ilogb(0)     = std.math.maxInt(i32)
+// - ilogb(nan)   = std.math.maxInt(i32)
 
 const std = @import("../index.zig");
 const math = std.math;
@@ -18,7 +18,7 @@ pub fn ilogb(x: var) i32 {
 }
 
 // NOTE: Should these be exposed publically?
-const fp_ilogbnan = -1 - i32(std.math.maxValue(u32) >> 1);
+const fp_ilogbnan = -1 - i32(std.math.maxInt(u32) >> 1);
 const fp_ilogb0 = fp_ilogbnan;
 
 fn ilogb32(x: f32) i32 {
@@ -27,7 +27,7 @@ fn ilogb32(x: f32) i32 {
 
     // TODO: We should be able to merge this with the lower check.
     if (math.isNan(x)) {
-        return std.math.maxValue(i32);
+        return std.math.maxInt(i32);
     }
 
     if (e == 0) {
@@ -50,7 +50,7 @@ fn ilogb32(x: f32) i32 {
         if (u << 9 != 0) {
             return fp_ilogbnan;
         } else {
-            return std.math.maxValue(i32);
+            return std.math.maxInt(i32);
         }
     }
 
@@ -62,7 +62,7 @@ fn ilogb64(x: f64) i32 {
     var e = @intCast(i32, (u >> 52) & 0x7FF);
 
     if (math.isNan(x)) {
-        return std.math.maxValue(i32);
+        return std.math.maxInt(i32);
     }
 
     if (e == 0) {
@@ -85,7 +85,7 @@ fn ilogb64(x: f64) i32 {
         if (u << 12 != 0) {
             return fp_ilogbnan;
         } else {
-            return std.math.maxValue(i32);
+            return std.math.maxInt(i32);
         }
     }
 
@@ -116,15 +116,15 @@ test "math.ilogb64" {
 }
 
 test "math.ilogb32.special" {
-    assert(ilogb32(math.inf(f32)) == std.math.maxValue(i32));
-    assert(ilogb32(-math.inf(f32)) == std.math.maxValue(i32));
-    assert(ilogb32(0.0) == std.math.minValue(i32));
-    assert(ilogb32(math.nan(f32)) == std.math.maxValue(i32));
+    assert(ilogb32(math.inf(f32)) == std.math.maxInt(i32));
+    assert(ilogb32(-math.inf(f32)) == std.math.maxInt(i32));
+    assert(ilogb32(0.0) == std.math.minInt(i32));
+    assert(ilogb32(math.nan(f32)) == std.math.maxInt(i32));
 }
 
 test "math.ilogb64.special" {
-    assert(ilogb64(math.inf(f64)) == std.math.maxValue(i32));
-    assert(ilogb64(-math.inf(f64)) == std.math.maxValue(i32));
-    assert(ilogb64(0.0) == std.math.minValue(i32));
-    assert(ilogb64(math.nan(f64)) == std.math.maxValue(i32));
+    assert(ilogb64(math.inf(f64)) == std.math.maxInt(i32));
+    assert(ilogb64(-math.inf(f64)) == std.math.maxInt(i32));
+    assert(ilogb64(0.0) == std.math.minInt(i32));
+    assert(ilogb64(math.nan(f64)) == std.math.maxInt(i32));
 }

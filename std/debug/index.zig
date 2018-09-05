@@ -842,7 +842,7 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
             if (word & (u32(1) << bit_i) != 0) {
                 try list.append(word_i * 32 + bit_i);
             }
-            if (bit_i == std.math.maxValue(u5)) break;
+            if (bit_i == std.math.maxInt(u5)) break;
         }
     }
     return list.toOwnedSlice();
@@ -1939,7 +1939,7 @@ fn findCompileUnit(st: *DebugInfo, target_address: u64) !*const CompileUnit {
                     if (begin_addr == 0 and end_addr == 0) {
                         break;
                     }
-                    if (begin_addr == std.math.maxValue(usize)) {
+                    if (begin_addr == std.math.maxInt(usize)) {
                         base_address = begin_addr;
                         continue;
                     }

@@ -52,7 +52,7 @@ fn atanh_64(x: f64) f64 {
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
 
-    var y = @bitCast(f64, u & (std.math.maxValue(u64) >> 1)); // |x|
+    var y = @bitCast(f64, u & (std.math.maxInt(u64) >> 1)); // |x|
 
     if (y == 1.0) {
         return math.copysign(f64, math.inf(f64), x);

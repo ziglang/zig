@@ -53,17 +53,17 @@ pub const TRUE = 1;
 pub const FALSE = 0;
 
 /// The standard input device. Initially, this is the console input buffer, CONIN$.
-pub const STD_INPUT_HANDLE = std.math.maxValue(DWORD) - 10 + 1;
+pub const STD_INPUT_HANDLE = std.math.maxInt(DWORD) - 10 + 1;
 
 /// The standard output device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_OUTPUT_HANDLE = std.math.maxValue(DWORD) - 11 + 1;
+pub const STD_OUTPUT_HANDLE = std.math.maxInt(DWORD) - 11 + 1;
 
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_ERROR_HANDLE = std.math.maxValue(DWORD) - 12 + 1;
+pub const STD_ERROR_HANDLE = std.math.maxInt(DWORD) - 12 + 1;
 
-pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, std.math.maxValue(usize));
+pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, std.math.maxInt(usize));
 
-pub const INVALID_FILE_ATTRIBUTES = DWORD(std.math.maxValue(DWORD));
+pub const INVALID_FILE_ATTRIBUTES = DWORD(std.math.maxInt(DWORD));
 
 pub const OVERLAPPED = extern struct {
     Internal: ULONG_PTR,

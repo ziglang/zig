@@ -45,7 +45,7 @@ pub const MAP_NOCACHE = 0x0400;
 
 /// don't reserve needed swap area
 pub const MAP_NORESERVE = 0x0040;
-pub const MAP_FAILED = std.math.maxValue(usize);
+pub const MAP_FAILED = std.math.maxInt(usize);
 
 /// [XSI] no hang in wait/no child to reap
 pub const WNOHANG = 0x00000001;

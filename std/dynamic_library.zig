@@ -80,7 +80,7 @@ pub const ElfLib = struct {
         const elf_addr = @ptrToInt(bytes.ptr);
         var ph_addr: usize = elf_addr + eh.e_phoff;
 
-        var base: usize = std.math.maxValue(usize);
+        var base: usize = std.math.maxInt(usize);
         var maybe_dynv: ?[*]usize = null;
         {
             var i: usize = 0;
@@ -97,7 +97,7 @@ pub const ElfLib = struct {
             }
         }
         const dynv = maybe_dynv orelse return error.MissingDynamicLinkingInformation;
-        if (base == std.math.maxValue(usize)) return error.BaseNotFound;
+        if (base == std.math.maxInt(usize)) return error.BaseNotFound;
 
         var maybe_strings: ?[*]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;

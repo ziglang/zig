@@ -9,7 +9,7 @@ const Foo = struct {
 };
 
 test "@alignOf(T) before referencing T" {
-    comptime assert(@alignOf(Foo) != std.math.maxValue(usize));
+    comptime assert(@alignOf(Foo) != std.math.maxInt(usize));
     if (builtin.arch == builtin.Arch.x86_64) {
         comptime assert(@alignOf(Foo) == 4);
     }

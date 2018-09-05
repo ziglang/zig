@@ -38,7 +38,7 @@ pub extern fn __floattidf(arg: i128) f64 {
                 const shift2_amt = @intCast(i32, N + (DBL_MANT_DIG + 2)) - sd;
                 const shift2_amt_u7 = @intCast(u7, shift2_amt);
 
-                a = (a >> shift1_amt_u7) | @boolToInt((a & (@intCast(u128, std.math.maxValue(u128)) >> shift2_amt_u7)) != 0);
+                a = (a >> shift1_amt_u7) | @boolToInt((a & (@intCast(u128, std.math.maxInt(u128)) >> shift2_amt_u7)) != 0);
             },
         }
         // finish

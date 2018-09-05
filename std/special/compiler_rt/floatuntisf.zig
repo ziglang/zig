@@ -31,7 +31,7 @@ pub extern fn __floatuntisf(arg: u128) f32 {
                 const shift_amt = @bitCast(i32, N + (FLT_MANT_DIG + 2)) - sd;
                 const shift_amt_u7 = @intCast(u7, shift_amt);
                 a = (a >> @intCast(u7, sd - (FLT_MANT_DIG + 2))) |
-                    @boolToInt((a & (u128(std.math.maxValue(u128)) >> shift_amt_u7)) != 0);
+                    @boolToInt((a & (u128(std.math.maxInt(u128)) >> shift_amt_u7)) != 0);
             },
         }
         // finish

@@ -362,15 +362,15 @@ fn addLLVMAttrInt(
 }
 
 fn addLLVMFnAttr(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8) !void {
-    return addLLVMAttr(ofile, fn_val, std.math.maxValue(llvm.AttributeIndex), attr_name);
+    return addLLVMAttr(ofile, fn_val, std.math.maxInt(llvm.AttributeIndex), attr_name);
 }
 
 fn addLLVMFnAttrStr(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8, attr_val: []const u8) !void {
-    return addLLVMAttrStr(ofile, fn_val, std.math.maxValue(llvm.AttributeIndex), attr_name, attr_val);
+    return addLLVMAttrStr(ofile, fn_val, std.math.maxInt(llvm.AttributeIndex), attr_name, attr_val);
 }
 
 fn addLLVMFnAttrInt(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8, attr_val: u64) !void {
-    return addLLVMAttrInt(ofile, fn_val, std.math.maxValue(llvm.AttributeIndex), attr_name, attr_val);
+    return addLLVMAttrInt(ofile, fn_val, std.math.maxInt(llvm.AttributeIndex), attr_name, attr_val);
 }
 
 fn renderLoadUntyped(

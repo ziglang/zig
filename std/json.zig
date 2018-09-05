@@ -107,7 +107,7 @@ pub const StreamingParser = struct {
 
     const object_bit = 0;
     const array_bit = 1;
-    const max_stack_size = std.math.maxValue(u8);
+    const max_stack_size = std.math.maxInt(u8);
 
     pub fn init() StreamingParser {
         var p: StreamingParser = undefined;
