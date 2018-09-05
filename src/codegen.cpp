@@ -5100,8 +5100,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSizeOf:
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdContainerInitFields:
-        case IrInstructionIdMinValue:
-        case IrInstructionIdMaxValue:
         case IrInstructionIdCompileErr:
         case IrInstructionIdCompileLog:
         case IrInstructionIdArrayLen:
@@ -6651,8 +6649,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAlignOf, "alignOf", 1);
-    create_builtin_fn(g, BuiltinFnIdMaxValue, "maxValue", 1);
-    create_builtin_fn(g, BuiltinFnIdMinValue, "minValue", 1);
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
     create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
