@@ -24,7 +24,7 @@ struct FnTableEntry;
 struct Scope;
 struct ScopeBlock;
 struct ScopeFnDef;
-struct TypeTableEntry;
+struct ZigType;
 struct VariableTableEntry;
 struct ErrorTableEntry;
 struct BuiltinFnEntry;
@@ -251,7 +251,7 @@ struct ConstGlobalRefs {
 };
 
 struct ConstExprValue {
-    TypeTableEntry *type;
+    ZigType *type;
     ConstValSpecial special;
     ConstGlobalRefs *global_refs;
 
@@ -265,7 +265,7 @@ struct ConstExprValue {
         float128_t x_f128;
         bool x_bool;
         ConstBoundFnValue x_bound_fn;
-        TypeTableEntry *x_type;
+        ZigType *x_type;
         ConstExprValue *x_optional;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_err_set;
@@ -353,7 +353,7 @@ struct TldContainer {
     Tld base;
 
     ScopeDecls *decls_scope;
-    TypeTableEntry *type_entry;
+    ZigType *type_entry;
 };
 
 struct TldCompTime {
@@ -370,7 +370,7 @@ struct TypeEnumField {
 struct TypeUnionField {
     Buf *name;
     TypeEnumField *enum_field;
-    TypeTableEntry *type_entry;
+    ZigType *type_entry;
     AstNode *decl_node;
     uint32_t gen_index;
 };
@@ -973,7 +973,7 @@ struct AstNode {
 // this struct is allocated with allocate_nonzero
 struct FnTypeParamInfo {
     bool is_noalias;
-    TypeTableEntry *type;
+    ZigType *type;
 };
 
 struct GenericFnTypeId {
@@ -986,14 +986,14 @@ uint32_t generic_fn_type_id_hash(GenericFnTypeId *id);
 bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b);
 
 struct FnTypeId {
-    TypeTableEntry *return_type;
+    ZigType *return_type;
     FnTypeParamInfo *param_info;
     size_t param_count;
     size_t next_param_index;
     bool is_var_args;
     CallingConvention cc;
     uint32_t alignment;
-    TypeTableEntry *async_allocator_type;
+    ZigType *async_allocator_type;
 };
 
 uint32_t fn_type_id_hash(FnTypeId*);
@@ -1005,14 +1005,14 @@ enum PtrLen {
 };
 
 struct TypeTableEntryPointer {
-    TypeTableEntry *child_type;
+    ZigType *child_type;
     PtrLen ptr_len;
     bool is_const;
     bool is_volatile;
     uint32_t alignment;
     uint32_t bit_offset;
     uint32_t unaligned_bit_count;
-    TypeTableEntry *slice_parent;
+    ZigType *slice_parent;
 };
 
 struct TypeTableEntryInt {
@@ -1025,13 +1025,13 @@ struct TypeTableEntryFloat {
 };
 
 struct TypeTableEntryArray {
-    TypeTableEntry *child_type;
+    ZigType *child_type;
     uint64_t len;
 };
 
 struct TypeStructField {
     Buf *name;
-    TypeTableEntry *type_entry;
+    ZigType *type_entry;
     size_t src_index;
     size_t gen_index;
     // offset from the memory at gen_index
@@ -1069,12 +1069,12 @@ struct TypeTableEntryStruct {
 };
 
 struct TypeTableEntryOptional {
-    TypeTableEntry *child_type;
+    ZigType *child_type;
 };
 
 struct TypeTableEntryErrorUnion {
-    TypeTableEntry *err_set_type;
-    TypeTableEntry *payload_type;
+    ZigType *err_set_type;
+    ZigType *payload_type;
 };
 
 struct TypeTableEntryErrorSet {
@@ -1089,7 +1089,7 @@ struct TypeTableEntryEnum {
     uint32_t src_field_count;
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
-    TypeTableEntry *tag_int_type;
+    ZigType *tag_int_type;
 
     ScopeDecls *decls_scope;
 
@@ -1107,8 +1107,8 @@ struct TypeTableEntryEnum {
     HashMap<Buf *, TypeEnumField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
-uint32_t type_ptr_hash(const TypeTableEntry *ptr);
-bool type_ptr_eql(const TypeTableEntry *a, const TypeTableEntry *b);
+uint32_t type_ptr_hash(const ZigType *ptr);
+bool type_ptr_eql(const ZigType *a, const ZigType *b);
 
 struct TypeTableEntryUnion {
     AstNode *decl_node;
@@ -1117,7 +1117,7 @@ struct TypeTableEntryUnion {
     uint32_t gen_field_count;
     TypeUnionField *fields;
     bool is_invalid; // true if any fields are invalid
-    TypeTableEntry *tag_type; // always an enum or null
+    ZigType *tag_type; // always an enum or null
     LLVMTypeRef union_type_ref;
 
     ScopeDecls *decls_scope;
@@ -1142,7 +1142,7 @@ struct TypeTableEntryUnion {
     bool have_explicit_tag_type;
 
     uint32_t union_size_bytes;
-    TypeTableEntry *most_aligned_union_member;
+    ZigType *most_aligned_union_member;
 
     HashMap<Buf *, TypeUnionField *, buf_hash, buf_eql_buf> fields_by_name;
 };
@@ -1151,31 +1151,31 @@ struct FnGenParamInfo {
     size_t src_index;
     size_t gen_index;
     bool is_byval;
-    TypeTableEntry *type;
+    ZigType *type;
 };
 
 struct TypeTableEntryFn {
     FnTypeId fn_type_id;
     bool is_generic;
-    TypeTableEntry *gen_return_type;
+    ZigType *gen_return_type;
     size_t gen_param_count;
     FnGenParamInfo *gen_param_info;
 
     LLVMTypeRef raw_type_ref;
 
-    TypeTableEntry *bound_fn_parent;
+    ZigType *bound_fn_parent;
 };
 
 struct TypeTableEntryBoundFn {
-    TypeTableEntry *fn_type;
+    ZigType *fn_type;
 };
 
 struct TypeTableEntryPromise {
     // null if `promise` instead of `promise->T`
-    TypeTableEntry *result_type;
+    ZigType *result_type;
 };
 
-enum TypeTableEntryId {
+enum ZigTypeId {
     TypeTableEntryIdInvalid,
     TypeTableEntryIdMetaType,
     TypeTableEntryIdVoid,
@@ -1204,8 +1204,8 @@ enum TypeTableEntryId {
     TypeTableEntryIdPromise,
 };
 
-struct TypeTableEntry {
-    TypeTableEntryId id;
+struct ZigType {
+    ZigTypeId id;
     Buf name;
 
     LLVMTypeRef type_ref;
@@ -1232,10 +1232,10 @@ struct TypeTableEntry {
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
-    TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
-    TypeTableEntry *optional_parent;
-    TypeTableEntry *promise_parent;
-    TypeTableEntry *promise_frame_parent;
+    ZigType *pointer_parent[2]; // [0 - mut, 1 - const]
+    ZigType *optional_parent;
+    ZigType *promise_parent;
+    ZigType *promise_frame_parent;
     // If we generate a constant name value for this type, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_const_name_val;
@@ -1291,11 +1291,11 @@ struct FnTableEntry {
     Scope *child_scope; // parent is scope for last parameter
     ScopeBlock *def_scope; // parent is child_scope
     Buf symbol_name;
-    TypeTableEntry *type_entry; // function type
+    ZigType *type_entry; // function type
     // in the case of normal functions this is the implicit return type
     // in the case of async functions this is the implicit return type according to the
     // zig source code, not according to zig ir
-    TypeTableEntry *src_implicit_return_type;
+    ZigType *src_implicit_return_type;
     bool is_test;
     FnInline fn_inline;
     FnAnalState anal_state;
@@ -1445,11 +1445,11 @@ uint32_t fn_eval_hash(Scope*);
 bool fn_eval_eql(Scope *a, Scope *b);
 
 struct TypeId {
-    TypeTableEntryId id;
+    ZigTypeId id;
 
     union {
         struct {
-            TypeTableEntry *child_type;
+            ZigType *child_type;
             PtrLen ptr_len;
             bool is_const;
             bool is_volatile;
@@ -1458,7 +1458,7 @@ struct TypeId {
             uint32_t unaligned_bit_count;
         } pointer;
         struct {
-            TypeTableEntry *child_type;
+            ZigType *child_type;
             uint64_t size;
         } array;
         struct {
@@ -1466,8 +1466,8 @@ struct TypeId {
             uint32_t bit_count;
         } integer;
         struct {
-            TypeTableEntry *err_set_type;
-            TypeTableEntry *payload_type;
+            ZigType *err_set_type;
+            ZigType *payload_type;
         } error_union;
     } data;
 };
@@ -1563,9 +1563,9 @@ struct CodeGen {
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
-    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
-    HashMap<TypeId, TypeTableEntry *, type_id_hash, type_id_eql> type_table;
-    HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
+    HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> primitive_type_table;
+    HashMap<TypeId, ZigType *, type_id_hash, type_id_eql> type_table;
+    HashMap<FnTypeId *, ZigType *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
@@ -1573,7 +1573,7 @@ struct CodeGen {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
-    HashMap<const TypeTableEntry *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
+    HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
 
 
     ZigList<ImportTableEntry *> import_queue;
@@ -1586,38 +1586,38 @@ struct CodeGen {
     uint32_t next_unresolved_index;
 
     struct {
-        TypeTableEntry *entry_bool;
-        TypeTableEntry *entry_c_int[CIntTypeCount];
-        TypeTableEntry *entry_c_longdouble;
-        TypeTableEntry *entry_c_void;
-        TypeTableEntry *entry_u8;
-        TypeTableEntry *entry_u16;
-        TypeTableEntry *entry_u32;
-        TypeTableEntry *entry_u29;
-        TypeTableEntry *entry_u64;
-        TypeTableEntry *entry_i8;
-        TypeTableEntry *entry_i32;
-        TypeTableEntry *entry_i64;
-        TypeTableEntry *entry_isize;
-        TypeTableEntry *entry_usize;
-        TypeTableEntry *entry_f16;
-        TypeTableEntry *entry_f32;
-        TypeTableEntry *entry_f64;
-        TypeTableEntry *entry_f128;
-        TypeTableEntry *entry_void;
-        TypeTableEntry *entry_unreachable;
-        TypeTableEntry *entry_type;
-        TypeTableEntry *entry_invalid;
-        TypeTableEntry *entry_namespace;
-        TypeTableEntry *entry_block;
-        TypeTableEntry *entry_num_lit_int;
-        TypeTableEntry *entry_num_lit_float;
-        TypeTableEntry *entry_undef;
-        TypeTableEntry *entry_null;
-        TypeTableEntry *entry_var;
-        TypeTableEntry *entry_global_error_set;
-        TypeTableEntry *entry_arg_tuple;
-        TypeTableEntry *entry_promise;
+        ZigType *entry_bool;
+        ZigType *entry_c_int[CIntTypeCount];
+        ZigType *entry_c_longdouble;
+        ZigType *entry_c_void;
+        ZigType *entry_u8;
+        ZigType *entry_u16;
+        ZigType *entry_u32;
+        ZigType *entry_u29;
+        ZigType *entry_u64;
+        ZigType *entry_i8;
+        ZigType *entry_i32;
+        ZigType *entry_i64;
+        ZigType *entry_isize;
+        ZigType *entry_usize;
+        ZigType *entry_f16;
+        ZigType *entry_f32;
+        ZigType *entry_f64;
+        ZigType *entry_f128;
+        ZigType *entry_void;
+        ZigType *entry_unreachable;
+        ZigType *entry_type;
+        ZigType *entry_invalid;
+        ZigType *entry_namespace;
+        ZigType *entry_block;
+        ZigType *entry_num_lit_int;
+        ZigType *entry_num_lit_float;
+        ZigType *entry_undef;
+        ZigType *entry_null;
+        ZigType *entry_var;
+        ZigType *entry_global_error_set;
+        ZigType *entry_arg_tuple;
+        ZigType *entry_promise;
     } builtin_types;
 
     EmitFileType emit_file_type;
@@ -1735,11 +1735,11 @@ struct CodeGen {
     size_t llvm_argv_len;
 
     ZigList<FnTableEntry *> test_fns;
-    TypeTableEntry *test_fn_type;
+    ZigType *test_fn_type;
 
     bool each_lib_rpath;
 
-    TypeTableEntry *err_tag_type;
+    ZigType *err_tag_type;
     ZigList<ZigLLVMDIEnumerator *> err_enumerators;
     ZigList<ErrorTableEntry *> errors_by_index;
     bool generate_error_name_table;
@@ -1769,9 +1769,9 @@ struct CodeGen {
     ZigList<FnTableEntry *> inline_fns;
     ZigList<AstNode *> tld_ref_source_node_stack;
 
-    TypeTableEntry *align_amt_type;
-    TypeTableEntry *stack_trace_type;
-    TypeTableEntry *ptr_to_stack_trace_type;
+    ZigType *align_amt_type;
+    ZigType *stack_trace_type;
+    ZigType *ptr_to_stack_trace_type;
 
     ZigList<ZigLLVMDIType **> error_di_types;
 
@@ -1818,7 +1818,7 @@ struct ErrorTableEntry {
     Buf name;
     uint32_t value;
     AstNode *decl_node;
-    TypeTableEntry *set_with_only_this_in_it;
+    ZigType *set_with_only_this_in_it;
     // If we generate a constant error name value for this error, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_error_name_val;
@@ -1862,7 +1862,7 @@ struct ScopeDecls {
     AstNode *fast_math_set_node;
     ImportTableEntry *import;
     // If this is a scope from a container, this is the type entry, otherwise null
-    TypeTableEntry *container_type;
+    ZigType *container_type;
 };
 
 // This scope comes from a block expression in user code.
@@ -2386,7 +2386,7 @@ struct IrInstructionCast {
     IrInstruction base;
 
     IrInstruction *value;
-    TypeTableEntry *dest_type;
+    ZigType *dest_type;
     CastOp cast_op;
     LLVMValueRef tmp_ptr;
 };
@@ -2423,7 +2423,7 @@ struct IrInstructionStructInitField {
 struct IrInstructionStructInit {
     IrInstruction base;
 
-    TypeTableEntry *struct_type;
+    ZigType *struct_type;
     size_t field_count;
     IrInstructionStructInitField *fields;
     LLVMValueRef tmp_ptr;
@@ -2432,7 +2432,7 @@ struct IrInstructionStructInit {
 struct IrInstructionUnionInit {
     IrInstruction base;
 
-    TypeTableEntry *union_type;
+    ZigType *union_type;
     TypeUnionField *field;
     IrInstruction *init_value;
     LLVMValueRef tmp_ptr;
@@ -2661,7 +2661,7 @@ struct IrInstructionCmpxchg {
     IrInstruction *failure_order_value;
 
     // if this instruction gets to runtime then we know these values:
-    TypeTableEntry *type;
+    ZigType *type;
     AtomicOrder success_order;
     AtomicOrder failure_order;
 
@@ -2831,7 +2831,7 @@ struct IrInstructionOverflowOp {
     IrInstruction *op2;
     IrInstruction *result_ptr;
 
-    TypeTableEntry *result_ptr_type;
+    ZigType *result_ptr_type;
 };
 
 struct IrInstructionAlignOf {

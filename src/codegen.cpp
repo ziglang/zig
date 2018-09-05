@@ -437,11 +437,11 @@ static uint32_t get_err_ret_trace_arg_index(CodeGen *g, FnTableEntry *fn_table_e
     if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync) {
         return 0;
     }
-    TypeTableEntry *fn_type = fn_table_entry->type_entry;
+    ZigType *fn_type = fn_table_entry->type_entry;
     if (!fn_type_can_fail(&fn_type->data.fn.fn_type_id)) {
         return UINT32_MAX;
     }
-    TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
+    ZigType *return_type = fn_type->data.fn.fn_type_id.return_type;
     bool first_arg_ret = type_has_bits(return_type) && handle_is_ptr(return_type);
     return first_arg_ret ? 1 : 0;
 }
@@ -474,7 +474,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
 
-    TypeTableEntry *fn_type = fn_table_entry->type_entry;
+    ZigType *fn_type = fn_table_entry->type_entry;
     LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
     if (fn_table_entry->body_node == nullptr) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
@@ -532,7 +532,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         LLVMSetUnnamedAddr(fn_table_entry->llvm_value, true);
     }
 
-    TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
+    ZigType *return_type = fn_type->data.fn.fn_type_id.return_type;
     if (return_type->id == TypeTableEntryIdUnreachable) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "noreturn");
     }
@@ -596,7 +596,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
 
         FnTypeParamInfo *param_info = &fn_type->data.fn.fn_type_id.param_info[param_i];
 
-        TypeTableEntry *param_type = gen_info->type;
+        ZigType *param_type = gen_info->type;
         if (param_info->is_noalias) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "noalias");
         }
@@ -688,7 +688,7 @@ static void clear_debug_source_node(CodeGen *g) {
     ZigLLVMClearCurrentDebugLocation(g->builder);
 }
 
-static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_entry,
+static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, ZigType *type_entry,
         const char *signed_name, const char *unsigned_name)
 {
     char fn_name[64];
@@ -712,7 +712,7 @@ static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_
     return fn_val;
 }
 
-static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, AddSubMul add_sub_mul) {
+static LLVMValueRef get_int_overflow_fn(CodeGen *g, ZigType *type_entry, AddSubMul add_sub_mul) {
     assert(type_entry->id == TypeTableEntryIdInt);
 
     ZigLLVMFnKey key = {};
@@ -742,7 +742,7 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
     return fn_val;
 }
 
-static LLVMValueRef get_float_fn(CodeGen *g, TypeTableEntry *type_entry, ZigLLVMFnId fn_id) {
+static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn_id) {
     assert(type_entry->id == TypeTableEntryIdFloat);
 
     ZigLLVMFnKey key = {};
@@ -787,7 +787,7 @@ static LLVMValueRef gen_store_untyped(CodeGen *g, LLVMValueRef value, LLVMValueR
     return instruction;
 }
 
-static LLVMValueRef gen_store(CodeGen *g, LLVMValueRef value, LLVMValueRef ptr, TypeTableEntry *ptr_type) {
+static LLVMValueRef gen_store(CodeGen *g, LLVMValueRef value, LLVMValueRef ptr, ZigType *ptr_type) {
     assert(ptr_type->id == TypeTableEntryIdPointer);
     return gen_store_untyped(g, value, ptr, ptr_type->data.pointer.alignment, ptr_type->data.pointer.is_volatile);
 }
@@ -805,12 +805,12 @@ static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMValueRef ptr, uint32_t alig
     return result;
 }
 
-static LLVMValueRef gen_load(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *ptr_type, const char *name) {
+static LLVMValueRef gen_load(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type, const char *name) {
     assert(ptr_type->id == TypeTableEntryIdPointer);
     return gen_load_untyped(g, ptr, ptr_type->data.pointer.alignment, ptr_type->data.pointer.is_volatile, name);
 }
 
-static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *type, TypeTableEntry *ptr_type) {
+static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, ZigType *type, ZigType *ptr_type) {
     if (type_has_bits(type)) {
         if (handle_is_ptr(type)) {
             return ptr;
@@ -918,9 +918,9 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
         assert(val->global_refs->llvm_global);
     }
 
-    TypeTableEntry *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
+    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
-    TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
+    ZigType *str_type = get_slice_type(g, u8_ptr_type);
     return LLVMConstBitCast(val->global_refs->llvm_global, LLVMPointerType(str_type->type_ref, 0));
 }
 
@@ -929,7 +929,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
     LLVMValueRef fn_val = fn_llvm_value(g, g->panic_fn);
     LLVMCallConv llvm_cc = get_llvm_cc(g, g->panic_fn->type_entry->data.fn.fn_type_id.cc);
     if (stack_trace_arg == nullptr) {
-        TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
+        ZigType *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
         stack_trace_arg = LLVMConstNull(ptr_to_stack_trace_type->type_ref);
     }
     LLVMValueRef args[] = {
@@ -1186,7 +1186,7 @@ static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
 
-    TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    ZigType *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
 
     LLVMTypeRef fn_type = LLVMFunctionType(return_type->type_ref,
             &g->builtin_types.entry_i32->type_ref, 1, false);
@@ -1237,7 +1237,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1].gen_index;
     LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, err_ret_trace_ptr, (unsigned)addresses_field_index, "");
 
-    TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
+    ZigType *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
     size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
     LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)ptr_field_index, "");
     size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
@@ -1337,7 +1337,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
             (unsigned)src_index_field_index, "");
     LLVMValueRef src_addresses_field_ptr = LLVMBuildStructGEP(g->builder, src_stack_trace_ptr,
             (unsigned)src_addresses_field_index, "");
-    TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
+    ZigType *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
     size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
     LLVMValueRef src_ptr_field_ptr = LLVMBuildStructGEP(g->builder, src_addresses_field_ptr, (unsigned)ptr_field_index, "");
     size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
@@ -1479,7 +1479,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMSetUnnamedAddr(global_array, true);
     LLVMSetAlignment(global_array, u8_align_bytes);
 
-    TypeTableEntry *usize = g->builtin_types.entry_usize;
+    ZigType *usize = g->builtin_types.entry_usize;
     LLVMValueRef full_buf_ptr_indices[] = {
         LLVMConstNull(usize->type_ref),
         LLVMConstNull(usize->type_ref),
@@ -1487,9 +1487,9 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef full_buf_ptr = LLVMConstInBoundsGEP(global_array, full_buf_ptr_indices, 2);
 
 
-    TypeTableEntry *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
+    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
-    TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
+    ZigType *str_type = get_slice_type(g, u8_ptr_type);
     LLVMValueRef global_slice_fields[] = {
         full_buf_ptr,
         LLVMConstNull(usize->type_ref),
@@ -1603,7 +1603,7 @@ static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val, Scope *sc
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
     LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, scope);
     if (err_ret_trace_val == nullptr) {
-        TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
+        ZigType *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
         err_ret_trace_val = LLVMConstNull(ptr_to_stack_trace_type->type_ref);
     }
     LLVMValueRef args[] = {
@@ -1649,8 +1649,8 @@ static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
 }
 
-static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, TypeTableEntry *actual_type,
-        TypeTableEntry *wanted_type, LLVMValueRef expr_val)
+static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, ZigType *actual_type,
+        ZigType *wanted_type, LLVMValueRef expr_val)
 {
     assert(actual_type->id == wanted_type->id);
 
@@ -1729,7 +1729,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, T
     }
 }
 
-static LLVMValueRef gen_overflow_op(CodeGen *g, TypeTableEntry *type_entry, AddSubMul op,
+static LLVMValueRef gen_overflow_op(CodeGen *g, ZigType *type_entry, AddSubMul op,
         LLVMValueRef val1, LLVMValueRef val2)
 {
     LLVMValueRef fn_val = get_int_overflow_fn(g, type_entry, op);
@@ -1789,11 +1789,11 @@ static LLVMRealPredicate cmp_op_to_real_predicate(IrBinOp cmp_op) {
     }
 }
 
-static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *ptr_type,
+static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
         LLVMValueRef value)
 {
     assert(ptr_type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
+    ZigType *child_type = ptr_type->data.pointer.child_type;
 
     if (!type_has_bits(child_type))
         return nullptr;
@@ -1807,7 +1807,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, TypeTableEntry 
         LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, value, ptr_u8, "");
         LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, ptr, ptr_u8, "");
 
-        TypeTableEntry *usize = g->builtin_types.entry_usize;
+        ZigType *usize = g->builtin_types.entry_usize;
         uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, child_type->type_ref);
         uint64_t align_bytes = ptr_type->data.pointer.alignment;
         assert(size_bytes > 0);
@@ -1876,7 +1876,7 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
         // values are rendered with a type other than the one we expect
         if (handle_is_ptr(instruction->value.type)) {
             render_const_val_global(g, &instruction->value, "");
-            TypeTableEntry *ptr_type = get_pointer_to_type(g, instruction->value.type, true);
+            ZigType *ptr_type = get_pointer_to_type(g, instruction->value.type, true);
             instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value.global_refs->llvm_global, ptr_type->type_ref, "");
         } else if (instruction->value.type->id == TypeTableEntryIdPointer) {
             instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value.global_refs->llvm_value, instruction->value.type->type_ref, "");
@@ -1904,7 +1904,7 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
     LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
-    TypeTableEntry *return_type = return_instruction->value->value.type;
+    ZigType *return_type = return_instruction->value->value.type;
 
     if (handle_is_ptr(return_type)) {
         if (calling_convention_does_first_arg_return(g->cur_fn->type_entry->data.fn.fn_type_id.cc)) {
@@ -1921,7 +1921,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
     return nullptr;
 }
 
-static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
+static LLVMValueRef gen_overflow_shl_op(CodeGen *g, ZigType *type_entry,
         LLVMValueRef val1, LLVMValueRef val2)
 {
     // for unsigned left shifting, we do the lossy shift, then logically shift
@@ -1951,7 +1951,7 @@ static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
     return result;
 }
 
-static LLVMValueRef gen_overflow_shr_op(CodeGen *g, TypeTableEntry *type_entry,
+static LLVMValueRef gen_overflow_shr_op(CodeGen *g, ZigType *type_entry,
         LLVMValueRef val1, LLVMValueRef val2)
 {
     assert(type_entry->id == TypeTableEntryIdInt);
@@ -1976,7 +1976,7 @@ static LLVMValueRef gen_overflow_shr_op(CodeGen *g, TypeTableEntry *type_entry,
     return result;
 }
 
-static LLVMValueRef gen_floor(CodeGen *g, LLVMValueRef val, TypeTableEntry *type_entry) {
+static LLVMValueRef gen_floor(CodeGen *g, LLVMValueRef val, ZigType *type_entry) {
     if (type_entry->id == TypeTableEntryIdInt)
         return val;
 
@@ -1984,7 +1984,7 @@ static LLVMValueRef gen_floor(CodeGen *g, LLVMValueRef val, TypeTableEntry *type
     return LLVMBuildCall(g->builder, floor_fn, &val, 1, "");
 }
 
-static LLVMValueRef gen_ceil(CodeGen *g, LLVMValueRef val, TypeTableEntry *type_entry) {
+static LLVMValueRef gen_ceil(CodeGen *g, LLVMValueRef val, ZigType *type_entry) {
     if (type_entry->id == TypeTableEntryIdInt)
         return val;
 
@@ -2018,7 +2018,7 @@ static LLVMValueRef bigint_to_llvm_const(LLVMTypeRef type_ref, BigInt *bigint) {
 
 static LLVMValueRef gen_div(CodeGen *g, bool want_runtime_safety, bool want_fast_math,
         LLVMValueRef val1, LLVMValueRef val2,
-        TypeTableEntry *type_entry, DivKind div_kind)
+        ZigType *type_entry, DivKind div_kind)
 {
     ZigLLVMSetFastMath(g->builder, want_fast_math);
 
@@ -2177,7 +2177,7 @@ enum RemKind {
 
 static LLVMValueRef gen_rem(CodeGen *g, bool want_runtime_safety, bool want_fast_math,
         LLVMValueRef val1, LLVMValueRef val2,
-        TypeTableEntry *type_entry, RemKind rem_kind)
+        ZigType *type_entry, RemKind rem_kind)
 {
     ZigLLVMSetFastMath(g->builder, want_fast_math);
 
@@ -2246,7 +2246,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             (op_id == IrBinOpAdd || op_id == IrBinOpSub) &&
             op1->value.type->data.pointer.ptr_len == PtrLenUnknown)
     );
-    TypeTableEntry *type_entry = op1->value.type;
+    ZigType *type_entry = op1->value.type;
 
     bool want_runtime_safety = bin_op_instruction->safety_check_on &&
         ir_want_runtime_safety(g, &bin_op_instruction->base);
@@ -2421,7 +2421,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
     zig_unreachable();
 }
 
-static void add_error_range_check(CodeGen *g, TypeTableEntry *err_set_type, TypeTableEntry *int_type, LLVMValueRef target_val) {
+static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *int_type, LLVMValueRef target_val) {
     assert(err_set_type->id == TypeTableEntryIdErrorSet);
 
     if (type_is_global_error_set(err_set_type)) {
@@ -2472,8 +2472,8 @@ static void add_error_range_check(CodeGen *g, TypeTableEntry *err_set_type, Type
 static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         IrInstructionCast *cast_instruction)
 {
-    TypeTableEntry *actual_type = cast_instruction->value->value.type;
-    TypeTableEntry *wanted_type = cast_instruction->base.value.type;
+    ZigType *actual_type = cast_instruction->value->value.type;
+    ZigType *wanted_type = cast_instruction->base.value.type;
     LLVMValueRef expr_val = ir_llvm_value(g, cast_instruction->value);
     assert(expr_val);
 
@@ -2491,10 +2491,10 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
                 assert(actual_type->id == TypeTableEntryIdStruct);
                 assert(actual_type->data.structure.is_slice);
 
-                TypeTableEntry *actual_pointer_type = actual_type->data.structure.fields[0].type_entry;
-                TypeTableEntry *actual_child_type = actual_pointer_type->data.pointer.child_type;
-                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
-                TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
+                ZigType *actual_pointer_type = actual_type->data.structure.fields[0].type_entry;
+                ZigType *actual_child_type = actual_pointer_type->data.pointer.child_type;
+                ZigType *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
+                ZigType *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
 
 
                 size_t actual_ptr_index = actual_type->data.structure.fields[slice_ptr_index].gen_index;
@@ -2553,8 +2553,8 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
                 assert(wanted_type->data.structure.is_slice);
                 assert(actual_type->id == TypeTableEntryIdArray);
 
-                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
-                TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
+                ZigType *wanted_pointer_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+                ZigType *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
 
 
                 size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
@@ -2628,7 +2628,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         case CastOpPtrOfArrayToSlice: {
             assert(cast_instruction->tmp_ptr);
             assert(actual_type->id == TypeTableEntryIdPointer);
-            TypeTableEntry *array_type = actual_type->data.pointer.child_type;
+            ZigType *array_type = actual_type->data.pointer.child_type;
             assert(array_type->id == TypeTableEntryIdArray);
 
             LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
@@ -2655,7 +2655,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
 static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
         IrInstructionPtrCast *instruction)
 {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
     if (!type_has_bits(wanted_type)) {
         return nullptr;
     }
@@ -2666,7 +2666,7 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
 static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
         IrInstructionBitCast *instruction)
 {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
     return LLVMBuildBitCast(g->builder, value, wanted_type->type_ref, "");
 }
@@ -2674,10 +2674,10 @@ static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
 static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,
         IrInstructionWidenOrShorten *instruction)
 {
-    TypeTableEntry *actual_type = instruction->target->value.type;
+    ZigType *actual_type = instruction->target->value.type;
     // TODO instead of this logic, use the Noop instruction to change the type from
     // enum_tag to the underlying int type
-    TypeTableEntry *int_type;
+    ZigType *int_type;
     if (actual_type->id == TypeTableEntryIdEnum) {
         int_type = actual_type->data.enumeration.tag_int_type;
     } else {
@@ -2689,21 +2689,21 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executa
 }
 
 static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutable *executable, IrInstructionIntToPtr *instruction) {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     return LLVMBuildIntToPtr(g->builder, target_val, wanted_type->type_ref, "");
 }
 
 static LLVMValueRef ir_render_ptr_to_int(CodeGen *g, IrExecutable *executable, IrInstructionPtrToInt *instruction) {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     return LLVMBuildPtrToInt(g->builder, target_val, wanted_type->type_ref, "");
 }
 
 static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, IrInstructionIntToEnum *instruction) {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
     assert(wanted_type->id == TypeTableEntryIdEnum);
-    TypeTableEntry *tag_int_type = wanted_type->data.enumeration.tag_int_type;
+    ZigType *tag_int_type = wanted_type->data.enumeration.tag_int_type;
 
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     LLVMValueRef tag_int_value = gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
@@ -2728,10 +2728,10 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, 
 }
 
 static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, IrInstructionIntToErr *instruction) {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
     assert(wanted_type->id == TypeTableEntryIdErrorSet);
 
-    TypeTableEntry *actual_type = instruction->target->value.type;
+    ZigType *actual_type = instruction->target->value.type;
     assert(actual_type->id == TypeTableEntryIdInt);
     assert(!actual_type->data.integral.is_signed);
 
@@ -2745,11 +2745,11 @@ static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, I
 }
 
 static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutable *executable, IrInstructionErrToInt *instruction) {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
     assert(wanted_type->id == TypeTableEntryIdInt);
     assert(!wanted_type->data.integral.is_signed);
 
-    TypeTableEntry *actual_type = instruction->target->value.type;
+    ZigType *actual_type = instruction->target->value.type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
 
     if (actual_type->id == TypeTableEntryIdErrorSet) {
@@ -2799,7 +2799,7 @@ static LLVMValueRef ir_render_br(CodeGen *g, IrExecutable *executable, IrInstruc
 static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInstructionUnOp *un_op_instruction) {
     IrUnOp op_id = un_op_instruction->op_id;
     LLVMValueRef expr = ir_llvm_value(g, un_op_instruction->value);
-    TypeTableEntry *expr_type = un_op_instruction->value->value.type;
+    ZigType *expr_type = un_op_instruction->value->value.type;
 
     switch (op_id) {
         case IrUnOpInvalid:
@@ -2880,13 +2880,13 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 
     if (have_init_expr) {
         assert(var->value->type == init_value->value.type);
-        TypeTableEntry *var_ptr_type = get_pointer_to_type_extra(g, var->value->type, false, false,
+        ZigType *var_ptr_type = get_pointer_to_type_extra(g, var->value->type, false, false,
                 PtrLenSingle, var->align_bytes, 0, 0);
         gen_assign_raw(g, var->value_ref, var_ptr_type, ir_llvm_value(g, init_value));
     } else {
         bool want_safe = ir_want_runtime_safety(g, &decl_var_instruction->base);
         if (want_safe) {
-            TypeTableEntry *usize = g->builtin_types.entry_usize;
+            ZigType *usize = g->builtin_types.entry_usize;
             uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, var->value->type->type_ref);
             assert(size_bytes > 0);
 
@@ -2915,12 +2915,12 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrInstructionLoadPtr *instruction) {
-    TypeTableEntry *child_type = instruction->base.value.type;
+    ZigType *child_type = instruction->base.value.type;
     if (!type_has_bits(child_type))
         return nullptr;
 
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
-    TypeTableEntry *ptr_type = instruction->ptr->value.type;
+    ZigType *ptr_type = instruction->ptr->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     uint32_t unaligned_bit_count = ptr_type->data.pointer.unaligned_bit_count;
@@ -2947,7 +2947,7 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
     assert(instruction->ptr->value.type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *ptr_type = instruction->ptr->value.type;
+    ZigType *ptr_type = instruction->ptr->value.type;
 
     gen_assign_raw(g, ptr, ptr_type, value);
 
@@ -2966,9 +2966,9 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrIn
 
 static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrInstructionElemPtr *instruction) {
     LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->array_ptr);
-    TypeTableEntry *array_ptr_type = instruction->array_ptr->value.type;
+    ZigType *array_ptr_type = instruction->array_ptr->value.type;
     assert(array_ptr_type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *array_type = array_ptr_type->data.pointer.child_type;
+    ZigType *array_type = array_ptr_type->data.pointer.child_type;
     LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
     LLVMValueRef subscript_value = ir_llvm_value(g, instruction->elem_index);
     assert(subscript_value);
@@ -2993,7 +2993,7 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
         if (array_ptr_type->data.pointer.unaligned_bit_count != 0) {
             return array_ptr_ptr;
         }
-        TypeTableEntry *child_type = array_type->data.array.child_type;
+        ZigType *child_type = array_type->data.array.child_type;
         if (child_type->id == TypeTableEntryIdStruct &&
             child_type->data.structure.layout == ContainerLayoutPacked)
         {
@@ -3113,7 +3113,7 @@ static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
 
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
     LLVMValueRef fn_val;
-    TypeTableEntry *fn_type;
+    ZigType *fn_type;
     if (instruction->fn_entry) {
         fn_val = fn_llvm_value(g, instruction->fn_entry);
         fn_type = instruction->fn_entry->type_entry;
@@ -3125,7 +3125,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
-    TypeTableEntry *src_return_type = fn_type_id->return_type;
+    ZigType *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
 
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type) &&
@@ -3154,7 +3154,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
     for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
         IrInstruction *param_instruction = instruction->args[call_i];
-        TypeTableEntry *param_type = param_instruction->value.type;
+        ZigType *param_type = param_instruction->value.type;
         if (is_var_args || type_has_bits(param_type)) {
             LLVMValueRef param_value = ir_llvm_value(g, param_instruction);
             assert(param_value);
@@ -3222,7 +3222,7 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
 {
     LLVMValueRef struct_ptr = ir_llvm_value(g, instruction->struct_ptr);
     // not necessarily a pointer. could be TypeTableEntryIdStruct
-    TypeTableEntry *struct_ptr_type = instruction->struct_ptr->value.type;
+    ZigType *struct_ptr_type = instruction->struct_ptr->value.type;
     TypeStructField *field = instruction->field;
 
     if (!type_has_bits(field->type_entry))
@@ -3241,9 +3241,9 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
 static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executable,
     IrInstructionUnionFieldPtr *instruction)
 {
-    TypeTableEntry *union_ptr_type = instruction->union_ptr->value.type;
+    ZigType *union_ptr_type = instruction->union_ptr->value.type;
     assert(union_ptr_type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *union_type = union_ptr_type->data.pointer.child_type;
+    ZigType *union_type = union_ptr_type->data.pointer.child_type;
     assert(union_type->id == TypeTableEntryIdUnion);
 
     TypeUnionField *field = instruction->field;
@@ -3411,9 +3411,9 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     return LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
 }
 
-static LLVMValueRef gen_non_null_bit(CodeGen *g, TypeTableEntry *maybe_type, LLVMValueRef maybe_handle) {
+static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueRef maybe_handle) {
     assert(maybe_type->id == TypeTableEntryIdOptional);
-    TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
+    ZigType *child_type = maybe_type->data.maybe.child_type;
     if (child_type->zero_bits) {
         return maybe_handle;
     } else {
@@ -3436,11 +3436,11 @@ static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable
 static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
         IrInstructionUnwrapOptional *instruction)
 {
-    TypeTableEntry *ptr_type = instruction->value->value.type;
+    ZigType *ptr_type = instruction->value->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *maybe_type = ptr_type->data.pointer.child_type;
+    ZigType *maybe_type = ptr_type->data.pointer.child_type;
     assert(maybe_type->id == TypeTableEntryIdOptional);
-    TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
+    ZigType *child_type = maybe_type->data.maybe.child_type;
     LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
     if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
@@ -3467,7 +3467,7 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     }
 }
 
-static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, BuiltinFnId fn_id) {
+static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnId fn_id) {
     ZigLLVMFnKey key = {};
     const char *fn_name;
     uint32_t n_args;
@@ -3510,7 +3510,7 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, Bui
 }
 
 static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstructionClz *instruction) {
-    TypeTableEntry *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->value->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdClz);
     LLVMValueRef operand = ir_llvm_value(g, instruction->value);
     LLVMValueRef params[] {
@@ -3522,7 +3522,7 @@ static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstructionCtz *instruction) {
-    TypeTableEntry *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->value->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdCtz);
     LLVMValueRef operand = ir_llvm_value(g, instruction->value);
     LLVMValueRef params[] {
@@ -3534,7 +3534,7 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
-    TypeTableEntry *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->value->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
     LLVMValueRef operand = ir_llvm_value(g, instruction->value);
     LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
@@ -3611,15 +3611,15 @@ static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
 }
 
-static LLVMValueRef get_enum_tag_name_function(CodeGen *g, TypeTableEntry *enum_type) {
+static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     assert(enum_type->id == TypeTableEntryIdEnum);
     if (enum_type->data.enumeration.name_function)
         return enum_type->data.enumeration.name_function;
 
-    TypeTableEntry *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
+    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
-    TypeTableEntry *u8_slice_type = get_slice_type(g, u8_ptr_type);
-    TypeTableEntry *tag_int_type = enum_type->data.enumeration.tag_int_type;
+    ZigType *u8_slice_type = get_slice_type(g, u8_ptr_type);
+    ZigType *tag_int_type = enum_type->data.enumeration.tag_int_type;
 
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMPointerType(u8_slice_type->type_ref, 0),
             &tag_int_type->type_ref, 1, false);
@@ -3652,7 +3652,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, TypeTableEntry *enum_
     LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, tag_int_value, bad_value_block, field_count);
 
 
-    TypeTableEntry *usize = g->builtin_types.entry_usize;
+    ZigType *usize = g->builtin_types.entry_usize;
     LLVMValueRef array_ptr_indices[] = {
         LLVMConstNull(usize->type_ref),
         LLVMConstNull(usize->type_ref),
@@ -3709,7 +3709,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, TypeTableEntry *enum_
 static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable,
         IrInstructionTagName *instruction)
 {
-    TypeTableEntry *enum_type = instruction->target->value.type;
+    ZigType *enum_type = instruction->target->value.type;
     assert(enum_type->id == TypeTableEntryIdEnum);
 
     LLVMValueRef enum_name_function = get_enum_tag_name_function(g, enum_type);
@@ -3722,10 +3722,10 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
 static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutable *executable,
         IrInstructionFieldParentPtr *instruction)
 {
-    TypeTableEntry *container_ptr_type = instruction->base.value.type;
+    ZigType *container_ptr_type = instruction->base.value.type;
     assert(container_ptr_type->id == TypeTableEntryIdPointer);
 
-    TypeTableEntry *container_type = container_ptr_type->data.pointer.child_type;
+    ZigType *container_type = container_ptr_type->data.pointer.child_type;
 
     size_t byte_offset = LLVMOffsetOfElement(g->target_data_ref,
             container_type->type_ref, instruction->field->gen_index);
@@ -3735,7 +3735,7 @@ static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutable *executa
     if (byte_offset == 0) {
         return LLVMBuildBitCast(g->builder, field_ptr_val, container_ptr_type->type_ref, "");
     } else {
-        TypeTableEntry *usize = g->builtin_types.entry_usize;
+        ZigType *usize = g->builtin_types.entry_usize;
 
         LLVMValueRef field_ptr_int = LLVMBuildPtrToInt(g->builder, field_ptr_val,
                 usize->type_ref, "");
@@ -3756,7 +3756,7 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
         return target_val;
     }
 
-    TypeTableEntry *target_type = instruction->base.value.type;
+    ZigType *target_type = instruction->base.value.type;
     uint32_t align_bytes;
     LLVMValueRef ptr_val;
 
@@ -3781,7 +3781,7 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     {
         zig_panic("TODO audit this function");
     } else if (target_type->id == TypeTableEntryIdStruct && target_type->data.structure.is_slice) {
-        TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
         align_bytes = slice_ptr_type->data.pointer.alignment;
 
         size_t ptr_index = target_type->data.structure.fields[slice_ptr_index].gen_index;
@@ -3793,7 +3793,7 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
 
     assert(align_bytes != 1);
 
-    TypeTableEntry *usize = g->builtin_types.entry_usize;
+    ZigType *usize = g->builtin_types.entry_usize;
     LLVMValueRef ptr_as_int_val = LLVMBuildPtrToInt(g->builder, ptr_val, usize->type_ref, "");
     LLVMValueRef alignment_minus_1 = LLVMConstInt(usize->type_ref, align_bytes - 1, false);
     LLVMValueRef anded_val = LLVMBuildAnd(g->builder, ptr_as_int_val, alignment_minus_1, "");
@@ -3817,7 +3817,7 @@ static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *execu
 {
     LLVMValueRef cur_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope);
     if (cur_err_ret_trace_val == nullptr) {
-        TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
+        ZigType *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
         return LLVMConstNull(ptr_to_stack_trace_type->type_ref);
     }
     return cur_err_ret_trace_val;
@@ -3877,9 +3877,9 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
     LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
             success_order, failure_order, instruction->is_weak);
 
-    TypeTableEntry *maybe_type = instruction->base.value.type;
+    ZigType *maybe_type = instruction->base.value.type;
     assert(maybe_type->id == TypeTableEntryIdOptional);
-    TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
+    ZigType *child_type = maybe_type->data.maybe.child_type;
 
     if (type_is_codegen_pointer(child_type)) {
         LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
@@ -3909,8 +3909,8 @@ static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInst
 
 static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrInstructionTruncate *instruction) {
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
-    TypeTableEntry *dest_type = instruction->base.value.type;
-    TypeTableEntry *src_type = instruction->target->value.type;
+    ZigType *dest_type = instruction->base.value.type;
+    ZigType *src_type = instruction->target->value.type;
     if (dest_type == src_type) {
         // no-op
         return target_val;
@@ -3931,7 +3931,7 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
 
     LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
 
-    TypeTableEntry *ptr_type = instruction->dest_ptr->value.type;
+    ZigType *ptr_type = instruction->dest_ptr->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     LLVMValueRef is_volatile = ptr_type->data.pointer.is_volatile ?
@@ -3961,8 +3961,8 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
     LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
     LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
 
-    TypeTableEntry *dest_ptr_type = instruction->dest_ptr->value.type;
-    TypeTableEntry *src_ptr_type = instruction->src_ptr->value.type;
+    ZigType *dest_ptr_type = instruction->dest_ptr->value.type;
+    ZigType *src_ptr_type = instruction->src_ptr->value.type;
 
     assert(dest_ptr_type->id == TypeTableEntryIdPointer);
     assert(src_ptr_type->id == TypeTableEntryIdPointer);
@@ -3989,9 +3989,9 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
     assert(instruction->tmp_ptr);
 
     LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->ptr);
-    TypeTableEntry *array_ptr_type = instruction->ptr->value.type;
+    ZigType *array_ptr_type = instruction->ptr->value.type;
     assert(array_ptr_type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *array_type = array_ptr_type->data.pointer.child_type;
+    ZigType *array_type = array_ptr_type->data.pointer.child_type;
     LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
 
     LLVMValueRef tmp_struct_ptr = instruction->tmp_ptr;
@@ -4140,7 +4140,7 @@ static LLVMValueRef get_frame_address_fn_val(CodeGen *g) {
     if (g->frame_address_fn_val)
         return g->frame_address_fn_val;
 
-    TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    ZigType *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
 
     LLVMTypeRef fn_type = LLVMFunctionType(return_type->type_ref,
             &g->builtin_types.entry_i32->type_ref, 1, false);
@@ -4178,7 +4178,7 @@ static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
-    TypeTableEntry *int_type = instruction->result_ptr_type;
+    ZigType *int_type = instruction->result_ptr_type;
     assert(int_type->id == TypeTableEntryIdInt);
 
     LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
@@ -4218,7 +4218,7 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
             return render_shl_with_overflow(g, instruction);
     }
 
-    TypeTableEntry *int_type = instruction->result_ptr_type;
+    ZigType *int_type = instruction->result_ptr_type;
     assert(int_type->id == TypeTableEntryIdInt);
 
     LLVMValueRef fn_val = get_int_overflow_fn(g, int_type, add_sub_mul);
@@ -4241,8 +4241,8 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
 }
 
 static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrInstructionTestErr *instruction) {
-    TypeTableEntry *err_union_type = instruction->value->value.type;
-    TypeTableEntry *payload_type = err_union_type->data.error_union.payload_type;
+    ZigType *err_union_type = instruction->value->value.type;
+    ZigType *payload_type = err_union_type->data.error_union.payload_type;
     LLVMValueRef err_union_handle = ir_llvm_value(g, instruction->value);
 
     LLVMValueRef err_val;
@@ -4258,10 +4258,10 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrI
 }
 
 static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable, IrInstructionUnwrapErrCode *instruction) {
-    TypeTableEntry *ptr_type = instruction->value->value.type;
+    ZigType *ptr_type = instruction->value->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *err_union_type = ptr_type->data.pointer.child_type;
-    TypeTableEntry *payload_type = err_union_type->data.error_union.payload_type;
+    ZigType *err_union_type = ptr_type->data.pointer.child_type;
+    ZigType *payload_type = err_union_type->data.error_union.payload_type;
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
 
@@ -4274,10 +4274,10 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
 }
 
 static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *executable, IrInstructionUnwrapErrPayload *instruction) {
-    TypeTableEntry *ptr_type = instruction->value->value.type;
+    ZigType *ptr_type = instruction->value->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *err_union_type = ptr_type->data.pointer.child_type;
-    TypeTableEntry *payload_type = err_union_type->data.error_union.payload_type;
+    ZigType *err_union_type = ptr_type->data.pointer.child_type;
+    ZigType *payload_type = err_union_type->data.error_union.payload_type;
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
 
@@ -4313,11 +4313,11 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
 }
 
 static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, IrInstructionOptionalWrap *instruction) {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
 
     assert(wanted_type->id == TypeTableEntryIdOptional);
 
-    TypeTableEntry *child_type = wanted_type->data.maybe.child_type;
+    ZigType *child_type = wanted_type->data.maybe.child_type;
 
     if (child_type->zero_bits) {
         return LLVMConstInt(LLVMInt1Type(), 1, false);
@@ -4340,12 +4340,12 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
 }
 
 static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapCode *instruction) {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
 
     assert(wanted_type->id == TypeTableEntryIdErrorUnion);
 
-    TypeTableEntry *payload_type = wanted_type->data.error_union.payload_type;
-    TypeTableEntry *err_set_type = wanted_type->data.error_union.err_set_type;
+    ZigType *payload_type = wanted_type->data.error_union.payload_type;
+    ZigType *err_set_type = wanted_type->data.error_union.err_set_type;
 
     LLVMValueRef err_val = ir_llvm_value(g, instruction->value);
 
@@ -4361,12 +4361,12 @@ static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable
 }
 
 static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapPayload *instruction) {
-    TypeTableEntry *wanted_type = instruction->base.value.type;
+    ZigType *wanted_type = instruction->base.value.type;
 
     assert(wanted_type->id == TypeTableEntryIdErrorUnion);
 
-    TypeTableEntry *payload_type = wanted_type->data.error_union.payload_type;
-    TypeTableEntry *err_set_type = wanted_type->data.error_union.err_set_type;
+    ZigType *payload_type = wanted_type->data.error_union.payload_type;
+    ZigType *err_set_type = wanted_type->data.error_union.err_set_type;
 
     if (!type_has_bits(err_set_type)) {
         return ir_llvm_value(g, instruction->value);
@@ -4391,10 +4391,10 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
 }
 
 static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, IrInstructionUnionTag *instruction) {
-    TypeTableEntry *union_type = instruction->value->value.type;
+    ZigType *union_type = instruction->value->value.type;
     assert(union_type->data.unionation.gen_tag_index != SIZE_MAX);
 
-    TypeTableEntry *tag_type = union_type->data.unionation.tag_type;
+    ZigType *tag_type = union_type->data.unionation.tag_type;
     if (!type_has_bits(tag_type))
         return nullptr;
 
@@ -4404,7 +4404,7 @@ static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, Ir
 
     LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_val,
             union_type->data.unionation.gen_tag_index, "");
-    TypeTableEntry *ptr_type = get_pointer_to_type(g, tag_type, false);
+    ZigType *ptr_type = get_pointer_to_type(g, tag_type, false);
     return get_handle_value(g, tag_field_ptr, tag_type, ptr_type);
 }
 
@@ -4421,7 +4421,7 @@ static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, 
 
         uint32_t field_align_bytes = get_abi_alignment(g, type_struct_field->type_entry);
 
-        TypeTableEntry *ptr_type = get_pointer_to_type_extra(g, type_struct_field->type_entry,
+        ZigType *ptr_type = get_pointer_to_type_extra(g, type_struct_field->type_entry,
                 false, false, PtrLenSingle, field_align_bytes,
                 (uint32_t)type_struct_field->packed_bits_offset, (uint32_t)type_struct_field->unaligned_bit_count);
 
@@ -4437,14 +4437,14 @@ static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, I
         return nullptr;
 
     uint32_t field_align_bytes = get_abi_alignment(g, type_union_field->type_entry);
-    TypeTableEntry *ptr_type = get_pointer_to_type_extra(g, type_union_field->type_entry,
+    ZigType *ptr_type = get_pointer_to_type_extra(g, type_union_field->type_entry,
             false, false, PtrLenSingle, field_align_bytes,
             0, 0);
 
     LLVMValueRef uncasted_union_ptr;
     // Even if safety is off in this block, if the union type has the safety field, we have to populate it
     // correctly. Otherwise safety code somewhere other than here could fail.
-    TypeTableEntry *union_type = instruction->union_type;
+    ZigType *union_type = instruction->union_type;
     if (union_type->data.unionation.gen_tag_index != SIZE_MAX) {
         LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
                 union_type->data.unionation.gen_tag_index, "");
@@ -4470,14 +4470,14 @@ static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, I
 static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *executable,
         IrInstructionContainerInitList *instruction)
 {
-    TypeTableEntry *array_type = instruction->base.value.type;
+    ZigType *array_type = instruction->base.value.type;
     assert(array_type->id == TypeTableEntryIdArray);
     LLVMValueRef tmp_array_ptr = instruction->tmp_ptr;
     assert(tmp_array_ptr);
 
     size_t field_count = instruction->item_count;
 
-    TypeTableEntry *child_type = array_type->data.array.child_type;
+    ZigType *child_type = array_type->data.array.child_type;
     for (size_t i = 0; i < field_count; i += 1) {
         LLVMValueRef elem_val = ir_llvm_value(g, instruction->items[i]);
         LLVMValueRef indices[] = {
@@ -4601,13 +4601,13 @@ static LLVMValueRef ir_render_coro_promise(CodeGen *g, IrExecutable *executable,
     return LLVMBuildBitCast(g->builder, uncasted_result, instruction->base.value.type->type_ref, "");
 }
 
-static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_fn_type_ref, TypeTableEntry *fn_type) {
+static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_fn_type_ref, ZigType *fn_type) {
     if (g->coro_alloc_helper_fn_val != nullptr)
         return g->coro_alloc_helper_fn_val;
 
     assert(fn_type->id == TypeTableEntryIdFn);
 
-    TypeTableEntry *ptr_to_err_code_type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
+    ZigType *ptr_to_err_code_type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
 
     LLVMTypeRef alloc_raw_fn_type_ref = LLVMGetElementType(alloc_fn_type_ref);
     LLVMTypeRef *alloc_fn_arg_types = allocate<LLVMTypeRef>(LLVMCountParamTypes(alloc_raw_fn_type_ref));
@@ -4686,9 +4686,9 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
     LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_payload_index, "");
-    TypeTableEntry *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
+    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
-    TypeTableEntry *slice_type = get_slice_type(g, u8_ptr_type);
+    ZigType *slice_type = get_slice_type(g, u8_ptr_type);
     size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
     LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, payload_ptr, ptr_field_index, "");
     LLVMValueRef ptr_val = LLVMBuildLoad(g->builder, ptr_field_ptr, "");
@@ -4733,7 +4733,7 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
         IrInstructionAtomicRmw *instruction)
 {
     bool is_signed;
-    TypeTableEntry *operand_type = instruction->operand->value.type;
+    ZigType *operand_type = instruction->operand->value.type;
     if (operand_type->id == TypeTableEntryIdInt) {
         is_signed = operand_type->data.integral.is_signed;
     } else {
@@ -5090,14 +5090,14 @@ static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *ar
 
     LLVMTypeKind el_type = LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(base_ptr)));
     if (el_type == LLVMArrayTypeKind) {
-        TypeTableEntry *usize = g->builtin_types.entry_usize;
+        ZigType *usize = g->builtin_types.entry_usize;
         LLVMValueRef indices[] = {
             LLVMConstNull(usize->type_ref),
             LLVMConstInt(usize->type_ref, index, false),
         };
         return LLVMConstInBoundsGEP(base_ptr, indices, 2);
     } else if (el_type == LLVMStructTypeKind) {
-        TypeTableEntry *u32 = g->builtin_types.entry_u32;
+        ZigType *u32 = g->builtin_types.entry_u32;
         LLVMValueRef indices[] = {
             LLVMConstNull(u32->type_ref),
             LLVMConstInt(u32->type_ref, index, false),
@@ -5113,7 +5113,7 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *s
     ConstParent *parent = &struct_const_val->data.x_struct.parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, struct_const_val, parent);
 
-    TypeTableEntry *u32 = g->builtin_types.entry_u32;
+    ZigType *u32 = g->builtin_types.entry_u32;
     LLVMValueRef indices[] = {
         LLVMConstNull(u32->type_ref),
         LLVMConstInt(u32->type_ref, field_index, false),
@@ -5125,7 +5125,7 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *un
     ConstParent *parent = &union_const_val->data.x_union.parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, union_const_val, parent);
 
-    TypeTableEntry *u32 = g->builtin_types.entry_u32;
+    ZigType *u32 = g->builtin_types.entry_u32;
     LLVMValueRef indices[] = {
         LLVMConstNull(u32->type_ref),
         LLVMConstInt(u32->type_ref, 0, false), // TODO test const union with more aligned tag type than payload
@@ -5143,7 +5143,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
             break;
     }
 
-    TypeTableEntry *type_entry = const_val->type;
+    ZigType *type_entry = const_val->type;
     assert(!type_entry->zero_bits);
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
@@ -5228,7 +5228,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
 
 // We have this because union constants can't be represented by the official union type,
 // and this property bubbles up in whatever aggregate type contains a union constant
-static bool is_llvm_value_unnamed_type(TypeTableEntry *type_entry, LLVMValueRef val) {
+static bool is_llvm_value_unnamed_type(ZigType *type_entry, LLVMValueRef val) {
     return LLVMTypeOf(val) != type_entry->type_ref;
 }
 
@@ -5256,7 +5256,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
                 assert(array_const_val->type->id == TypeTableEntryIdArray);
                 if (array_const_val->type->zero_bits) {
                     // make this a null pointer
-                    TypeTableEntry *usize = g->builtin_types.entry_usize;
+                    ZigType *usize = g->builtin_types.entry_usize;
                     const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->type_ref),
                             const_val->type->type_ref);
                     render_const_val_global(g, const_val, "");
@@ -5276,7 +5276,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
                 assert(struct_const_val->type->id == TypeTableEntryIdStruct);
                 if (struct_const_val->type->zero_bits) {
                     // make this a null pointer
-                    TypeTableEntry *usize = g->builtin_types.entry_usize;
+                    ZigType *usize = g->builtin_types.entry_usize;
                     const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->type_ref),
                             const_val->type->type_ref);
                     render_const_val_global(g, const_val, "");
@@ -5296,7 +5296,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
             {
                 render_const_val_global(g, const_val, name);
                 uint64_t addr_value = const_val->data.x_ptr.data.hard_coded_addr.addr;
-                TypeTableEntry *usize = g->builtin_types.entry_usize;
+                ZigType *usize = g->builtin_types.entry_usize;
                 const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstInt(usize->type_ref, addr_value, false),
                         const_val->type->type_ref);
                 render_const_val_global(g, const_val, "");
@@ -5309,7 +5309,7 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
 }
 
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const char *name) {
-    TypeTableEntry *type_entry = const_val->type;
+    ZigType *type_entry = const_val->type;
     assert(!type_entry->zero_bits);
 
     switch (const_val->special) {
@@ -5356,7 +5356,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
             }
         case TypeTableEntryIdOptional:
             {
-                TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+                ZigType *child_type = type_entry->data.maybe.child_type;
                 if (child_type->zero_bits) {
                     return LLVMConstInt(LLVMInt1Type(), const_val->data.x_optional ? 1 : 0, false);
                 } else if (type_is_codegen_pointer(child_type)) {
@@ -5559,8 +5559,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
             return gen_const_val_ptr(g, const_val, name);
         case TypeTableEntryIdErrorUnion:
             {
-                TypeTableEntry *payload_type = type_entry->data.error_union.payload_type;
-                TypeTableEntry *err_set_type = type_entry->data.error_union.err_set_type;
+                ZigType *payload_type = type_entry->data.error_union.payload_type;
+                ZigType *err_set_type = type_entry->data.error_union.err_set_type;
                 if (!type_has_bits(payload_type)) {
                     assert(type_has_bits(err_set_type));
                     uint64_t value = const_val->data.x_err_union.err ? const_val->data.x_err_union.err->value : 0;
@@ -5650,9 +5650,9 @@ static void generate_error_name_table(CodeGen *g) {
 
     assert(g->errors_by_index.length > 0);
 
-    TypeTableEntry *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
+    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
-    TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
+    ZigType *str_type = get_slice_type(g, u8_ptr_type);
 
     LLVMValueRef *values = allocate<LLVMValueRef>(g->errors_by_index.length);
     values[0] = LLVMGetUndef(str_type->type_ref);
@@ -5700,7 +5700,7 @@ static void build_all_basic_blocks(CodeGen *g, FnTableEntry *fn) {
 }
 
 static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef init_val,
-    TypeTableEntry *type_entry)
+    ZigType *type_entry)
 {
     if (g->strip_debug_symbols) {
         return;
@@ -5721,7 +5721,7 @@ static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef ini
     // TODO ^^ make an actual global variable
 }
 
-static LLVMValueRef build_alloca(CodeGen *g, TypeTableEntry *type_entry, const char *name, uint32_t alignment) {
+static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment) {
     assert(alignment > 0);
     LLVMValueRef result = LLVMBuildAlloca(g->builder, type_entry->type_ref, name);
     LLVMSetAlignment(result, alignment);
@@ -5794,7 +5794,7 @@ static void do_code_gen(CodeGen *g) {
             // Generate debug info for it but that's it.
             ConstExprValue *const_val = var->value;
             assert(const_val->special != ConstValSpecialRuntime);
-            TypeTableEntry *var_type = g->builtin_types.entry_f128;
+            ZigType *var_type = g->builtin_types.entry_f128;
             ConstExprValue coerced_value;
             coerced_value.special = ConstValSpecialStatic;
             coerced_value.type = var_type;
@@ -5812,7 +5812,7 @@ static void do_code_gen(CodeGen *g) {
             if (bits_needed < 8) {
                 bits_needed = 8;
             }
-            TypeTableEntry *var_type = get_int_type(g, const_val->data.x_bigint.is_negative, bits_needed);
+            ZigType *var_type = get_int_type(g, const_val->data.x_bigint.is_negative, bits_needed);
             LLVMValueRef init_val = bigint_to_llvm_const(var_type->type_ref, &const_val->data.x_bigint);
             gen_global_var(g, var, init_val, var_type);
             continue;
@@ -5869,7 +5869,7 @@ static void do_code_gen(CodeGen *g) {
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);
         g->cur_fn = fn_table_entry;
         g->cur_fn_val = fn;
-        TypeTableEntry *return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
+        ZigType *return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
         if (handle_is_ptr(return_type)) {
             g->cur_ret_ptr = LLVMGetParam(fn, 0);
         } else {
@@ -5892,7 +5892,7 @@ static void do_code_gen(CodeGen *g) {
         bool have_err_ret_trace_stack = g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn && !is_async && !have_err_ret_trace_arg;
         LLVMValueRef err_ret_array_val = nullptr;
         if (have_err_ret_trace_stack) {
-            TypeTableEntry *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count);
+            ZigType *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count);
             err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses", get_abi_alignment(g, array_type));
             g->cur_err_ret_trace_val_stack = build_alloca(g, g->stack_trace_type, "error_return_trace", get_abi_alignment(g, g->stack_trace_type));
         } else {
@@ -5903,7 +5903,7 @@ static void do_code_gen(CodeGen *g) {
         for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_list.length; alloca_i += 1) {
             IrInstruction *instruction = fn_table_entry->alloca_list.at(alloca_i);
             LLVMValueRef *slot;
-            TypeTableEntry *slot_type = instruction->value.type;
+            ZigType *slot_type = instruction->value.type;
             if (instruction->id == IrInstructionIdCast) {
                 IrInstructionCast *cast_instruction = (IrInstructionCast *)instruction;
                 slot = &cast_instruction->tmp_ptr;
@@ -5968,7 +5968,7 @@ static void do_code_gen(CodeGen *g) {
 
             } else {
                 assert(var->gen_arg_index != SIZE_MAX);
-                TypeTableEntry *gen_type;
+                ZigType *gen_type;
                 FnGenParamInfo *gen_info = &fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index];
 
                 if (handle_is_ptr(var->value->type)) {
@@ -5994,7 +5994,7 @@ static void do_code_gen(CodeGen *g) {
 
         // finishing error return trace setup. we have to do this after all the allocas.
         if (have_err_ret_trace_stack) {
-            TypeTableEntry *usize = g->builtin_types.entry_usize;
+            ZigType *usize = g->builtin_types.entry_usize;
             size_t index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;
             LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)index_field_index, "");
             gen_store_untyped(g, LLVMConstNull(usize->type_ref), index_field_ptr, 0, false);
@@ -6002,14 +6002,14 @@ static void do_code_gen(CodeGen *g) {
             size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1].gen_index;
             LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)addresses_field_index, "");
 
-            TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
+            ZigType *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
             size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
             LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)ptr_field_index, "");
             LLVMValueRef zero = LLVMConstNull(usize->type_ref);
             LLVMValueRef indices[] = {zero, zero};
             LLVMValueRef err_ret_array_val_elem0_ptr = LLVMBuildInBoundsGEP(g->builder, err_ret_array_val,
                     indices, 2, "");
-            TypeTableEntry *ptr_ptr_usize_type = get_pointer_to_type(g, get_pointer_to_type(g, usize, false), false);
+            ZigType *ptr_ptr_usize_type = get_pointer_to_type(g, get_pointer_to_type(g, usize, false), false);
             gen_store(g, err_ret_array_val_elem0_ptr, ptr_field_ptr, ptr_ptr_usize_type);
 
             size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
@@ -6173,51 +6173,51 @@ static const GlobalLinkageValue global_linkage_values[] = {
 static void define_builtin_types(CodeGen *g) {
     {
         // if this type is anywhere in the AST, we should never hit codegen.
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInvalid);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdInvalid);
         buf_init_from_str(&entry->name, "(invalid)");
         entry->zero_bits = true;
         g->builtin_types.entry_invalid = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNamespace);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdNamespace);
         buf_init_from_str(&entry->name, "(namespace)");
         entry->zero_bits = true;
         g->builtin_types.entry_namespace = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBlock);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdBlock);
         buf_init_from_str(&entry->name, "(block)");
         entry->zero_bits = true;
         g->builtin_types.entry_block = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdComptimeFloat);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdComptimeFloat);
         buf_init_from_str(&entry->name, "comptime_float");
         entry->zero_bits = true;
         g->builtin_types.entry_num_lit_float = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdComptimeInt);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdComptimeInt);
         buf_init_from_str(&entry->name, "comptime_int");
         entry->zero_bits = true;
         g->builtin_types.entry_num_lit_int = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUndefined);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdUndefined);
         buf_init_from_str(&entry->name, "(undefined)");
         entry->zero_bits = true;
         g->builtin_types.entry_undef = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNull);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdNull);
         buf_init_from_str(&entry->name, "(null)");
         entry->zero_bits = true;
         g->builtin_types.entry_null = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArgTuple);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdArgTuple);
         buf_init_from_str(&entry->name, "(args)");
         entry->zero_bits = true;
         g->builtin_types.entry_arg_tuple = entry;
@@ -6228,7 +6228,7 @@ static void define_builtin_types(CodeGen *g) {
         uint32_t size_in_bits = target_c_type_size_in_bits(&g->zig_target, info->id);
         bool is_signed = info->is_signed;
 
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(size_in_bits);
 
         buf_init_from_str(&entry->name, info->name);
@@ -6245,7 +6245,7 @@ static void define_builtin_types(CodeGen *g) {
     }
 
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
         buf_init_from_str(&entry->name, "bool");
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
@@ -6259,7 +6259,7 @@ static void define_builtin_types(CodeGen *g) {
     for (size_t sign_i = 0; sign_i < array_length(is_signed_list); sign_i += 1) {
         bool is_signed = is_signed_list[sign_i];
 
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
 
         const char u_or_i = is_signed ? 'i' : 'u';
@@ -6286,8 +6286,8 @@ static void define_builtin_types(CodeGen *g) {
                             const char *name,
                             uint32_t bit_count,
                             LLVMTypeRef type_ref,
-                            TypeTableEntry **field) {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
+                            ZigType **field) {
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = type_ref;
         buf_init_from_str(&entry->name, name);
         entry->data.floating.bit_count = bit_count;
@@ -6306,7 +6306,7 @@ static void define_builtin_types(CodeGen *g) {
     add_fp_entry(g, "c_longdouble", 80, LLVMX86FP80Type(), &g->builtin_types.entry_c_longdouble);
 
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdVoid);
         entry->type_ref = LLVMVoidType();
         entry->zero_bits = true;
         buf_init_from_str(&entry->name, "void");
@@ -6317,7 +6317,7 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUnreachable);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdUnreachable);
         entry->type_ref = LLVMVoidType();
         entry->zero_bits = true;
         buf_init_from_str(&entry->name, "noreturn");
@@ -6326,7 +6326,7 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMetaType);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdMetaType);
         buf_init_from_str(&entry->name, "type");
         entry->zero_bits = true;
         g->builtin_types.entry_type = entry;
@@ -6348,7 +6348,7 @@ static void define_builtin_types(CodeGen *g) {
     }
 
     {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdErrorSet);
+        ZigType *entry = new_type_table_entry(TypeTableEntryIdErrorSet);
         buf_init_from_str(&entry->name, "error");
         entry->data.error_set.err_count = UINT32_MAX;
 
@@ -6370,7 +6370,7 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
     {
-        TypeTableEntry *entry = get_promise_type(g, nullptr);
+        ZigType *entry = get_promise_type(g, nullptr);
         g->primitive_type_table.put(&entry->name, entry);
     }
 
@@ -6623,7 +6623,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         buf_appendf(contents, "pub const TypeId = enum {\n");
         size_t field_count = type_id_len();
         for (size_t i = 0; i < field_count; i += 1) {
-            const TypeTableEntryId id = type_id_at_index(i);
+            const ZigTypeId id = type_id_at_index(i);
             buf_appendf(contents, "    %s,\n", type_id_name(id));
         }
         buf_appendf(contents, "};\n\n");
@@ -7068,14 +7068,14 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         exit(0);
     }
 
-    TypeTableEntry *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
+    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
-    TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
-    TypeTableEntry *fn_type = get_test_fn_type(g);
+    ZigType *str_type = get_slice_type(g, u8_ptr_type);
+    ZigType *fn_type = get_test_fn_type(g);
 
     const char *field_names[] = { "name", "func", };
-    TypeTableEntry *field_types[] = { str_type, fn_type, };
-    TypeTableEntry *struct_type = get_struct_type(g, "ZigTestFn", field_names, field_types, 2);
+    ZigType *field_types[] = { str_type, fn_type, };
+    ZigType *struct_type = get_struct_type(g, "ZigTestFn", field_names, field_types, 2);
 
     ConstExprValue *test_fn_array = create_const_vals(1);
     test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length);
@@ -7217,10 +7217,10 @@ static const char *c_int_type_names[] = {
 };
 
 struct GenH {
-    ZigList<TypeTableEntry *> types_to_declare;
+    ZigList<ZigType *> types_to_declare;
 };
 
-static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry) {
+static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_entry) {
     if (type_entry->gen_h_loop_flag)
         return;
     type_entry->gen_h_loop_flag = true;
@@ -7285,7 +7285,7 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, TypeTableEntry 
     }
 }
 
-static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf *out_buf) {
+static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_buf) {
     assert(type_entry);
 
     for (size_t i = 0; i < array_length(c_int_type_names); i += 1) {
@@ -7354,7 +7354,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
         case TypeTableEntryIdPointer:
             {
                 Buf child_buf = BUF_INIT;
-                TypeTableEntry *child_type = type_entry->data.pointer.child_type;
+                ZigType *child_type = type_entry->data.pointer.child_type;
                 get_c_type(g, gen_h, child_type, &child_buf);
 
                 const char *const_str = type_entry->data.pointer.is_const ? "const " : "";
@@ -7364,7 +7364,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
             }
         case TypeTableEntryIdOptional:
             {
-                TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+                ZigType *child_type = type_entry->data.maybe.child_type;
                 if (child_type->zero_bits) {
                     buf_init_from_str(out_buf, "bool");
                     return;
@@ -7555,7 +7555,7 @@ static void gen_h_file(CodeGen *g) {
     fprintf(out_h, "\n");
 
     for (size_t type_i = 0; type_i < gen_h->types_to_declare.length; type_i += 1) {
-        TypeTableEntry *type_entry = gen_h->types_to_declare.at(type_i);
+        ZigType *type_entry = gen_h->types_to_declare.at(type_i);
         switch (type_entry->id) {
             case TypeTableEntryIdInvalid:
             case TypeTableEntryIdMetaType:
