@@ -1004,7 +1004,7 @@ enum PtrLen {
     PtrLenSingle,
 };
 
-struct TypeTableEntryPointer {
+struct ZigTypePointer {
     ZigType *child_type;
     PtrLen ptr_len;
     bool is_const;
@@ -1015,16 +1015,16 @@ struct TypeTableEntryPointer {
     ZigType *slice_parent;
 };
 
-struct TypeTableEntryInt {
+struct ZigTypeInt {
     uint32_t bit_count;
     bool is_signed;
 };
 
-struct TypeTableEntryFloat {
+struct ZigTypeFloat {
     size_t bit_count;
 };
 
-struct TypeTableEntryArray {
+struct ZigTypeArray {
     ZigType *child_type;
     uint64_t len;
 };
@@ -1040,7 +1040,7 @@ struct TypeStructField {
     size_t unaligned_bit_count;
     AstNode *decl_node;
 };
-struct TypeTableEntryStruct {
+struct ZigTypeStruct {
     AstNode *decl_node;
     ContainerLayout layout;
     uint32_t src_field_count;
@@ -1068,22 +1068,22 @@ struct TypeTableEntryStruct {
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
-struct TypeTableEntryOptional {
+struct ZigTypeOptional {
     ZigType *child_type;
 };
 
-struct TypeTableEntryErrorUnion {
+struct ZigTypeErrorUnion {
     ZigType *err_set_type;
     ZigType *payload_type;
 };
 
-struct TypeTableEntryErrorSet {
+struct ZigTypeErrorSet {
     uint32_t err_count;
     ErrorTableEntry **errors;
     ZigFn *infer_fn;
 };
 
-struct TypeTableEntryEnum {
+struct ZigTypeEnum {
     AstNode *decl_node;
     ContainerLayout layout;
     uint32_t src_field_count;
@@ -1110,7 +1110,7 @@ struct TypeTableEntryEnum {
 uint32_t type_ptr_hash(const ZigType *ptr);
 bool type_ptr_eql(const ZigType *a, const ZigType *b);
 
-struct TypeTableEntryUnion {
+struct ZigTypeUnion {
     AstNode *decl_node;
     ContainerLayout layout;
     uint32_t src_field_count;
@@ -1154,7 +1154,7 @@ struct FnGenParamInfo {
     ZigType *type;
 };
 
-struct TypeTableEntryFn {
+struct ZigTypeFn {
     FnTypeId fn_type_id;
     bool is_generic;
     ZigType *gen_return_type;
@@ -1166,42 +1166,42 @@ struct TypeTableEntryFn {
     ZigType *bound_fn_parent;
 };
 
-struct TypeTableEntryBoundFn {
+struct ZigTypeBoundFn {
     ZigType *fn_type;
 };
 
-struct TypeTableEntryPromise {
+struct ZigTypePromise {
     // null if `promise` instead of `promise->T`
     ZigType *result_type;
 };
 
 enum ZigTypeId {
-    TypeTableEntryIdInvalid,
-    TypeTableEntryIdMetaType,
-    TypeTableEntryIdVoid,
-    TypeTableEntryIdBool,
-    TypeTableEntryIdUnreachable,
-    TypeTableEntryIdInt,
-    TypeTableEntryIdFloat,
-    TypeTableEntryIdPointer,
-    TypeTableEntryIdArray,
-    TypeTableEntryIdStruct,
-    TypeTableEntryIdComptimeFloat,
-    TypeTableEntryIdComptimeInt,
-    TypeTableEntryIdUndefined,
-    TypeTableEntryIdNull,
-    TypeTableEntryIdOptional,
-    TypeTableEntryIdErrorUnion,
-    TypeTableEntryIdErrorSet,
-    TypeTableEntryIdEnum,
-    TypeTableEntryIdUnion,
-    TypeTableEntryIdFn,
-    TypeTableEntryIdNamespace,
-    TypeTableEntryIdBlock,
-    TypeTableEntryIdBoundFn,
-    TypeTableEntryIdArgTuple,
-    TypeTableEntryIdOpaque,
-    TypeTableEntryIdPromise,
+    ZigTypeIdInvalid,
+    ZigTypeIdMetaType,
+    ZigTypeIdVoid,
+    ZigTypeIdBool,
+    ZigTypeIdUnreachable,
+    ZigTypeIdInt,
+    ZigTypeIdFloat,
+    ZigTypeIdPointer,
+    ZigTypeIdArray,
+    ZigTypeIdStruct,
+    ZigTypeIdComptimeFloat,
+    ZigTypeIdComptimeInt,
+    ZigTypeIdUndefined,
+    ZigTypeIdNull,
+    ZigTypeIdOptional,
+    ZigTypeIdErrorUnion,
+    ZigTypeIdErrorSet,
+    ZigTypeIdEnum,
+    ZigTypeIdUnion,
+    ZigTypeIdFn,
+    ZigTypeIdNamespace,
+    ZigTypeIdBlock,
+    ZigTypeIdBoundFn,
+    ZigTypeIdArgTuple,
+    ZigTypeIdOpaque,
+    ZigTypeIdPromise,
 };
 
 struct ZigType {
@@ -1216,19 +1216,19 @@ struct ZigType {
     bool gen_h_loop_flag;
 
     union {
-        TypeTableEntryPointer pointer;
-        TypeTableEntryInt integral;
-        TypeTableEntryFloat floating;
-        TypeTableEntryArray array;
-        TypeTableEntryStruct structure;
-        TypeTableEntryOptional maybe;
-        TypeTableEntryErrorUnion error_union;
-        TypeTableEntryErrorSet error_set;
-        TypeTableEntryEnum enumeration;
-        TypeTableEntryUnion unionation;
-        TypeTableEntryFn fn;
-        TypeTableEntryBoundFn bound_fn;
-        TypeTableEntryPromise promise;
+        ZigTypePointer pointer;
+        ZigTypeInt integral;
+        ZigTypeFloat floating;
+        ZigTypeArray array;
+        ZigTypeStruct structure;
+        ZigTypeOptional maybe;
+        ZigTypeErrorUnion error_union;
+        ZigTypeErrorSet error_set;
+        ZigTypeEnum enumeration;
+        ZigTypeUnion unionation;
+        ZigTypeFn fn;
+        ZigTypeBoundFn bound_fn;
+        ZigTypePromise promise;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
