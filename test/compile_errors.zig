@@ -2,6 +2,33 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "non int passed to @intToFloat",
+        \\export fn entry() void {
+        \\    const x = @intToFloat(f32, 1.1);
+        \\}
+    ,
+        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
+    );
+
+    cases.add(
+        "non float passed to @floatToInt",
+        \\export fn entry() void {
+        \\    const x = @floatToInt(i32, i32(54));
+        \\}
+    ,
+        ".tmp_source.zig:2:35: error: expected float type, found 'i32'",
+    );
+
+    cases.add(
+        "out of range comptime_int passed to @floatToInt",
+        \\export fn entry() void {
+        \\    const x = @floatToInt(i8, 200);
+        \\}
+    ,
+        ".tmp_source.zig:2:31: error: integer value 200 cannot be implicitly casted to type 'i8'",
+    );
+
+    cases.add(
         "load too many bytes from comptime reinterpreted pointer",
         \\export fn entry() void {
         \\    const float: f32 = 5.99999999999994648725e-01;
@@ -484,24 +511,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:2:20: error: return type cannot be opaque",
-    );
-
-    cases.add(
-        "non int passed to @intToFloat",
-        \\export fn entry() void {
-        \\    const x = @intToFloat(f32, 1.1);
-        \\}
-    ,
-        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
-    );
-
-    cases.add(
-        "non float passed to @floatToInt",
-        \\export fn entry() void {
-        \\    const x = @floatToInt(i32, 54);
-        \\}
-    ,
-        ".tmp_source.zig:2:32: error: expected float type, found 'comptime_int'",
     );
 
     cases.add(
