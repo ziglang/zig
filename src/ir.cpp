@@ -495,14 +495,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionInit *) {
     return IrInstructionIdUnionInit;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionMinValue *) {
-    return IrInstructionIdMinValue;
-}
-
-static constexpr IrInstructionId ir_instruction_id(IrInstructionMaxValue *) {
-    return IrInstructionIdMaxValue;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileErr *) {
     return IrInstructionIdCompileErr;
 }
@@ -1687,24 +1679,6 @@ static IrInstruction *ir_build_ref(IrBuilder *irb, Scope *scope, AstNode *source
     instruction->value = value;
     instruction->is_const = is_const;
     instruction->is_volatile = is_volatile;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_min_value(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionMinValue *instruction = ir_build_instruction<IrInstructionMinValue>(irb, scope, source_node);
-    instruction->value = value;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_max_value(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionMaxValue *instruction = ir_build_instruction<IrInstructionMaxValue>(irb, scope, source_node);
-    instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
@@ -3812,26 +3786,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *c_undef = ir_build_c_undef(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, c_undef, lval);
-            }
-        case BuiltinFnIdMaxValue:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                IrInstruction *max_value = ir_build_max_value(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, max_value, lval);
-            }
-        case BuiltinFnIdMinValue:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                IrInstruction *min_value = ir_build_min_value(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, min_value, lval);
             }
         case BuiltinFnIdCompileErr:
             {
@@ -16572,18 +16526,6 @@ static IrInstruction *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_i
     zig_unreachable();
 }
 
-static IrInstruction *ir_analyze_instruction_min_value(IrAnalyze *ira,
-        IrInstructionMinValue *instruction)
-{
-    return ir_analyze_min_max(ira, &instruction->base, instruction->value->child, false);
-}
-
-static IrInstruction *ir_analyze_instruction_max_value(IrAnalyze *ira,
-        IrInstructionMaxValue *instruction)
-{
-    return ir_analyze_min_max(ira, &instruction->base, instruction->value->child, true);
-}
-
 static IrInstruction *ir_analyze_instruction_compile_err(IrAnalyze *ira,
         IrInstructionCompileErr *instruction)
 {
@@ -21161,10 +21103,6 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_container_init_list(ira, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdContainerInitFields:
             return ir_analyze_instruction_container_init_fields(ira, (IrInstructionContainerInitFields *)instruction);
-        case IrInstructionIdMinValue:
-            return ir_analyze_instruction_min_value(ira, (IrInstructionMinValue *)instruction);
-        case IrInstructionIdMaxValue:
-            return ir_analyze_instruction_max_value(ira, (IrInstructionMaxValue *)instruction);
         case IrInstructionIdCompileErr:
             return ir_analyze_instruction_compile_err(ira, (IrInstructionCompileErr *)instruction);
         case IrInstructionIdCompileLog:
@@ -21508,8 +21446,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdUnionTag:
         case IrInstructionIdRef:
-        case IrInstructionIdMinValue:
-        case IrInstructionIdMaxValue:
         case IrInstructionIdEmbedFile:
         case IrInstructionIdTruncate:
         case IrInstructionIdIntType:
