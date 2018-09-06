@@ -3111,6 +3111,51 @@ static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
     LLVMAddCallSiteAttribute(call_instr, 1, sret_attr);
 }
 
+ATTRIBUTE_NORETURN
+static void report_errors_and_exit(CodeGen *g) {
+    assert(g->errors.length != 0);
+    for (size_t i = 0; i < g->errors.length; i += 1) {
+        ErrorMsg *err = g->errors.at(i);
+        print_err_msg(err, g->err_color);
+    }
+    exit(1);
+}
+
+static void report_errors_and_maybe_exit(CodeGen *g) {
+    if (g->errors.length != 0) {
+        report_errors_and_exit(g);
+    }
+}
+
+ATTRIBUTE_NORETURN
+static void give_up_with_c_abi_error(CodeGen *g, AstNode *source_node) {
+    ErrorMsg *msg = add_node_error(g, source_node,
+            buf_sprintf("TODO: support C ABI for more targets. https://github.com/ziglang/zig/issues/1481"));
+    add_error_note(g, msg, source_node,
+        buf_sprintf("pointers, integers, floats, bools, and enums work on all targets"));
+    report_errors_and_exit(g);
+}
+
+static void gen_c_abi_param(CodeGen *g, ZigList<LLVMValueRef> *gen_param_values, LLVMValueRef val,
+    ZigType *ty, AstNode *source_node)
+{
+    if (ty->id == ZigTypeIdInt ||
+        ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdBool ||
+        ty->id == ZigTypeIdEnum ||
+        get_codegen_ptr_type(ty) != nullptr)
+    {
+        gen_param_values->append(val);
+        return;
+    }
+
+    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        give_up_with_c_abi_error(g, source_node);
+    } else {
+        give_up_with_c_abi_error(g, source_node);
+    }
+}
+
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
     LLVMValueRef fn_val;
     ZigType *fn_type;
@@ -3128,29 +3173,25 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     ZigType *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
 
+    CallingConvention cc = fn_type->data.fn.fn_type_id.cc;
+    bool is_c_abi = cc == CallingConventionC;
+
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type) &&
-            calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc);
+            calling_convention_does_first_arg_return(cc);
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
-    // +2 for the async args
-    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0) + 2;
     bool is_var_args = fn_type_id->is_var_args;
-    LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
-    size_t gen_param_index = 0;
+    ZigList<LLVMValueRef> gen_param_values = {};
     if (first_arg_ret) {
-        gen_param_values[gen_param_index] = instruction->tmp_ptr;
-        gen_param_index += 1;
+        gen_param_values.append(instruction->tmp_ptr);
     }
     if (prefix_arg_err_ret_stack) {
-        gen_param_values[gen_param_index] = get_cur_err_ret_trace_val(g, instruction->base.scope);
-        gen_param_index += 1;
+        gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
     }
     if (instruction->is_async) {
-        gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->async_allocator);
-        gen_param_index += 1;
+        gen_param_values.append(ir_llvm_value(g, instruction->async_allocator));
 
         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
-        gen_param_values[gen_param_index] = err_val_ptr;
-        gen_param_index += 1;
+        gen_param_values.append(err_val_ptr);
     }
     for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
         IrInstruction *param_instruction = instruction->args[call_i];
@@ -3158,8 +3199,11 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         if (is_var_args || type_has_bits(param_type)) {
             LLVMValueRef param_value = ir_llvm_value(g, param_instruction);
             assert(param_value);
-            gen_param_values[gen_param_index] = param_value;
-            gen_param_index += 1;
+            if (is_c_abi) {
+                gen_c_abi_param(g, &gen_param_values, param_value, param_type, param_instruction->source_node);
+            } else {
+                gen_param_values.append(param_value);
+            }
         }
     }
 
@@ -3176,12 +3220,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             break;
     }
 
-    LLVMCallConv llvm_cc = get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc);
+    LLVMCallConv llvm_cc = get_llvm_cc(g, cc);
     LLVMValueRef result;
     
     if (instruction->new_stack == nullptr) {
         result = ZigLLVMBuildCall(g->builder, fn_val,
-                gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
+                gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
     } else {
         LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
         LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
@@ -3190,7 +3234,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMValueRef old_stack_ref = LLVMBuildCall(g->builder, stacksave_fn_val, nullptr, 0, "");
         gen_set_stack_pointer(g, new_stack_addr);
         result = ZigLLVMBuildCall(g->builder, fn_val,
-                gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
+                gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
         LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
     }
 
@@ -5732,16 +5776,6 @@ static void ensure_cache_dir(CodeGen *g) {
     int err;
     if ((err = os_make_path(&g->cache_dir))) {
         zig_panic("unable to make cache dir: %s", err_str(err));
-    }
-}
-
-static void report_errors_and_maybe_exit(CodeGen *g) {
-    if (g->errors.length != 0) {
-        for (size_t i = 0; i < g->errors.length; i += 1) {
-            ErrorMsg *err = g->errors.at(i);
-            print_err_msg(err, g->err_color);
-        }
-        exit(1);
     }
 }
 
