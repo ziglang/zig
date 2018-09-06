@@ -1061,6 +1061,77 @@ ZigType *get_ptr_to_stack_trace_type(CodeGen *g) {
     return g->ptr_to_stack_trace_type;
 }
 
+bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
+    size_t ty_size = type_size(g, ty);
+    if (ty_size > g->pointer_size_bytes)
+        return false;
+    return (ty->id == ZigTypeIdInt ||
+        ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdBool ||
+        ty->id == ZigTypeIdEnum ||
+        get_codegen_ptr_type(ty) != nullptr);
+}
+
+// If you edit this function you have to edit the corresponding code:
+// codegen.cpp:gen_c_abi_param
+// analyze.cpp:gen_c_abi_param_type
+// codegen.cpp:gen_c_abi_param_var
+// codegen.cpp:gen_c_abi_param_var_init
+static void gen_c_abi_param_type(CodeGen *g, ZigList<LLVMTypeRef> *gen_param_types,
+        ZigList<ZigLLVMDIType *> *param_di_types, ZigType *ty)
+{
+    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdInt // TODO investigate if we need to change this
+    ) {
+        gen_param_types->append(ty->type_ref);
+        param_di_types->append(ty->di_type);
+        return;
+    }
+
+    // Arrays are just pointers
+    if (ty->id == ZigTypeIdArray) {
+        ZigType *gen_type = get_pointer_to_type(g, ty, true);
+        gen_param_types->append(gen_type->type_ref);
+        param_di_types->append(gen_type->di_type);
+        return;
+    }
+
+    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        size_t ty_size = type_size(g, ty);
+        if (ty->id == ZigTypeIdStruct || ty->id == ZigTypeIdUnion) {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32) {
+                ZigType *gen_type = get_pointer_to_type(g, ty, true);
+                gen_param_types->append(gen_type->type_ref);
+                param_di_types->append(gen_type->di_type);
+                return;
+            }
+        }
+        if (ty->id == ZigTypeIdStruct) {
+            // "If the size of the aggregate exceeds a single eightbyte,  each is classified
+            // separately. Each eightbyte gets initialized to class NO_CLASS."
+            if (ty_size <= 8) {
+                bool contains_int = false;
+                for (size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                    if (type_is_c_abi_int(g, ty->data.structure.fields[i].type_entry)) {
+                        contains_int = true;
+                        break;
+                    }
+                }
+                if (contains_int) {
+                    ZigType *gen_type = get_int_type(g, false, ty_size * 8);
+                    gen_param_types->append(gen_type->type_ref);
+                    param_di_types->append(gen_type->di_type);
+                    return;
+                }
+            }
+        }
+    }
+
+    // allow codegen code to report a compile error
+}
+
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     Error err;
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
@@ -1119,18 +1190,18 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
         bool is_async = fn_type_id->cc == CallingConventionAsync;
+        bool is_c_abi = fn_type_id->cc == CallingConventionC;
         bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
         // +1 for maybe making the first argument the return value
         // +1 for maybe first argument the error return trace
         // +2 for maybe arguments async allocator and error code pointer
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(4 + fn_type_id->param_count);
+        ZigList<LLVMTypeRef> gen_param_types = {};
         // +1 because 0 is the return type and
         // +1 for maybe making first arg ret val and
         // +1 for maybe first argument the error return trace
         // +2 for maybe arguments async allocator and error code pointer
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(5 + fn_type_id->param_count);
-        param_di_types[0] = fn_type_id->return_type->di_type;
-        size_t gen_param_index = 0;
+        ZigList<ZigLLVMDIType *> param_di_types = {};
+        param_di_types.append(fn_type_id->return_type->di_type);
         ZigType *gen_return_type;
         if (is_async) {
             gen_return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
@@ -1138,10 +1209,8 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_return_type = g->builtin_types.entry_void;
         } else if (first_arg_return) {
             ZigType *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
-            gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_index += 1;
-            // after the gen_param_index += 1 because 0 is the return type
-            param_di_types[gen_param_index] = gen_type->di_type;
+            gen_param_types.append(gen_type->type_ref);
+            param_di_types.append(gen_type->di_type);
             gen_return_type = g->builtin_types.entry_void;
         } else {
             gen_return_type = fn_type_id->return_type;
@@ -1150,28 +1219,22 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
         if (prefix_arg_error_return_trace) {
             ZigType *gen_type = get_ptr_to_stack_trace_type(g);
-            gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_index += 1;
-            // after the gen_param_index += 1 because 0 is the return type
-            param_di_types[gen_param_index] = gen_type->di_type;
+            gen_param_types.append(gen_type->type_ref);
+            param_di_types.append(gen_type->di_type);
         }
         if (is_async) {
             {
                 // async allocator param
                 ZigType *gen_type = fn_type_id->async_allocator_type;
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_index += 1;
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                gen_param_types.append(gen_type->type_ref);
+                param_di_types.append(gen_type->di_type);
             }
 
             {
                 // error code pointer
                 ZigType *gen_type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_index += 1;
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                gen_param_types.append(gen_type->type_ref);
+                param_di_types.append(gen_type->di_type);
             }
         }
 
@@ -1187,7 +1250,9 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             if ((err = ensure_complete_type(g, type_entry)))
                 return g->builtin_types.entry_invalid;
 
-            if (type_has_bits(type_entry)) {
+            if (is_c_abi) {
+                gen_c_abi_param_type(g, &gen_param_types, &param_di_types, type_entry);
+            } else if (type_has_bits(type_entry)) {
                 ZigType *gen_type;
                 if (handle_is_ptr(type_entry)) {
                     gen_type = get_pointer_to_type(g, type_entry, true);
@@ -1195,23 +1260,20 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
                 } else {
                     gen_type = type_entry;
                 }
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_info->gen_index = gen_param_index;
+                gen_param_info->gen_index = gen_param_types.length;
                 gen_param_info->type = gen_type;
+                gen_param_types.append(gen_type->type_ref);
 
-                gen_param_index += 1;
-
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                param_di_types.append(gen_type->di_type);
             }
         }
 
-        fn_type->data.fn.gen_param_count = gen_param_index;
+        fn_type->data.fn.gen_param_count = gen_param_types.length;
 
         fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
-                gen_param_types, (unsigned int)gen_param_index, fn_type_id->is_var_args);
+                gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
         fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, (int)(gen_param_index + 1), 0);
+        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
     }
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);

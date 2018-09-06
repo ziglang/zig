@@ -3136,24 +3136,226 @@ static void give_up_with_c_abi_error(CodeGen *g, AstNode *source_node) {
     report_errors_and_exit(g);
 }
 
+static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment) {
+    assert(alignment > 0);
+    LLVMValueRef result = LLVMBuildAlloca(g->builder, type_entry->type_ref, name);
+    LLVMSetAlignment(result, alignment);
+    return result;
+}
+
+// If you edit this function you have to edit the corresponding code:
+// codegen.cpp:gen_c_abi_param
+// analyze.cpp:gen_c_abi_param_type
+// codegen.cpp:gen_c_abi_param_var
+// codegen.cpp:gen_c_abi_param_var_init
 static void gen_c_abi_param(CodeGen *g, ZigList<LLVMValueRef> *gen_param_values, LLVMValueRef val,
     ZigType *ty, AstNode *source_node)
 {
-    if (ty->id == ZigTypeIdInt ||
-        ty->id == ZigTypeIdFloat ||
-        ty->id == ZigTypeIdBool ||
-        ty->id == ZigTypeIdEnum ||
-        get_codegen_ptr_type(ty) != nullptr)
-    {
+    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdInt // TODO investigate if we need to change this
+    ) {
+        gen_param_values->append(val);
+        return;
+    }
+
+    // Arrays are just pointers
+    if (ty->id == ZigTypeIdArray) {
+        assert(handle_is_ptr(ty));
         gen_param_values->append(val);
         return;
     }
 
     if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
-        give_up_with_c_abi_error(g, source_node);
-    } else {
-        give_up_with_c_abi_error(g, source_node);
+        // This code all assumes that val is a pointer.
+        assert(handle_is_ptr(ty));
+
+        size_t ty_size = type_size(g, ty);
+        if (ty->id == ZigTypeIdStruct || ty->id == ZigTypeIdUnion) {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32) {
+                gen_param_values->append(val);
+                return;
+            }
+        }
+        if (ty->id == ZigTypeIdStruct) {
+            // "If the size of the aggregate exceeds a single eightbyte,  each is classified
+            // separately. Each eightbyte gets initialized to class NO_CLASS."
+            if (ty_size <= 8) {
+                bool contains_int = false;
+                for (size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                    if (type_is_c_abi_int(g, ty->data.structure.fields[i].type_entry)) {
+                        contains_int = true;
+                        break;
+                    }
+                }
+                if (contains_int) {
+                    LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
+                    LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, ptr_to_int_type_ref, "");
+                    LLVMValueRef loaded = LLVMBuildLoad(g->builder, bitcasted, "");
+                    gen_param_values->append(loaded);
+                    return;
+                }
+            }
+        }
     }
+
+    give_up_with_c_abi_error(g, source_node);
+}
+
+// If you edit this function you have to edit the corresponding code:
+// codegen.cpp:gen_c_abi_param
+// analyze.cpp:gen_c_abi_param_type
+// codegen.cpp:gen_c_abi_param_var
+// codegen.cpp:gen_c_abi_param_var_init
+static void gen_c_abi_param_var(CodeGen *g, ImportTableEntry *import, LLVMValueRef llvm_fn, ZigFn *fn,
+        ZigVar *var, unsigned *arg_index)
+{
+    ZigType *ty = var->value->type;
+
+    ZigType *dest_ty = nullptr;
+    unsigned di_arg_index;
+
+    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdInt // TODO investigate if we need to change this
+    ) {
+        var->value_ref = build_alloca(g, ty, buf_ptr(&var->name), var->align_bytes);
+        di_arg_index = *arg_index;
+        *arg_index += 1;
+        dest_ty = ty;
+        goto ok;
+    }
+
+    // Arrays are just pointers
+    if (ty->id == ZigTypeIdArray) {
+        di_arg_index = *arg_index;
+        var->value_ref = LLVMGetParam(llvm_fn, *arg_index);
+        dest_ty = get_pointer_to_type(g, ty, false);
+        *arg_index += 1;
+        goto ok;
+    }
+
+    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        assert(handle_is_ptr(ty));
+        size_t ty_size = type_size(g, ty);
+
+        if (ty->id == ZigTypeIdStruct || ty->id == ZigTypeIdUnion) {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32) {
+                di_arg_index = *arg_index;
+                var->value_ref = LLVMGetParam(llvm_fn, *arg_index);
+                dest_ty = get_pointer_to_type(g, ty, false);
+                *arg_index += 1;
+                goto ok;
+            }
+        }
+        if (ty->id == ZigTypeIdStruct) {
+            // "If the size of the aggregate exceeds a single eightbyte,  each is classified
+            // separately. Each eightbyte gets initialized to class NO_CLASS."
+            if (ty_size <= 8) {
+                bool contains_int = false;
+                for (size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                    if (type_is_c_abi_int(g, ty->data.structure.fields[i].type_entry)) {
+                        contains_int = true;
+                        break;
+                    }
+                }
+                if (contains_int) {
+                    var->value_ref = build_alloca(g, ty, buf_ptr(&var->name), var->align_bytes);
+                    *arg_index += 1;
+                    goto ok;
+                }
+            }
+        }
+    }
+
+    give_up_with_c_abi_error(g, fn->proto_node);
+
+ok:
+    if (dest_ty != nullptr && var->decl_node) {
+        // arg index + 1 because the 0 index is return value
+        var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
+                buf_ptr(&var->name), import->di_file,
+                (unsigned)(var->decl_node->line + 1),
+                dest_ty->di_type, !g->strip_debug_symbols, 0, di_arg_index + 1);
+    }
+}
+
+// If you edit this function you have to edit the corresponding code:
+// codegen.cpp:gen_c_abi_param
+// analyze.cpp:gen_c_abi_param_type
+// codegen.cpp:gen_c_abi_param_var
+// codegen.cpp:gen_c_abi_param_var_init
+static void gen_c_abi_param_var_init(CodeGen *g, ImportTableEntry *import, LLVMValueRef llvm_fn, ZigFn *fn,
+        ZigVar *var, unsigned *arg_index)
+{
+    ZigType *ty = var->value->type;
+
+    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdInt // TODO investigate if we need to change this
+    ) {
+        clear_debug_source_node(g);
+        gen_store_untyped(g, LLVMGetParam(llvm_fn, *arg_index), var->value_ref, var->align_bytes, false);
+        if (var->decl_node) {
+            gen_var_debug_decl(g, var);
+        }
+        *arg_index += 1;
+        return;
+    }
+
+    // Arrays are just pointers
+    if (ty->id == ZigTypeIdArray) {
+        if (var->decl_node) {
+            gen_var_debug_decl(g, var);
+        }
+        *arg_index += 1;
+        return;
+    }
+
+    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        assert(handle_is_ptr(ty));
+        size_t ty_size = type_size(g, ty);
+
+        if (ty->id == ZigTypeIdStruct || ty->id == ZigTypeIdUnion) {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32) {
+                if (var->decl_node) {
+                    gen_var_debug_decl(g, var);
+                }
+                *arg_index += 1;
+                return;
+            }
+        }
+        if (ty->id == ZigTypeIdStruct) {
+            // "If the size of the aggregate exceeds a single eightbyte,  each is classified
+            // separately. Each eightbyte gets initialized to class NO_CLASS."
+            if (ty_size <= 8) {
+                bool contains_int = false;
+                for (size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                    if (type_is_c_abi_int(g, ty->data.structure.fields[i].type_entry)) {
+                        contains_int = true;
+                        break;
+                    }
+                }
+                if (contains_int) {
+                    clear_debug_source_node(g);
+                    LLVMValueRef arg = LLVMGetParam(llvm_fn, *arg_index);
+                    LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
+                    LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, var->value_ref, ptr_to_int_type_ref, "");
+                    gen_store_untyped(g, arg, bitcasted, var->align_bytes, false);
+                    if (var->decl_node) {
+                        gen_var_debug_decl(g, var);
+                    }
+                    *arg_index += 1;
+                    return;
+                }
+            }
+        }
+    }
+
+    give_up_with_c_abi_error(g, fn->proto_node);
 }
 
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
@@ -5765,13 +5967,6 @@ static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
     // TODO ^^ make an actual global variable
 }
 
-static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment) {
-    assert(alignment > 0);
-    LLVMValueRef result = LLVMBuildAlloca(g->builder, type_entry->type_ref, name);
-    LLVMSetAlignment(result, alignment);
-    return result;
-}
-
 static void ensure_cache_dir(CodeGen *g) {
     int err;
     if ((err = os_make_path(&g->cache_dir))) {
@@ -5899,6 +6094,8 @@ static void do_code_gen(CodeGen *g) {
     // Generate function definitions.
     for (size_t fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
         ZigFn *fn_table_entry = g->fn_defs.at(fn_i);
+        CallingConvention cc = fn_table_entry->type_entry->data.fn.fn_type_id.cc;
+        bool is_c_abi = cc == CallingConventionC;
 
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);
         g->cur_fn = fn_table_entry;
@@ -5922,7 +6119,7 @@ static void do_code_gen(CodeGen *g) {
         }
 
         // error return tracing setup
-        bool is_async = fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+        bool is_async = cc == CallingConventionAsync;
         bool have_err_ret_trace_stack = g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn && !is_async && !have_err_ret_trace_arg;
         LLVMValueRef err_ret_array_val = nullptr;
         if (have_err_ret_trace_stack) {
@@ -5982,6 +6179,7 @@ static void do_code_gen(CodeGen *g) {
         ImportTableEntry *import = get_scope_import(&fn_table_entry->fndef_scope->base);
 
         // create debug variable declarations for variables and allocate all local variables
+        unsigned c_abi_arg_index = 0;
         for (size_t var_i = 0; var_i < fn_table_entry->variable_list.length; var_i += 1) {
             ZigVar *var = fn_table_entry->variable_list.at(var_i);
 
@@ -6000,6 +6198,8 @@ static void do_code_gen(CodeGen *g) {
                         buf_ptr(&var->name), import->di_file, (unsigned)(var->decl_node->line + 1),
                         var->value->type->di_type, !g->strip_debug_symbols, 0);
 
+            } else if (is_c_abi) {
+                gen_c_abi_param_var(g, import, fn, fn_table_entry, var, &c_abi_arg_index);
             } else {
                 assert(var->gen_arg_index != SIZE_MAX);
                 ZigType *gen_type;
@@ -6056,7 +6256,14 @@ static void do_code_gen(CodeGen *g) {
         // create debug variable declarations for parameters
         // rely on the first variables in the variable_list being parameters.
         size_t next_var_i = 0;
+        unsigned c_abi_arg_init_index = 0;
         for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
+            if (is_c_abi) {
+                ZigVar *var = fn_table_entry->variable_list.at(param_i);
+                gen_c_abi_param_var_init(g, import, fn, fn_table_entry, var, &c_abi_arg_init_index);
+                continue;
+            }
+
             FnGenParamInfo *info = &fn_table_entry->type_entry->data.fn.gen_param_info[param_i];
             if (info->gen_index == SIZE_MAX)
                 continue;
@@ -6078,6 +6285,7 @@ static void do_code_gen(CodeGen *g) {
                 gen_var_debug_decl(g, variable);
             }
         }
+        assert(c_abi_arg_index == c_abi_arg_init_index);
 
         ir_render(g, fn_table_entry);
 
