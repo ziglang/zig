@@ -2350,6 +2350,7 @@ struct IrInstructionVarPtr {
     IrInstruction base;
 
     ZigVar *var;
+    ScopeFnDef *crossed_fndef_scope;
 };
 
 struct IrInstructionCall {

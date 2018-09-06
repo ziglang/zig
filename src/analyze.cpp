@@ -3519,7 +3519,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     if (!type_is_invalid(value->type)) {
         variable_entry->align_bytes = get_abi_alignment(g, value->type);
 
-        ZigVar *existing_var = find_variable(g, parent_scope, name);
+        ZigVar *existing_var = find_variable(g, parent_scope, name, nullptr);
         if (existing_var && !existing_var->shadowable) {
             ErrorMsg *msg = add_node_error(g, source_node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
@@ -3726,12 +3726,16 @@ Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
     return nullptr;
 }
 
-ZigVar *find_variable(CodeGen *g, Scope *scope, Buf *name) {
+ZigVar *find_variable(CodeGen *g, Scope *scope, Buf *name, ScopeFnDef **crossed_fndef_scope) {
+    ScopeFnDef *my_crossed_fndef_scope = nullptr;
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            if (buf_eql_buf(name, &var_scope->var->name))
+            if (buf_eql_buf(name, &var_scope->var->name)) {
+                if (crossed_fndef_scope != nullptr)
+                    *crossed_fndef_scope = my_crossed_fndef_scope;
                 return var_scope->var;
+            }
         } else if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
             auto entry = decls_scope->decl_table.maybe_get(name);
@@ -3739,10 +3743,15 @@ ZigVar *find_variable(CodeGen *g, Scope *scope, Buf *name) {
                 Tld *tld = entry->value;
                 if (tld->id == TldIdVar) {
                     TldVar *tld_var = (TldVar *)tld;
-                    if (tld_var->var)
+                    if (tld_var->var) {
+                        if (crossed_fndef_scope != nullptr)
+                            *crossed_fndef_scope = nullptr;
                         return tld_var->var;
+                    }
                 }
             }
+        } else if (scope->id == ScopeIdFnDef) {
+            my_crossed_fndef_scope = (ScopeFnDef *)scope;
         }
         scope = scope->parent;
     }

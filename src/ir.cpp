@@ -1114,13 +1114,20 @@ static IrInstruction *ir_build_bin_op_from(IrBuilder *irb, IrInstruction *old_in
     return new_instruction;
 }
 
-static IrInstruction *ir_build_var_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigVar *var) {
+static IrInstruction *ir_build_var_ptr_x(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigVar *var,
+        ScopeFnDef *crossed_fndef_scope)
+{
     IrInstructionVarPtr *instruction = ir_build_instruction<IrInstructionVarPtr>(irb, scope, source_node);
     instruction->var = var;
+    instruction->crossed_fndef_scope = crossed_fndef_scope;
 
     ir_ref_var(var);
 
     return &instruction->base;
+}
+
+static IrInstruction *ir_build_var_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigVar *var) {
+    return ir_build_var_ptr_x(irb, scope, source_node, var, nullptr);
 }
 
 static IrInstruction *ir_build_elem_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *array_ptr,
@@ -3336,7 +3343,7 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
         buf_init_from_buf(&variable_entry->name, name);
 
         if (!skip_name_check) {
-            ZigVar *existing_var = find_variable(codegen, parent_scope, name);
+            ZigVar *existing_var = find_variable(codegen, parent_scope, name, nullptr);
             if (existing_var && !existing_var->shadowable) {
                 ErrorMsg *msg = add_node_error(codegen, node,
                         buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
@@ -3799,9 +3806,10 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         }
     }
 
-    ZigVar *var = find_variable(irb->codegen, scope, variable_name);
+    ScopeFnDef *crossed_fndef_scope;
+    ZigVar *var = find_variable(irb->codegen, scope, variable_name, &crossed_fndef_scope);
     if (var) {
-        IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, node, var);
+        IrInstruction *var_ptr = ir_build_var_ptr_x(irb, scope, node, var, crossed_fndef_scope);
         if (lval == LValPtr)
             return var_ptr;
         else
@@ -5822,7 +5830,9 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
             output_types[i] = return_type;
         } else {
             Buf *variable_name = asm_output->variable_name;
-            ZigVar *var = find_variable(irb->codegen, scope, variable_name);
+            // TODO there is some duplication here with ir_gen_symbol. I need to do a full audit of how
+            // inline assembly works. https://github.com/ziglang/zig/issues/215
+            ZigVar *var = find_variable(irb->codegen, scope, variable_name, nullptr);
             if (var) {
                 output_vars[i] = var;
             } else {
@@ -14157,17 +14167,26 @@ static ZigType *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPhi *phi
     return resolved_type;
 }
 
-static ZigType *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
-        ZigVar *var)
-{
+static ZigType *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction, ZigVar *var) {
     IrInstruction *result = ir_get_var_ptr(ira, instruction, var);
     ir_link_new_instruction(result, instruction);
     return result->value.type;
 }
 
-static ZigType *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructionVarPtr *var_ptr_instruction) {
-    ZigVar *var = var_ptr_instruction->var;
-    return ir_analyze_var_ptr(ira, &var_ptr_instruction->base, var);
+static ZigType *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructionVarPtr *instruction) {
+    ZigVar *var = instruction->var;
+    IrInstruction *result = ir_get_var_ptr(ira, &instruction->base, var);
+    if (instruction->crossed_fndef_scope != nullptr && !instr_is_comptime(result)) {
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+            buf_sprintf("'%s' not accessible from inner function", buf_ptr(&var->name)));
+        add_error_note(ira->codegen, msg, instruction->crossed_fndef_scope->base.source_node,
+                buf_sprintf("crossed function definition here"));
+        add_error_note(ira->codegen, msg, var->decl_node,
+                buf_sprintf("declared here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
 }
 
 static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_align) {

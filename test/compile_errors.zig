@@ -2,6 +2,26 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "accessing runtime parameter from outer function",
+        \\fn outer(y: u32) fn (u32) u32 {
+        \\    const st = struct {
+        \\        fn get(z: u32) u32 {
+        \\            return z + y;
+        \\        }
+        \\    };
+        \\    return st.get;
+        \\}
+        \\export fn entry() void {
+        \\    var func = outer(10);
+        \\    var x = func(3);
+        \\}
+    ,
+        ".tmp_source.zig:4:24: error: 'y' not accessible from inner function",
+        ".tmp_source.zig:3:28: note: crossed function definition here",
+        ".tmp_source.zig:1:10: note: declared here",
+    );
+
+    cases.add(
         "non int passed to @intToFloat",
         \\export fn entry() void {
         \\    const x = @intToFloat(f32, 1.1);

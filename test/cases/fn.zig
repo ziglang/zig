@@ -176,3 +176,18 @@ test "pass by non-copying value as method, at comptime" {
         assert(pt.addPointCoords() == 3);
     }
 }
+
+fn outer(y: u32) fn (u32) u32 {
+    const Y = @typeOf(y);
+    const st = struct {
+        fn get(z: u32) u32 {
+            return z + @sizeOf(Y);
+        }
+    };
+    return st.get;
+}
+
+test "return inner function which references comptime variable of outer function" {
+    var func = outer(10);
+    assert(func(3) == 7);
+}
