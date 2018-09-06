@@ -7760,27 +7760,6 @@ static void base64_encode(Slice<uint8_t> dest, Slice<uint8_t> source) {
 
     // Assert that we never need pad characters.
     assert(i == source.len);
-    //if (i < source.len) {
-    //    dest.ptr[out_index] = base64_fs_alphabet[(source.ptr[i] >> 2) & 0x3f];
-    //    out_index += 1;
-
-    //    if (i + 1 == source.len) {
-    //        dest.ptr[out_index] = base64_fs_alphabet[(source.ptr[i] & 0x3) << 4];
-    //        out_index += 1;
-
-    //        dest.ptr[out_index] = encoder.pad_char;
-    //        out_index += 1;
-    //    } else {
-    //        dest.ptr[out_index] = base64_fs_alphabet[((source.ptr[i] & 0x3) << 4) | ((source.ptr[i + 1] & 0xf0) >> 4)];
-    //        out_index += 1;
-
-    //        dest.ptr[out_index] = base64_fs_alphabet[(source.ptr[i + 1] & 0xf) << 2];
-    //        out_index += 1;
-    //    }
-
-    //    dest.ptr[out_index] = encoder.pad_char;
-    //    out_index += 1;
-    //}
 }
 
 // Called before init()
