@@ -674,3 +674,11 @@ test "inline for with same type but different values" {
     }
     assert(res == 5);
 }
+
+test "refer to the type of a generic function" {
+    const Func = fn (type) void;
+    const f: Func = doNothingWithType;
+    f(i32);
+}
+
+fn doNothingWithType(comptime T: type) void {}

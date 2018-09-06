@@ -1013,7 +1013,7 @@ bool calling_convention_does_first_arg_return(CallingConvention cc) {
     return cc == CallingConventionUnspecified;
 }
 
-static const char *calling_convention_name(CallingConvention cc) {
+const char *calling_convention_name(CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified: return "undefined";
         case CallingConventionC: return "ccc";
@@ -1037,7 +1037,7 @@ static const char *calling_convention_fn_type_str(CallingConvention cc) {
     zig_unreachable();
 }
 
-static bool calling_convention_allows_zig_types(CallingConvention cc) {
+bool calling_convention_allows_zig_types(CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified:
         case CallingConventionAsync:

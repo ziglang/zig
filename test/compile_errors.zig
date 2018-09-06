@@ -2,6 +2,17 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "refer to the type of a generic function",
+        \\export fn entry() void {
+        \\    const Func = fn (type) void;
+        \\    const f: Func = undefined;
+        \\    f(i32);
+        \\}
+    ,
+        ".tmp_source.zig:4:5: error: use of undefined value",
+    );
+
+    cases.add(
         "accessing runtime parameter from outer function",
         \\fn outer(y: u32) fn (u32) u32 {
         \\    const st = struct {

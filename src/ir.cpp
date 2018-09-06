@@ -19595,6 +19595,7 @@ static ZigType *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
 }
 
 static ZigType *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstructionFnProto *instruction) {
+    Error err;
     AstNode *proto_node = instruction->base.source_node;
     assert(proto_node->type == NodeTypeFnProto);
 
@@ -19636,9 +19637,25 @@ static ZigType *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstructionFnP
             IrInstruction *param_type_value = instruction->param_types[fn_type_id.next_param_index]->other;
             if (type_is_invalid(param_type_value->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
-            param_info->type = ir_resolve_type(ira, param_type_value);
-            if (type_is_invalid(param_info->type))
+            ZigType *param_type = ir_resolve_type(ira, param_type_value);
+            if (type_is_invalid(param_type))
                 return ira->codegen->builtin_types.entry_invalid;
+            if ((err = type_ensure_zero_bits_known(ira->codegen, param_type)))
+                return ira->codegen->builtin_types.entry_invalid;
+            if (type_requires_comptime(param_type)) {
+                if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
+                    ir_add_error(ira, &instruction->base,
+                        buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
+                            buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+                param_info->type = param_type;
+                fn_type_id.next_param_index += 1;
+                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+                out_val->data.x_type = get_generic_fn_type(ira->codegen, &fn_type_id);
+                return ira->codegen->builtin_types.entry_type;
+            }
+            param_info->type = param_type;
         }
 
     }
