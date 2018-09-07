@@ -5847,7 +5847,7 @@ fn add(a: i32, b: i32) i32 {
       {#header_open|@bitOffsetOf#}
       <pre><code class="zig">@bitOffsetOf(comptime T: type, comptime field_name: [] const u8) (number literal)</code></pre>
       <p>
-      This function returns the byte offset of a field relative to its containing struct.
+      This function returns the bit offset of a field relative to its containing struct.
       </p>
       {#header_close#}
       {#header_open|@OpaqueType#}
