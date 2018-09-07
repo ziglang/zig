@@ -3288,6 +3288,7 @@ enum FnWalkId {
     FnWalkIdAttrs,
     FnWalkIdCall,
     FnWalkIdTypes,
+    FnWalkIdVars,
 };
 
 struct FnWalkAttrs {
@@ -3306,12 +3307,21 @@ struct FnWalkTypes {
     ZigList<LLVMTypeRef> *gen_param_types;
 };
 
+struct FnWalkVars {
+    ImportTableEntry *import;
+    LLVMValueRef llvm_fn;
+    ZigFn *fn;
+    ZigVar *var;
+    unsigned gen_i;
+};
+
 struct FnWalk {
     FnWalkId id;
     union {
         FnWalkAttrs attrs;
         FnWalkCall call;
         FnWalkTypes types;
+        FnWalkVars vars;
     } data;
 };
 
