@@ -52,6 +52,13 @@ struct SmallStructInts {
 };
 void zig_small_struct_ints(struct SmallStructInts);
 
+struct SplitStructInts {
+    uint64_t a;
+    uint8_t b;
+    uint32_t c;
+};
+void zig_split_struct_ints(struct SplitStructInts);
+
 void run_c_tests(void) {
     zig_u8(0xff);
     zig_u16(0xfffe);
@@ -82,6 +89,11 @@ void run_c_tests(void) {
     {
         struct SmallStructInts s = {1, 2, 3, 4};
         zig_small_struct_ints(s);
+    }
+
+    {
+        struct SplitStructInts s = {1234, 100, 1337};
+        zig_split_struct_ints(s);
     }
 }
 
@@ -166,4 +178,10 @@ void c_small_struct_ints(struct SmallStructInts x) {
     assert_or_panic(x.b == 2);
     assert_or_panic(x.c == 3);
     assert_or_panic(x.d == 4);
+}
+
+void c_split_struct_ints(struct SplitStructInts x) {
+    assert_or_panic(x.a == 1234);
+    assert_or_panic(x.b == 100);
+    assert_or_panic(x.c == 1337);
 }

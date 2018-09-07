@@ -354,8 +354,12 @@ static void addLLVMFnAttrInt(LLVMValueRef fn_val, const char *attr_name, uint64_
     return addLLVMAttrInt(fn_val, -1, attr_name, attr_val);
 }
 
-static void addLLVMArgAttr(LLVMValueRef arg_val, unsigned param_index, const char *attr_name) {
-    return addLLVMAttr(arg_val, param_index + 1, attr_name);
+static void addLLVMArgAttr(LLVMValueRef fn_val, unsigned param_index, const char *attr_name) {
+    return addLLVMAttr(fn_val, param_index + 1, attr_name);
+}
+
+static void addLLVMArgAttrInt(LLVMValueRef fn_val, unsigned param_index, const char *attr_name, uint64_t attr_val) {
+    return addLLVMAttrInt(fn_val, param_index + 1, attr_name, attr_val);
 }
 
 static bool is_symbol_available(CodeGen *g, Buf *name) {
@@ -2096,6 +2100,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
         switch (fn_walk->id) {
             case FnWalkIdAttrs:
                 addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
+                addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
                 fn_walk->data.attrs.gen_i += 1;
                 break;
             case FnWalkIdCall:
@@ -2132,6 +2137,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             switch (fn_walk->id) {
                 case FnWalkIdAttrs:
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "byval");
+                    addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     fn_walk->data.attrs.gen_i += 1;
                     break;
@@ -2159,7 +2165,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     break;
             }
             return true;
-        } else if (abi_class == X64CABIClass_INTEGER && ty_size <= 8) {
+        } else if (abi_class == X64CABIClass_INTEGER) {
             switch (fn_walk->id) {
                 case FnWalkIdAttrs:
                     fn_walk->data.attrs.gen_i += 1;

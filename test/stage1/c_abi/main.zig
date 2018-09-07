@@ -181,3 +181,25 @@ export fn zig_small_struct_ints(x: SmallStructInts) void {
     assertOrPanic(x.c == 3);
     assertOrPanic(x.d == 4);
 }
+
+const SplitStructInt = extern struct {
+    a: u64,
+    b: u8,
+    c: u32,
+};
+extern fn c_split_struct_ints(SplitStructInt) void;
+
+test "C ABI split struct of ints" {
+    var s = SplitStructInt{
+        .a = 1234,
+        .b = 100,
+        .c = 1337,
+    };
+    c_split_struct_ints(s);
+}
+
+export fn zig_split_struct_ints(x: SplitStructInt) void {
+    assertOrPanic(x.a == 1234);
+    assertOrPanic(x.b == 100);
+    assertOrPanic(x.c == 1337);
+}
