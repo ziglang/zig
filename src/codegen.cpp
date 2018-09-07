@@ -466,7 +466,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     }
 
     bool external_linkage = linkage != GlobalLinkageIdInternal;
-    if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall && external_linkage &&
+    CallingConvention cc = fn_table_entry->type_entry->data.fn.fn_type_id.cc;
+    if (cc == CallingConventionStdcall && external_linkage &&
         g->zig_target.arch.arch == ZigLLVM_x86)
     {
         // prevent llvm name mangling
@@ -510,17 +511,17 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
             break;
     }
 
-    if (fn_type->data.fn.fn_type_id.cc == CallingConventionNaked) {
+    if (cc == CallingConventionNaked) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "naked");
     } else {
         LLVMSetFunctionCallConv(fn_table_entry->llvm_value, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
     }
-    if (fn_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+    if (cc == CallingConventionAsync) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "optnone");
         addLLVMFnAttr(fn_table_entry->llvm_value, "noinline");
     }
 
-    bool want_cold = fn_table_entry->is_cold || fn_type->data.fn.fn_type_id.cc == CallingConventionCold;
+    bool want_cold = fn_table_entry->is_cold || cc == CallingConventionCold;
     if (want_cold) {
         ZigLLVMAddFunctionAttrCold(fn_table_entry->llvm_value);
     }
@@ -576,37 +577,16 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
         // nothing to do
     } else if (type_is_codegen_pointer(return_type)) {
         addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
-    } else if (handle_is_ptr(return_type) &&
-            calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
-    {
+    } else if (handle_is_ptr(return_type) && calling_convention_does_first_arg_return(cc)) {
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "nonnull");
     }
 
-
     // set parameter attributes
-    for (size_t param_i = 0; param_i < fn_type->data.fn.fn_type_id.param_count; param_i += 1) {
-        FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
-        size_t gen_index = gen_info->gen_index;
-        bool is_byval = gen_info->is_byval;
-
-        if (gen_index == SIZE_MAX) {
-            continue;
-        }
-
-        FnTypeParamInfo *param_info = &fn_type->data.fn.fn_type_id.param_info[param_i];
-
-        ZigType *param_type = gen_info->type;
-        if (param_info->is_noalias) {
-            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "noalias");
-        }
-        if ((param_type->id == ZigTypeIdPointer && param_type->data.pointer.is_const) || is_byval) {
-            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "readonly");
-        }
-        if (param_type->id == ZigTypeIdPointer) {
-            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "nonnull");
-        }
-    }
+    FnWalk fn_walk = {};
+    fn_walk.id = FnWalkIdAttrs;
+    fn_walk.data.attrs.fn = fn_table_entry;
+    walk_function_params(g, fn_type, &fn_walk);
 
     uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
     if (err_ret_trace_arg_index != UINT32_MAX) {
@@ -1888,6 +1868,216 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
     return instruction->llvm_value;
 }
 
+ATTRIBUTE_NORETURN
+static void report_errors_and_exit(CodeGen *g) {
+    assert(g->errors.length != 0);
+    for (size_t i = 0; i < g->errors.length; i += 1) {
+        ErrorMsg *err = g->errors.at(i);
+        print_err_msg(err, g->err_color);
+    }
+    exit(1);
+}
+
+static void report_errors_and_maybe_exit(CodeGen *g) {
+    if (g->errors.length != 0) {
+        report_errors_and_exit(g);
+    }
+}
+
+ATTRIBUTE_NORETURN
+static void give_up_with_c_abi_error(CodeGen *g, AstNode *source_node) {
+    ErrorMsg *msg = add_node_error(g, source_node,
+            buf_sprintf("TODO: support C ABI for more targets. https://github.com/ziglang/zig/issues/1481"));
+    add_error_note(g, msg, source_node,
+        buf_sprintf("pointers, integers, floats, bools, and enums work on all targets"));
+    report_errors_and_exit(g);
+}
+
+static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk, size_t src_i) {
+    // Initialized from the type for some walks, but because of C var args,
+    // initialized based on callsite instructions for that one.
+    FnTypeParamInfo *param_info = nullptr;
+    ZigType *ty;
+    AstNode *source_node = nullptr;
+    LLVMValueRef val;
+    LLVMValueRef llvm_fn;
+    switch (fn_walk->id) {
+        case FnWalkIdAttrs:
+            if (src_i >= fn_type->data.fn.fn_type_id.param_count)
+                return false;
+            param_info = &fn_type->data.fn.fn_type_id.param_info[src_i];
+            ty = param_info->type;
+            source_node = fn_walk->data.attrs.fn->proto_node;
+            llvm_fn = fn_walk->data.attrs.fn->llvm_value;
+            break;
+        case FnWalkIdCall: {
+            if (src_i >= fn_walk->data.call.inst->arg_count)
+                return false;
+            IrInstruction *arg = fn_walk->data.call.inst->args[src_i];
+            ty = arg->value.type;
+            source_node = arg->source_node;
+            val = ir_llvm_value(g, arg);
+            break;
+        }
+    }
+    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdInt // TODO investigate if we need to change this
+    ) {
+        switch (fn_walk->id) {
+            case FnWalkIdAttrs: {
+                ZigType *ptr_type = get_codegen_ptr_type(ty);
+                if (ptr_type != nullptr) {
+                    if (ty->id != ZigTypeIdOptional) {
+                        addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
+                    }
+                    if (ptr_type->data.pointer.is_const) {
+                        addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "readonly");
+                    }
+                    if (param_info->is_noalias) {
+                        addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "noalias");
+                    }
+                }
+                fn_walk->data.attrs.gen_i += 1;
+                break;
+            }
+            case FnWalkIdCall:
+                fn_walk->data.call.gen_param_values->append(val);
+                break;
+        }
+        return true;
+    }
+
+    // Arrays are just pointers
+    if (ty->id == ZigTypeIdArray) {
+        assert(handle_is_ptr(ty));
+        switch (fn_walk->id) {
+            case FnWalkIdAttrs:
+                addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
+                fn_walk->data.attrs.gen_i += 1;
+                break;
+            case FnWalkIdCall:
+                fn_walk->data.call.gen_param_values->append(val);
+                break;
+        }
+        return true;
+    }
+
+    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        size_t ty_size = type_size(g, ty);
+        if (ty->id == ZigTypeIdStruct || ty->id == ZigTypeIdUnion) {
+            assert(handle_is_ptr(ty));
+
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32) {
+                switch (fn_walk->id) {
+                    case FnWalkIdAttrs:
+                        addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "byval");
+                        addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
+                        fn_walk->data.attrs.gen_i += 1;
+                        break;
+                    case FnWalkIdCall:
+                        fn_walk->data.call.gen_param_values->append(val);
+                        break;
+                }
+                return true;
+            }
+        }
+        if (ty->id == ZigTypeIdStruct) {
+            assert(handle_is_ptr(ty));
+            // "If the size of the aggregate exceeds a single eightbyte,  each is classified
+            // separately. Each eightbyte gets initialized to class NO_CLASS."
+            if (ty_size <= 8) {
+                bool contains_int = false;
+                for (size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                    if (type_is_c_abi_int(g, ty->data.structure.fields[i].type_entry)) {
+                        contains_int = true;
+                        break;
+                    }
+                }
+                if (contains_int) {
+                    switch (fn_walk->id) {
+                        case FnWalkIdAttrs:
+                            fn_walk->data.attrs.gen_i += 1;
+                            break;
+                        case FnWalkIdCall: {
+                            LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
+                            LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, ptr_to_int_type_ref, "");
+                            LLVMValueRef loaded = LLVMBuildLoad(g->builder, bitcasted, "");
+                            fn_walk->data.call.gen_param_values->append(loaded);
+                            break;
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+    }
+    if (source_node != nullptr) {
+        give_up_with_c_abi_error(g, source_node);
+    }
+    // otherwise allow codegen code to report a compile error
+    return false;
+}
+
+void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
+    CallingConvention cc = fn_type->data.fn.fn_type_id.cc;
+    if (cc == CallingConventionC) {
+        size_t src_i = 0;
+        for (;;) {
+            if (!iter_function_params_c_abi(g, fn_type, fn_walk, src_i))
+                break;
+            src_i += 1;
+        }
+        return;
+    }
+    if (fn_walk->id == FnWalkIdCall) {
+        IrInstructionCall *instruction = fn_walk->data.call.inst;
+        bool is_var_args = fn_walk->data.call.is_var_args;
+        for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
+            IrInstruction *param_instruction = instruction->args[call_i];
+            ZigType *param_type = param_instruction->value.type;
+            if (is_var_args || type_has_bits(param_type)) {
+                LLVMValueRef param_value = ir_llvm_value(g, param_instruction);
+                assert(param_value);
+                fn_walk->data.call.gen_param_values->append(param_value);
+            }
+        }
+        return;
+    }
+    for (size_t param_i = 0; param_i < fn_type->data.fn.fn_type_id.param_count; param_i += 1) {
+        FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
+        size_t gen_index = gen_info->gen_index;
+
+        if (gen_index == SIZE_MAX) {
+            continue;
+        }
+
+        switch (fn_walk->id) {
+            case FnWalkIdAttrs: {
+                LLVMValueRef llvm_fn = fn_walk->data.attrs.fn->llvm_value;
+                bool is_byval = gen_info->is_byval;
+                FnTypeParamInfo *param_info = &fn_type->data.fn.fn_type_id.param_info[param_i];
+
+                ZigType *param_type = gen_info->type;
+                if (param_info->is_noalias) {
+                    addLLVMArgAttr(llvm_fn, (unsigned)gen_index, "noalias");
+                }
+                if ((param_type->id == ZigTypeIdPointer && param_type->data.pointer.is_const) || is_byval) {
+                    addLLVMArgAttr(llvm_fn, (unsigned)gen_index, "readonly");
+                }
+                if (param_type->id == ZigTypeIdPointer) {
+                    addLLVMArgAttr(llvm_fn, (unsigned)gen_index, "nonnull");
+                }
+                break;
+            }
+            case FnWalkIdCall:
+                // handled before for loop
+                zig_unreachable();
+        }
+    }
+}
+
 static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *executable,
         IrInstructionSaveErrRetAddr *save_err_ret_addr_instruction)
 {
@@ -3111,31 +3301,6 @@ static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
     LLVMAddCallSiteAttribute(call_instr, 1, sret_attr);
 }
 
-ATTRIBUTE_NORETURN
-static void report_errors_and_exit(CodeGen *g) {
-    assert(g->errors.length != 0);
-    for (size_t i = 0; i < g->errors.length; i += 1) {
-        ErrorMsg *err = g->errors.at(i);
-        print_err_msg(err, g->err_color);
-    }
-    exit(1);
-}
-
-static void report_errors_and_maybe_exit(CodeGen *g) {
-    if (g->errors.length != 0) {
-        report_errors_and_exit(g);
-    }
-}
-
-ATTRIBUTE_NORETURN
-static void give_up_with_c_abi_error(CodeGen *g, AstNode *source_node) {
-    ErrorMsg *msg = add_node_error(g, source_node,
-            buf_sprintf("TODO: support C ABI for more targets. https://github.com/ziglang/zig/issues/1481"));
-    add_error_note(g, msg, source_node,
-        buf_sprintf("pointers, integers, floats, bools, and enums work on all targets"));
-    report_errors_and_exit(g);
-}
-
 static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment) {
     assert(alignment > 0);
     LLVMValueRef result = LLVMBuildAlloca(g->builder, type_entry->type_ref, name);
@@ -3144,67 +3309,6 @@ static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *na
 }
 
 // If you edit this function you have to edit the corresponding code:
-// codegen.cpp:gen_c_abi_param
-// analyze.cpp:gen_c_abi_param_type
-// codegen.cpp:gen_c_abi_param_var
-// codegen.cpp:gen_c_abi_param_var_init
-static void gen_c_abi_param(CodeGen *g, ZigList<LLVMValueRef> *gen_param_values, LLVMValueRef val,
-    ZigType *ty, AstNode *source_node)
-{
-    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
-        ty->id == ZigTypeIdInt // TODO investigate if we need to change this
-    ) {
-        gen_param_values->append(val);
-        return;
-    }
-
-    // Arrays are just pointers
-    if (ty->id == ZigTypeIdArray) {
-        assert(handle_is_ptr(ty));
-        gen_param_values->append(val);
-        return;
-    }
-
-    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
-        // This code all assumes that val is a pointer.
-        assert(handle_is_ptr(ty));
-
-        size_t ty_size = type_size(g, ty);
-        if (ty->id == ZigTypeIdStruct || ty->id == ZigTypeIdUnion) {
-            // "If the size of an object is larger than four eightbytes, or it contains unaligned
-            // fields, it has class MEMORY"
-            if (ty_size > 32) {
-                gen_param_values->append(val);
-                return;
-            }
-        }
-        if (ty->id == ZigTypeIdStruct) {
-            // "If the size of the aggregate exceeds a single eightbyte,  each is classified
-            // separately. Each eightbyte gets initialized to class NO_CLASS."
-            if (ty_size <= 8) {
-                bool contains_int = false;
-                for (size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
-                    if (type_is_c_abi_int(g, ty->data.structure.fields[i].type_entry)) {
-                        contains_int = true;
-                        break;
-                    }
-                }
-                if (contains_int) {
-                    LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
-                    LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, ptr_to_int_type_ref, "");
-                    LLVMValueRef loaded = LLVMBuildLoad(g->builder, bitcasted, "");
-                    gen_param_values->append(loaded);
-                    return;
-                }
-            }
-        }
-    }
-
-    give_up_with_c_abi_error(g, source_node);
-}
-
-// If you edit this function you have to edit the corresponding code:
-// codegen.cpp:gen_c_abi_param
 // analyze.cpp:gen_c_abi_param_type
 // codegen.cpp:gen_c_abi_param_var
 // codegen.cpp:gen_c_abi_param_var_init
@@ -3283,7 +3387,6 @@ ok:
 }
 
 // If you edit this function you have to edit the corresponding code:
-// codegen.cpp:gen_c_abi_param
 // analyze.cpp:gen_c_abi_param_type
 // codegen.cpp:gen_c_abi_param_var
 // codegen.cpp:gen_c_abi_param_var_init
@@ -3376,7 +3479,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool ret_has_bits = type_has_bits(src_return_type);
 
     CallingConvention cc = fn_type->data.fn.fn_type_id.cc;
-    bool is_c_abi = cc == CallingConventionC;
 
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type) &&
             calling_convention_does_first_arg_return(cc);
@@ -3395,19 +3497,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
         gen_param_values.append(err_val_ptr);
     }
-    for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
-        IrInstruction *param_instruction = instruction->args[call_i];
-        ZigType *param_type = param_instruction->value.type;
-        if (is_var_args || type_has_bits(param_type)) {
-            LLVMValueRef param_value = ir_llvm_value(g, param_instruction);
-            assert(param_value);
-            if (is_c_abi) {
-                gen_c_abi_param(g, &gen_param_values, param_value, param_type, param_instruction->source_node);
-            } else {
-                gen_param_values.append(param_value);
-            }
-        }
-    }
+    FnWalk fn_walk = {};
+    fn_walk.id = FnWalkIdCall;
+    fn_walk.data.call.inst = instruction; 
+    fn_walk.data.call.is_var_args = is_var_args;
+    fn_walk.data.call.gen_param_values = &gen_param_values;
+    walk_function_params(g, fn_type, &fn_walk);
 
     ZigLLVM_FnInline fn_inline;
     switch (instruction->fn_inline) {

@@ -19,6 +19,29 @@ void zig_i16(int16_t);
 void zig_i32(int32_t);
 void zig_i64(int64_t);
 
+void zig_f32(float);
+void zig_f64(double);
+
+void zig_ptr(void *);
+
+void zig_bool(bool);
+
+void zig_array(uint8_t[10]);
+
+static uint8_t array[10] = {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
+
+struct BigStruct {
+    uint64_t a;
+    uint64_t b;
+    uint64_t c;
+    uint64_t d;
+    uint8_t e;
+};
+
+void zig_big_struct(struct BigStruct);
+
+static struct BigStruct s = {1, 2, 3, 4, 5};
+
 void run_c_tests(void) {
     zig_u8(0xff);
     zig_u16(0xfffe);
@@ -29,6 +52,17 @@ void run_c_tests(void) {
     zig_i16(-2);
     zig_i32(-3);
     zig_i64(-4);
+
+    zig_f32(12.34f);
+    zig_f64(56.78);
+
+    zig_ptr((void*)0xdeadbeefL);
+
+    zig_bool(true);
+
+    zig_array(array);
+
+    zig_big_struct(s);
 }
 
 void c_u8(uint8_t x) {
@@ -61,4 +95,41 @@ void c_i32(int32_t x) {
 
 void c_i64(int64_t x) {
     assert_or_panic(x == -4);
+}
+
+void c_f32(float x) {
+    assert_or_panic(x == 12.34f);
+}
+
+void c_f64(double x) {
+    assert_or_panic(x == 56.78);
+}
+
+void c_ptr(void *x) {
+    assert_or_panic(x == (void*)0xdeadbeefL);
+}
+
+void c_bool(bool x) {
+    assert_or_panic(x);
+}
+
+void c_array(uint8_t x[10]) {
+    assert_or_panic(x[0] == '1');
+    assert_or_panic(x[1] == '2');
+    assert_or_panic(x[2] == '3');
+    assert_or_panic(x[3] == '4');
+    assert_or_panic(x[4] == '5');
+    assert_or_panic(x[5] == '6');
+    assert_or_panic(x[6] == '7');
+    assert_or_panic(x[7] == '8');
+    assert_or_panic(x[8] == '9');
+    assert_or_panic(x[9] == '0');
+}
+
+void c_big_struct(struct BigStruct x) {
+    assert_or_panic(x.a == 1);
+    assert_or_panic(x.b == 2);
+    assert_or_panic(x.c == 3);
+    assert_or_panic(x.d == 4);
+    assert_or_panic(x.e == 5);
 }

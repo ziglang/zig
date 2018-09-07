@@ -1073,7 +1073,6 @@ bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
 }
 
 // If you edit this function you have to edit the corresponding code:
-// codegen.cpp:gen_c_abi_param
 // analyze.cpp:gen_c_abi_param_type
 // codegen.cpp:gen_c_abi_param_var
 // codegen.cpp:gen_c_abi_param_var_init

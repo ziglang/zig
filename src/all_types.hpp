@@ -3284,4 +3284,28 @@ enum FloatMode {
     FloatModeStrict,
 };
 
+enum FnWalkId {
+    FnWalkIdAttrs,
+    FnWalkIdCall,
+};
+
+struct FnWalkAttrs {
+    ZigFn *fn;
+    unsigned gen_i;
+};
+
+struct FnWalkCall {
+    ZigList<LLVMValueRef> *gen_param_values;
+    IrInstructionCall *inst;
+    bool is_var_args;
+};
+
+struct FnWalk {
+    FnWalkId id;
+    union {
+        FnWalkAttrs attrs;
+        FnWalkCall call;
+    } data;
+};
+
 #endif
