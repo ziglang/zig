@@ -1119,18 +1119,18 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
         bool is_async = fn_type_id->cc == CallingConventionAsync;
+        bool is_c_abi = fn_type_id->cc == CallingConventionC;
         bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
         // +1 for maybe making the first argument the return value
         // +1 for maybe first argument the error return trace
         // +2 for maybe arguments async allocator and error code pointer
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(4 + fn_type_id->param_count);
+        ZigList<LLVMTypeRef> gen_param_types = {};
         // +1 because 0 is the return type and
         // +1 for maybe making first arg ret val and
         // +1 for maybe first argument the error return trace
         // +2 for maybe arguments async allocator and error code pointer
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(5 + fn_type_id->param_count);
-        param_di_types[0] = fn_type_id->return_type->di_type;
-        size_t gen_param_index = 0;
+        ZigList<ZigLLVMDIType *> param_di_types = {};
+        param_di_types.append(fn_type_id->return_type->di_type);
         ZigType *gen_return_type;
         if (is_async) {
             gen_return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
@@ -1138,10 +1138,8 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_return_type = g->builtin_types.entry_void;
         } else if (first_arg_return) {
             ZigType *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
-            gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_index += 1;
-            // after the gen_param_index += 1 because 0 is the return type
-            param_di_types[gen_param_index] = gen_type->di_type;
+            gen_param_types.append(gen_type->type_ref);
+            param_di_types.append(gen_type->di_type);
             gen_return_type = g->builtin_types.entry_void;
         } else {
             gen_return_type = fn_type_id->return_type;
@@ -1150,28 +1148,22 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
         if (prefix_arg_error_return_trace) {
             ZigType *gen_type = get_ptr_to_stack_trace_type(g);
-            gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_index += 1;
-            // after the gen_param_index += 1 because 0 is the return type
-            param_di_types[gen_param_index] = gen_type->di_type;
+            gen_param_types.append(gen_type->type_ref);
+            param_di_types.append(gen_type->di_type);
         }
         if (is_async) {
             {
                 // async allocator param
                 ZigType *gen_type = fn_type_id->async_allocator_type;
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_index += 1;
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                gen_param_types.append(gen_type->type_ref);
+                param_di_types.append(gen_type->di_type);
             }
 
             {
                 // error code pointer
                 ZigType *gen_type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_index += 1;
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                gen_param_types.append(gen_type->type_ref);
+                param_di_types.append(gen_type->di_type);
             }
         }
 
@@ -1187,6 +1179,9 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             if ((err = ensure_complete_type(g, type_entry)))
                 return g->builtin_types.entry_invalid;
 
+            if (is_c_abi)
+                continue;
+
             if (type_has_bits(type_entry)) {
                 ZigType *gen_type;
                 if (handle_is_ptr(type_entry)) {
@@ -1195,23 +1190,28 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
                 } else {
                     gen_type = type_entry;
                 }
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_info->gen_index = gen_param_index;
+                gen_param_info->gen_index = gen_param_types.length;
                 gen_param_info->type = gen_type;
+                gen_param_types.append(gen_type->type_ref);
 
-                gen_param_index += 1;
-
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                param_di_types.append(gen_type->di_type);
             }
         }
 
-        fn_type->data.fn.gen_param_count = gen_param_index;
+        if (is_c_abi) {
+            FnWalk fn_walk = {};
+            fn_walk.id = FnWalkIdTypes;
+            fn_walk.data.types.param_di_types = &param_di_types;
+            fn_walk.data.types.gen_param_types = &gen_param_types;
+            walk_function_params(g, fn_type, &fn_walk);
+        }
+
+        fn_type->data.fn.gen_param_count = gen_param_types.length;
 
         fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
-                gen_param_types, (unsigned int)gen_param_index, fn_type_id->is_var_args);
+                gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
         fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, (int)(gen_param_index + 1), 0);
+        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
     }
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
