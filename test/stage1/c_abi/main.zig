@@ -130,3 +130,54 @@ export fn zig_big_struct(x: BigStruct) void {
     assertOrPanic(x.d == 4);
     assertOrPanic(x.e == 5);
 }
+
+const BigUnion = extern union {
+    a: BigStruct,
+};
+extern fn c_big_union(BigUnion) void;
+
+test "C ABI big union" {
+    var x = BigUnion{
+        .a = BigStruct{
+            .a = 1,
+            .b = 2,
+            .c = 3,
+            .d = 4,
+            .e = 5,
+        },
+    };
+    c_big_union(x);
+}
+
+export fn zig_big_union(x: BigUnion) void {
+    assertOrPanic(x.a.a == 1);
+    assertOrPanic(x.a.b == 2);
+    assertOrPanic(x.a.c == 3);
+    assertOrPanic(x.a.d == 4);
+    assertOrPanic(x.a.e == 5);
+}
+
+const SmallStructInts = extern struct {
+    a: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+};
+extern fn c_small_struct_ints(SmallStructInts) void;
+
+test "C ABI small struct of ints" {
+    var s = SmallStructInts{
+        .a = 1,
+        .b = 2,
+        .c = 3,
+        .d = 4,
+    };
+    c_small_struct_ints(s);
+}
+
+export fn zig_small_struct_ints(x: SmallStructInts) void {
+    assertOrPanic(x.a == 1);
+    assertOrPanic(x.b == 2);
+    assertOrPanic(x.c == 3);
+    assertOrPanic(x.d == 4);
+}

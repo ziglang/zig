@@ -1838,6 +1838,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
 }
 
 static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
+    assert(var->di_loc_var != nullptr);
     AstNode *source_node = var->decl_node;
     ZigLLVMDILocation *debug_loc = ZigLLVMGetDebugLoc((unsigned)source_node->line + 1,
             (unsigned)source_node->column + 1, get_di_scope(g, var->parent_scope));
@@ -2119,11 +2120,12 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                             di_arg_index = fn_walk->data.vars.gen_i;
                             var->value_ref = build_alloca(g, ty, buf_ptr(&var->name), var->align_bytes);
                             fn_walk->data.vars.gen_i += 1;
+                            dest_ty = ty;
                             goto var_ok;
                         }
                         case FnWalkIdInits: {
                             clear_debug_source_node(g);
-                            LLVMValueRef arg = LLVMGetParam(llvm_fn, fn_walk->data.inits.gen_i += 1);
+                            LLVMValueRef arg = LLVMGetParam(llvm_fn, fn_walk->data.inits.gen_i);
                             LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
                             LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, var->value_ref, ptr_to_int_type_ref, "");
                             gen_store_untyped(g, arg, bitcasted, var->align_bytes, false);

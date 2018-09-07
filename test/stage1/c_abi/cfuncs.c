@@ -28,8 +28,6 @@ void zig_bool(bool);
 
 void zig_array(uint8_t[10]);
 
-static uint8_t array[10] = {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
-
 struct BigStruct {
     uint64_t a;
     uint64_t b;
@@ -40,7 +38,19 @@ struct BigStruct {
 
 void zig_big_struct(struct BigStruct);
 
-static struct BigStruct s = {1, 2, 3, 4, 5};
+union BigUnion {
+    struct BigStruct a;
+};
+
+void zig_big_union(union BigUnion);
+
+struct SmallStructInts {
+    uint8_t a;
+    uint8_t b;
+    uint8_t c;
+    uint8_t d;
+};
+void zig_small_struct_ints(struct SmallStructInts);
 
 void run_c_tests(void) {
     zig_u8(0xff);
@@ -60,9 +70,19 @@ void run_c_tests(void) {
 
     zig_bool(true);
 
+    // TODO making this non-static crashes for some reason
+    static uint8_t array[10] = {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
     zig_array(array);
 
-    zig_big_struct(s);
+    {
+        struct BigStruct s = {1, 2, 3, 4, 5};
+        zig_big_struct(s);
+    }
+
+    {
+        struct SmallStructInts s = {1, 2, 3, 4};
+        zig_small_struct_ints(s);
+    }
 }
 
 void c_u8(uint8_t x) {
@@ -132,4 +152,18 @@ void c_big_struct(struct BigStruct x) {
     assert_or_panic(x.c == 3);
     assert_or_panic(x.d == 4);
     assert_or_panic(x.e == 5);
+}
+
+void c_big_union(union BigUnion x) {
+    assert_or_panic(x.a.a == 1);
+    assert_or_panic(x.a.b == 2);
+    assert_or_panic(x.a.c == 3);
+    assert_or_panic(x.a.d == 4);
+}
+
+void c_small_struct_ints(struct SmallStructInts x) {
+    assert_or_panic(x.a == 1);
+    assert_or_panic(x.b == 2);
+    assert_or_panic(x.c == 3);
+    assert_or_panic(x.d == 4);
 }
