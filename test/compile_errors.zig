@@ -2,6 +2,24 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "variable initialization compile error then referenced",
+        \\fn Undeclared() type {
+        \\    return T;
+        \\}
+        \\fn Gen() type {
+        \\    const X = Undeclared();
+        \\    return struct {
+        \\        x: X,
+        \\    };
+        \\}
+        \\export fn entry() void {
+        \\    const S = Gen();
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: use of undeclared identifier 'T'",
+    );
+
+    cases.add(
         "refer to the type of a generic function",
         \\export fn entry() void {
         \\    const Func = fn (type) void;
