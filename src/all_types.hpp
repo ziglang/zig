@@ -3287,6 +3287,7 @@ enum FloatMode {
 enum FnWalkId {
     FnWalkIdAttrs,
     FnWalkIdCall,
+    FnWalkIdTypes,
 };
 
 struct FnWalkAttrs {
@@ -3300,11 +3301,17 @@ struct FnWalkCall {
     bool is_var_args;
 };
 
+struct FnWalkTypes {
+    ZigList<ZigLLVMDIType *> *param_di_types;
+    ZigList<LLVMTypeRef> *gen_param_types;
+};
+
 struct FnWalk {
     FnWalkId id;
     union {
         FnWalkAttrs attrs;
         FnWalkCall call;
+        FnWalkTypes types;
     } data;
 };
 

@@ -61,6 +61,4 @@ void codegen_translate_c(CodeGen *g, Buf *path);
 
 Buf *codegen_generate_builtin_source(CodeGen *g);
 
-void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);
-
 #endif

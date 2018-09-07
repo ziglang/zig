@@ -1893,6 +1893,17 @@ static void give_up_with_c_abi_error(CodeGen *g, AstNode *source_node) {
     report_errors_and_exit(g);
 }
 
+static bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
+    size_t ty_size = type_size(g, ty);
+    if (ty_size > g->pointer_size_bytes)
+        return false;
+    return (ty->id == ZigTypeIdInt ||
+        ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdBool ||
+        ty->id == ZigTypeIdEnum ||
+        get_codegen_ptr_type(ty) != nullptr);
+}
+
 static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk, size_t src_i) {
     // Initialized from the type for some walks, but because of C var args,
     // initialized based on callsite instructions for that one.
@@ -1919,7 +1930,14 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             val = ir_llvm_value(g, arg);
             break;
         }
+        case FnWalkIdTypes:
+            if (src_i >= fn_type->data.fn.fn_type_id.param_count)
+                return false;
+            param_info = &fn_type->data.fn.fn_type_id.param_info[src_i];
+            ty = param_info->type;
+            break;
     }
+
     if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
         ty->id == ZigTypeIdInt // TODO investigate if we need to change this
     ) {
@@ -1943,6 +1961,10 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             case FnWalkIdCall:
                 fn_walk->data.call.gen_param_values->append(val);
                 break;
+            case FnWalkIdTypes:
+                fn_walk->data.types.gen_param_types->append(ty->type_ref);
+                fn_walk->data.types.param_di_types->append(ty->di_type);
+                break;
         }
         return true;
     }
@@ -1958,6 +1980,12 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             case FnWalkIdCall:
                 fn_walk->data.call.gen_param_values->append(val);
                 break;
+            case FnWalkIdTypes: {
+                ZigType *gen_type = get_pointer_to_type(g, ty, true);
+                fn_walk->data.types.gen_param_types->append(gen_type->type_ref);
+                fn_walk->data.types.param_di_types->append(gen_type->di_type);
+                break;
+            }
         }
         return true;
     }
@@ -1979,6 +2007,12 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     case FnWalkIdCall:
                         fn_walk->data.call.gen_param_values->append(val);
                         break;
+                    case FnWalkIdTypes: {
+                        ZigType *gen_type = get_pointer_to_type(g, ty, true);
+                        fn_walk->data.types.gen_param_types->append(gen_type->type_ref);
+                        fn_walk->data.types.param_di_types->append(gen_type->di_type);
+                        break;
+                    }
                 }
                 return true;
             }
@@ -2005,6 +2039,12 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                             LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, ptr_to_int_type_ref, "");
                             LLVMValueRef loaded = LLVMBuildLoad(g->builder, bitcasted, "");
                             fn_walk->data.call.gen_param_values->append(loaded);
+                            break;
+                        }
+                        case FnWalkIdTypes: {
+                            ZigType *gen_type = get_int_type(g, false, ty_size * 8);
+                            fn_walk->data.types.gen_param_types->append(gen_type->type_ref);
+                            fn_walk->data.types.param_di_types->append(gen_type->di_type);
                             break;
                         }
                     }
@@ -2073,6 +2113,9 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
             }
             case FnWalkIdCall:
                 // handled before for loop
+                zig_unreachable();
+            case FnWalkIdTypes:
+                // Not called for non-c-abi
                 zig_unreachable();
         }
     }

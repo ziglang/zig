@@ -1061,76 +1061,6 @@ ZigType *get_ptr_to_stack_trace_type(CodeGen *g) {
     return g->ptr_to_stack_trace_type;
 }
 
-bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
-    size_t ty_size = type_size(g, ty);
-    if (ty_size > g->pointer_size_bytes)
-        return false;
-    return (ty->id == ZigTypeIdInt ||
-        ty->id == ZigTypeIdFloat ||
-        ty->id == ZigTypeIdBool ||
-        ty->id == ZigTypeIdEnum ||
-        get_codegen_ptr_type(ty) != nullptr);
-}
-
-// If you edit this function you have to edit the corresponding code:
-// analyze.cpp:gen_c_abi_param_type
-// codegen.cpp:gen_c_abi_param_var
-// codegen.cpp:gen_c_abi_param_var_init
-static void gen_c_abi_param_type(CodeGen *g, ZigList<LLVMTypeRef> *gen_param_types,
-        ZigList<ZigLLVMDIType *> *param_di_types, ZigType *ty)
-{
-    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
-        ty->id == ZigTypeIdInt // TODO investigate if we need to change this
-    ) {
-        gen_param_types->append(ty->type_ref);
-        param_di_types->append(ty->di_type);
-        return;
-    }
-
-    // Arrays are just pointers
-    if (ty->id == ZigTypeIdArray) {
-        ZigType *gen_type = get_pointer_to_type(g, ty, true);
-        gen_param_types->append(gen_type->type_ref);
-        param_di_types->append(gen_type->di_type);
-        return;
-    }
-
-    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
-        size_t ty_size = type_size(g, ty);
-        if (ty->id == ZigTypeIdStruct || ty->id == ZigTypeIdUnion) {
-            // "If the size of an object is larger than four eightbytes, or it contains unaligned
-            // fields, it has class MEMORY"
-            if (ty_size > 32) {
-                ZigType *gen_type = get_pointer_to_type(g, ty, true);
-                gen_param_types->append(gen_type->type_ref);
-                param_di_types->append(gen_type->di_type);
-                return;
-            }
-        }
-        if (ty->id == ZigTypeIdStruct) {
-            // "If the size of the aggregate exceeds a single eightbyte,  each is classified
-            // separately. Each eightbyte gets initialized to class NO_CLASS."
-            if (ty_size <= 8) {
-                bool contains_int = false;
-                for (size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
-                    if (type_is_c_abi_int(g, ty->data.structure.fields[i].type_entry)) {
-                        contains_int = true;
-                        break;
-                    }
-                }
-                if (contains_int) {
-                    ZigType *gen_type = get_int_type(g, false, ty_size * 8);
-                    gen_param_types->append(gen_type->type_ref);
-                    param_di_types->append(gen_type->di_type);
-                    return;
-                }
-            }
-        }
-    }
-
-    // allow codegen code to report a compile error
-}
-
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     Error err;
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
@@ -1249,9 +1179,10 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             if ((err = ensure_complete_type(g, type_entry)))
                 return g->builtin_types.entry_invalid;
 
-            if (is_c_abi) {
-                gen_c_abi_param_type(g, &gen_param_types, &param_di_types, type_entry);
-            } else if (type_has_bits(type_entry)) {
+            if (is_c_abi)
+                continue;
+
+            if (type_has_bits(type_entry)) {
                 ZigType *gen_type;
                 if (handle_is_ptr(type_entry)) {
                     gen_type = get_pointer_to_type(g, type_entry, true);
@@ -1265,6 +1196,14 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
                 param_di_types.append(gen_type->di_type);
             }
+        }
+
+        if (is_c_abi) {
+            FnWalk fn_walk = {};
+            fn_walk.id = FnWalkIdTypes;
+            fn_walk.data.types.param_di_types = &param_di_types;
+            fn_walk.data.types.gen_param_types = &gen_param_types;
+            walk_function_params(g, fn_type, &fn_walk);
         }
 
         fn_type->data.fn.gen_param_count = gen_param_types.length;

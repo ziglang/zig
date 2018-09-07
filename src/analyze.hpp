@@ -210,6 +210,7 @@ ZigType *get_primitive_type(CodeGen *g, Buf *name);
 bool calling_convention_allows_zig_types(CallingConvention cc);
 const char *calling_convention_name(CallingConvention cc);
 
-bool type_is_c_abi_int(CodeGen *g, ZigType *ty);
+void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);
+
 
 #endif
