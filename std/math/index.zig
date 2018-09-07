@@ -244,7 +244,7 @@ test "math.max" {
 
 /// This function returns the minimum value of the integer type T.
 /// The result is a compile time constant.
-pub fn minInt(comptime T: type) @typeOf(42) {
+pub fn minInt(comptime T: type) comptime_int {
     comptime {
         return switch (@typeId(T)) {
           // - (1 << (T.bit_count - 1))
@@ -256,7 +256,7 @@ pub fn minInt(comptime T: type) @typeOf(42) {
 
 /// This function returns the maximum value of the integer type T.
 /// The result is a compile time constant.
-pub fn maxInt(comptime T: type) @typeOf(42) {
+pub fn maxInt(comptime T: type) comptime_int {
     comptime {
         return switch (@typeId(T)) {
           // T.is_signed=true   (1 << (T.bit_count - 1)) - 1
