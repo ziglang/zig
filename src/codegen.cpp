@@ -1894,6 +1894,91 @@ static void give_up_with_c_abi_error(CodeGen *g, AstNode *source_node) {
     report_errors_and_exit(g);
 }
 
+static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment) {
+    assert(alignment > 0);
+    LLVMValueRef result = LLVMBuildAlloca(g->builder, type_entry->type_ref, name);
+    LLVMSetAlignment(result, alignment);
+    return result;
+}
+
+enum X64CABIClass {
+    X64CABIClass_Unknown,
+    X64CABIClass_MEMORY,
+    X64CABIClass_INTEGER,
+    X64CABIClass_SSE,
+};
+
+static X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
+    size_t ty_size = type_size(g, ty);
+    if (get_codegen_ptr_type(ty) != nullptr)
+        return X64CABIClass_INTEGER;
+    switch (ty->id) {
+        case ZigTypeIdEnum:
+        case ZigTypeIdInt:
+        case ZigTypeIdBool:
+            return X64CABIClass_INTEGER;
+        case ZigTypeIdFloat:
+            return X64CABIClass_SSE;
+        case ZigTypeIdStruct: {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32)
+                return X64CABIClass_MEMORY;
+            if (ty->data.structure.layout != ContainerLayoutExtern) {
+                // TODO determine whether packed structs have any unaligned fields
+                return X64CABIClass_Unknown;
+            }
+            // "If the size of the aggregate exceeds two eightbytes and the first eight-
+            // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
+            // is passed in memory."
+            if (ty_size > 16) {
+                // Zig doesn't support vectors and large fp registers yet, so this will always
+                // be memory.
+                return X64CABIClass_MEMORY;
+            }
+            X64CABIClass working_class = X64CABIClass_Unknown;
+            for (uint32_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields->type_entry);
+                if (field_class == X64CABIClass_Unknown)
+                    return X64CABIClass_Unknown;
+                if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
+                    working_class = field_class;
+                }
+            }
+            return working_class;
+        }
+        case ZigTypeIdUnion: {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32)
+                return X64CABIClass_MEMORY;
+            if (ty->data.unionation.layout != ContainerLayoutExtern)
+                return X64CABIClass_MEMORY;
+            // "If the size of the aggregate exceeds two eightbytes and the first eight-
+            // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
+            // is passed in memory."
+            if (ty_size > 16) {
+                // Zig doesn't support vectors and large fp registers yet, so this will always
+                // be memory.
+                return X64CABIClass_MEMORY;
+            }
+            X64CABIClass working_class = X64CABIClass_Unknown;
+            for (uint32_t i = 0; i < ty->data.unionation.src_field_count; i += 1) {
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.unionation.fields->type_entry);
+                if (field_class == X64CABIClass_Unknown)
+                    return X64CABIClass_Unknown;
+                if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
+                    working_class = field_class;
+                }
+            }
+            return working_class;
+        }
+        default:
+            return X64CABIClass_Unknown;
+    }
+}
+
+// NOTE this does not depend on x86_64
 static bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
     size_t ty_size = type_size(g, ty);
     if (ty_size > g->pointer_size_bytes)
@@ -1903,13 +1988,6 @@ static bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
         ty->id == ZigTypeIdBool ||
         ty->id == ZigTypeIdEnum ||
         get_codegen_ptr_type(ty) != nullptr);
-}
-
-static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment) {
-    assert(alignment > 0);
-    LLVMValueRef result = LLVMBuildAlloca(g->builder, type_entry->type_ref, name);
-    LLVMSetAlignment(result, alignment);
-    return result;
 }
 
 static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk, size_t src_i) {
@@ -2047,98 +2125,79 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
     }
 
     if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        X64CABIClass abi_class = type_c_abi_x86_64_class(g, ty);
         size_t ty_size = type_size(g, ty);
-        if (ty->id == ZigTypeIdStruct || ty->id == ZigTypeIdUnion) {
+        if (abi_class == X64CABIClass_MEMORY) {
             assert(handle_is_ptr(ty));
-
-            // "If the size of an object is larger than four eightbytes, or it contains unaligned
-            // fields, it has class MEMORY"
-            if (ty_size > 32) {
-                switch (fn_walk->id) {
-                    case FnWalkIdAttrs:
-                        addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "byval");
-                        addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
-                        fn_walk->data.attrs.gen_i += 1;
-                        break;
-                    case FnWalkIdCall:
-                        fn_walk->data.call.gen_param_values->append(val);
-                        break;
-                    case FnWalkIdTypes: {
-                        ZigType *gen_type = get_pointer_to_type(g, ty, true);
-                        fn_walk->data.types.gen_param_types->append(gen_type->type_ref);
-                        fn_walk->data.types.param_di_types->append(gen_type->di_type);
-                        break;
-                    }
-                    case FnWalkIdVars: {
-                        di_arg_index = fn_walk->data.vars.gen_i;
-                        var->value_ref = LLVMGetParam(llvm_fn,  fn_walk->data.vars.gen_i);
-                        dest_ty = get_pointer_to_type(g, ty, false);
-                        fn_walk->data.vars.gen_i += 1;
-                        goto var_ok;
-                    }
-                    case FnWalkIdInits:
-                        if (var->decl_node) {
-                            gen_var_debug_decl(g, var);
-                        }
-                        fn_walk->data.inits.gen_i += 1;
-                        break;
+            switch (fn_walk->id) {
+                case FnWalkIdAttrs:
+                    addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "byval");
+                    addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
+                    fn_walk->data.attrs.gen_i += 1;
+                    break;
+                case FnWalkIdCall:
+                    fn_walk->data.call.gen_param_values->append(val);
+                    break;
+                case FnWalkIdTypes: {
+                    ZigType *gen_type = get_pointer_to_type(g, ty, true);
+                    fn_walk->data.types.gen_param_types->append(gen_type->type_ref);
+                    fn_walk->data.types.param_di_types->append(gen_type->di_type);
+                    break;
                 }
-                return true;
+                case FnWalkIdVars: {
+                    di_arg_index = fn_walk->data.vars.gen_i;
+                    var->value_ref = LLVMGetParam(llvm_fn,  fn_walk->data.vars.gen_i);
+                    dest_ty = get_pointer_to_type(g, ty, false);
+                    fn_walk->data.vars.gen_i += 1;
+                    goto var_ok;
+                }
+                case FnWalkIdInits:
+                    if (var->decl_node) {
+                        gen_var_debug_decl(g, var);
+                    }
+                    fn_walk->data.inits.gen_i += 1;
+                    break;
             }
-        }
-        if (ty->id == ZigTypeIdStruct) {
-            assert(handle_is_ptr(ty));
-            // "If the size of the aggregate exceeds a single eightbyte,  each is classified
-            // separately. Each eightbyte gets initialized to class NO_CLASS."
-            if (ty_size <= 8) {
-                bool contains_int = false;
-                for (size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
-                    if (type_is_c_abi_int(g, ty->data.structure.fields[i].type_entry)) {
-                        contains_int = true;
-                        break;
-                    }
+            return true;
+        } else if (abi_class == X64CABIClass_INTEGER && ty_size <= 8) {
+            switch (fn_walk->id) {
+                case FnWalkIdAttrs:
+                    fn_walk->data.attrs.gen_i += 1;
+                    break;
+                case FnWalkIdCall: {
+                    LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
+                    LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, ptr_to_int_type_ref, "");
+                    LLVMValueRef loaded = LLVMBuildLoad(g->builder, bitcasted, "");
+                    fn_walk->data.call.gen_param_values->append(loaded);
+                    break;
                 }
-                if (contains_int) {
-                    switch (fn_walk->id) {
-                        case FnWalkIdAttrs:
-                            fn_walk->data.attrs.gen_i += 1;
-                            break;
-                        case FnWalkIdCall: {
-                            LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
-                            LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, ptr_to_int_type_ref, "");
-                            LLVMValueRef loaded = LLVMBuildLoad(g->builder, bitcasted, "");
-                            fn_walk->data.call.gen_param_values->append(loaded);
-                            break;
-                        }
-                        case FnWalkIdTypes: {
-                            ZigType *gen_type = get_int_type(g, false, ty_size * 8);
-                            fn_walk->data.types.gen_param_types->append(gen_type->type_ref);
-                            fn_walk->data.types.param_di_types->append(gen_type->di_type);
-                            break;
-                        }
-                        case FnWalkIdVars: {
-                            di_arg_index = fn_walk->data.vars.gen_i;
-                            var->value_ref = build_alloca(g, ty, buf_ptr(&var->name), var->align_bytes);
-                            fn_walk->data.vars.gen_i += 1;
-                            dest_ty = ty;
-                            goto var_ok;
-                        }
-                        case FnWalkIdInits: {
-                            clear_debug_source_node(g);
-                            LLVMValueRef arg = LLVMGetParam(llvm_fn, fn_walk->data.inits.gen_i);
-                            LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
-                            LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, var->value_ref, ptr_to_int_type_ref, "");
-                            gen_store_untyped(g, arg, bitcasted, var->align_bytes, false);
-                            if (var->decl_node) {
-                                gen_var_debug_decl(g, var);
-                            }
-                            fn_walk->data.inits.gen_i += 1;
-                            break;
-                        }
+                case FnWalkIdTypes: {
+                    ZigType *gen_type = get_int_type(g, false, ty_size * 8);
+                    fn_walk->data.types.gen_param_types->append(gen_type->type_ref);
+                    fn_walk->data.types.param_di_types->append(gen_type->di_type);
+                    break;
+                }
+                case FnWalkIdVars: {
+                    di_arg_index = fn_walk->data.vars.gen_i;
+                    var->value_ref = build_alloca(g, ty, buf_ptr(&var->name), var->align_bytes);
+                    fn_walk->data.vars.gen_i += 1;
+                    dest_ty = ty;
+                    goto var_ok;
+                }
+                case FnWalkIdInits: {
+                    clear_debug_source_node(g);
+                    LLVMValueRef arg = LLVMGetParam(llvm_fn, fn_walk->data.inits.gen_i);
+                    LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
+                    LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, var->value_ref, ptr_to_int_type_ref, "");
+                    gen_store_untyped(g, arg, bitcasted, var->align_bytes, false);
+                    if (var->decl_node) {
+                        gen_var_debug_decl(g, var);
                     }
-                    return true;
+                    fn_walk->data.inits.gen_i += 1;
+                    break;
                 }
             }
+            return true;
         }
     }
     if (source_node != nullptr) {
