@@ -5,6 +5,7 @@ pub fn build(b: *Builder) void {
 
     const c_obj = b.addCObject("cfuncs", "cfuncs.c");
     c_obj.setBuildMode(rel_opts);
+    c_obj.setNoStdLib(true);
 
     const main = b.addTest("main.zig");
     main.setBuildMode(rel_opts);

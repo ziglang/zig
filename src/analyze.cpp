@@ -1009,10 +1009,6 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry) {
     return bound_fn_type;
 }
 
-bool calling_convention_does_first_arg_return(CallingConvention cc) {
-    return cc == CallingConventionUnspecified;
-}
-
 const char *calling_convention_name(CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified: return "undefined";
@@ -1059,6 +1055,26 @@ ZigType *get_ptr_to_stack_trace_type(CodeGen *g) {
         g->ptr_to_stack_trace_type = get_pointer_to_type(g, g->stack_trace_type, false);
     }
     return g->ptr_to_stack_trace_type;
+}
+
+bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
+    if (fn_type_id->cc == CallingConventionUnspecified) {
+        return handle_is_ptr(fn_type_id->return_type);
+    }
+    if (fn_type_id->cc != CallingConventionC) {
+        return false;
+    }
+    if (type_is_c_abi_int(g, fn_type_id->return_type)) {
+        return false;
+    }
+    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
+        if (abi_class == X64CABIClass_MEMORY) {
+            return true;
+        }
+        zig_panic("TODO implement C ABI for x86_64 return types. '%s'", buf_ptr(&fn_type_id->return_type->name));
+    }
+    zig_panic("TODO implement C ABI for this architecture");
 }
 
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
@@ -1116,8 +1132,7 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     // next, loop over the parameters again and compute debug information
     // and codegen information
     if (!skip_debug_info) {
-        bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
-            handle_is_ptr(fn_type_id->return_type);
+        bool first_arg_return = want_first_arg_sret(g, fn_type_id);
         bool is_async = fn_type_id->cc == CallingConventionAsync;
         bool is_c_abi = fn_type_id->cc == CallingConventionC;
         bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
@@ -6367,3 +6382,85 @@ not_integer:
     }
     return nullptr;
 }
+
+X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
+    size_t ty_size = type_size(g, ty);
+    if (get_codegen_ptr_type(ty) != nullptr)
+        return X64CABIClass_INTEGER;
+    switch (ty->id) {
+        case ZigTypeIdEnum:
+        case ZigTypeIdInt:
+        case ZigTypeIdBool:
+            return X64CABIClass_INTEGER;
+        case ZigTypeIdFloat:
+            return X64CABIClass_SSE;
+        case ZigTypeIdStruct: {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32)
+                return X64CABIClass_MEMORY;
+            if (ty->data.structure.layout != ContainerLayoutExtern) {
+                // TODO determine whether packed structs have any unaligned fields
+                return X64CABIClass_Unknown;
+            }
+            // "If the size of the aggregate exceeds two eightbytes and the first eight-
+            // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
+            // is passed in memory."
+            if (ty_size > 16) {
+                // Zig doesn't support vectors and large fp registers yet, so this will always
+                // be memory.
+                return X64CABIClass_MEMORY;
+            }
+            X64CABIClass working_class = X64CABIClass_Unknown;
+            for (uint32_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields->type_entry);
+                if (field_class == X64CABIClass_Unknown)
+                    return X64CABIClass_Unknown;
+                if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
+                    working_class = field_class;
+                }
+            }
+            return working_class;
+        }
+        case ZigTypeIdUnion: {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32)
+                return X64CABIClass_MEMORY;
+            if (ty->data.unionation.layout != ContainerLayoutExtern)
+                return X64CABIClass_MEMORY;
+            // "If the size of the aggregate exceeds two eightbytes and the first eight-
+            // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
+            // is passed in memory."
+            if (ty_size > 16) {
+                // Zig doesn't support vectors and large fp registers yet, so this will always
+                // be memory.
+                return X64CABIClass_MEMORY;
+            }
+            X64CABIClass working_class = X64CABIClass_Unknown;
+            for (uint32_t i = 0; i < ty->data.unionation.src_field_count; i += 1) {
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.unionation.fields->type_entry);
+                if (field_class == X64CABIClass_Unknown)
+                    return X64CABIClass_Unknown;
+                if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
+                    working_class = field_class;
+                }
+            }
+            return working_class;
+        }
+        default:
+            return X64CABIClass_Unknown;
+    }
+}
+
+// NOTE this does not depend on x86_64
+bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
+    return (ty->id == ZigTypeIdInt ||
+        ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdBool ||
+        ty->id == ZigTypeIdEnum ||
+        ty->id == ZigTypeIdVoid ||
+        ty->id == ZigTypeIdUnreachable ||
+        get_codegen_ptr_type(ty) != nullptr);
+}
+

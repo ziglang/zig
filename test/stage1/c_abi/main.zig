@@ -203,3 +203,37 @@ export fn zig_split_struct_ints(x: SplitStructInt) void {
     assertOrPanic(x.b == 100);
     assertOrPanic(x.c == 1337);
 }
+
+extern fn c_big_struct_both(BigStruct) BigStruct;
+
+test "C ABI sret and byval together" {
+    var s = BigStruct{
+        .a = 1,
+        .b = 2,
+        .c = 3,
+        .d = 4,
+        .e = 5,
+    };
+    var y = c_big_struct_both(s);
+    assertOrPanic(y.a == 10);
+    assertOrPanic(y.b == 11);
+    assertOrPanic(y.c == 12);
+    assertOrPanic(y.d == 13);
+    assertOrPanic(y.e == 14);
+}
+
+export fn zig_big_struct_both(x: BigStruct) BigStruct {
+    assertOrPanic(x.a == 30);
+    assertOrPanic(x.b == 31);
+    assertOrPanic(x.c == 32);
+    assertOrPanic(x.d == 33);
+    assertOrPanic(x.e == 34);
+    var s = BigStruct{
+        .a = 20,
+        .b = 21,
+        .c = 22,
+        .d = 23,
+        .e = 24,
+    };
+    return s;
+}

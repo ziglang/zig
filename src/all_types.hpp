@@ -40,6 +40,13 @@ struct Tld;
 struct TldExport;
 struct IrAnalyze;
 
+enum X64CABIClass {
+    X64CABIClass_Unknown,
+    X64CABIClass_MEMORY,
+    X64CABIClass_INTEGER,
+    X64CABIClass_SSE,
+};
+
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     Buf *name;

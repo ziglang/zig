@@ -59,6 +59,8 @@ struct SplitStructInts {
 };
 void zig_split_struct_ints(struct SplitStructInts);
 
+struct BigStruct zig_big_struct_both(struct BigStruct);
+
 void run_c_tests(void) {
     zig_u8(0xff);
     zig_u16(0xfffe);
@@ -77,8 +79,7 @@ void run_c_tests(void) {
 
     zig_bool(true);
 
-    // TODO making this non-static crashes for some reason
-    static uint8_t array[10] = {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
+    uint8_t array[10] = {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
     zig_array(array);
 
     {
@@ -94,6 +95,16 @@ void run_c_tests(void) {
     {
         struct SplitStructInts s = {1234, 100, 1337};
         zig_split_struct_ints(s);
+    }
+
+    {
+        struct BigStruct s = {30, 31, 32, 33, 34};
+        struct BigStruct res = zig_big_struct_both(s);
+        assert_or_panic(res.a == 20);
+        assert_or_panic(res.b == 21);
+        assert_or_panic(res.c == 22);
+        assert_or_panic(res.d == 23);
+        assert_or_panic(res.e == 24);
     }
 }
 
@@ -184,4 +195,14 @@ void c_split_struct_ints(struct SplitStructInts x) {
     assert_or_panic(x.a == 1234);
     assert_or_panic(x.b == 100);
     assert_or_panic(x.c == 1337);
+}
+
+struct BigStruct c_big_struct_both(struct BigStruct x) {
+    assert_or_panic(x.a == 1);
+    assert_or_panic(x.b == 2);
+    assert_or_panic(x.c == 3);
+    assert_or_panic(x.d == 4);
+    assert_or_panic(x.e == 5);
+    struct BigStruct y = {10, 11, 12, 13, 14};
+    return y;
 }
