@@ -1072,9 +1072,10 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
         if (abi_class == X64CABIClass_MEMORY) {
             return true;
         }
-        zig_panic("TODO implement C ABI for x86_64 return types. '%s'", buf_ptr(&fn_type_id->return_type->name));
+        zig_panic("TODO implement C ABI for x86_64 return types. type '%s'\nSee https://github.com/ziglang/zig/issues/1481",
+                buf_ptr(&fn_type_id->return_type->name));
     }
-    zig_panic("TODO implement C ABI for this architecture");
+    zig_panic("TODO implement C ABI for this architecture. See https://github.com/ziglang/zig/issues/1481");
 }
 
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
