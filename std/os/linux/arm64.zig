@@ -282,10 +282,8 @@ pub const SYS_io_pgetevents = 292;
 pub const SYS_syscalls = 293;
 
 pub const VDSO_USEFUL = true;
-pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
-pub const VDSO_CGT_VER = "LINUX_2.6";
-pub const VDSO_GETCPU_SYM = "__vdso_getcpu";
-pub const VDSO_GETCPU_VER = "LINUX_2.6";
+pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
+pub const VDSO_CGT_VER = "LINUX_2.6.39";
 
 pub fn syscall0(number: usize) usize {
     return asm volatile ("svc #0"

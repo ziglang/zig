@@ -5,7 +5,7 @@ const cstr = std.cstr;
 const mem = std.mem;
 
 pub fn lookup(vername: []const u8, name: []const u8) usize {
-    const vdso_addr = std.os.linux_aux_raw[std.elf.AT_SYSINFO_EHDR];
+    const vdso_addr = std.os.linuxGetAuxVal(std.elf.AT_SYSINFO_EHDR);
     if (vdso_addr == 0) return 0;
 
     const eh = @intToPtr(*elf.Ehdr, vdso_addr);

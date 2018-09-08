@@ -633,16 +633,21 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     };
 }
 
-pub var linux_aux_raw = []usize{0} ** 38;
+pub var linux_elf_aux_maybe: ?[*]std.elf.Auxv = undefined;
 pub var posix_environ_raw: [][*]u8 = undefined;
 
 /// See std.elf for the constants.
 pub fn linuxGetAuxVal(index: usize) usize {
     if (builtin.link_libc) {
         return usize(std.c.getauxval(index));
-    } else {
-        return linux_aux_raw[index];
+    } else if (linux_elf_aux_maybe) |auxv| {
+        var i: usize = 0;
+        while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+            if (auxv[i].a_type == index)
+                return auxv[i].a_un.a_val;
+        }
     }
+    return 0;
 }
 
 pub fn getBaseAddress() usize {

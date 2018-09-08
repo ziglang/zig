@@ -859,6 +859,11 @@ pub const Elf_MIPS_ABIFlags_v0 = extern struct {
     flags2: Elf32_Word,
 };
 
+pub const Auxv = switch (@sizeOf(usize)) {
+    4 => Elf32_auxv_t,
+    8 => Elf64_auxv_t,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
 pub const Ehdr = switch (@sizeOf(usize)) {
     4 => Elf32_Ehdr,
     8 => Elf64_Ehdr,

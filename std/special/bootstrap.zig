@@ -59,11 +59,8 @@ fn posixCallMainAndExit() noreturn {
     const envp = @ptrCast([*][*]u8, envp_optional)[0..envp_count];
     if (builtin.os == builtin.Os.linux) {
         const auxv = @ptrCast([*]usize, envp.ptr + envp_count + 1);
-        var i: usize = 0;
-        while (auxv[i] != 0) : (i += 2) {
-            if (auxv[i] < std.os.linux_aux_raw.len) std.os.linux_aux_raw[auxv[i]] = auxv[i + 1];
-        }
-        std.debug.assert(std.os.linux_aux_raw[std.elf.AT_PAGESZ] == std.os.page_size);
+        std.os.linux_elf_aux_maybe = @ptrCast([*]std.elf.Auxv, auxv);
+        std.debug.assert(std.os.linuxGetAuxVal(std.elf.AT_PAGESZ) == std.os.page_size);
     }
 
     std.os.posix.exit(callMainWithArgs(argc, argv, envp));
