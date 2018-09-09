@@ -27,6 +27,8 @@ enum Error {
     ErrorNegativeDenominator,
     ErrorShiftedOutOneBits,
     ErrorCCompileErrors,
+    ErrorEndOfFile,
+    ErrorIsDir,
 };
 
 const char *err_str(int err);

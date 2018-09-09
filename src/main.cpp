@@ -13,6 +13,7 @@
 #include "link.hpp"
 #include "os.hpp"
 #include "target.hpp"
+#include "cache_hash.hpp"
 
 #include <stdio.h>
 
@@ -267,6 +268,66 @@ int main(int argc, char **argv) {
                 ZIG_STD_FILES,
                 ZIG_C_HEADER_FILES,
                 ZIG_DIA_GUIDS_LIB);
+        return 0;
+    }
+
+    if (argc == 2 && strcmp(argv[1], "TEST") == 0) {
+        Error err;
+        Buf app_data_dir = BUF_INIT;
+        if ((err = os_get_app_data_dir(&app_data_dir, "zig"))) {
+            fprintf(stderr, "get app dir: %s\n", err_str(err));
+            return 1;
+        }
+        Buf *stage1_dir = buf_alloc();
+        os_path_join(&app_data_dir, buf_create_from_str("stage1"), stage1_dir);
+        Buf *manifest_dir = buf_alloc();
+        os_path_join(stage1_dir, buf_create_from_str("exe"), manifest_dir);
+
+        if ((err = os_make_path(manifest_dir))) {
+            fprintf(stderr, "make path: %s\n", err_str(err));
+            return 1;
+        }
+        CacheHash cache_hash;
+        CacheHash *ch = &cache_hash;
+        cache_init(ch, manifest_dir);
+        Buf self_exe_path = BUF_INIT;
+        if ((err = os_self_exe_path(&self_exe_path))) {
+            fprintf(stderr, "self exe path: %s\n", err_str(err));
+            return 1;
+        }
+
+        cache_file(ch, &self_exe_path);
+
+        Buf exe_digest = BUF_INIT;
+        buf_resize(&exe_digest, 0);
+        if ((err = cache_hit(ch, &exe_digest))) {
+            fprintf(stderr, "cache hit error: %s\n", err_str(err));
+            return 1;
+        }
+        if (buf_len(&exe_digest) != 0) {
+            fprintf(stderr, "cache hit: %s\n", buf_ptr(&exe_digest));
+            return 0;
+        }
+        fprintf(stderr, "cache miss\n");
+        ZigList<Buf *> lib_paths = {};
+        if ((err = os_self_exe_shared_libs(lib_paths))) {
+            fprintf(stderr, "finding out shared libs: %s\n", err_str(err));
+            return 1;
+        }
+        for (size_t i = 0; i < lib_paths.length; i += 1) {
+            Buf *lib_path = lib_paths.at(i);
+            if ((err = cache_add_file(ch, lib_path))) {
+                fprintf(stderr, "cache add file %s: %s", buf_ptr(lib_path), err_str(err));
+                return 1;
+            }
+        }
+        if ((err = cache_final(ch, &exe_digest))) {
+            fprintf(stderr, "final: %s\n", err_str(err));
+            return 1;
+        }
+
+
+        fprintf(stderr, "computed2: %s\n", buf_ptr(&exe_digest));
         return 0;
     }
 

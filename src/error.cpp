@@ -27,6 +27,8 @@ const char *err_str(int err) {
         case ErrorNegativeDenominator: return "negative denominator";
         case ErrorShiftedOutOneBits: return "exact shift shifted out one bits";
         case ErrorCCompileErrors: return "C compile errors";
+        case ErrorEndOfFile: return "end of file";
+        case ErrorIsDir: return "is directory";
     }
     return "(invalid error)";
 }

@@ -19,7 +19,6 @@
 #include "target.hpp"
 #include "util.hpp"
 #include "zig_llvm.h"
-#include "blake2.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -7675,130 +7674,45 @@ void codegen_add_time_event(CodeGen *g, const char *name) {
     g->timing_events.append({os_get_time(), name});
 }
 
-static void add_cache_str(blake2b_state *blake, const char *ptr) {
-    assert(ptr != nullptr);
-    // + 1 to include the null byte
-    blake2b_update(blake, ptr, strlen(ptr) + 1);
-}
 
-static void add_cache_int(blake2b_state *blake, int x) {
-    // + 1 to include the null byte
-    uint8_t buf[sizeof(int) + 1];
-    memcpy(buf, &x, sizeof(int));
-    buf[sizeof(int)] = 0;
-    blake2b_update(blake, buf, sizeof(int) + 1);
-}
-
-static void add_cache_buf(blake2b_state *blake, Buf *buf) {
-    assert(buf != nullptr);
-    // + 1 to include the null byte
-    blake2b_update(blake, buf_ptr(buf), buf_len(buf) + 1);
-}
-
-static void add_cache_buf_opt(blake2b_state *blake, Buf *buf) {
-    if (buf == nullptr) {
-        add_cache_str(blake, "");
-        add_cache_str(blake, "");
-    } else {
-        add_cache_buf(blake, buf);
-    }
-}
-
-static void add_cache_list_of_link_lib(blake2b_state *blake, LinkLib **ptr, size_t len) {
-    for (size_t i = 0; i < len; i += 1) {
-        LinkLib *lib = ptr[i];
-        if (lib->provided_explicitly) {
-            add_cache_buf(blake, lib->name);
-        }
-    }
-    add_cache_str(blake, "");
-}
-
-static void add_cache_list_of_buf(blake2b_state *blake, Buf **ptr, size_t len) {
-    for (size_t i = 0; i < len; i += 1) {
-        Buf *buf = ptr[i];
-        add_cache_buf(blake, buf);
-    }
-    add_cache_str(blake, "");
-}
-
-//static void add_cache_file(CodeGen *g, blake2b_state *blake, Buf *resolved_path) {
-//    assert(file_name != nullptr);
-//    g->cache_files.append(resolved_path);
-//}
+//// Called before init()
+//static bool build_with_cache(CodeGen *g) {
+//    // TODO zig exe & dynamic libraries
+//    // should be in main.cpp I think. only needs to happen
+//    // once on startup.
 //
-//static void add_cache_file_opt(CodeGen *g, blake2b_state *blake, Buf *resolved_path) {
-//    if (resolved_path == nullptr) {
-//        add_cache_str(blake, "");
-//        add_cache_str(blake, "");
-//    } else {
-//        add_cache_file(g, blake, resolved_path);
-//    }
+//    CacheHash comp;
+//    cache_init(&comp);
+//
+//    add_cache_buf(&blake, g->root_out_name);
+//    add_cache_buf_opt(&blake, get_resolved_root_src_path(g)); // Root source file
+//    add_cache_list_of_link_lib(&blake, g->link_libs_list.items, g->link_libs_list.length);
+//    add_cache_list_of_buf(&blake, g->darwin_frameworks.items, g->darwin_frameworks.length);
+//    add_cache_list_of_buf(&blake, g->rpath_list.items, g->rpath_list.length);
+//    add_cache_int(&blake, g->emit_file_type);
+//    add_cache_int(&blake, g->build_mode);
+//    add_cache_int(&blake, g->out_type);
+//    // TODO the rest of the struct CodeGen fields
+//
+//    uint8_t bin_digest[48];
+//    rc = blake2b_final(&blake, bin_digest, 48);
+//    assert(rc == 0);
+//
+//    Buf b64_digest = BUF_INIT;
+//    buf_resize(&b64_digest, 64);
+//    base64_encode(buf_to_slice(&b64_digest), {bin_digest, 48});
+//
+//    fprintf(stderr, "input params hash: %s\n", buf_ptr(&b64_digest));
+//    // TODO next look for a manifest file that has all the files from the input parameters
+//    // use that to construct the real hash, which looks up the output directory and another manifest file
+//
+//    return false;
 //}
-
-// Ported from std/base64.zig
-static uint8_t base64_fs_alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
-static void base64_encode(Slice<uint8_t> dest, Slice<uint8_t> source) {
-    size_t dest_len = ((source.len + 2) / 3) * 4;
-    assert(dest.len == dest_len);
-
-    size_t i = 0;
-    size_t out_index = 0;
-    for (; i + 2 < source.len; i += 3) {
-        dest.ptr[out_index] = base64_fs_alphabet[(source.ptr[i] >> 2) & 0x3f];
-        out_index += 1;
-
-        dest.ptr[out_index] = base64_fs_alphabet[((source.ptr[i] & 0x3) << 4) | ((source.ptr[i + 1] & 0xf0) >> 4)];
-        out_index += 1;
-
-        dest.ptr[out_index] = base64_fs_alphabet[((source.ptr[i + 1] & 0xf) << 2) | ((source.ptr[i + 2] & 0xc0) >> 6)];
-        out_index += 1;
-
-        dest.ptr[out_index] = base64_fs_alphabet[source.ptr[i + 2] & 0x3f];
-        out_index += 1;
-    }
-
-    // Assert that we never need pad characters.
-    assert(i == source.len);
-}
-
-// Called before init()
-static bool build_with_cache(CodeGen *g) {
-    blake2b_state blake;
-    int rc = blake2b_init(&blake, 48);
-    assert(rc == 0);
-
-    // TODO zig exe & dynamic libraries
-
-    add_cache_buf(&blake, g->root_out_name);
-    add_cache_buf_opt(&blake, get_resolved_root_src_path(g)); // Root source file
-    add_cache_list_of_link_lib(&blake, g->link_libs_list.items, g->link_libs_list.length);
-    add_cache_list_of_buf(&blake, g->darwin_frameworks.items, g->darwin_frameworks.length);
-    add_cache_list_of_buf(&blake, g->rpath_list.items, g->rpath_list.length);
-    add_cache_int(&blake, g->emit_file_type);
-    add_cache_int(&blake, g->build_mode);
-    add_cache_int(&blake, g->out_type);
-    // TODO the rest of the struct CodeGen fields
-
-    uint8_t bin_digest[48];
-    rc = blake2b_final(&blake, bin_digest, 48);
-    assert(rc == 0);
-
-    Buf b64_digest = BUF_INIT;
-    buf_resize(&b64_digest, 64);
-    base64_encode(buf_to_slice(&b64_digest), {bin_digest, 48});
-
-    fprintf(stderr, "input params hash: %s\n", buf_ptr(&b64_digest));
-    // TODO next look for a manifest file that has all the files from the input parameters
-    // use that to construct the real hash, which looks up the output directory and another manifest file
-
-    return false;
-}
 
 void codegen_build(CodeGen *g) {
     assert(g->out_type != OutTypeUnknown);
-    if (build_with_cache(g))
-        return;
+    //if (build_with_cache(g))
+    //    return;
     init(g);
 
     codegen_add_time_event(g, "Semantic Analysis");
