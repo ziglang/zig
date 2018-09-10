@@ -1,3 +1,4 @@
+; REQUIRES: x86
 ; RUN: rm -f %t.a
 ; RUN: llvm-as -o %t.o %s
 ; RUN: llvm-as -o %t2.o %S/Inputs/libcall-archive.ll

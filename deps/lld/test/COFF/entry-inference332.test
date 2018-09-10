@@ -1,4 +1,4 @@
-# RUN: sed -e s/ENTRYNAME/mainCRTStartup/ %s | yaml2obj > %t.obj
+# RUN: sed -e s/ENTRYNAME/_mainCRTStartup/ %s | yaml2obj > %t.obj
 # RUN: lld-link /subsystem:console /out:%t.exe %t.obj /verbose /nodefaultlib > %t.log 2>&1
 # RUN: FileCheck %s < %t.log
 
@@ -6,11 +6,11 @@
 # RUN: lld-link /subsystem:console /out:%t.exe %t.obj /verbose /nodefaultlib > %t.log 2>&1
 # RUN: FileCheck %s < %t.log
 
-# CHECK: Entry name inferred: mainCRTStartup
+# CHECK: Entry name inferred: _mainCRTStartup
 
 --- !COFF
 header:
-  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Machine:         IMAGE_FILE_MACHINE_I386
   Characteristics: []
 sections:
   - Name:            .text

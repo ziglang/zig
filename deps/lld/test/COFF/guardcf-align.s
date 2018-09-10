@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -triple x86_64-windows-msvc -filetype=obj -o %t.obj %s
 # RUN: yaml2obj < %p/Inputs/guardcf-align-foobar.yaml \
 # RUN:     > %T/guardcf-align-foobar.obj
