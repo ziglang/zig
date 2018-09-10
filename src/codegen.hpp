@@ -48,9 +48,11 @@ void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
 void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
 void codegen_set_cache_dir(CodeGen *g, Buf cache_dir);
 void codegen_set_output_h_path(CodeGen *g, Buf *h_path);
+void codegen_set_output_path(CodeGen *g, Buf *path);
 void codegen_add_time_event(CodeGen *g, const char *name);
 void codegen_print_timing_report(CodeGen *g, FILE *f);
-void codegen_build(CodeGen *g);
+void codegen_link(CodeGen *g);
+void codegen_build_and_link(CodeGen *g);
 
 PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path);
 void codegen_add_assembly(CodeGen *g, Buf *path);

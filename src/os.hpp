@@ -87,6 +87,7 @@ int os_init(void);
 void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term);
 int os_exec_process(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout);
+Error os_execv(const char *exe, const char **argv);
 
 void os_path_dirname(Buf *full_path, Buf *out_dirname);
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);
@@ -95,8 +96,6 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path);
 int os_path_real(Buf *rel_path, Buf *out_abs_path);
 Buf os_path_resolve(Buf **paths_ptr, size_t paths_len);
 bool os_path_is_absolute(Buf *path);
-
-int os_get_global_cache_directory(Buf *out_tmp_path);
 
 Error ATTRIBUTE_MUST_USE os_make_path(Buf *path);
 Error ATTRIBUTE_MUST_USE os_make_dir(Buf *path);

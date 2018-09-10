@@ -10,7 +10,6 @@
 #include "codegen.hpp"
 #include "config.h"
 #include "error.hpp"
-#include "link.hpp"
 #include "os.hpp"
 #include "target.hpp"
 #include "cache_hash.hpp"
@@ -385,8 +384,7 @@ int main(int argc, char **argv) {
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
     ZigList<const char *> test_exec_args = {0};
-    int comptime_args_end = 0;
-    int runtime_args_start = argc;
+    int runtime_args_start = -1;
     bool no_rosegment_workaround = false;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
@@ -454,8 +452,6 @@ int main(int argc, char **argv) {
             full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
         }
 
-        Buf *path_to_build_exe = buf_alloc();
-        os_path_join(&full_cache_dir, buf_create_from_str("build"), path_to_build_exe);
         codegen_set_cache_dir(g, full_cache_dir);
 
         args.items[1] = buf_ptr(&build_file_dirname);
@@ -525,14 +521,13 @@ int main(int argc, char **argv) {
         PackageTableEntry *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
                 buf_ptr(&build_file_basename));
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
-        codegen_build(g);
-        codegen_link(g, buf_ptr(path_to_build_exe));
+        codegen_build_and_link(g);
 
         Termination term;
-        os_spawn_process(buf_ptr(path_to_build_exe), args, &term);
+        os_spawn_process(buf_ptr(&g->output_file_path), args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nBuild failed. The following command failed:\n");
-            fprintf(stderr, "%s", buf_ptr(path_to_build_exe));
+            fprintf(stderr, "%s", buf_ptr(&g->output_file_path));
             for (size_t i = 0; i < args.length; i += 1) {
                 fprintf(stderr, " %s", args.at(i));
             }
@@ -541,15 +536,11 @@ int main(int argc, char **argv) {
         return (term.how == TerminationIdClean) ? term.code : -1;
     }
 
-    for (int i = 1; i < argc; i += 1, comptime_args_end += 1) {
+    for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
 
         if (arg[0] == '-') {
-            if (strcmp(arg, "--") == 0) {
-                // ignore -- from both compile and runtime arg sets
-                runtime_args_start = i + 1;
-                break;
-            } else if (strcmp(arg, "--release-fast") == 0) {
+            if (strcmp(arg, "--release-fast") == 0) {
                 build_mode = BuildModeFastRelease;
             } else if (strcmp(arg, "--release-safe") == 0) {
                 build_mode = BuildModeSafeRelease;
@@ -746,6 +737,10 @@ int main(int argc, char **argv) {
                 case CmdTest:
                     if (!in_file) {
                         in_file = arg;
+                        if (cmd == CmdRun) {
+                            runtime_args_start = i + 1;
+                            break; // rest of the args are for the program
+                        }
                     } else {
                         fprintf(stderr, "Unexpected extra parameter: %s\n", arg);
                         return usage(arg0);
@@ -856,19 +851,10 @@ int main(int argc, char **argv) {
             Buf *zig_root_source_file = (cmd == CmdTranslateC) ? nullptr : in_file_buf;
 
             Buf full_cache_dir = BUF_INIT;
-            Buf *run_exec_path = buf_alloc();
-            if (cmd == CmdRun) {
-                if (buf_out_name == nullptr) {
-                    buf_out_name = buf_create_from_str("run");
-                }
-
-                Buf *global_cache_dir = buf_alloc();
-                os_get_global_cache_directory(global_cache_dir);
-                os_path_join(global_cache_dir, buf_out_name, run_exec_path);
-                full_cache_dir = os_path_resolve(&global_cache_dir, 1);
-
-                out_file = buf_ptr(run_exec_path);
-            } else {
+            if (cmd == CmdRun && buf_out_name == nullptr) {
+                buf_out_name = buf_create_from_str("run");
+            }
+            {
                 Buf *resolve_paths = buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir);
                 full_cache_dir = os_path_resolve(&resolve_paths, 1);
             }
@@ -957,6 +943,8 @@ int main(int argc, char **argv) {
                 codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));
             }
 
+            if (out_file)
+                codegen_set_output_path(g, buf_create_from_str(out_file));
             if (out_file_h)
                 codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
 
@@ -976,8 +964,7 @@ int main(int argc, char **argv) {
             if (cmd == CmdBuild || cmd == CmdRun) {
                 codegen_set_emit_file_type(g, emit_file_type);
 
-                codegen_build(g);
-                codegen_link(g, out_file);
+                codegen_build_and_link(g);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
 
@@ -987,8 +974,14 @@ int main(int argc, char **argv) {
                         args.append(argv[i]);
                     }
 
+                    const char *exec_path = buf_ptr(&g->output_file_path);
+                    args.append(nullptr);
+
+                    os_execv(exec_path, args.items);
+
+                    args.pop();
                     Termination term;
-                    os_spawn_process(buf_ptr(run_exec_path), args, &term);
+                    os_spawn_process(exec_path, args, &term);
                     return term.code;
                 }
 
@@ -1005,11 +998,8 @@ int main(int argc, char **argv) {
                 ZigTarget native;
                 get_native_target(&native);
 
-                ZigTarget *non_null_target = target ? target : &native;
-
-                Buf *test_exe_name = buf_sprintf("test%s", target_exe_file_ext(non_null_target));
-                Buf *test_exe_path = buf_alloc();
-                os_path_join(&full_cache_dir, test_exe_name, test_exe_path);
+                codegen_build_and_link(g);
+                Buf *test_exe_path = &g->output_file_path;
 
                 for (size_t i = 0; i < test_exec_args.length; i += 1) {
                     if (test_exec_args.items[i] == nullptr) {
@@ -1017,8 +1007,6 @@ int main(int argc, char **argv) {
                     }
                 }
 
-                codegen_build(g);
-                codegen_link(g, buf_ptr(test_exe_path));
 
                 if (!target_can_exec(&native, target)) {
                     fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",

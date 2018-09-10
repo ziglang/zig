@@ -972,6 +972,22 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
 }
 #endif
 
+Error os_execv(const char *exe, const char **argv) {
+#if defined(ZIG_OS_WINDOWS)
+    return ErrorUnsupportedOperatingSystem;
+#else
+    execv(exe, (char *const *)argv);
+    switch (errno) {
+        case ENOMEM:
+            return ErrorSystemResources;
+        case EIO:
+            return ErrorFileSystem;
+        default:
+            return ErrorUnexpected;
+    }
+#endif
+}
+
 int os_exec_process(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
@@ -1237,44 +1253,6 @@ int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
 #error "missing os_buf_to_tmp_file implementation"
 #endif
 }
-
-#if defined(ZIG_OS_POSIX)
-int os_get_global_cache_directory(Buf *out_tmp_path) {
-    const char *tmp_dir = getenv("TMPDIR");
-    if (!tmp_dir) {
-        tmp_dir = P_tmpdir;
-    }
-
-    Buf *tmp_dir_buf = buf_create_from_str(tmp_dir);
-    Buf *cache_dirname_buf = buf_create_from_str("zig-cache");
-
-    buf_resize(out_tmp_path, 0);
-    os_path_join(tmp_dir_buf, cache_dirname_buf, out_tmp_path);
-
-    buf_deinit(tmp_dir_buf);
-    buf_deinit(cache_dirname_buf);
-    return 0;
-}
-#endif
-
-#if defined(ZIG_OS_WINDOWS)
-int os_get_global_cache_directory(Buf *out_tmp_path) {
-    char tmp_dir[MAX_PATH + 1];
-    if (GetTempPath(MAX_PATH, tmp_dir) == 0) {
-        zig_panic("GetTempPath failed");
-    }
-
-    Buf *tmp_dir_buf = buf_create_from_str(tmp_dir);
-    Buf *cache_dirname_buf = buf_create_from_str("zig-cache");
-
-    buf_resize(out_tmp_path, 0);
-    os_path_join(tmp_dir_buf, cache_dirname_buf, out_tmp_path);
-
-    buf_deinit(tmp_dir_buf);
-    buf_deinit(cache_dirname_buf);
-    return 0;
-}
-#endif
 
 int os_delete_file(Buf *path) {
     if (remove(buf_ptr(path))) {

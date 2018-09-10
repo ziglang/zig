@@ -1554,6 +1554,40 @@ struct CodeGen {
     ZigLLVMDICompileUnit *compile_unit;
     ZigLLVMDIFile *compile_unit_file;
     LinkLib *libc_link_lib;
+    LLVMTargetDataRef target_data_ref;
+    LLVMTargetMachineRef target_machine;
+    ZigLLVMDIFile *dummy_di_file;
+    LLVMValueRef cur_ret_ptr;
+    LLVMValueRef cur_fn_val;
+    LLVMValueRef cur_err_ret_trace_val_arg;
+    LLVMValueRef cur_err_ret_trace_val_stack;
+    LLVMValueRef memcpy_fn_val;
+    LLVMValueRef memset_fn_val;
+    LLVMValueRef trap_fn_val;
+    LLVMValueRef return_address_fn_val;
+    LLVMValueRef frame_address_fn_val;
+    LLVMValueRef coro_destroy_fn_val;
+    LLVMValueRef coro_id_fn_val;
+    LLVMValueRef coro_alloc_fn_val;
+    LLVMValueRef coro_size_fn_val;
+    LLVMValueRef coro_begin_fn_val;
+    LLVMValueRef coro_suspend_fn_val;
+    LLVMValueRef coro_end_fn_val;
+    LLVMValueRef coro_free_fn_val;
+    LLVMValueRef coro_resume_fn_val;
+    LLVMValueRef coro_save_fn_val;
+    LLVMValueRef coro_promise_fn_val;
+    LLVMValueRef coro_alloc_helper_fn_val;
+    LLVMValueRef coro_frame_fn_val;
+    LLVMValueRef merge_err_ret_traces_fn_val;
+    LLVMValueRef add_error_return_trace_addr_fn_val;
+    LLVMValueRef stacksave_fn_val;
+    LLVMValueRef stackrestore_fn_val;
+    LLVMValueRef write_register_fn_val;
+    LLVMValueRef sp_md_node;
+    LLVMValueRef err_name_table;
+    LLVMValueRef safety_crash_err_fn;
+    LLVMValueRef return_err_fn;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
@@ -1576,8 +1610,23 @@ struct CodeGen {
     size_t resolve_queue_index;
     ZigList<AstNode *> use_queue;
     size_t use_queue_index;
+    ZigList<TimeEvent> timing_events;
+    ZigList<ZigLLVMDIType **> error_di_types;
+    ZigList<AstNode *> tld_ref_source_node_stack;
+    ZigList<ZigFn *> inline_fns;
+    ZigList<ZigFn *> test_fns;
+    ZigList<ZigLLVMDIEnumerator *> err_enumerators;
+    ZigList<ErrorTableEntry *> errors_by_index;
+    size_t largest_err_name_len;
 
-    uint32_t next_unresolved_index;
+    PackageTableEntry *std_package;
+    PackageTableEntry *panic_package;
+    PackageTableEntry *test_runner_package;
+    PackageTableEntry *compile_var_package;
+    ImportTableEntry *compile_var_import;
+    ImportTableEntry *root_import;
+    ImportTableEntry *bootstrap_import;
+    ImportTableEntry *test_runner_import;
 
     struct {
         ZigType *entry_bool;
@@ -1613,30 +1662,45 @@ struct CodeGen {
         ZigType *entry_arg_tuple;
         ZigType *entry_promise;
     } builtin_types;
+    ZigType *align_amt_type;
+    ZigType *stack_trace_type;
+    ZigType *ptr_to_stack_trace_type;
+    ZigType *err_tag_type;
+    ZigType *test_fn_type;
+
+    Buf triple_str;
+    Buf global_asm;
+    Buf *out_h_path;
+    Buf cache_dir;
+    Buf artifact_dir;
+    Buf output_file_path;
+    Buf o_file_output_path;
+    Buf *wanted_output_file_path;
+
+    IrInstruction *invalid_instruction;
+
+    ConstExprValue const_void_val;
+    ConstExprValue panic_msg_vals[PanicMsgIdCount];
+
+    // The function definitions this module includes.
+    ZigList<ZigFn *> fn_defs;
+    size_t fn_defs_index;
+    ZigList<TldVar *> global_vars;
+
+    ZigFn *cur_fn;
+    ZigFn *main_fn;
+    ZigFn *panic_fn;
+    AstNode *root_export_decl;
 
     CacheHash cache_hash;
-
-    //////////////////////////// Participates in Input Parameter Cache Hash
-    Buf *compiler_id;
-    ZigList<LinkLib *> link_libs_list;
-    // add -framework [name] args to linker
-    ZigList<Buf *> darwin_frameworks;
-    // add -rpath [name] args to linker
-    ZigList<Buf *> rpath_list;
-
-    EmitFileType emit_file_type;
-    BuildMode build_mode;
-    OutType out_type;
-
-
-    //////////////////////////// Unsorted
-
-    ZigTarget zig_target;
-    LLVMTargetDataRef target_data_ref;
+    ErrColor err_color;
+    uint32_t next_unresolved_index;
     unsigned pointer_size_bytes;
+    uint32_t target_os_index;
+    uint32_t target_arch_index;
+    uint32_t target_environ_index;
+    uint32_t target_oformat_index;
     bool is_big_endian;
-    bool is_static;
-    bool strip_debug_symbols;
     bool want_h_file;
     bool have_pub_main;
     bool have_c_main;
@@ -1644,6 +1708,64 @@ struct CodeGen {
     bool have_winmain_crt_startup;
     bool have_dllmain_crt_startup;
     bool have_pub_panic;
+    bool have_err_ret_tracing;
+    bool c_want_stdint;
+    bool c_want_stdbool;
+    bool verbose_tokenize;
+    bool verbose_ast;
+    bool verbose_link;
+    bool verbose_ir;
+    bool verbose_llvm_ir;
+    bool verbose_cimport;
+    bool error_during_imports;
+    bool generate_error_name_table;
+
+    //////////////////////////// Participates in Input Parameter Cache Hash
+    ZigList<LinkLib *> link_libs_list;
+    // add -framework [name] args to linker
+    ZigList<Buf *> darwin_frameworks;
+    // add -rpath [name] args to linker
+    ZigList<Buf *> rpath_list;
+    ZigList<Buf *> forbidden_libs;
+    ZigList<Buf *> link_objects;
+    ZigList<Buf *> assembly_files;
+    ZigList<const char *> lib_dirs;
+
+    Buf *compiler_id;
+    size_t version_major;
+    size_t version_minor;
+    size_t version_patch;
+    const char *linker_script;
+
+    EmitFileType emit_file_type;
+    BuildMode build_mode;
+    OutType out_type;
+    ZigTarget zig_target;
+    bool is_static;
+    bool strip_debug_symbols;
+    bool is_test_build;
+    bool is_native_target;
+    bool windows_subsystem_windows;
+    bool windows_subsystem_console;
+    bool linker_rdynamic;
+    bool no_rosegment_workaround;
+    bool each_lib_rpath;
+
+    Buf *mmacosx_version_min;
+    Buf *mios_version_min;
+    Buf *root_out_name;
+    Buf *test_filter;
+    Buf *test_name_prefix;
+    PackageTableEntry *root_package;
+
+    const char **llvm_argv;
+    size_t llvm_argv_len;
+
+    const char **clang_argv;
+    size_t clang_argv_len;
+
+    //////////////////////////// Unsorted
+
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;
@@ -1654,138 +1776,7 @@ struct CodeGen {
     Buf *zig_c_headers_dir;
     Buf *zig_std_special_dir;
     Buf *dynamic_linker;
-    Buf *ar_path;
     ZigWindowsSDK *win_sdk;
-    Buf triple_str;
-    bool is_test_build;
-    bool have_err_ret_tracing;
-    uint32_t target_os_index;
-    uint32_t target_arch_index;
-    uint32_t target_environ_index;
-    uint32_t target_oformat_index;
-    LLVMTargetMachineRef target_machine;
-    ZigLLVMDIFile *dummy_di_file;
-    bool is_native_target;
-    PackageTableEntry *root_package; // participates in cache hash
-    PackageTableEntry *std_package;
-    PackageTableEntry *panic_package;
-    PackageTableEntry *test_runner_package;
-    PackageTableEntry *compile_var_package;
-    ImportTableEntry *compile_var_import;
-    Buf *root_out_name; // participates in cache hash
-    bool windows_subsystem_windows;
-    bool windows_subsystem_console;
-    Buf *mmacosx_version_min;
-    Buf *mios_version_min;
-    bool linker_rdynamic;
-    const char *linker_script;
-
-    // The function definitions this module includes.
-    ZigList<ZigFn *> fn_defs;
-    size_t fn_defs_index;
-    ZigList<TldVar *> global_vars;
-
-    ZigFn *cur_fn;
-    ZigFn *main_fn;
-    ZigFn *panic_fn;
-    LLVMValueRef cur_ret_ptr;
-    LLVMValueRef cur_fn_val;
-    LLVMValueRef cur_err_ret_trace_val_arg;
-    LLVMValueRef cur_err_ret_trace_val_stack;
-    bool c_want_stdint;
-    bool c_want_stdbool;
-    AstNode *root_export_decl;
-    size_t version_major;
-    size_t version_minor;
-    size_t version_patch;
-    bool verbose_tokenize;
-    bool verbose_ast;
-    bool verbose_link;
-    bool verbose_ir;
-    bool verbose_llvm_ir;
-    bool verbose_cimport;
-    ErrColor err_color;
-    ImportTableEntry *root_import;
-    ImportTableEntry *bootstrap_import;
-    ImportTableEntry *test_runner_import;
-    LLVMValueRef memcpy_fn_val;
-    LLVMValueRef memset_fn_val;
-    LLVMValueRef trap_fn_val;
-    LLVMValueRef return_address_fn_val;
-    LLVMValueRef frame_address_fn_val;
-    LLVMValueRef coro_destroy_fn_val;
-    LLVMValueRef coro_id_fn_val;
-    LLVMValueRef coro_alloc_fn_val;
-    LLVMValueRef coro_size_fn_val;
-    LLVMValueRef coro_begin_fn_val;
-    LLVMValueRef coro_suspend_fn_val;
-    LLVMValueRef coro_end_fn_val;
-    LLVMValueRef coro_free_fn_val;
-    LLVMValueRef coro_resume_fn_val;
-    LLVMValueRef coro_save_fn_val;
-    LLVMValueRef coro_promise_fn_val;
-    LLVMValueRef coro_alloc_helper_fn_val;
-    LLVMValueRef coro_frame_fn_val;
-    LLVMValueRef merge_err_ret_traces_fn_val;
-    LLVMValueRef add_error_return_trace_addr_fn_val;
-    LLVMValueRef stacksave_fn_val;
-    LLVMValueRef stackrestore_fn_val;
-    LLVMValueRef write_register_fn_val;
-    bool error_during_imports;
-
-    LLVMValueRef sp_md_node;
-
-    const char **clang_argv;
-    size_t clang_argv_len;
-    ZigList<const char *> lib_dirs;
-
-    const char **llvm_argv;
-    size_t llvm_argv_len;
-
-    ZigList<ZigFn *> test_fns;
-    ZigType *test_fn_type;
-
-    bool each_lib_rpath;
-
-    ZigType *err_tag_type;
-    ZigList<ZigLLVMDIEnumerator *> err_enumerators;
-    ZigList<ErrorTableEntry *> errors_by_index;
-    bool generate_error_name_table;
-    LLVMValueRef err_name_table;
-    size_t largest_err_name_len;
-    LLVMValueRef safety_crash_err_fn;
-
-    LLVMValueRef return_err_fn;
-
-    IrInstruction *invalid_instruction;
-    ConstExprValue const_void_val;
-
-    ConstExprValue panic_msg_vals[PanicMsgIdCount];
-
-    Buf global_asm;
-    ZigList<Buf *> link_objects;
-    ZigList<Buf *> assembly_files;
-
-    Buf *test_filter;
-    Buf *test_name_prefix;
-
-    ZigList<TimeEvent> timing_events;
-
-    Buf cache_dir;
-    Buf *out_h_path;
-
-    ZigList<ZigFn *> inline_fns;
-    ZigList<AstNode *> tld_ref_source_node_stack;
-
-    ZigType *align_amt_type;
-    ZigType *stack_trace_type;
-    ZigType *ptr_to_stack_trace_type;
-
-    ZigList<ZigLLVMDIType **> error_di_types;
-
-    ZigList<Buf *> forbidden_libs;
-
-    bool no_rosegment_workaround;
 };
 
 enum VarLinkage {

@@ -37,6 +37,20 @@ void cache_int(CacheHash *ch, int x) {
     blake2b_update(&ch->blake, buf, sizeof(int) + 1);
 }
 
+void cache_usize(CacheHash *ch, size_t x) {
+    assert(ch->manifest_file_path == nullptr);
+    // + 1 to include the null byte
+    uint8_t buf[sizeof(size_t) + 1];
+    memcpy(buf, &x, sizeof(size_t));
+    buf[sizeof(size_t)] = 0;
+    blake2b_update(&ch->blake, buf, sizeof(size_t) + 1);
+}
+
+void cache_bool(CacheHash *ch, bool x) {
+    assert(ch->manifest_file_path == nullptr);
+    blake2b_update(&ch->blake, &x, 1);
+}
+
 void cache_buf(CacheHash *ch, Buf *buf) {
     assert(ch->manifest_file_path == nullptr);
     assert(buf != nullptr);
@@ -70,6 +84,26 @@ void cache_list_of_buf(CacheHash *ch, Buf **ptr, size_t len) {
     for (size_t i = 0; i < len; i += 1) {
         Buf *buf = ptr[i];
         cache_buf(ch, buf);
+    }
+    cache_str(ch, "");
+}
+
+void cache_list_of_file(CacheHash *ch, Buf **ptr, size_t len) {
+    assert(ch->manifest_file_path == nullptr);
+
+    for (size_t i = 0; i < len; i += 1) {
+        Buf *buf = ptr[i];
+        cache_file(ch, buf);
+    }
+    cache_str(ch, "");
+}
+
+void cache_list_of_str(CacheHash *ch, const char **ptr, size_t len) {
+    assert(ch->manifest_file_path == nullptr);
+
+    for (size_t i = 0; i < len; i += 1) {
+        const char *s = ptr[i];
+        cache_str(ch, s);
     }
     cache_str(ch, "");
 }
@@ -154,8 +188,12 @@ static Error base64_decode(Slice<uint8_t> dest, Slice<uint8_t> source) {
     return ErrorNone;
 }
 
-static Error hash_file(uint8_t *digest, OsFile handle) {
+static Error hash_file(uint8_t *digest, OsFile handle, Buf *contents) {
     Error err;
+
+    if (contents) {
+        buf_resize(contents, 0);
+    }
 
     blake2b_state blake;
     int rc = blake2b_init(&blake, 48);
@@ -172,10 +210,13 @@ static Error hash_file(uint8_t *digest, OsFile handle) {
             return ErrorNone;
         }
         blake2b_update(&blake, buf, amt);
+        if (contents) {
+            buf_append_mem(contents, (char*)buf, amt);
+        }
     }
 }
 
-static Error populate_file_hash(CacheHash *ch, CacheHashFile *chf) {
+static Error populate_file_hash(CacheHash *ch, CacheHashFile *chf, Buf *contents) {
     Error err;
 
     assert(chf->path != nullptr);
@@ -189,7 +230,7 @@ static Error populate_file_hash(CacheHash *ch, CacheHashFile *chf) {
         return err;
     }
 
-    if ((err = hash_file(chf->bin_digest, this_file))) {
+    if ((err = hash_file(chf->bin_digest, this_file, contents))) {
         os_file_close(this_file);
         return err;
     }
@@ -323,7 +364,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
             chf->mtime = actual_mtime;
 
             uint8_t actual_digest[48];
-            if ((err = hash_file(actual_digest, this_file))) {
+            if ((err = hash_file(actual_digest, this_file, nullptr))) {
                 os_file_close(this_file);
                 os_file_close(ch->manifest_file);
                 return err;
@@ -344,7 +385,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
         ch->manifest_dirty = true;
         for (; file_i < input_file_count; file_i += 1) {
             CacheHashFile *chf = &ch->files.at(file_i);
-            if ((err = populate_file_hash(ch, chf))) {
+            if ((err = populate_file_hash(ch, chf, nullptr))) {
                 os_file_close(ch->manifest_file);
                 return err;
             }
@@ -355,18 +396,24 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
     return cache_final(ch, out_digest);
 }
 
-Error cache_add_file(CacheHash *ch, Buf *path) {
+Error cache_add_file_fetch(CacheHash *ch, Buf *resolved_path, Buf *contents) {
     Error err;
 
     assert(ch->manifest_file_path != nullptr);
     CacheHashFile *chf = ch->files.add_one();
-    chf->path = path;
-    if ((err = populate_file_hash(ch, chf))) {
+    chf->path = resolved_path;
+    if ((err = populate_file_hash(ch, chf, contents))) {
         os_file_close(ch->manifest_file);
         return err;
     }
 
     return ErrorNone;
+}
+
+Error cache_add_file(CacheHash *ch, Buf *path) {
+    Buf *resolved_path = buf_alloc();
+    *resolved_path = os_path_resolve(&path, 1);
+    return cache_add_file_fetch(ch, resolved_path, nullptr);
 }
 
 static Error write_manifest_file(CacheHash *ch) {
@@ -398,7 +445,8 @@ Error cache_final(CacheHash *ch, Buf *out_digest) {
                     buf_ptr(ch->manifest_file_path), err_str(err));
         }
     }
-    os_file_close(ch->manifest_file);
+    // We don't close the manifest file yet, because we want to
+    // keep it locked until the API user is done using it.
 
     uint8_t bin_digest[48];
     int rc = blake2b_final(&ch->blake, bin_digest, 48);
@@ -407,4 +455,8 @@ Error cache_final(CacheHash *ch, Buf *out_digest) {
     base64_encode(buf_to_slice(out_digest), {bin_digest, 48});
 
     return ErrorNone;
+}
+
+void cache_release(CacheHash *ch) {
+    os_file_close(ch->manifest_file);
 }

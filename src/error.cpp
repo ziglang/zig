@@ -29,6 +29,7 @@ const char *err_str(int err) {
         case ErrorCCompileErrors: return "C compile errors";
         case ErrorEndOfFile: return "end of file";
         case ErrorIsDir: return "is directory";
+        case ErrorUnsupportedOperatingSystem: return "unsupported operating system";
     }
     return "(invalid error)";
 }

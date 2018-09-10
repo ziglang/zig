@@ -29,6 +29,7 @@ enum Error {
     ErrorCCompileErrors,
     ErrorEndOfFile,
     ErrorIsDir,
+    ErrorUnsupportedOperatingSystem,
 };
 
 const char *err_str(int err);

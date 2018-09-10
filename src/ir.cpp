@@ -16232,6 +16232,8 @@ static ZigType *ir_analyze_instruction_union_tag(IrAnalyze *ira, IrInstructionUn
 }
 
 static ZigType *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructionImport *import_instruction) {
+    Error err;
+
     IrInstruction *name_value = import_instruction->name->other;
     Buf *import_target_str = ir_resolve_str(ira, name_value);
     if (!import_target_str)
@@ -16275,8 +16277,7 @@ static ZigType *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructionImpor
         return ira->codegen->builtin_types.entry_namespace;
     }
 
-    int err;
-    if ((err = os_fetch_file_path(resolved_path, import_code, true))) {
+    if ((err = cache_add_file_fetch(&ira->codegen->cache_hash, resolved_path, import_code))) {
         if (err == ErrorFileNotFound) {
             ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
@@ -16287,6 +16288,7 @@ static ZigType *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructionImpor
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
+
     ImportTableEntry *target_import = add_source_file(ira->codegen, target_package, resolved_path, import_code);
 
     scan_import(ira->codegen, target_import);
@@ -18106,7 +18108,7 @@ static ZigType *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstructionE
     // load from file system into const expr
     Buf *file_contents = buf_alloc();
     int err;
-    if ((err = os_fetch_file_path(&file_path, file_contents, false))) {
+    if ((err = cache_add_file_fetch(&ira->codegen->cache_hash, &file_path, file_contents))) {
         if (err == ErrorFileNotFound) {
             ir_add_error(ira, instruction->name, buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
             return ira->codegen->builtin_types.entry_invalid;
@@ -18115,9 +18117,6 @@ static ZigType *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstructionE
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
-
-    // TODO add dependency on the file we embedded so that we know if it changes
-    // we'll have to invalidate the cache
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     init_const_str_lit(ira->codegen, out_val, file_contents);
