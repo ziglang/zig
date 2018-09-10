@@ -374,25 +374,26 @@ int main(int argc, char **argv) {
         CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
         codegen_set_out_name(g, buf_create_from_str("build"));
 
-        Buf build_file_abs = BUF_INIT;
-        os_path_resolve(buf_create_from_str("."), buf_create_from_str(build_file), &build_file_abs);
+        Buf *build_file_buf = buf_create_from_str(build_file);
+        Buf build_file_abs = os_path_resolve(&build_file_buf, 1);
         Buf build_file_basename = BUF_INIT;
         Buf build_file_dirname = BUF_INIT;
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
 
-        Buf *full_cache_dir = buf_alloc();
+        Buf full_cache_dir = BUF_INIT;
         if (cache_dir == nullptr) {
-            os_path_join(&build_file_dirname, buf_create_from_str(default_zig_cache_name), full_cache_dir);
+            os_path_join(&build_file_dirname, buf_create_from_str(default_zig_cache_name), &full_cache_dir);
         } else {
-            os_path_resolve(buf_create_from_str("."), buf_create_from_str(cache_dir), full_cache_dir);
+            Buf *cache_dir_buf = buf_create_from_str(cache_dir);
+            full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
         }
 
         Buf *path_to_build_exe = buf_alloc();
-        os_path_join(full_cache_dir, buf_create_from_str("build"), path_to_build_exe);
+        os_path_join(&full_cache_dir, buf_create_from_str("build"), path_to_build_exe);
         codegen_set_cache_dir(g, full_cache_dir);
 
         args.items[1] = buf_ptr(&build_file_dirname);
-        args.items[2] = buf_ptr(full_cache_dir);
+        args.items[2] = buf_ptr(&full_cache_dir);
 
         bool build_file_exists;
         if ((err = os_file_exists(&build_file_abs, &build_file_exists))) {
@@ -789,7 +790,7 @@ int main(int argc, char **argv) {
 
             Buf *zig_root_source_file = (cmd == CmdTranslateC) ? nullptr : in_file_buf;
 
-            Buf *full_cache_dir = buf_alloc();
+            Buf full_cache_dir = BUF_INIT;
             Buf *run_exec_path = buf_alloc();
             if (cmd == CmdRun) {
                 if (buf_out_name == nullptr) {
@@ -799,13 +800,12 @@ int main(int argc, char **argv) {
                 Buf *global_cache_dir = buf_alloc();
                 os_get_global_cache_directory(global_cache_dir);
                 os_path_join(global_cache_dir, buf_out_name, run_exec_path);
-                os_path_resolve(buf_create_from_str("."), global_cache_dir, full_cache_dir);
+                full_cache_dir = os_path_resolve(&global_cache_dir, 1);
 
                 out_file = buf_ptr(run_exec_path);
             } else {
-                os_path_resolve(buf_create_from_str("."),
-                        buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir),
-                        full_cache_dir);
+                Buf *resolve_paths = buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir);
+                full_cache_dir = os_path_resolve(&resolve_paths, 1);
             }
 
             Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
@@ -937,7 +937,7 @@ int main(int argc, char **argv) {
 
                 Buf *test_exe_name = buf_sprintf("test%s", target_exe_file_ext(non_null_target));
                 Buf *test_exe_path = buf_alloc();
-                os_path_join(full_cache_dir, test_exe_name, test_exe_path);
+                os_path_join(&full_cache_dir, test_exe_name, test_exe_path);
 
                 for (size_t i = 0; i < test_exec_args.length; i += 1) {
                     if (test_exec_args.items[i] == nullptr) {

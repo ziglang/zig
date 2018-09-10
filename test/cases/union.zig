@@ -311,3 +311,16 @@ fn testTaggedUnionInit(x: var) bool {
     const y = TaggedUnionWithAVoid{ .A = x };
     return @TagType(TaggedUnionWithAVoid)(y) == TaggedUnionWithAVoid.A;
 }
+
+pub const UnionEnumNoPayloads = union(enum) {
+    A,
+    B,
+};
+
+test "tagged union with no payloads" {
+    const a = UnionEnumNoPayloads{ .B = {} };
+    switch (a) {
+        @TagType(UnionEnumNoPayloads).A => @panic("wrong"),
+        @TagType(UnionEnumNoPayloads).B => {},
+    }
+}

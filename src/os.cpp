@@ -57,6 +57,54 @@ static clock_serv_t cclock;
 #include <errno.h>
 #include <time.h>
 
+// Ported from std/mem.zig.
+// Coordinate struct fields with memSplit function
+struct SplitIterator {
+    size_t index;
+    Slice<uint8_t> buffer;
+    Slice<uint8_t> split_bytes;
+};
+
+// Ported from std/mem.zig.
+static bool SplitIterator_isSplitByte(SplitIterator *self, uint8_t byte) {
+    for (size_t i = 0; i < self->split_bytes.len; i += 1) {
+        if (byte == self->split_bytes.ptr[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Ported from std/mem.zig.
+static Optional<Slice<uint8_t>> SplitIterator_next(SplitIterator *self) {
+    // move to beginning of token
+    while (self->index < self->buffer.len &&
+        SplitIterator_isSplitByte(self, self->buffer.ptr[self->index]))
+    {
+        self->index += 1;
+    }
+    size_t start = self->index;
+    if (start == self->buffer.len) {
+        return {};
+    }
+
+    // move to end of token
+    while (self->index < self->buffer.len &&
+        !SplitIterator_isSplitByte(self, self->buffer.ptr[self->index]))
+    {
+        self->index += 1;
+    }
+    size_t end = self->index;
+
+    return Optional<Slice<uint8_t>>::some(self->buffer.slice(start, end));
+}
+
+// Ported from std/mem.zig
+static SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes) {
+    return SplitIterator{0, buffer, split_bytes};
+}
+
+
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
     if (WIFEXITED(status)) {
@@ -266,15 +314,31 @@ int os_path_real(Buf *rel_path, Buf *out_abs_path) {
 #endif
 }
 
+#if defined(ZIG_OS_WINDOWS)
+// Ported from std/os/path.zig
+static bool isAbsoluteWindows(Slice<uint8_t> path) {
+    if (path.ptr[0] == '/')
+        return true;
+
+    if (path.ptr[0] == '\\') {
+        return true;
+    }
+    if (path.len < 3) {
+        return false;
+    }
+    if (path.ptr[1] == ':') {
+        if (path.ptr[2] == '/')
+            return true;
+        if (path.ptr[2] == '\\')
+            return true;
+    }
+    return false;
+}
+#endif
+
 bool os_path_is_absolute(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
-    if (buf_starts_with_str(path, "/") || buf_starts_with_str(path, "\\"))
-        return true;
-
-    if (buf_len(path) >= 3 && buf_ptr(path)[1] == ':')
-        return true;
-
-    return false;
+    return isAbsoluteWindows(buf_to_slice(path));
 #elif defined(ZIG_OS_POSIX)
     return buf_ptr(path)[0] == '/';
 #else
@@ -282,14 +346,423 @@ bool os_path_is_absolute(Buf *path) {
 #endif
 }
 
-void os_path_resolve(Buf *ref_path, Buf *target_path, Buf *out_abs_path) {
-    if (os_path_is_absolute(target_path)) {
-        buf_init_from_buf(out_abs_path, target_path);
-        return;
+#if defined(ZIG_OS_WINDOWS)
+
+enum WindowsPathKind {
+    WindowsPathKindNone,
+    WindowsPathKindDrive,
+    WindowsPathKindNetworkShare,
+};
+
+struct WindowsPath {
+    Slice<uint8_t> disk_designator;
+    WindowsPathKind kind;
+    bool is_abs;
+};
+
+
+// Ported from std/os/path.zig
+static WindowsPath windowsParsePath(Slice<uint8_t> path) {
+    if (path.len >= 2 && path.ptr[1] == ':') {
+        return WindowsPath{
+            path.slice(0, 2),
+            WindowsPathKindDrive,
+            isAbsoluteWindows(path),
+        };
+    }
+    if (path.len >= 1 && (path.ptr[0] == '/' || path.ptr[0] == '\\') &&
+        (path.len == 1 || (path.ptr[1] != '/' && path.ptr[1] != '\\')))
+    {
+        return WindowsPath{
+            path.slice(0, 0),
+            WindowsPathKindNone,
+            true,
+        };
+    }
+    WindowsPath relative_path = {
+        str(""),
+        WindowsPathKindNone,
+        false,
+    };
+    if (path.len < strlen("//a/b")) {
+        return relative_path;
     }
 
-    os_path_join(ref_path, target_path, out_abs_path);
-    return;
+    {
+        if (memStartsWith(path, str("//"))) {
+            if (path.ptr[2] == '/') {
+                return relative_path;
+            }
+
+            SplitIterator it = memSplit(path, str("/"));
+            {
+                Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+                if (!opt_component.is_some) return relative_path;
+            }
+            {
+                Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+                if (!opt_component.is_some) return relative_path;
+            }
+            return WindowsPath{
+                path.slice(0, it.index),
+                WindowsPathKindNetworkShare,
+                isAbsoluteWindows(path),
+            };
+        }
+    }
+    {
+        if (memStartsWith(path, str("\\\\"))) {
+            if (path.ptr[2] == '\\') {
+                return relative_path;
+            }
+
+            SplitIterator it = memSplit(path, str("\\"));
+            {
+                Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+                if (!opt_component.is_some) return relative_path;
+            }
+            {
+                Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+                if (!opt_component.is_some) return relative_path;
+            }
+            return WindowsPath{
+                path.slice(0, it.index),
+                WindowsPathKindNetworkShare,
+                isAbsoluteWindows(path),
+            };
+        }
+    }
+    return relative_path;
+}
+
+// Ported from std/os/path.zig
+static uint8_t asciiUpper(uint8_t byte) {
+    if (byte >= 'a' && byte <= 'z') {
+        return 'A' + (byte - 'a');
+    }
+    return byte;
+}
+
+// Ported from std/os/path.zig
+static bool asciiEqlIgnoreCase(Slice<uint8_t> s1, Slice<uint8_t> s2) {
+    if (s1.len != s2.len)
+        return false;
+    for (size_t i = 0; i < s1.len; i += 1) {
+        if (asciiUpper(s1.ptr[i]) != asciiUpper(s2.ptr[i]))
+            return false;
+    }
+    return true;
+}
+
+// Ported from std/os/path.zig
+static bool compareDiskDesignators(WindowsPathKind kind, Slice<uint8_t> p1, Slice<uint8_t> p2) {
+    switch (kind) {
+        case WindowsPathKindNone:
+            assert(p1.len == 0);
+            assert(p2.len == 0);
+            return true;
+        case WindowsPathKindDrive:
+            return asciiUpper(p1.ptr[0]) == asciiUpper(p2.ptr[0]);
+        case WindowsPathKindNetworkShare:
+            uint8_t sep1 = p1.ptr[0];
+            uint8_t sep2 = p2.ptr[0];
+
+            SplitIterator it1 = memSplit(p1, {&sep1, 1});
+            SplitIterator it2 = memSplit(p2, {&sep2, 1});
+
+            // TODO ASCII is wrong, we actually need full unicode support to compare paths.
+            return asciiEqlIgnoreCase(SplitIterator_next(&it1).value, SplitIterator_next(&it2).value) &&
+                asciiEqlIgnoreCase(SplitIterator_next(&it1).value, SplitIterator_next(&it2).value);
+    }
+    zig_unreachable();
+}
+
+// Ported from std/os/path.zig
+static Buf os_path_resolve_windows(Buf **paths_ptr, size_t paths_len) {
+    if (paths_len == 0) {
+        Buf cwd = BUF_INIT;
+        int err;
+        if ((err = os_get_cwd(&cwd))) {
+            zig_panic("get cwd failed");
+        }
+        return cwd;
+    }
+
+    // determine which disk designator we will result with, if any
+    char result_drive_buf[3] = {'_', ':', '\0'}; // 0 needed for strlen later
+    Slice<uint8_t> result_disk_designator = str("");
+    WindowsPathKind have_drive_kind = WindowsPathKindNone;
+    bool have_abs_path = false;
+    size_t first_index = 0;
+    size_t max_size = 0;
+    for (size_t i = 0; i < paths_len; i += 1) {
+        Slice<uint8_t> p = buf_to_slice(paths_ptr[i]);
+        WindowsPath parsed = windowsParsePath(p);
+        if (parsed.is_abs) {
+            have_abs_path = true;
+            first_index = i;
+            max_size = result_disk_designator.len;
+        }
+        switch (parsed.kind) {
+            case WindowsPathKindDrive:
+                result_drive_buf[0] = asciiUpper(parsed.disk_designator.ptr[0]);
+                result_disk_designator = str(result_drive_buf);
+                have_drive_kind = WindowsPathKindDrive;
+                break;
+            case WindowsPathKindNetworkShare:
+                result_disk_designator = parsed.disk_designator;
+                have_drive_kind = WindowsPathKindNetworkShare;
+                break;
+            case WindowsPathKindNone:
+                break;
+        }
+        max_size += p.len + 1;
+    }
+
+    // if we will result with a disk designator, loop again to determine
+    // which is the last time the disk designator is absolutely specified, if any
+    // and count up the max bytes for paths related to this disk designator
+    if (have_drive_kind != WindowsPathKindNone) {
+        have_abs_path = false;
+        first_index = 0;
+        max_size = result_disk_designator.len;
+        bool correct_disk_designator = false;
+
+        for (size_t i = 0; i < paths_len; i += 1) {
+            Slice<uint8_t> p = buf_to_slice(paths_ptr[i]);
+            WindowsPath parsed = windowsParsePath(p);
+            if (parsed.kind != WindowsPathKindNone) {
+                if (parsed.kind == have_drive_kind) {
+                    correct_disk_designator = compareDiskDesignators(have_drive_kind, result_disk_designator, parsed.disk_designator);
+                } else {
+                    continue;
+                }
+            }
+            if (!correct_disk_designator) {
+                continue;
+            }
+            if (parsed.is_abs) {
+                first_index = i;
+                max_size = result_disk_designator.len;
+                have_abs_path = true;
+            }
+            max_size += p.len + 1;
+        }
+    }
+
+    // Allocate result and fill in the disk designator, calling getCwd if we have to.
+    Slice<uint8_t> result;
+    size_t result_index = 0;
+
+    if (have_abs_path) {
+        switch (have_drive_kind) {
+            case WindowsPathKindDrive: {
+                result = Slice<uint8_t>::alloc(max_size);
+
+                memCopy(result, result_disk_designator);
+                result_index += result_disk_designator.len;
+                break;
+            }
+            case WindowsPathKindNetworkShare: {
+                result = Slice<uint8_t>::alloc(max_size);
+                SplitIterator it = memSplit(buf_to_slice(paths_ptr[first_index]), str("/\\"));
+                Slice<uint8_t> server_name = SplitIterator_next(&it).value;
+                Slice<uint8_t> other_name = SplitIterator_next(&it).value;
+
+                result.ptr[result_index] = '\\';
+                result_index += 1;
+                result.ptr[result_index] = '\\';
+                result_index += 1;
+                memCopy(result.sliceFrom(result_index), server_name);
+                result_index += server_name.len;
+                result.ptr[result_index] = '\\';
+                result_index += 1;
+                memCopy(result.sliceFrom(result_index), other_name);
+                result_index += other_name.len;
+
+                result_disk_designator = result.slice(0, result_index);
+                break;
+            }
+            case WindowsPathKindNone: {
+                Buf cwd = BUF_INIT;
+                int err;
+                if ((err = os_get_cwd(&cwd))) {
+                    zig_panic("get cwd failed");
+                }
+                WindowsPath parsed_cwd = windowsParsePath(buf_to_slice(&cwd));
+                result = Slice<uint8_t>::alloc(max_size + parsed_cwd.disk_designator.len + 1);
+                memCopy(result, parsed_cwd.disk_designator);
+                result_index += parsed_cwd.disk_designator.len;
+                result_disk_designator = result.slice(0, parsed_cwd.disk_designator.len);
+                if (parsed_cwd.kind == WindowsPathKindDrive) {
+                    result.ptr[0] = asciiUpper(result.ptr[0]);
+                }
+                have_drive_kind = parsed_cwd.kind;
+                break;
+            }
+        }
+    } else {
+        // TODO call get cwd for the result_disk_designator instead of the global one
+        Buf cwd = BUF_INIT;
+        int err;
+        if ((err = os_get_cwd(&cwd))) {
+            zig_panic("get cwd failed");
+        }
+        result = Slice<uint8_t>::alloc(max_size + buf_len(&cwd) + 1);
+
+        memCopy(result, buf_to_slice(&cwd));
+        result_index += buf_len(&cwd);
+        WindowsPath parsed_cwd = windowsParsePath(result.slice(0, result_index));
+        result_disk_designator = parsed_cwd.disk_designator;
+        if (parsed_cwd.kind == WindowsPathKindDrive) {
+            result.ptr[0] = asciiUpper(result.ptr[0]);
+        }
+        have_drive_kind = parsed_cwd.kind;
+    }
+
+    // Now we know the disk designator to use, if any, and what kind it is. And our result
+    // is big enough to append all the paths to.
+    bool correct_disk_designator = true;
+    for (size_t i = 0; i < paths_len; i += 1) {
+        Slice<uint8_t> p = buf_to_slice(paths_ptr[i]);
+        WindowsPath parsed = windowsParsePath(p);
+
+        if (parsed.kind != WindowsPathKindNone) {
+            if (parsed.kind == have_drive_kind) {
+                correct_disk_designator = compareDiskDesignators(have_drive_kind, result_disk_designator, parsed.disk_designator);
+            } else {
+                continue;
+            }
+        }
+        if (!correct_disk_designator) {
+            continue;
+        }
+        SplitIterator it = memSplit(p.sliceFrom(parsed.disk_designator.len), str("/\\"));
+        while (true) {
+            Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+            if (!opt_component.is_some) break;
+            Slice<uint8_t> component = opt_component.value;
+            if (memEql(component, str("."))) {
+                continue;
+            } else if (memEql(component, str(".."))) {
+                while (true) {
+                    if (result_index == 0 || result_index == result_disk_designator.len)
+                        break;
+                    result_index -= 1;
+                    if (result.ptr[result_index] == '\\' || result.ptr[result_index] == '/')
+                        break;
+                }
+            } else {
+                result.ptr[result_index] = '\\';
+                result_index += 1;
+                memCopy(result.sliceFrom(result_index), component);
+                result_index += component.len;
+            }
+        }
+    }
+
+    if (result_index == result_disk_designator.len) {
+        result.ptr[result_index] = '\\';
+        result_index += 1;
+    }
+
+    Buf return_value = BUF_INIT;
+    buf_init_from_mem(&return_value, (char *)result.ptr, result_index);
+    return return_value;
+}
+#endif
+
+#if defined(ZIG_OS_POSIX)
+// Ported from std/os/path.zig
+static Buf os_path_resolve_posix(Buf **paths_ptr, size_t paths_len) {
+    if (paths_len == 0) {
+        Buf cwd = BUF_INIT;
+        int err;
+        if ((err = os_get_cwd(&cwd))) {
+            zig_panic("get cwd failed");
+        }
+        return cwd;
+    }
+
+    size_t first_index = 0;
+    bool have_abs = false;
+    size_t max_size = 0;
+    for (size_t i = 0; i < paths_len; i += 1) {
+        Buf *p = paths_ptr[i];
+        if (os_path_is_absolute(p)) {
+            first_index = i;
+            have_abs = true;
+            max_size = 0;
+        }
+        max_size += buf_len(p) + 1;
+    }
+
+    uint8_t *result_ptr;
+    size_t result_len;
+    size_t result_index = 0;
+
+    if (have_abs) {
+        result_len = max_size;
+        result_ptr = allocate_nonzero<uint8_t>(result_len);
+    } else {
+        Buf cwd = BUF_INIT;
+        int err;
+        if ((err = os_get_cwd(&cwd))) {
+            zig_panic("get cwd failed");
+        }
+        result_len = max_size + buf_len(&cwd) + 1;
+        result_ptr = allocate_nonzero<uint8_t>(result_len);
+        memcpy(result_ptr, buf_ptr(&cwd), buf_len(&cwd));
+        result_index += buf_len(&cwd);
+    }
+
+    for (size_t i = first_index; i < paths_len; i += 1) {
+        Buf *p = paths_ptr[i];
+        SplitIterator it = memSplit(buf_to_slice(p), str("/"));
+        while (true) {
+            Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+            if (!opt_component.is_some) break;
+            Slice<uint8_t> component = opt_component.value;
+
+            if (memEql<uint8_t>(component, str("."))) {
+                continue;
+            } else if (memEql<uint8_t>(component, str(".."))) {
+                while (true) {
+                    if (result_index == 0)
+                        break;
+                    result_index -= 1;
+                    if (result_ptr[result_index] == '/')
+                        break;
+                }
+            } else {
+                result_ptr[result_index] = '/';
+                result_index += 1;
+                memcpy(result_ptr + result_index, component.ptr, component.len);
+                result_index += component.len;
+            }
+        }
+    }
+
+    if (result_index == 0) {
+        result_ptr[0] = '/';
+        result_index += 1;
+    }
+
+    Buf return_value = BUF_INIT;
+    buf_init_from_mem(&return_value, (char *)result_ptr, result_index);
+    return return_value;
+}
+#endif
+
+// Ported from std/os/path.zig
+Buf os_path_resolve(Buf **paths_ptr, size_t paths_len) {
+#if defined(ZIG_OS_WINDOWS)
+    return os_path_resolve_windows(paths_ptr, paths_len);
+#elif defined(ZIG_OS_POSIX)
+    return os_path_resolve_posix(paths_ptr, paths_len);
+#else
+#error "missing os_path_resolve implementation"
+#endif
 }
 
 int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
@@ -558,7 +1031,7 @@ int os_exec_process(const char *exe, ZigList<const char *> &args,
 void os_write_file(Buf *full_path, Buf *contents) {
     FILE *f = fopen(buf_ptr(full_path), "wb");
     if (!f) {
-        zig_panic("open failed");
+        zig_panic("os_write_file failed for %s", buf_ptr(full_path));
     }
     size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
     if (amt_written != (size_t)buf_len(contents))
@@ -645,21 +1118,19 @@ int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
 
 int os_get_cwd(Buf *out_cwd) {
 #if defined(ZIG_OS_WINDOWS)
-    buf_resize(out_cwd, 4096);
-    if (GetCurrentDirectory(buf_len(out_cwd), buf_ptr(out_cwd)) == 0) {
+    char buf[4096];
+    if (GetCurrentDirectory(4096, buf) == 0) {
         zig_panic("GetCurrentDirectory failed");
     }
+    buf_init_from_str(out_cwd, buf);
     return 0;
 #elif defined(ZIG_OS_POSIX)
-    int err = ERANGE;
-    buf_resize(out_cwd, 512);
-    while (err == ERANGE) {
-        buf_resize(out_cwd, buf_len(out_cwd) * 2);
-        err = getcwd(buf_ptr(out_cwd), buf_len(out_cwd)) ? 0 : errno;
+    char buf[PATH_MAX];
+    char *res = getcwd(buf, PATH_MAX);
+    if (res == nullptr) {
+        zig_panic("unable to get cwd: %s", strerror(errno));
     }
-    if (err)
-        zig_panic("unable to get cwd: %s", strerror(err));
-
+    buf_init_from_str(out_cwd, res);
     return 0;
 #else
 #error "missing os_get_cwd implementation"
@@ -898,21 +1369,20 @@ double os_get_time(void) {
 }
 
 int os_make_path(Buf *path) {
-    Buf *resolved_path = buf_alloc();
-    os_path_resolve(buf_create_from_str("."), path, resolved_path);
+    Buf resolved_path = os_path_resolve(&path, 1);
 
-    size_t end_index = buf_len(resolved_path);
+    size_t end_index = buf_len(&resolved_path);
     int err;
     while (true) {
-        if ((err = os_make_dir(buf_slice(resolved_path, 0, end_index)))) {
+        if ((err = os_make_dir(buf_slice(&resolved_path, 0, end_index)))) {
             if (err == ErrorPathAlreadyExists) {
-                if (end_index == buf_len(resolved_path))
+                if (end_index == buf_len(&resolved_path))
                     return 0;
             } else if (err == ErrorFileNotFound) {
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
-                    if (os_is_sep(buf_ptr(resolved_path)[end_index]))
+                    if (os_is_sep(buf_ptr(&resolved_path)[end_index]))
                         break;
                 }
                 continue;
@@ -920,12 +1390,12 @@ int os_make_path(Buf *path) {
                 return err;
             }
         }
-        if (end_index == buf_len(resolved_path))
+        if (end_index == buf_len(&resolved_path))
             return 0;
         // march end_index forward until next path component
         while (true) {
             end_index += 1;
-            if (end_index == buf_len(resolved_path) || os_is_sep(buf_ptr(resolved_path)[end_index]))
+            if (end_index == buf_len(&resolved_path) || os_is_sep(buf_ptr(&resolved_path)[end_index]))
                 break;
         }
     }

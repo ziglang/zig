@@ -1587,7 +1587,7 @@ test "pointer casting" {
     // operation that Zig cannot protect you against. Use @ptrCast only when other
     // conversions are not possible.
     const bytes align(@alignOf(u32)) = []u8{ 0x12, 0x12, 0x12, 0x12 };
-    const u32_ptr = @ptrCast(*const u32, &bytes[0]);
+    const u32_ptr = @ptrCast(*const u32, &bytes);
     assert(u32_ptr.* == 0x12121212);
 
     // Even this example is contrived - there are better ways to do the above than

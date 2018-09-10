@@ -2,6 +2,228 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "variable initialization compile error then referenced",
+        \\fn Undeclared() type {
+        \\    return T;
+        \\}
+        \\fn Gen() type {
+        \\    const X = Undeclared();
+        \\    return struct {
+        \\        x: X,
+        \\    };
+        \\}
+        \\export fn entry() void {
+        \\    const S = Gen();
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: use of undeclared identifier 'T'",
+    );
+
+    cases.add(
+        "refer to the type of a generic function",
+        \\export fn entry() void {
+        \\    const Func = fn (type) void;
+        \\    const f: Func = undefined;
+        \\    f(i32);
+        \\}
+    ,
+        ".tmp_source.zig:4:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "accessing runtime parameter from outer function",
+        \\fn outer(y: u32) fn (u32) u32 {
+        \\    const st = struct {
+        \\        fn get(z: u32) u32 {
+        \\            return z + y;
+        \\        }
+        \\    };
+        \\    return st.get;
+        \\}
+        \\export fn entry() void {
+        \\    var func = outer(10);
+        \\    var x = func(3);
+        \\}
+    ,
+        ".tmp_source.zig:4:24: error: 'y' not accessible from inner function",
+        ".tmp_source.zig:3:28: note: crossed function definition here",
+        ".tmp_source.zig:1:10: note: declared here",
+    );
+
+    cases.add(
+        "non int passed to @intToFloat",
+        \\export fn entry() void {
+        \\    const x = @intToFloat(f32, 1.1);
+        \\}
+    ,
+        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
+    );
+
+    cases.add(
+        "non float passed to @floatToInt",
+        \\export fn entry() void {
+        \\    const x = @floatToInt(i32, i32(54));
+        \\}
+    ,
+        ".tmp_source.zig:2:35: error: expected float type, found 'i32'",
+    );
+
+    cases.add(
+        "out of range comptime_int passed to @floatToInt",
+        \\export fn entry() void {
+        \\    const x = @floatToInt(i8, 200);
+        \\}
+    ,
+        ".tmp_source.zig:2:31: error: integer value 200 cannot be implicitly casted to type 'i8'",
+    );
+
+    cases.add(
+        "load too many bytes from comptime reinterpreted pointer",
+        \\export fn entry() void {
+        \\    const float: f32 = 5.99999999999994648725e-01;
+        \\    const float_ptr = &float;
+        \\    const int_ptr = @ptrCast(*const i64, float_ptr);
+        \\    const int_val = int_ptr.*;
+        \\}
+    ,
+        ".tmp_source.zig:5:28: error: attempt to read 8 bytes from pointer to f32 which is 4 bytes",
+    );
+
+    cases.add(
+        "invalid type used in array type",
+        \\const Item = struct {
+        \\    field: SomeNonexistentType,
+        \\};
+        \\var items: [100]Item = undefined;
+        \\export fn entry() void {
+        \\    const a = items[0];
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: use of undeclared identifier 'SomeNonexistentType'",
+    );
+
+    cases.add(
+        "@noInlineCall on an inline function",
+        \\inline fn foo() void {}
+        \\
+        \\export fn entry() void {
+        \\    @noInlineCall(foo);
+        \\}
+    ,
+        ".tmp_source.zig:4:5: error: no-inline call of inline function",
+    );
+
+    cases.add(
+        "comptime continue inside runtime switch",
+        \\export fn entry() void {
+        \\    var p: i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        switch (p) {
+        \\            11 => continue,
+        \\            else => {},
+        \\        }
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:6:19: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while error",
+        \\export fn entry() void {
+        \\    var p: error!usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p) |_| {
+        \\            continue :outer;
+        \\        } else |_| {}
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:6:13: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while optional",
+        \\export fn entry() void {
+        \\    var p: ?usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p) |_| continue :outer;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:23: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while bool",
+        \\export fn entry() void {
+        \\    var p: usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p == 11) continue :outer;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:25: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if error",
+        \\export fn entry() void {
+        \\    var p: error!i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p) |_| continue else |_| {}
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:20: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if optional",
+        \\export fn entry() void {
+        \\    var p: ?i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p) |_| continue;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:20: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if bool",
+        \\export fn entry() void {
+        \\    var p: usize = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p == 11) continue;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:22: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
         "switch with invalid expression parameter",
         \\export fn entry() void {
         \\    Test(i32);
@@ -338,15 +560,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:2:20: error: return type cannot be opaque",
-    );
-
-    cases.add(
-        "non int passed to @intToFloat",
-        \\export fn entry() void {
-        \\    const x = @intToFloat(f32, 1.1);
-        \\}
-    ,
-        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
     );
 
     cases.add(

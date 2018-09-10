@@ -957,6 +957,14 @@ static void ir_print_enum_to_int(IrPrint *irp, IrInstructionEnumToInt *instructi
     fprintf(irp->f, ")");
 }
 
+static void ir_print_check_runtime_scope(IrPrint *irp, IrInstructionCheckRuntimeScope *instruction) {
+    fprintf(irp->f, "@checkRuntimeScope(");
+    ir_print_other_instruction(irp, instruction->scope_is_comptime);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->is_comptime);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
     fprintf(irp->f, "inttoerr ");
     ir_print_other_instruction(irp, instruction->target);
@@ -1748,6 +1756,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdEnumToInt:
             ir_print_enum_to_int(irp, (IrInstructionEnumToInt *)instruction);
+            break;
+        case IrInstructionIdCheckRuntimeScope:
+            ir_print_check_runtime_scope(irp, (IrInstructionCheckRuntimeScope *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

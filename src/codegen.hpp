@@ -47,7 +47,7 @@ void codegen_set_linker_script(CodeGen *g, const char *linker_script);
 void codegen_set_test_filter(CodeGen *g, Buf *filter);
 void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
 void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
-void codegen_set_cache_dir(CodeGen *g, Buf *cache_dir);
+void codegen_set_cache_dir(CodeGen *g, Buf cache_dir);
 void codegen_set_output_h_path(CodeGen *g, Buf *h_path);
 void codegen_add_time_event(CodeGen *g, const char *name);
 void codegen_print_timing_report(CodeGen *g, FILE *f);
@@ -60,6 +60,5 @@ void codegen_add_object(CodeGen *g, Buf *object_path);
 void codegen_translate_c(CodeGen *g, Buf *path);
 
 Buf *codegen_generate_builtin_source(CodeGen *g);
-
 
 #endif

@@ -66,7 +66,7 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
     const char *o_ext = target_o_file_ext(&child_gen->zig_target);
     Buf *o_out_name = buf_sprintf("%s%s", oname, o_ext);
     Buf *output_path = buf_alloc();
-    os_path_join(parent_gen->cache_dir, o_out_name, output_path);
+    os_path_join(&parent_gen->cache_dir, o_out_name, output_path);
     codegen_link(child_gen, buf_ptr(output_path));
 
     codegen_destroy(child_gen);
@@ -587,11 +587,11 @@ static void construct_linker_job_coff(LinkJob *lj) {
             buf_appendf(def_contents, "\n");
 
             Buf *def_path = buf_alloc();
-            os_path_join(g->cache_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
+            os_path_join(&g->cache_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
             os_write_file(def_path, def_contents);
 
             Buf *generated_lib_path = buf_alloc();
-            os_path_join(g->cache_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
+            os_path_join(&g->cache_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
 
             gen_lib_args.resize(0);
             gen_lib_args.append("link");
