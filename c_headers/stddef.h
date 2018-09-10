@@ -48,13 +48,7 @@
 #if !__has_feature(modules)
 #define _PTRDIFF_T
 #endif
-
-/* Zig: wrap in _PTRDIFF_T_DEFINED to protect against mingw defining it twice */
-#if !defined(_PTRDIFF_T_DEFINED)
 typedef __PTRDIFF_TYPE__ ptrdiff_t;
-#define _PTRDIFF_T_DEFINED
-#endif
-
 #endif
 #undef __need_ptrdiff_t
 #endif /* defined(__need_ptrdiff_t) */
@@ -65,24 +59,7 @@ typedef __PTRDIFF_TYPE__ ptrdiff_t;
 #if !__has_feature(modules)
 #define _SIZE_T
 #endif
-
-/* Zig: added to avoid collisions with mingw */
-#if !defined(_SIZE_T_DEFINED_)
-#if !defined(_SIZE_T_DEFINED)
-#if !defined(_BSD_SIZE_T_DEFINED_)
-#if !defined(_SIZE_T_DECLARED)
 typedef __SIZE_TYPE__ size_t;
-#define _SIZE_T_DEFINED_
-#define _SIZE_T_DEFINED
-#define _BSD_SIZE_T_DEFINED_
-#define _SIZE_T_DECLARED
-#endif
-#endif
-#endif
-#endif
-
-
-
 #endif
 #undef __need_size_t
 #endif /*defined(__need_size_t) */
@@ -110,22 +87,7 @@ typedef __SIZE_TYPE__ rsize_t;
 #define _WCHAR_T_DEFINED
 #endif
 #endif
-
-/* zig added to prevent duplicate definition with mingw */
-#if !defined(__INT_WCHAR_T_H)
-#if !defined(_GCC_WCHAR_T)
-#if !defined(_WCHAR_T_DECLARED)
-#if !defined(_WCHAR_T_DEFINED)
-#define __INT_WCHAR_T_H
-#define _GCC_WCHAR_T
-#define _WCHAR_T_DECLARED
-#define _WCHAR_T_DEFINED
 typedef __WCHAR_TYPE__ wchar_t;
-#endif
-#endif
-#endif
-#endif
-
 #endif
 #endif
 #undef __need_wchar_t
