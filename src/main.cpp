@@ -25,6 +25,7 @@ static int usage(const char *arg0) {
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of that @import(\"builtin\")\n"
+        "  id                           print the base64-encoded compiler id\n"
         "  run [source]                 create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
@@ -257,6 +258,55 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
     }
 }
 
+static Buf saved_compiler_id = BUF_INIT;
+static Error get_compiler_id(Buf **result) {
+    if (saved_compiler_id.list.length != 0) {
+        *result = &saved_compiler_id;
+        return ErrorNone;
+    }
+
+    Error err;
+    Buf app_data_dir = BUF_INIT;
+    if ((err = os_get_app_data_dir(&app_data_dir, "zig")))
+        return err;
+    Buf *stage1_dir = buf_alloc();
+    os_path_join(&app_data_dir, buf_create_from_str("stage1"), stage1_dir);
+    Buf *manifest_dir = buf_alloc();
+    os_path_join(stage1_dir, buf_create_from_str("exe"), manifest_dir);
+
+    if ((err = os_make_path(manifest_dir)))
+        return err;
+    CacheHash cache_hash;
+    CacheHash *ch = &cache_hash;
+    cache_init(ch, manifest_dir);
+    Buf self_exe_path = BUF_INIT;
+    if ((err = os_self_exe_path(&self_exe_path)))
+        return err;
+
+    cache_file(ch, &self_exe_path);
+
+    buf_resize(&saved_compiler_id, 0);
+    if ((err = cache_hit(ch, &saved_compiler_id)))
+        return err;
+    if (buf_len(&saved_compiler_id) != 0) {
+        *result = &saved_compiler_id;
+        return ErrorNone;
+    }
+    ZigList<Buf *> lib_paths = {};
+    if ((err = os_self_exe_shared_libs(lib_paths)))
+        return err;
+    for (size_t i = 0; i < lib_paths.length; i += 1) {
+        Buf *lib_path = lib_paths.at(i);
+        if ((err = cache_add_file(ch, lib_path)))
+            return err;
+    }
+    if ((err = cache_final(ch, &saved_compiler_id)))
+        return err;
+
+    *result = &saved_compiler_id;
+    return ErrorNone;
+}
+
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
         printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
@@ -271,64 +321,15 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if (argc == 2 && strcmp(argv[1], "TEST") == 0) {
+    if (argc == 2 && strcmp(argv[1], "id") == 0) {
         Error err;
-        Buf app_data_dir = BUF_INIT;
-        if ((err = os_get_app_data_dir(&app_data_dir, "zig"))) {
-            fprintf(stderr, "get app dir: %s\n", err_str(err));
-            return 1;
+        Buf *compiler_id;
+        if ((err = get_compiler_id(&compiler_id))) {
+            fprintf(stderr, "Unable to determine compiler id: %s\n", err_str(err));
+            return EXIT_FAILURE;
         }
-        Buf *stage1_dir = buf_alloc();
-        os_path_join(&app_data_dir, buf_create_from_str("stage1"), stage1_dir);
-        Buf *manifest_dir = buf_alloc();
-        os_path_join(stage1_dir, buf_create_from_str("exe"), manifest_dir);
-
-        if ((err = os_make_path(manifest_dir))) {
-            fprintf(stderr, "make path: %s\n", err_str(err));
-            return 1;
-        }
-        CacheHash cache_hash;
-        CacheHash *ch = &cache_hash;
-        cache_init(ch, manifest_dir);
-        Buf self_exe_path = BUF_INIT;
-        if ((err = os_self_exe_path(&self_exe_path))) {
-            fprintf(stderr, "self exe path: %s\n", err_str(err));
-            return 1;
-        }
-
-        cache_file(ch, &self_exe_path);
-
-        Buf exe_digest = BUF_INIT;
-        buf_resize(&exe_digest, 0);
-        if ((err = cache_hit(ch, &exe_digest))) {
-            fprintf(stderr, "cache hit error: %s\n", err_str(err));
-            return 1;
-        }
-        if (buf_len(&exe_digest) != 0) {
-            fprintf(stderr, "cache hit: %s\n", buf_ptr(&exe_digest));
-            return 0;
-        }
-        fprintf(stderr, "cache miss\n");
-        ZigList<Buf *> lib_paths = {};
-        if ((err = os_self_exe_shared_libs(lib_paths))) {
-            fprintf(stderr, "finding out shared libs: %s\n", err_str(err));
-            return 1;
-        }
-        for (size_t i = 0; i < lib_paths.length; i += 1) {
-            Buf *lib_path = lib_paths.at(i);
-            if ((err = cache_add_file(ch, lib_path))) {
-                fprintf(stderr, "cache add file %s: %s", buf_ptr(lib_path), err_str(err));
-                return 1;
-            }
-        }
-        if ((err = cache_final(ch, &exe_digest))) {
-            fprintf(stderr, "final: %s\n", err_str(err));
-            return 1;
-        }
-
-
-        fprintf(stderr, "computed2: %s\n", buf_ptr(&exe_digest));
-        return 0;
+        printf("%s\n", buf_ptr(compiler_id));
+        return EXIT_SUCCESS;
     }
 
     os_init();

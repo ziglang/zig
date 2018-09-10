@@ -1813,9 +1813,9 @@ Error os_file_read_all(OsFile file, Buf *contents) {
     for (;;) {
         size_t amt = buf_len(contents) - index;
 
-        if (amt < 512) {
-            buf_resize(contents, buf_len(contents) + 512);
-            amt += 512;
+        if (amt < 4096) {
+            buf_resize(contents, buf_len(contents) + (4096 - amt));
+            amt = buf_len(contents) - index;
         }
 
         if ((err = os_file_read(file, buf_ptr(contents) + index, &amt)))

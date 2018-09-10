@@ -377,7 +377,6 @@ static Error write_manifest_file(CacheHash *ch) {
         buf_appendf(&contents, "%" ZIG_PRI_u64 " %" ZIG_PRI_u64 " %s %s\n",
             chf->mtime.sec, chf->mtime.nsec, encoded_digest, buf_ptr(chf->path));
     }
-    fprintf(stderr, "overwrite with\n%s\n", buf_ptr(&contents));
     if ((err = os_file_overwrite(ch->manifest_file, &contents)))
         return err;
 
