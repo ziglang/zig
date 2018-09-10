@@ -6,6 +6,7 @@
  */
 
 #include "cache_hash.hpp"
+#include "all_types.hpp"
 #include "buffer.hpp"
 #include "os.hpp"
 
@@ -218,6 +219,9 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
     os_path_join(ch->manifest_dir, &b64_digest, ch->manifest_file_path);
 
     buf_append_str(ch->manifest_file_path, ".txt");
+
+    if ((err = os_make_path(ch->manifest_dir)))
+        return err;
 
     if ((err = os_file_open_lock_rw(ch->manifest_file_path, &ch->manifest_file)))
         return err;

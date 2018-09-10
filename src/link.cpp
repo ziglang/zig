@@ -34,7 +34,7 @@ static const char *get_libc_static_file(CodeGen *g, const char *file) {
 static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) {
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
     CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj, parent_gen->build_mode,
-        parent_gen->zig_lib_dir);
+        parent_gen->zig_lib_dir, parent_gen->compiler_id);
 
     child_gen->want_h_file = false;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;

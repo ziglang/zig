@@ -10,6 +10,7 @@
 
 #include "list.hpp"
 #include "buffer.hpp"
+#include "cache_hash.hpp"
 #include "zig_llvm.h"
 #include "hash_map.hpp"
 #include "errmsg.hpp"
@@ -1613,7 +1614,10 @@ struct CodeGen {
         ZigType *entry_promise;
     } builtin_types;
 
+    CacheHash cache_hash;
+
     //////////////////////////// Participates in Input Parameter Cache Hash
+    Buf *compiler_id;
     ZigList<LinkLib *> link_libs_list;
     // add -framework [name] args to linker
     ZigList<Buf *> darwin_frameworks;

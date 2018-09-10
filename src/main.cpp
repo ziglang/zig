@@ -274,8 +274,6 @@ static Error get_compiler_id(Buf **result) {
     Buf *manifest_dir = buf_alloc();
     os_path_join(stage1_dir, buf_create_from_str("exe"), manifest_dir);
 
-    if ((err = os_make_path(manifest_dir)))
-        return err;
     CacheHash cache_hash;
     CacheHash *ch = &cache_hash;
     cache_init(ch, manifest_dir);
@@ -432,8 +430,14 @@ int main(int argc, char **argv) {
         Buf *build_runner_path = buf_alloc();
         os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
 
+        Buf *compiler_id;
+        if ((err = get_compiler_id(&compiler_id))) {
+            fprintf(stderr, "Unable to determine compiler id: %s\n", err_str(err));
+            return EXIT_FAILURE;
+        }
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf,
+                compiler_id);
         codegen_set_out_name(g, buf_create_from_str("build"));
 
         Buf *build_file_buf = buf_create_from_str(build_file);
@@ -796,7 +800,7 @@ int main(int argc, char **argv) {
     switch (cmd) {
     case CmdBuiltin: {
         Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
-        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, zig_lib_dir_buf);
+        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, zig_lib_dir_buf, nullptr);
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
@@ -871,7 +875,14 @@ int main(int argc, char **argv) {
 
             Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
 
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf);
+            Buf *compiler_id;
+            if ((err = get_compiler_id(&compiler_id))) {
+                fprintf(stderr, "Unable to determine compiler id: %s\n", err_str(err));
+                return EXIT_FAILURE;
+            }
+
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf,
+                    compiler_id);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);

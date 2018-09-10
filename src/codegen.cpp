@@ -88,12 +88,13 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir)
+    Buf *zig_lib_dir, Buf *compiler_id)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
     codegen_add_time_event(g, "Initialize");
 
+    g->compiler_id = compiler_id;
     g->zig_lib_dir = zig_lib_dir;
 
     g->zig_std_dir = buf_alloc();
@@ -7675,44 +7676,62 @@ void codegen_add_time_event(CodeGen *g, const char *name) {
 }
 
 
-//// Called before init()
-//static bool build_with_cache(CodeGen *g) {
-//    // TODO zig exe & dynamic libraries
-//    // should be in main.cpp I think. only needs to happen
-//    // once on startup.
-//
-//    CacheHash comp;
-//    cache_init(&comp);
-//
-//    add_cache_buf(&blake, g->root_out_name);
-//    add_cache_buf_opt(&blake, get_resolved_root_src_path(g)); // Root source file
-//    add_cache_list_of_link_lib(&blake, g->link_libs_list.items, g->link_libs_list.length);
-//    add_cache_list_of_buf(&blake, g->darwin_frameworks.items, g->darwin_frameworks.length);
-//    add_cache_list_of_buf(&blake, g->rpath_list.items, g->rpath_list.length);
-//    add_cache_int(&blake, g->emit_file_type);
-//    add_cache_int(&blake, g->build_mode);
-//    add_cache_int(&blake, g->out_type);
-//    // TODO the rest of the struct CodeGen fields
-//
-//    uint8_t bin_digest[48];
-//    rc = blake2b_final(&blake, bin_digest, 48);
-//    assert(rc == 0);
-//
-//    Buf b64_digest = BUF_INIT;
-//    buf_resize(&b64_digest, 64);
-//    base64_encode(buf_to_slice(&b64_digest), {bin_digest, 48});
-//
-//    fprintf(stderr, "input params hash: %s\n", buf_ptr(&b64_digest));
-//    // TODO next look for a manifest file that has all the files from the input parameters
-//    // use that to construct the real hash, which looks up the output directory and another manifest file
-//
-//    return false;
-//}
+// Called before init()
+static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
+    Error err;
+
+    CacheHash *ch = &g->cache_hash;
+    cache_init(ch, manifest_dir);
+
+    cache_buf(ch, g->compiler_id);
+    cache_buf(ch, g->root_out_name);
+    cache_file(ch, get_resolved_root_src_path(g)); // Root source file
+    cache_list_of_link_lib(ch, g->link_libs_list.items, g->link_libs_list.length);
+    cache_list_of_buf(ch, g->darwin_frameworks.items, g->darwin_frameworks.length);
+    cache_list_of_buf(ch, g->rpath_list.items, g->rpath_list.length);
+    cache_int(ch, g->emit_file_type);
+    cache_int(ch, g->build_mode);
+    cache_int(ch, g->out_type);
+    // TODO the rest of the struct CodeGen fields
+
+    buf_resize(digest, 0);
+    if ((err = cache_hit(ch, digest)))
+        return err;
+
+    return ErrorNone;
+}
 
 void codegen_build(CodeGen *g) {
+    Error err;
     assert(g->out_type != OutTypeUnknown);
-    //if (build_with_cache(g))
-    //    return;
+
+    Buf app_data_dir = BUF_INIT;
+    if ((err = os_get_app_data_dir(&app_data_dir, "zig"))) {
+        fprintf(stderr, "Unable to get app data dir: %s\n", err_str(err));
+        exit(1);
+    }
+    Buf *stage1_dir = buf_alloc();
+    os_path_join(&app_data_dir, buf_create_from_str("stage1"), stage1_dir);
+
+    Buf *manifest_dir = buf_alloc();
+    os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
+
+    Buf digest = BUF_INIT;
+    if ((err = check_cache(g, manifest_dir, &digest))) {
+        fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+        exit(1);
+    }
+    if (buf_len(&digest) != 0) {
+        Buf *artifact_dir = buf_alloc();
+        os_path_join(stage1_dir, buf_create_from_str("artifact"), artifact_dir);
+
+        Buf *this_artifact_dir = buf_alloc();
+        os_path_join(artifact_dir, &digest, this_artifact_dir);
+
+        fprintf(stderr, "copy artifacts from %s\n", buf_ptr(this_artifact_dir));
+        return;
+    }
+
     init(g);
 
     codegen_add_time_event(g, "Semantic Analysis");

@@ -390,7 +390,7 @@ if(MSVC)
     )
 else()
     set_target_properties(embedded_softfloat PROPERTIES
-        COMPILE_FLAGS "-std=c99"
+        COMPILE_FLAGS "-std=c99 -O3"
     )
 endif()
 target_include_directories(embedded_softfloat PUBLIC
@@ -407,10 +407,9 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
-    "${CMAKE_SOURCE_DIR}/src/blake2b.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/cache_hash.cpp"
     "${CMAKE_SOURCE_DIR}/src/c_tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/cache_hash.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
@@ -425,6 +424,9 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
+)
+set(ZIG_SOURCES_O3
+    "${CMAKE_SOURCE_DIR}/src/blake2b.cpp"
 )
 set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
@@ -813,6 +815,11 @@ set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
 
+add_library(zig_O3 STATIC ${ZIG_SOURCES_O3})
+set_target_properties(zig_O3 PROPERTIES
+    COMPILE_FLAGS "${EXE_CFLAGS} -O3"
+)
+
 add_executable(zig ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
@@ -821,6 +828,7 @@ set_target_properties(zig PROPERTIES
 
 target_link_libraries(zig LINK_PUBLIC
     zig_cpp
+    zig_O3
     ${SOFTFLOAT_LIBRARIES}
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}

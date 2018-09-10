@@ -15,7 +15,7 @@
 #include <stdio.h>
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir);
+    Buf *zig_lib_dir, Buf *compiler_id);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);

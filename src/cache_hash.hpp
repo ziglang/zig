@@ -8,9 +8,10 @@
 #ifndef ZIG_CACHE_HASH_HPP
 #define ZIG_CACHE_HASH_HPP
 
-#include "all_types.hpp"
 #include "blake2.h"
 #include "os.hpp"
+
+struct LinkLib;
 
 struct CacheHashFile {
     Buf *path;
