@@ -32,7 +32,7 @@ static const char *get_libc_static_file(CodeGen *g, const char *file) {
 static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) {
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
     CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj, parent_gen->build_mode,
-        parent_gen->zig_lib_dir, parent_gen->compiler_id);
+        parent_gen->zig_lib_dir);
 
     child_gen->want_h_file = false;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
@@ -41,8 +41,6 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
     child_gen->verbose_ir = parent_gen->verbose_ir;
     child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
     child_gen->verbose_cimport = parent_gen->verbose_cimport;
-
-    codegen_set_cache_dir(child_gen, parent_gen->cache_dir);
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     codegen_set_is_static(child_gen, parent_gen->is_static);

@@ -15,7 +15,7 @@
 #include <stdio.h>
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir, Buf *compiler_id);
+    Buf *zig_lib_dir);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
@@ -46,7 +46,6 @@ void codegen_set_linker_script(CodeGen *g, const char *linker_script);
 void codegen_set_test_filter(CodeGen *g, Buf *filter);
 void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
 void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
-void codegen_set_cache_dir(CodeGen *g, Buf cache_dir);
 void codegen_set_output_h_path(CodeGen *g, Buf *h_path);
 void codegen_set_output_path(CodeGen *g, Buf *path);
 void codegen_add_time_event(CodeGen *g, const char *name);

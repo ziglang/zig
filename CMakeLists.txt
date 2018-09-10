@@ -411,6 +411,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/c_tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/cache_hash.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
+    "${CMAKE_SOURCE_DIR}/src/compiler.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"

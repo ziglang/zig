@@ -1671,7 +1671,6 @@ struct CodeGen {
     Buf triple_str;
     Buf global_asm;
     Buf *out_h_path;
-    Buf cache_dir;
     Buf artifact_dir;
     Buf output_file_path;
     Buf o_file_output_path;
@@ -1731,7 +1730,6 @@ struct CodeGen {
     ZigList<Buf *> assembly_files;
     ZigList<const char *> lib_dirs;
 
-    Buf *compiler_id;
     size_t version_major;
     size_t version_minor;
     size_t version_patch;

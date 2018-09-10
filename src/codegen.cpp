@@ -8,6 +8,7 @@
 #include "analyze.hpp"
 #include "ast_render.hpp"
 #include "codegen.hpp"
+#include "compiler.hpp"
 #include "config.h"
 #include "errmsg.hpp"
 #include "error.hpp"
@@ -87,13 +88,12 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir, Buf *compiler_id)
+    Buf *zig_lib_dir)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
     codegen_add_time_event(g, "Initialize");
 
-    g->compiler_id = compiler_id;
     g->zig_lib_dir = zig_lib_dir;
 
     g->zig_std_dir = buf_alloc();
@@ -241,10 +241,6 @@ void codegen_set_strip(CodeGen *g, bool strip) {
 
 void codegen_set_out_name(CodeGen *g, Buf *out_name) {
     g->root_out_name = out_name;
-}
-
-void codegen_set_cache_dir(CodeGen *g, Buf cache_dir) {
-    g->cache_dir = cache_dir;
 }
 
 void codegen_set_libc_lib_dir(CodeGen *g, Buf *libc_lib_dir) {
@@ -5728,13 +5724,6 @@ static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *na
     return result;
 }
 
-static void ensure_cache_dir(CodeGen *g) {
-    int err;
-    if ((err = os_make_path(&g->cache_dir))) {
-        zig_panic("unable to make cache dir: %s", err_str(err));
-    }
-}
-
 static void report_errors_and_maybe_exit(CodeGen *g) {
     if (g->errors.length != 0) {
         for (size_t i = 0; i < g->errors.length; i += 1) {
@@ -6824,35 +6813,83 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     return contents;
 }
 
-static void define_builtin_compile_vars(CodeGen *g) {
+static Error define_builtin_compile_vars(CodeGen *g) {
     if (g->std_package == nullptr)
-        return;
+        return ErrorNone;
+
+    Error err;
+
+    Buf *manifest_dir = buf_alloc();
+    os_path_join(get_stage1_cache_path(), buf_create_from_str("builtin"), manifest_dir);
+
+    CacheHash cache_hash;
+    cache_init(&cache_hash, manifest_dir);
+
+    Buf *compiler_id;
+    if ((err = get_compiler_id(&compiler_id)))
+        return err;
+
+    // Only a few things affect builtin.zig
+    cache_buf(&cache_hash, compiler_id);
+    cache_int(&cache_hash, g->build_mode);
+    cache_bool(&cache_hash, g->is_test_build);
+    cache_int(&cache_hash, g->zig_target.arch.arch);
+    cache_int(&cache_hash, g->zig_target.arch.sub_arch);
+    cache_int(&cache_hash, g->zig_target.vendor);
+    cache_int(&cache_hash, g->zig_target.os);
+    cache_int(&cache_hash, g->zig_target.env_type);
+    cache_int(&cache_hash, g->zig_target.oformat);
+    cache_bool(&cache_hash, g->have_err_ret_tracing);
+    cache_bool(&cache_hash, g->libc_link_lib != nullptr);
+
+    Buf digest = BUF_INIT;
+    buf_resize(&digest, 0);
+    if ((err = cache_hit(&cache_hash, &digest)))
+        return err;
+
+    // We should always get a cache hit because there are no
+    // files in the input hash.
+    assert(buf_len(&digest) != 0);
+
+    Buf *this_dir = buf_alloc();
+    os_path_join(manifest_dir, &digest, this_dir);
+
+    if ((err = os_make_path(this_dir)))
+        return err;
 
     const char *builtin_zig_basename = "builtin.zig";
     Buf *builtin_zig_path = buf_alloc();
-    os_path_join(&g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+    os_path_join(this_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
 
-    Buf *contents = codegen_generate_builtin_source(g);
-    ensure_cache_dir(g);
-    os_write_file(builtin_zig_path, contents);
-
-    Buf *resolved_path = buf_alloc();
-    Buf *resolve_paths[] = {builtin_zig_path};
-    *resolved_path = os_path_resolve(resolve_paths, 1);
+    bool hit;
+    if ((err = os_file_exists(builtin_zig_path, &hit)))
+        return err;
+    Buf *contents;
+    if (hit) {
+        contents = buf_alloc();
+        if ((err = os_fetch_file_path(builtin_zig_path, contents, false))) {
+            fprintf(stderr, "Unable to open '%s': %s\n", buf_ptr(builtin_zig_path), err_str(err));
+            exit(1);
+        }
+    } else {
+        contents = codegen_generate_builtin_source(g);
+        os_write_file(builtin_zig_path, contents);
+    }
 
     assert(g->root_package);
     assert(g->std_package);
-    g->compile_var_package = new_package(buf_ptr(&g->cache_dir), builtin_zig_basename);
+    g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
-    g->compile_var_import = add_source_file(g, g->compile_var_package, resolved_path, contents);
+    g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents);
     scan_import(g, g->compile_var_import);
+
+    return ErrorNone;
 }
 
 static void init(CodeGen *g) {
     if (g->module)
         return;
-
 
     if (g->llvm_argv_len > 0) {
         const char **args = allocate_nonzero<const char *>(g->llvm_argv_len + 2);
@@ -6960,7 +6997,11 @@ static void init(CodeGen *g) {
     g->have_err_ret_tracing = g->build_mode != BuildModeFastRelease && g->build_mode != BuildModeSmallRelease;
 
     define_builtin_fns(g);
-    define_builtin_compile_vars(g);
+    Error err;
+    if ((err = define_builtin_compile_vars(g))) {
+        fprintf(stderr, "Unable to create builtin.zig: %s\n", err_str(err));
+        exit(1);
+    }
 }
 
 void codegen_translate_c(CodeGen *g, Buf *full_path) {
@@ -7668,6 +7709,10 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, PackageTableEntry *pkg) {
 static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     Error err;
 
+    Buf *compiler_id;
+    if ((err = get_compiler_id(&compiler_id)))
+        return err;
+
     CacheHash *ch = &g->cache_hash;
     cache_init(ch, manifest_dir);
 
@@ -7675,7 +7720,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     if (g->linker_script != nullptr) {
         cache_file(ch, buf_create_from_str(g->linker_script));
     }
-    cache_buf(ch, g->compiler_id);
+    cache_buf(ch, compiler_id);
     cache_buf(ch, g->root_out_name);
     cache_list_of_link_lib(ch, g->link_libs_list.items, g->link_libs_list.length);
     cache_list_of_buf(ch, g->darwin_frameworks.items, g->darwin_frameworks.length);
@@ -7766,13 +7811,7 @@ void codegen_build_and_link(CodeGen *g) {
 
     codegen_add_time_event(g, "Check Cache");
 
-    Buf app_data_dir = BUF_INIT;
-    if ((err = os_get_app_data_dir(&app_data_dir, "zig"))) {
-        fprintf(stderr, "Unable to get app data dir: %s\n", err_str(err));
-        exit(1);
-    }
-    Buf *stage1_dir = buf_alloc();
-    os_path_join(&app_data_dir, buf_create_from_str("stage1"), stage1_dir);
+    Buf *stage1_dir = get_stage1_cache_path();
 
     Buf *manifest_dir = buf_alloc();
     os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
@@ -7820,6 +7859,7 @@ void codegen_build_and_link(CodeGen *g) {
     }
     // TODO hard link output_file_path to wanted_output_file_path
 
+    cache_release(&g->cache_hash);
     codegen_add_time_event(g, "Done");
 }
 

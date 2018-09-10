@@ -721,7 +721,7 @@ Buf os_path_resolve(Buf **paths_ptr, size_t paths_len) {
 #endif
 }
 
-int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
+Error os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
     static const ssize_t buf_size = 0x2000;
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
@@ -757,7 +757,7 @@ int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
         if (amt_read != buf_size) {
             if (feof(f)) {
                 buf_resize(out_buf, actual_buf_len);
-                return 0;
+                return ErrorNone;
             } else {
                 return ErrorFileSystem;
             }
@@ -769,13 +769,13 @@ int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
     zig_unreachable();
 }
 
-int os_file_exists(Buf *full_path, bool *result) {
+Error os_file_exists(Buf *full_path, bool *result) {
 #if defined(ZIG_OS_WINDOWS)
     *result = GetFileAttributes(buf_ptr(full_path)) != INVALID_FILE_ATTRIBUTES;
-    return 0;
+    return ErrorNone;
 #else
     *result = access(buf_ptr(full_path), F_OK) != -1;
-    return 0;
+    return ErrorNone;
 #endif
 }
 
@@ -834,13 +834,15 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
         FILE *stdout_f = fdopen(stdout_pipe[0], "rb");
         FILE *stderr_f = fdopen(stderr_pipe[0], "rb");
-        os_fetch_file(stdout_f, out_stdout, false);
-        os_fetch_file(stderr_f, out_stderr, false);
+        Error err1 = os_fetch_file(stdout_f, out_stdout, false);
+        Error err2 = os_fetch_file(stderr_f, out_stderr, false);
 
         fclose(stdout_f);
         fclose(stderr_f);
 
-        return 0;
+        if (err1) return err1;
+        if (err2) return err2;
+        return ErrorNone;
     }
 }
 #endif
@@ -1064,7 +1066,7 @@ int os_copy_file(Buf *src_path, Buf *dest_path) {
     }
 }
 
-int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
+Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
     FILE *f = fopen(buf_ptr(full_path), "rb");
     if (!f) {
         switch (errno) {
@@ -1083,7 +1085,7 @@ int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
                 return ErrorFileSystem;
         }
     }
-    int result = os_fetch_file(f, out_contents, skip_shebang);
+    Error result = os_fetch_file(f, out_contents, skip_shebang);
     fclose(f);
     return result;
 }

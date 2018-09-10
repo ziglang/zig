@@ -8,11 +8,11 @@
 #include "ast_render.hpp"
 #include "buffer.hpp"
 #include "codegen.hpp"
+#include "compiler.hpp"
 #include "config.h"
 #include "error.hpp"
 #include "os.hpp"
 #include "target.hpp"
-#include "cache_hash.hpp"
 
 #include <stdio.h>
 
@@ -257,53 +257,6 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
     }
 }
 
-static Buf saved_compiler_id = BUF_INIT;
-static Error get_compiler_id(Buf **result) {
-    if (saved_compiler_id.list.length != 0) {
-        *result = &saved_compiler_id;
-        return ErrorNone;
-    }
-
-    Error err;
-    Buf app_data_dir = BUF_INIT;
-    if ((err = os_get_app_data_dir(&app_data_dir, "zig")))
-        return err;
-    Buf *stage1_dir = buf_alloc();
-    os_path_join(&app_data_dir, buf_create_from_str("stage1"), stage1_dir);
-    Buf *manifest_dir = buf_alloc();
-    os_path_join(stage1_dir, buf_create_from_str("exe"), manifest_dir);
-
-    CacheHash cache_hash;
-    CacheHash *ch = &cache_hash;
-    cache_init(ch, manifest_dir);
-    Buf self_exe_path = BUF_INIT;
-    if ((err = os_self_exe_path(&self_exe_path)))
-        return err;
-
-    cache_file(ch, &self_exe_path);
-
-    buf_resize(&saved_compiler_id, 0);
-    if ((err = cache_hit(ch, &saved_compiler_id)))
-        return err;
-    if (buf_len(&saved_compiler_id) != 0) {
-        *result = &saved_compiler_id;
-        return ErrorNone;
-    }
-    ZigList<Buf *> lib_paths = {};
-    if ((err = os_self_exe_shared_libs(lib_paths)))
-        return err;
-    for (size_t i = 0; i < lib_paths.length; i += 1) {
-        Buf *lib_path = lib_paths.at(i);
-        if ((err = cache_add_file(ch, lib_path)))
-            return err;
-    }
-    if ((err = cache_final(ch, &saved_compiler_id)))
-        return err;
-
-    *result = &saved_compiler_id;
-    return ErrorNone;
-}
-
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
         printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
@@ -428,14 +381,7 @@ int main(int argc, char **argv) {
         Buf *build_runner_path = buf_alloc();
         os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
 
-        Buf *compiler_id;
-        if ((err = get_compiler_id(&compiler_id))) {
-            fprintf(stderr, "Unable to determine compiler id: %s\n", err_str(err));
-            return EXIT_FAILURE;
-        }
-
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf,
-                compiler_id);
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
         codegen_set_out_name(g, buf_create_from_str("build"));
 
         Buf *build_file_buf = buf_create_from_str(build_file);
@@ -451,8 +397,6 @@ int main(int argc, char **argv) {
             Buf *cache_dir_buf = buf_create_from_str(cache_dir);
             full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
         }
-
-        codegen_set_cache_dir(g, full_cache_dir);
 
         args.items[1] = buf_ptr(&build_file_dirname);
         args.items[2] = buf_ptr(&full_cache_dir);
@@ -795,7 +739,7 @@ int main(int argc, char **argv) {
     switch (cmd) {
     case CmdBuiltin: {
         Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
-        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, zig_lib_dir_buf, nullptr);
+        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, zig_lib_dir_buf);
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
@@ -850,30 +794,16 @@ int main(int argc, char **argv) {
 
             Buf *zig_root_source_file = (cmd == CmdTranslateC) ? nullptr : in_file_buf;
 
-            Buf full_cache_dir = BUF_INIT;
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
             }
-            {
-                Buf *resolve_paths = buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir);
-                full_cache_dir = os_path_resolve(&resolve_paths, 1);
-            }
-
             Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
 
-            Buf *compiler_id;
-            if ((err = get_compiler_id(&compiler_id))) {
-                fprintf(stderr, "Unable to determine compiler id: %s\n", err_str(err));
-                return EXIT_FAILURE;
-            }
-
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf,
-                    compiler_id);
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);
             codegen_set_linker_script(g, linker_script);
-            codegen_set_cache_dir(g, full_cache_dir);
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 

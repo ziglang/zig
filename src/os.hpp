@@ -111,8 +111,8 @@ void os_file_close(OsFile file);
 void os_write_file(Buf *full_path, Buf *contents);
 int os_copy_file(Buf *src_path, Buf *dest_path);
 
-int os_fetch_file(FILE *file, Buf *out_contents, bool skip_shebang);
-int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang);
+Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents, bool skip_shebang);
+Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang);
 
 int os_get_cwd(Buf *out_cwd);
 
@@ -122,7 +122,7 @@ void os_stderr_set_color(TermColor color);
 int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path);
 int os_delete_file(Buf *path);
 
-int os_file_exists(Buf *full_path, bool *result);
+Error ATTRIBUTE_MUST_USE os_file_exists(Buf *full_path, bool *result);
 
 int os_rename(Buf *src_path, Buf *dest_path);
 double os_get_time(void);

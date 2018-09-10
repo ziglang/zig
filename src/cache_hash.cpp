@@ -248,6 +248,12 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
     int rc = blake2b_final(&ch->blake, bin_digest, 48);
     assert(rc == 0);
 
+    if (ch->files.length == 0) {
+        buf_resize(out_digest, 64);
+        base64_encode(buf_to_slice(out_digest), {bin_digest, 48});
+        return ErrorNone;
+    }
+
     Buf b64_digest = BUF_INIT;
     buf_resize(&b64_digest, 64);
     base64_encode(buf_to_slice(&b64_digest), {bin_digest, 48});
@@ -458,5 +464,6 @@ Error cache_final(CacheHash *ch, Buf *out_digest) {
 }
 
 void cache_release(CacheHash *ch) {
+    assert(ch->manifest_file_path != nullptr);
     os_file_close(ch->manifest_file);
 }
