@@ -76,7 +76,11 @@ pub fn build(b: *Builder) !void {
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
-    test_step.dependOn(test_stage2_step);
+
+    // TODO see https://github.com/ziglang/zig/issues/1364
+    if (false) {
+        test_step.dependOn(test_stage2_step);
+    }
 
     const all_modes = []builtin.Mode{
         builtin.Mode.Debug,
