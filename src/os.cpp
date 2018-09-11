@@ -1657,6 +1657,14 @@ Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
     paths.resize(0);
     dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
     return ErrorNone;
+#elif defined(ZIG_OS_DARWIN)
+    paths.resize(0);
+    uint32_t img_count = _dyld_image_count();
+    for (uint32_t i = 0; i != img_count; i += 1) {
+        const char *name = _dyld_get_image_name(i);
+        paths.append(buf_create_from_str(name));
+    }
+    return ErrorNone;
 #else
 #error "unimplemented"
 #endif
@@ -1750,7 +1758,7 @@ Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
 Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
 #if defined(ZIG_OS_WINDOWS)
 #error unimplemented
-#else
+#elif defined(ZIG_OS_LINUX)
     struct stat statbuf;
     if (fstat(file, &statbuf) == -1)
         return ErrorFileSystem;
@@ -1758,6 +1766,16 @@ Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
     mtime->sec = statbuf.st_mtim.tv_sec;
     mtime->nsec = statbuf.st_mtim.tv_nsec;
     return ErrorNone;
+#elif defined(ZIG_OS_DARWIN)
+    struct stat statbuf;
+    if (fstat(file, &statbuf) == -1)
+        return ErrorFileSystem;
+
+    mtime->sec = statbuf.st_mtimespec.tv_sec;
+    mtime->nsec = statbuf.st_mtimespec.tv_nsec;
+    return ErrorNone;
+#else
+#error unimplemented
 #endif
 }
 
