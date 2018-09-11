@@ -19643,7 +19643,7 @@ static ZigType *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstructionFnP
                 return ira->codegen->builtin_types.entry_invalid;
             if (type_requires_comptime(param_type)) {
                 if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                    ir_add_error(ira, &instruction->base,
+                    ir_add_error(ira, param_type_value,
                         buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
                             buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
                     return ira->codegen->builtin_types.entry_invalid;
@@ -19653,6 +19653,12 @@ static ZigType *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstructionFnP
                 ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
                 out_val->data.x_type = get_generic_fn_type(ira->codegen, &fn_type_id);
                 return ira->codegen->builtin_types.entry_type;
+            }
+            if (!type_has_bits(param_type) && !calling_convention_allows_zig_types(fn_type_id.cc)) {
+                ir_add_error(ira, param_type_value,
+                    buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
+                        buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
+                return ira->codegen->builtin_types.entry_invalid;
             }
             param_info->type = param_type;
         }

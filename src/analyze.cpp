@@ -1224,6 +1224,9 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
         fn_type->data.fn.gen_param_count = gen_param_types.length;
 
+        for (size_t i = 0; i < gen_param_types.length; i += 1) {
+            assert(gen_param_types.items[i] != nullptr);
+        }
         fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
                 gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
         fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);

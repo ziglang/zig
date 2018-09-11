@@ -1291,6 +1291,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\extern fn bar(x: *void) void { }
     ,
+        ".tmp_source.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
         ".tmp_source.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
     );
 
