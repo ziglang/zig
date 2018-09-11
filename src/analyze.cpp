@@ -6367,3 +6367,11 @@ not_integer:
     }
     return nullptr;
 }
+
+Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents) {
+    if (g->enable_cache) {
+        return cache_add_file_fetch(&g->cache_hash, resolved_path, contents);
+    } else {
+        return os_fetch_file_path(resolved_path, contents, false);
+    }
+}

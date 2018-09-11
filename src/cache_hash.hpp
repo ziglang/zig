@@ -67,4 +67,9 @@ Error ATTRIBUTE_MUST_USE cache_final(CacheHash *ch, Buf *out_b64_digest);
 // Until this function is called, no one will be able to get a lock on your input params.
 void cache_release(CacheHash *ch);
 
+
+
+// Completely independent function. Just returns a random filename safe basename.
+Buf *get_random_basename();
+
 #endif

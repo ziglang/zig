@@ -210,4 +210,7 @@ ZigType *get_primitive_type(CodeGen *g, Buf *name);
 bool calling_convention_allows_zig_types(CallingConvention cc);
 const char *calling_convention_name(CallingConvention cc);
 
+
+Error ATTRIBUTE_MUST_USE file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents);
+
 #endif

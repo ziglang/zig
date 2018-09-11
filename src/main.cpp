@@ -34,6 +34,7 @@ static int usage(const char *arg0) {
         "Compile Options:\n"
         "  --assembly [source]          add assembly file to build\n"
         "  --cache-dir [path]           override the cache directory\n"
+        "  --cache [auto|off|on]        build to the global cache and print output path to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  --enable-timing-info         print timing diagnostics\n"
@@ -257,6 +258,24 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
     }
 }
 
+enum CacheOpt {
+    CacheOptAuto,
+    CacheOptOn,
+    CacheOptOff,
+};
+
+static bool get_cache_opt(CacheOpt opt, bool default_value) {
+    switch (opt) {
+        case CacheOptAuto:
+            return default_value;
+        case CacheOptOn:
+            return true;
+        case CacheOptOff:
+            return false;
+    }
+    zig_unreachable();
+}
+
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
         printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
@@ -301,6 +320,7 @@ int main(int argc, char **argv) {
     bool verbose_llvm_ir = false;
     bool verbose_cimport = false;
     ErrColor color = ErrColorAuto;
+    CacheOpt enable_cache = CacheOptAuto;
     const char *libc_lib_dir = nullptr;
     const char *libc_static_lib_dir = nullptr;
     const char *libc_include_dir = nullptr;
@@ -465,6 +485,7 @@ int main(int argc, char **argv) {
         PackageTableEntry *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
                 buf_ptr(&build_file_basename));
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
+        g->enable_cache = get_cache_opt(enable_cache, true);
         codegen_build_and_link(g);
 
         Termination term;
@@ -560,6 +581,17 @@ int main(int argc, char **argv) {
                         color = ErrColorOff;
                     } else {
                         fprintf(stderr, "--color options are 'auto', 'on', or 'off'\n");
+                        return usage(arg0);
+                    }
+                } else if (strcmp(arg, "--cache") == 0) {
+                    if (strcmp(argv[i], "auto") == 0) {
+                        enable_cache = CacheOptAuto;
+                    } else if (strcmp(argv[i], "on") == 0) {
+                        enable_cache = CacheOptOn;
+                    } else if (strcmp(argv[i], "off") == 0) {
+                        enable_cache = CacheOptOff;
+                    } else {
+                        fprintf(stderr, "--cache options are 'auto', 'on', or 'off'\n");
                         return usage(arg0);
                     }
                 } else if (strcmp(arg, "--emit") == 0) {
@@ -894,6 +926,7 @@ int main(int argc, char **argv) {
             if (cmd == CmdBuild || cmd == CmdRun) {
                 codegen_set_emit_file_type(g, emit_file_type);
 
+                g->enable_cache = get_cache_opt(enable_cache, cmd == CmdRun);
                 codegen_build_and_link(g);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
@@ -913,9 +946,17 @@ int main(int argc, char **argv) {
                     Termination term;
                     os_spawn_process(exec_path, args, &term);
                     return term.code;
+                } else if (cmd == CmdBuild) {
+                    if (g->enable_cache) {
+                        printf("%s\n", buf_ptr(&g->output_file_path));
+                        if (g->out_h_path != nullptr) {
+                            printf("%s\n", buf_ptr(g->out_h_path));
+                        }
+                    }
+                    return EXIT_SUCCESS;
+                } else {
+                    zig_unreachable();
                 }
-
-                return EXIT_SUCCESS;
             } else if (cmd == CmdTranslateC) {
                 codegen_translate_c(g, in_file_buf);
                 ast_render(g, stdout, g->root_import->root, 4);
@@ -928,8 +969,11 @@ int main(int argc, char **argv) {
                 ZigTarget native;
                 get_native_target(&native);
 
+                g->enable_cache = get_cache_opt(enable_cache, false);
                 codegen_build_and_link(g);
-                Buf *test_exe_path = &g->output_file_path;
+                Buf *test_exe_path_unresolved = &g->output_file_path;
+                Buf *test_exe_path = buf_alloc();
+                *test_exe_path = os_path_resolve(&test_exe_path_unresolved, 1);
 
                 for (size_t i = 0; i < test_exec_args.length; i += 1) {
                     if (test_exec_args.items[i] == nullptr) {

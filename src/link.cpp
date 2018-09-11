@@ -58,6 +58,7 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
         new_link_lib->provided_explicitly = link_lib->provided_explicitly;
     }
 
+    child_gen->enable_cache = true;
     codegen_build_and_link(child_gen);
     return &child_gen->output_file_path;
 }

@@ -7048,7 +7048,7 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
     *resolved_path = os_path_resolve(resolve_paths, 1);
     Buf *import_code = buf_alloc();
     Error err;
-    if ((err = cache_add_file_fetch(&g->cache_hash, resolved_path, import_code))) {
+    if ((err = file_fetch(g, resolved_path, import_code))) {
         zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
 
@@ -7480,10 +7480,7 @@ static void gen_h_file(CodeGen *g) {
     GenH *gen_h = &gen_h_data;
 
     assert(!g->is_test_build);
-
-    if (!g->out_h_path) {
-        g->out_h_path = buf_sprintf("%s.h", buf_ptr(g->root_out_name));
-    }
+    assert(g->out_h_path != nullptr);
 
     FILE *out_h = fopen(buf_ptr(g->out_h_path), "wb");
     if (!out_h)
@@ -7790,17 +7787,56 @@ static void resolve_out_paths(CodeGen *g) {
             zig_unreachable();
     }
 
-    os_path_join(&g->artifact_dir, o_basename, &g->o_file_output_path);
+    if (g->enable_cache || g->out_type != OutTypeObj) {
+        os_path_join(&g->artifact_dir, o_basename, &g->o_file_output_path);
+    } else {
+        buf_init_from_buf(&g->o_file_output_path, o_basename);
+    }
 
     if (g->out_type == OutTypeObj) {
         buf_init_from_buf(&g->output_file_path, &g->o_file_output_path);
     } else if (g->out_type == OutTypeExe) {
-        assert(g->root_out_name);
+        if (!g->enable_cache && g->wanted_output_file_path != nullptr) {
+            buf_init_from_buf(&g->output_file_path, g->wanted_output_file_path);
+        } else {
+            assert(g->root_out_name);
 
-        Buf basename = BUF_INIT;
-        buf_init_from_buf(&basename, g->root_out_name);
-        buf_append_str(&basename, target_exe_file_ext(&g->zig_target));
-        os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
+            Buf basename = BUF_INIT;
+            buf_init_from_buf(&basename, g->root_out_name);
+            buf_append_str(&basename, target_exe_file_ext(&g->zig_target));
+            if (g->enable_cache) {
+                os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
+            } else {
+                buf_init_from_buf(&g->output_file_path, &basename);
+            }
+        }
+    } else if (g->out_type == OutTypeLib) {
+        if (!g->enable_cache && g->wanted_output_file_path != nullptr) {
+            buf_init_from_buf(&g->output_file_path, g->wanted_output_file_path);
+        } else {
+            Buf basename = BUF_INIT;
+            buf_init_from_buf(&basename, g->root_out_name);
+            buf_append_str(&basename, target_lib_file_ext(&g->zig_target, g->is_static,
+                        g->version_major, g->version_minor, g->version_patch));
+            if (g->enable_cache) {
+                os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
+            } else {
+                buf_init_from_buf(&g->output_file_path, &basename);
+            }
+        }
+    } else {
+        zig_unreachable();
+    }
+
+    if (g->want_h_file && !g->out_h_path) {
+        assert(g->root_out_name);
+        Buf *h_basename = buf_sprintf("%s.h", buf_ptr(g->root_out_name)); 
+        if (g->enable_cache) {
+            g->out_h_path = buf_alloc();
+            os_path_join(&g->artifact_dir, h_basename, g->out_h_path);
+        } else {
+            g->out_h_path = h_basename;
+        }
     }
 }
 
@@ -7809,23 +7845,26 @@ void codegen_build_and_link(CodeGen *g) {
     Error err;
     assert(g->out_type != OutTypeUnknown);
 
-    codegen_add_time_event(g, "Check Cache");
-
     Buf *stage1_dir = get_stage1_cache_path();
-
-    Buf *manifest_dir = buf_alloc();
-    os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
-
+    Buf *artifact_dir = buf_alloc();
     Buf digest = BUF_INIT;
-    if ((err = check_cache(g, manifest_dir, &digest))) {
-        fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
-        exit(1);
+    if (g->enable_cache) {
+        codegen_add_time_event(g, "Check Cache");
+
+        Buf *manifest_dir = buf_alloc();
+        os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
+
+        if ((err = check_cache(g, manifest_dir, &digest))) {
+            fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+            exit(1);
+        }
+
+        os_path_join(stage1_dir, buf_create_from_str("artifact"), artifact_dir);
+    } else {
+        os_path_join(stage1_dir, buf_create_from_str("tmp"), artifact_dir);
     }
 
-    Buf *artifact_dir = buf_alloc();
-    os_path_join(stage1_dir, buf_create_from_str("artifact"), artifact_dir);
-
-    if (buf_len(&digest) != 0) {
+    if (g->enable_cache && buf_len(&digest) != 0) {
         os_path_join(artifact_dir, &digest, &g->artifact_dir);
         resolve_out_paths(g);
     } else {
@@ -7836,11 +7875,16 @@ void codegen_build_and_link(CodeGen *g) {
         gen_global_asm(g);
         gen_root_source(g);
 
-        if ((err = cache_final(&g->cache_hash, &digest))) {
-            fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
-            exit(1);
+        if (g->enable_cache) {
+            if ((err = cache_final(&g->cache_hash, &digest))) {
+                fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+                exit(1);
+            }
+            os_path_join(artifact_dir, &digest, &g->artifact_dir);
+        } else {
+            Buf *tmp_basename = get_random_basename(); 
+            os_path_join(artifact_dir, tmp_basename, &g->artifact_dir);
         }
-        os_path_join(artifact_dir, &digest, &g->artifact_dir);
         if ((err = os_make_path(&g->artifact_dir))) {
             fprintf(stderr, "Unable to create artifact directory: %s\n", err_str(err));
             exit(1);
@@ -7857,9 +7901,10 @@ void codegen_build_and_link(CodeGen *g) {
             codegen_link(g);
         }
     }
-    // TODO hard link output_file_path to wanted_output_file_path
 
-    cache_release(&g->cache_hash);
+    if (g->enable_cache) {
+        cache_release(&g->cache_hash);
+    }
     codegen_add_time_event(g, "Done");
 }
 
