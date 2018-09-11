@@ -5882,12 +5882,23 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdErrorUnion:
             {
-                buf_appendf(buf, "(error union %s constant)", buf_ptr(&type_entry->name));
+                buf_appendf(buf, "%s(", buf_ptr(&type_entry->name));
+                if (const_val->data.x_err_union.err == nullptr) {
+                    render_const_value(g, buf, const_val->data.x_err_union.payload);
+                } else {
+                    buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->data.error_union.err_set_type->name),
+                            buf_ptr(&const_val->data.x_err_union.err->name));
+                }
+                buf_appendf(buf, ")");
                 return;
             }
         case ZigTypeIdUnion:
             {
-                buf_appendf(buf, "(union %s constant)", buf_ptr(&type_entry->name));
+                uint64_t tag = bigint_as_unsigned(&const_val->data.x_union.tag);
+                TypeUnionField *field = &type_entry->data.unionation.fields[tag];
+                buf_appendf(buf, "%s { .%s = ", buf_ptr(&type_entry->name), buf_ptr(field->name));
+                render_const_value(g, buf, const_val->data.x_union.payload);
+                buf_append_str(buf, "}");
                 return;
             }
         case ZigTypeIdErrorSet:

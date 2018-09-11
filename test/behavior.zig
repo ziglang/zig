@@ -12,6 +12,7 @@ comptime {
     _ = @import("cases/bugs/1277.zig");
     _ = @import("cases/bugs/1381.zig");
     _ = @import("cases/bugs/1421.zig");
+    _ = @import("cases/bugs/1442.zig");
     _ = @import("cases/bugs/394.zig");
     _ = @import("cases/bugs/655.zig");
     _ = @import("cases/bugs/656.zig");

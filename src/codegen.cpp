@@ -5870,13 +5870,17 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
 
                 if (make_unnamed_struct) {
                     LLVMValueRef result = LLVMConstStruct(fields, 2, false);
-                    size_t expected_sz = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
-                    size_t actual_sz = LLVMStoreSizeOfType(g->target_data_ref, LLVMTypeOf(result));
-                    if (actual_sz < expected_sz) {
-                        unsigned pad_sz = expected_sz - actual_sz;
+                    uint64_t last_field_offset = LLVMOffsetOfElement(g->target_data_ref, LLVMTypeOf(result), 1);
+                    uint64_t end_offset = last_field_offset +
+                        LLVMStoreSizeOfType(g->target_data_ref, LLVMTypeOf(fields[1]));
+                    uint64_t expected_sz = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
+                    unsigned pad_sz = expected_sz - end_offset;
+                    if (pad_sz != 0) {
                         fields[2] = LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), pad_sz));
                         result = LLVMConstStruct(fields, 3, false);
                     }
+                    uint64_t actual_sz = LLVMStoreSizeOfType(g->target_data_ref, LLVMTypeOf(result));
+                    assert(actual_sz == expected_sz);
                     return result;
                 } else {
                     return LLVMConstNamedStruct(type_entry->type_ref, fields, 2);
@@ -5917,13 +5921,29 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                         err_payload_value = gen_const_val(g, payload_val, "");
                         make_unnamed_struct = is_llvm_value_unnamed_type(payload_val->type, err_payload_value);
                     }
-                    LLVMValueRef fields[] = {
-                        err_tag_value,
-                        err_payload_value,
-                    };
                     if (make_unnamed_struct) {
-                        return LLVMConstStruct(fields, 2, false);
+                        uint64_t payload_off = LLVMOffsetOfElement(g->target_data_ref, type_entry->type_ref, 1);
+                        uint64_t err_sz = LLVMStoreSizeOfType(g->target_data_ref, LLVMTypeOf(err_tag_value));
+                        unsigned pad_sz = payload_off - err_sz;
+                        if (pad_sz == 0) {
+                            LLVMValueRef fields[] = {
+                                err_tag_value,
+                                err_payload_value,
+                            };
+                            return LLVMConstStruct(fields, 2, false);
+                        } else {
+                            LLVMValueRef fields[] = {
+                                err_tag_value,
+                                LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), pad_sz)),
+                                err_payload_value,
+                            };
+                            return LLVMConstStruct(fields, 3, false);
+                        }
                     } else {
+                        LLVMValueRef fields[] = {
+                            err_tag_value,
+                            err_payload_value,
+                        };
                         return LLVMConstNamedStruct(type_entry->type_ref, fields, 2);
                     }
                 }
