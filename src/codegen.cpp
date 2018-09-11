@@ -3218,7 +3218,8 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         assert(var->value->type == init_value->value.type);
         ZigType *var_ptr_type = get_pointer_to_type_extra(g, var->value->type, false, false,
                 PtrLenSingle, var->align_bytes, 0, 0);
-        gen_assign_raw(g, var->value_ref, var_ptr_type, ir_llvm_value(g, init_value));
+        LLVMValueRef llvm_init_val = ir_llvm_value(g, init_value);
+        gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val);
     } else {
         bool want_safe = ir_want_runtime_safety(g, &decl_var_instruction->base);
         if (want_safe) {
@@ -5863,12 +5864,20 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                 LLVMValueRef tag_value = bigint_to_llvm_const(type_entry->data.unionation.tag_type->type_ref,
                         &const_val->data.x_union.tag);
 
-                LLVMValueRef fields[2];
+                LLVMValueRef fields[3];
                 fields[type_entry->data.unionation.gen_union_index] = union_value_ref;
                 fields[type_entry->data.unionation.gen_tag_index] = tag_value;
 
                 if (make_unnamed_struct) {
-                    return LLVMConstStruct(fields, 2, false);
+                    LLVMValueRef result = LLVMConstStruct(fields, 2, false);
+                    size_t expected_sz = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
+                    size_t actual_sz = LLVMStoreSizeOfType(g->target_data_ref, LLVMTypeOf(result));
+                    if (actual_sz < expected_sz) {
+                        unsigned pad_sz = expected_sz - actual_sz;
+                        fields[2] = LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), pad_sz));
+                        result = LLVMConstStruct(fields, 3, false);
+                    }
+                    return result;
                 } else {
                     return LLVMConstNamedStruct(type_entry->type_ref, fields, 2);
                 }
