@@ -232,6 +232,8 @@ pub const Builder = struct {
     }
 
     pub fn make(self: *Builder, step_names: []const []const u8) !void {
+        try self.makePath(self.cache_root);
+
         var wanted_steps = ArrayList(*Step).init(self.allocator);
         defer wanted_steps.deinit();
 
