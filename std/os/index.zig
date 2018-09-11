@@ -343,23 +343,25 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
         const amt_to_write = math.min(bytes.len - index, usize(max_bytes_len));
         const rc = posix.write(fd, bytes.ptr + index, amt_to_write);
         const write_err = posix.getErrno(rc);
-        if (write_err > 0) {
-            return switch (write_err) {
-                posix.EINTR => continue,
-                posix.EINVAL, posix.EFAULT => unreachable,
-                posix.EAGAIN => PosixWriteError.WouldBlock,
-                posix.EBADF => PosixWriteError.FileClosed,
-                posix.EDESTADDRREQ => PosixWriteError.DestinationAddressRequired,
-                posix.EDQUOT => PosixWriteError.DiskQuota,
-                posix.EFBIG => PosixWriteError.FileTooBig,
-                posix.EIO => PosixWriteError.InputOutput,
-                posix.ENOSPC => PosixWriteError.NoSpaceLeft,
-                posix.EPERM => PosixWriteError.AccessDenied,
-                posix.EPIPE => PosixWriteError.BrokenPipe,
-                else => unexpectedErrorPosix(write_err),
-            };
+        switch (write_err) {
+            0 => {
+                index += rc;
+                continue;
+            },
+            posix.EINTR => continue,
+            posix.EINVAL => unreachable,
+            posix.EFAULT => unreachable,
+            posix.EAGAIN => return PosixWriteError.WouldBlock,
+            posix.EBADF => return PosixWriteError.FileClosed,
+            posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+            posix.EDQUOT => return PosixWriteError.DiskQuota,
+            posix.EFBIG => return PosixWriteError.FileTooBig,
+            posix.EIO => return PosixWriteError.InputOutput,
+            posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+            posix.EPERM => return PosixWriteError.AccessDenied,
+            posix.EPIPE => return PosixWriteError.BrokenPipe,
+            else => return unexpectedErrorPosix(write_err),
         }
-        index += rc;
     }
 }
 
@@ -1614,7 +1616,7 @@ pub const Dir = struct {
                     return null;
             }
             const name_utf16le = mem.toSlice(u16, self.handle.find_file_data.cFileName[0..].ptr);
-            if (mem.eql(u16, name_utf16le, []u16{'.'}) or mem.eql(u16, name_utf16le, []u16{'.', '.'}))
+            if (mem.eql(u16, name_utf16le, []u16{'.'}) or mem.eql(u16, name_utf16le, []u16{ '.', '.' }))
                 continue;
             // Trust that Windows gives us valid UTF-16LE
             const name_utf8_len = std.unicode.utf16leToUtf8(self.handle.name_data[0..], name_utf16le) catch unreachable;

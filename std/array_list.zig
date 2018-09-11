@@ -62,6 +62,10 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return self.len;
         }
 
+        pub fn capacity(self: Self) usize {
+            return self.items.len;
+        }
+
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
@@ -102,6 +106,11 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             new_item_ptr.* = item;
         }
 
+        pub fn appendAssumeCapacity(self: *Self, item: T) void {
+            const new_item_ptr = self.addOneAssumeCapacity();
+            new_item_ptr.* = item;
+        }
+
         /// Removes the element at the specified index and returns it.
         /// The empty slot is filled from the end of the list.
         pub fn swapRemove(self: *Self, i: usize) T {
@@ -138,7 +147,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         }
 
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
-            var better_capacity = self.items.len;
+            var better_capacity = self.capacity();
             if (better_capacity >= new_capacity) return;
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
@@ -150,8 +159,13 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         pub fn addOne(self: *Self) !*T {
             const new_length = self.len + 1;
             try self.ensureCapacity(new_length);
+            return self.addOneAssumeCapacity();
+        }
+
+        pub fn addOneAssumeCapacity(self: *Self) *T {
+            assert(self.count() < self.capacity());
             const result = &self.items[self.len];
-            self.len = new_length;
+            self.len += 1;
             return result;
         }
 
@@ -189,6 +203,17 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             };
         }
     };
+}
+
+test "std.ArrayList.init" {
+    var bytes: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var list = ArrayList(i32).init(allocator);
+    defer list.deinit();
+
+    assert(list.count() == 0);
+    assert(list.capacity() == 0);
 }
 
 test "std.ArrayList.basic" {

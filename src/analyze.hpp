@@ -182,7 +182,6 @@ size_t type_id_index(ZigType *entry);
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 Result<bool> type_is_copyable(CodeGen *g, ZigType *type_entry);
 LinkLib *create_link_lib(Buf *name);
-bool calling_convention_does_first_arg_return(CallingConvention cc);
 LinkLib *add_link_lib(CodeGen *codegen, Buf *lib);
 
 uint32_t get_abi_alignment(CodeGen *g, ZigType *type_entry);
@@ -210,7 +209,11 @@ ZigType *get_primitive_type(CodeGen *g, Buf *name);
 bool calling_convention_allows_zig_types(CallingConvention cc);
 const char *calling_convention_name(CallingConvention cc);
 
-
 Error ATTRIBUTE_MUST_USE file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents);
+
+void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);
+X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty);
+bool type_is_c_abi_int(CodeGen *g, ZigType *ty);
+bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id);
 
 #endif

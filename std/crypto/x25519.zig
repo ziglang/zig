@@ -4,6 +4,7 @@
 
 const std = @import("../index.zig");
 const builtin = @import("builtin");
+const fmt = std.fmt;
 
 const Endian = builtin.Endian;
 const readInt = std.mem.readInt;
@@ -114,7 +115,7 @@ pub const X25519 = struct {
         return !zerocmp(u8, out);
     }
 
-    pub fn createPublicKey(public_key: []const u8, private_key: []const u8) bool {
+    pub fn createPublicKey(public_key: [] u8, private_key: []const u8) bool {
         var base_point = []u8{9} ++ []u8{0} ** 31;
         return create(public_key, private_key, base_point);
     }
@@ -572,6 +573,16 @@ const Fe = struct {
         return isneg;
     }
 };
+
+test "x25519 public key calculation from secret key" {
+    var sk: [32]u8 = undefined;
+    var pk_expected: [32]u8 = undefined;
+    var pk_calculated: [32]u8 = undefined;
+    try fmt.hexToBytes(sk[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
+    try fmt.hexToBytes(pk_expected[0..], "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50");
+    std.debug.assert(X25519.createPublicKey(pk_calculated[0..], sk));
+    std.debug.assert(std.mem.eql(u8, pk_calculated, pk_expected));
+}
 
 test "x25519 rfc7748 vector1" {
     const secret_key = "\xa5\x46\xe3\x6b\xf0\x52\x7c\x9d\x3b\x16\x15\x4b\x82\x46\x5e\xdd\x62\x14\x4c\x0a\xc1\xfc\x5a\x18\x50\x6a\x22\x44\xba\x44\x9a\xc4";

@@ -41,6 +41,13 @@ struct Tld;
 struct TldExport;
 struct IrAnalyze;
 
+enum X64CABIClass {
+    X64CABIClass_Unknown,
+    X64CABIClass_MEMORY,
+    X64CABIClass_INTEGER,
+    X64CABIClass_SSE,
+};
+
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     Buf *name;
@@ -3280,6 +3287,55 @@ static const size_t stack_trace_ptr_count = 30;
 enum FloatMode {
     FloatModeOptimized,
     FloatModeStrict,
+};
+
+enum FnWalkId {
+    FnWalkIdAttrs,
+    FnWalkIdCall,
+    FnWalkIdTypes,
+    FnWalkIdVars,
+    FnWalkIdInits,
+};
+
+struct FnWalkAttrs {
+    ZigFn *fn;
+    unsigned gen_i;
+};
+
+struct FnWalkCall {
+    ZigList<LLVMValueRef> *gen_param_values;
+    IrInstructionCall *inst;
+    bool is_var_args;
+};
+
+struct FnWalkTypes {
+    ZigList<ZigLLVMDIType *> *param_di_types;
+    ZigList<LLVMTypeRef> *gen_param_types;
+};
+
+struct FnWalkVars {
+    ImportTableEntry *import;
+    LLVMValueRef llvm_fn;
+    ZigFn *fn;
+    ZigVar *var;
+    unsigned gen_i;
+};
+
+struct FnWalkInits {
+    LLVMValueRef llvm_fn;
+    ZigFn *fn;
+    unsigned gen_i;
+};
+
+struct FnWalk {
+    FnWalkId id;
+    union {
+        FnWalkAttrs attrs;
+        FnWalkCall call;
+        FnWalkTypes types;
+        FnWalkVars vars;
+        FnWalkInits inits;
+    } data;
 };
 
 #endif

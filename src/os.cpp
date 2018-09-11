@@ -445,7 +445,7 @@ static Buf os_path_resolve_windows(Buf **paths_ptr, size_t paths_len) {
     }
 
     // determine which disk designator we will result with, if any
-    char result_drive_buf[2] = {'_', ':'};
+    char result_drive_buf[3] = {'_', ':', '\0'}; // 0 needed for strlen later
     Slice<uint8_t> result_disk_designator = str("");
     WindowsPathKind have_drive_kind = WindowsPathKindNone;
     bool have_abs_path = false;

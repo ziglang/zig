@@ -48,6 +48,12 @@ pub const Builder = struct {
     cache_root: []const u8,
     release_mode: ?builtin.Mode,
 
+    pub const CStd = enum {
+        C89,
+        C99,
+        C11,
+    };
+
     const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
     const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
 
@@ -817,6 +823,7 @@ pub const LibExeObjStep = struct {
     frameworks: BufSet,
     verbose_link: bool,
     no_rosegment: bool,
+    c_std: Builder.CStd,
 
     // zig only stuff
     root_src: ?[]const u8,
@@ -918,6 +925,7 @@ pub const LibExeObjStep = struct {
             .object_src = undefined,
             .disable_libc = true,
             .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
+            .c_std = Builder.CStd.C99,
         };
         self.computeOutFileNames();
         return self;
@@ -952,6 +960,7 @@ pub const LibExeObjStep = struct {
             .disable_libc = false,
             .is_zig = false,
             .linker_script = null,
+            .c_std = Builder.CStd.C99,
 
             .root_src = undefined,
             .verbose_link = false,
@@ -1392,6 +1401,13 @@ pub const LibExeObjStep = struct {
 
         const is_darwin = self.target.isDarwin();
 
+        const c_std_arg = switch (self.c_std) {
+            Builder.CStd.C89 => "-std=c89",
+            Builder.CStd.C99 => "-std=c99",
+            Builder.CStd.C11 => "-std=c11",
+        };
+        try cc_args.append(c_std_arg);
+
         switch (self.kind) {
             Kind.Obj => {
                 cc_args.append("-c") catch unreachable;
@@ -1676,6 +1692,17 @@ pub const TestStep = struct {
 
     pub fn setFilter(self: *TestStep, text: ?[]const u8) void {
         self.filter = text;
+    }
+
+    pub fn addObject(self: *TestStep, obj: *LibExeObjStep) void {
+        assert(obj.kind == LibExeObjStep.Kind.Obj);
+
+        self.step.dependOn(&obj.step);
+
+        self.object_files.append(obj.getOutputPath()) catch unreachable;
+
+        // TODO should be some kind of isolated directory that only has this header in it
+        self.include_dirs.append(self.builder.cache_root) catch unreachable;
     }
 
     pub fn addObjectFile(self: *TestStep, path: []const u8) void {

@@ -61,5 +61,4 @@ void codegen_translate_c(CodeGen *g, Buf *path);
 
 Buf *codegen_generate_builtin_source(CodeGen *g);
 
-
 #endif

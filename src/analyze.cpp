@@ -1009,10 +1009,6 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry) {
     return bound_fn_type;
 }
 
-bool calling_convention_does_first_arg_return(CallingConvention cc) {
-    return cc == CallingConventionUnspecified;
-}
-
 const char *calling_convention_name(CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified: return "undefined";
@@ -1059,6 +1055,27 @@ ZigType *get_ptr_to_stack_trace_type(CodeGen *g) {
         g->ptr_to_stack_trace_type = get_pointer_to_type(g, g->stack_trace_type, false);
     }
     return g->ptr_to_stack_trace_type;
+}
+
+bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
+    if (fn_type_id->cc == CallingConventionUnspecified) {
+        return handle_is_ptr(fn_type_id->return_type);
+    }
+    if (fn_type_id->cc != CallingConventionC) {
+        return false;
+    }
+    if (type_is_c_abi_int(g, fn_type_id->return_type)) {
+        return false;
+    }
+    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
+        if (abi_class == X64CABIClass_MEMORY) {
+            return true;
+        }
+        zig_panic("TODO implement C ABI for x86_64 return types. type '%s'\nSee https://github.com/ziglang/zig/issues/1481",
+                buf_ptr(&fn_type_id->return_type->name));
+    }
+    zig_panic("TODO implement C ABI for this architecture. See https://github.com/ziglang/zig/issues/1481");
 }
 
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
@@ -1116,21 +1133,20 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     // next, loop over the parameters again and compute debug information
     // and codegen information
     if (!skip_debug_info) {
-        bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
-            handle_is_ptr(fn_type_id->return_type);
+        bool first_arg_return = want_first_arg_sret(g, fn_type_id);
         bool is_async = fn_type_id->cc == CallingConventionAsync;
+        bool is_c_abi = fn_type_id->cc == CallingConventionC;
         bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
         // +1 for maybe making the first argument the return value
         // +1 for maybe first argument the error return trace
         // +2 for maybe arguments async allocator and error code pointer
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(4 + fn_type_id->param_count);
+        ZigList<LLVMTypeRef> gen_param_types = {};
         // +1 because 0 is the return type and
         // +1 for maybe making first arg ret val and
         // +1 for maybe first argument the error return trace
         // +2 for maybe arguments async allocator and error code pointer
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(5 + fn_type_id->param_count);
-        param_di_types[0] = fn_type_id->return_type->di_type;
-        size_t gen_param_index = 0;
+        ZigList<ZigLLVMDIType *> param_di_types = {};
+        param_di_types.append(fn_type_id->return_type->di_type);
         ZigType *gen_return_type;
         if (is_async) {
             gen_return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
@@ -1138,10 +1154,8 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_return_type = g->builtin_types.entry_void;
         } else if (first_arg_return) {
             ZigType *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
-            gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_index += 1;
-            // after the gen_param_index += 1 because 0 is the return type
-            param_di_types[gen_param_index] = gen_type->di_type;
+            gen_param_types.append(gen_type->type_ref);
+            param_di_types.append(gen_type->di_type);
             gen_return_type = g->builtin_types.entry_void;
         } else {
             gen_return_type = fn_type_id->return_type;
@@ -1150,28 +1164,22 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
         if (prefix_arg_error_return_trace) {
             ZigType *gen_type = get_ptr_to_stack_trace_type(g);
-            gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_index += 1;
-            // after the gen_param_index += 1 because 0 is the return type
-            param_di_types[gen_param_index] = gen_type->di_type;
+            gen_param_types.append(gen_type->type_ref);
+            param_di_types.append(gen_type->di_type);
         }
         if (is_async) {
             {
                 // async allocator param
                 ZigType *gen_type = fn_type_id->async_allocator_type;
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_index += 1;
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                gen_param_types.append(gen_type->type_ref);
+                param_di_types.append(gen_type->di_type);
             }
 
             {
                 // error code pointer
                 ZigType *gen_type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_index += 1;
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                gen_param_types.append(gen_type->type_ref);
+                param_di_types.append(gen_type->di_type);
             }
         }
 
@@ -1187,6 +1195,9 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             if ((err = ensure_complete_type(g, type_entry)))
                 return g->builtin_types.entry_invalid;
 
+            if (is_c_abi)
+                continue;
+
             if (type_has_bits(type_entry)) {
                 ZigType *gen_type;
                 if (handle_is_ptr(type_entry)) {
@@ -1195,23 +1206,31 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
                 } else {
                     gen_type = type_entry;
                 }
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_info->gen_index = gen_param_index;
+                gen_param_info->gen_index = gen_param_types.length;
                 gen_param_info->type = gen_type;
+                gen_param_types.append(gen_type->type_ref);
 
-                gen_param_index += 1;
-
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
+                param_di_types.append(gen_type->di_type);
             }
         }
 
-        fn_type->data.fn.gen_param_count = gen_param_index;
+        if (is_c_abi) {
+            FnWalk fn_walk = {};
+            fn_walk.id = FnWalkIdTypes;
+            fn_walk.data.types.param_di_types = &param_di_types;
+            fn_walk.data.types.gen_param_types = &gen_param_types;
+            walk_function_params(g, fn_type, &fn_walk);
+        }
 
+        fn_type->data.fn.gen_param_count = gen_param_types.length;
+
+        for (size_t i = 0; i < gen_param_types.length; i += 1) {
+            assert(gen_param_types.items[i] != nullptr);
+        }
         fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
-                gen_param_types, (unsigned int)gen_param_index, fn_type_id->is_var_args);
+                gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
         fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, (int)(gen_param_index + 1), 0);
+        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
     }
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
@@ -5863,12 +5882,23 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdErrorUnion:
             {
-                buf_appendf(buf, "(error union %s constant)", buf_ptr(&type_entry->name));
+                buf_appendf(buf, "%s(", buf_ptr(&type_entry->name));
+                if (const_val->data.x_err_union.err == nullptr) {
+                    render_const_value(g, buf, const_val->data.x_err_union.payload);
+                } else {
+                    buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->data.error_union.err_set_type->name),
+                            buf_ptr(&const_val->data.x_err_union.err->name));
+                }
+                buf_appendf(buf, ")");
                 return;
             }
         case ZigTypeIdUnion:
             {
-                buf_appendf(buf, "(union %s constant)", buf_ptr(&type_entry->name));
+                uint64_t tag = bigint_as_unsigned(&const_val->data.x_union.tag);
+                TypeUnionField *field = &type_entry->data.unionation.fields[tag];
+                buf_appendf(buf, "%s { .%s = ", buf_ptr(&type_entry->name), buf_ptr(field->name));
+                render_const_value(g, buf, const_val->data.x_union.payload);
+                buf_append_str(buf, "}");
                 return;
             }
         case ZigTypeIdErrorSet:
@@ -6374,4 +6404,85 @@ Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents) {
     } else {
         return os_fetch_file_path(resolved_path, contents, false);
     }
+}
+
+X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
+    size_t ty_size = type_size(g, ty);
+    if (get_codegen_ptr_type(ty) != nullptr)
+        return X64CABIClass_INTEGER;
+    switch (ty->id) {
+        case ZigTypeIdEnum:
+        case ZigTypeIdInt:
+        case ZigTypeIdBool:
+            return X64CABIClass_INTEGER;
+        case ZigTypeIdFloat:
+            return X64CABIClass_SSE;
+        case ZigTypeIdStruct: {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32)
+                return X64CABIClass_MEMORY;
+            if (ty->data.structure.layout != ContainerLayoutExtern) {
+                // TODO determine whether packed structs have any unaligned fields
+                return X64CABIClass_Unknown;
+            }
+            // "If the size of the aggregate exceeds two eightbytes and the first eight-
+            // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
+            // is passed in memory."
+            if (ty_size > 16) {
+                // Zig doesn't support vectors and large fp registers yet, so this will always
+                // be memory.
+                return X64CABIClass_MEMORY;
+            }
+            X64CABIClass working_class = X64CABIClass_Unknown;
+            for (uint32_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields->type_entry);
+                if (field_class == X64CABIClass_Unknown)
+                    return X64CABIClass_Unknown;
+                if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
+                    working_class = field_class;
+                }
+            }
+            return working_class;
+        }
+        case ZigTypeIdUnion: {
+            // "If the size of an object is larger than four eightbytes, or it contains unaligned
+            // fields, it has class MEMORY"
+            if (ty_size > 32)
+                return X64CABIClass_MEMORY;
+            if (ty->data.unionation.layout != ContainerLayoutExtern)
+                return X64CABIClass_MEMORY;
+            // "If the size of the aggregate exceeds two eightbytes and the first eight-
+            // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
+            // is passed in memory."
+            if (ty_size > 16) {
+                // Zig doesn't support vectors and large fp registers yet, so this will always
+                // be memory.
+                return X64CABIClass_MEMORY;
+            }
+            X64CABIClass working_class = X64CABIClass_Unknown;
+            for (uint32_t i = 0; i < ty->data.unionation.src_field_count; i += 1) {
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.unionation.fields->type_entry);
+                if (field_class == X64CABIClass_Unknown)
+                    return X64CABIClass_Unknown;
+                if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
+                    working_class = field_class;
+                }
+            }
+            return working_class;
+        }
+        default:
+            return X64CABIClass_Unknown;
+    }
+}
+
+// NOTE this does not depend on x86_64
+bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
+    return (ty->id == ZigTypeIdInt ||
+        ty->id == ZigTypeIdFloat ||
+        ty->id == ZigTypeIdBool ||
+        ty->id == ZigTypeIdEnum ||
+        ty->id == ZigTypeIdVoid ||
+        ty->id == ZigTypeIdUnreachable ||
+        get_codegen_ptr_type(ty) != nullptr);
 }
