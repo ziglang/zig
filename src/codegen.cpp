@@ -8122,6 +8122,8 @@ static void resolve_out_paths(CodeGen *g) {
 
     if (g->enable_cache || g->out_type != OutTypeObj) {
         os_path_join(&g->artifact_dir, o_basename, &g->o_file_output_path);
+    } else if (g->wanted_output_file_path != nullptr && g->out_type == OutTypeObj) {
+        buf_init_from_buf(&g->o_file_output_path, g->wanted_output_file_path);
     } else {
         buf_init_from_buf(&g->o_file_output_path, o_basename);
     }
