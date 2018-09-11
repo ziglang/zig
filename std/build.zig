@@ -1641,6 +1641,7 @@ pub const TestStep = struct {
     lib_paths: ArrayList([]const u8),
     object_files: ArrayList([]const u8),
     no_rosegment: bool,
+    output_path: ?[]const u8,
 
     pub fn init(builder: *Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1659,6 +1660,7 @@ pub const TestStep = struct {
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .object_files = ArrayList([]const u8).init(builder.allocator),
             .no_rosegment = false,
+            .output_path = null,
         };
     }
 
@@ -1680,6 +1682,24 @@ pub const TestStep = struct {
 
     pub fn setBuildMode(self: *TestStep, mode: builtin.Mode) void {
         self.build_mode = mode;
+    }
+
+    pub fn setOutputPath(self: *TestStep, file_path: []const u8) void {
+        self.output_path = file_path;
+
+        // catch a common mistake
+        if (mem.eql(u8, self.builder.pathFromRoot(file_path), self.builder.pathFromRoot("."))) {
+            debug.panic("setOutputPath wants a file path, not a directory\n");
+        }
+    }
+
+    pub fn getOutputPath(self: *TestStep) []const u8 {
+        if (self.output_path) |output_path| {
+            return output_path;
+        } else {
+            const basename = self.builder.fmt("test{}", self.target.exeFileExt());
+            return os.path.join(self.builder.allocator, self.builder.cache_root, basename) catch unreachable;
+        }
     }
 
     pub fn linkSystemLibrary(self: *TestStep, name: []const u8) void {
@@ -1745,6 +1765,10 @@ pub const TestStep = struct {
             builtin.Mode.ReleaseFast => try zig_args.append("--release-fast"),
             builtin.Mode.ReleaseSmall => try zig_args.append("--release-small"),
         }
+
+        const output_path = builder.pathFromRoot(self.getOutputPath());
+        try zig_args.append("--output");
+        try zig_args.append(output_path);
 
         switch (self.target) {
             Target.Native => {},
