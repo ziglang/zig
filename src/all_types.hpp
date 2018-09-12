@@ -1727,6 +1727,7 @@ struct CodeGen {
     bool error_during_imports;
     bool generate_error_name_table;
     bool enable_cache;
+    bool enable_time_report;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     ZigList<LinkLib *> link_libs_list;

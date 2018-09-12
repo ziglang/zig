@@ -37,7 +37,7 @@ static int usage(const char *arg0) {
         "  --cache [auto|off|on]        build to the global cache and print output path to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
-        "  --enable-timing-info         print timing diagnostics\n"
+        "  -ftime-report                print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
@@ -402,6 +402,7 @@ int main(int argc, char **argv) {
         os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
 
         CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
+        g->enable_time_report = timing_info;
         buf_init_from_str(&g->cache_dir, cache_dir);
         codegen_set_out_name(g, buf_create_from_str("build"));
 
@@ -533,7 +534,7 @@ int main(int argc, char **argv) {
                 no_rosegment_workaround = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
                 each_lib_rpath = true;
-            } else if (strcmp(arg, "--enable-timing-info") == 0) {
+            } else if (strcmp(arg, "-ftime-report") == 0) {
                 timing_info = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
@@ -828,6 +829,7 @@ int main(int argc, char **argv) {
             Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
 
             CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf);
+            g->enable_time_report = timing_info;
             buf_init_from_str(&g->cache_dir, cache_dir);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
