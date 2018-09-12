@@ -6289,6 +6289,12 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
     if (is_libc && g->libc_link_lib != nullptr)
         return g->libc_link_lib;
 
+    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX && g->zig_target.os != OsIOS) {
+        fprintf(stderr, "TODO linking against libc is currently incompatible with `--cache on`.\n"
+        "Zig is not yet capable of determining whether the libc installation has changed on subsequent builds.\n");
+        exit(1);
+    }
+
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
         LinkLib *existing_lib = g->link_libs_list.at(i);
         if (buf_eql_buf(existing_lib->name, name)) {
