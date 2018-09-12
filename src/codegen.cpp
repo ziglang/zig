@@ -6388,9 +6388,9 @@ static void do_code_gen(CodeGen *g) {
     char *error = nullptr;
     LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
 #endif
+}
 
-    codegen_add_time_event(g, "LLVM Emit Output");
-
+static void zig_llvm_emit_output(CodeGen *g) {
     bool is_small = g->build_mode == BuildModeSmallRelease;
 
     Buf *output_path = &g->o_file_output_path;
@@ -8228,6 +8228,9 @@ void codegen_build_and_link(CodeGen *g) {
 
         codegen_add_time_event(g, "Code Generation");
         do_code_gen(g);
+        codegen_add_time_event(g, "LLVM Emit Output");
+        zig_llvm_emit_output(g);
+
         if (g->want_h_file) {
             codegen_add_time_event(g, "Generate .h");
             gen_h_file(g);

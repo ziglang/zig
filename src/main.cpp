@@ -971,6 +971,11 @@ int main(int argc, char **argv) {
 
                 g->enable_cache = get_cache_opt(enable_cache, false);
                 codegen_build_and_link(g);
+
+                if (timing_info) {
+                    codegen_print_timing_report(g, stdout);
+                }
+
                 Buf *test_exe_path_unresolved = &g->output_file_path;
                 Buf *test_exe_path = buf_alloc();
                 *test_exe_path = os_path_resolve(&test_exe_path_unresolved, 1);
@@ -980,7 +985,6 @@ int main(int argc, char **argv) {
                         test_exec_args.items[i] = buf_ptr(test_exe_path);
                     }
                 }
-
 
                 if (!target_can_exec(&native, target)) {
                     fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",
@@ -1003,8 +1007,6 @@ int main(int argc, char **argv) {
                 if (term.how != TerminationIdClean || term.code != 0) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "%s\n", buf_ptr(test_exe_path));
-                } else if (timing_info) {
-                    codegen_print_timing_report(g, stdout);
                 }
                 return (term.how == TerminationIdClean) ? term.code : -1;
             } else {
