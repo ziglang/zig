@@ -8,7 +8,7 @@ export CXX=clang++-6.0
 echo $PATH
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
+cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j2 install
 ./zig build --build-file ../build.zig test
 
