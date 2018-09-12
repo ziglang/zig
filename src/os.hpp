@@ -72,7 +72,7 @@ struct Termination {
 };
 
 #if defined(ZIG_OS_WINDOWS)
-#define OsFile (void *)
+#define OsFile void *
 #else
 #define OsFile int
 #endif

@@ -30,6 +30,8 @@ const char *err_str(int err) {
         case ErrorEndOfFile: return "end of file";
         case ErrorIsDir: return "is directory";
         case ErrorUnsupportedOperatingSystem: return "unsupported operating system";
+        case ErrorSharingViolation: return "sharing violation";
+        case ErrorPipeBusy: return "pipe busy";
     }
     return "(invalid error)";
 }

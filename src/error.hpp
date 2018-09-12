@@ -30,6 +30,8 @@ enum Error {
     ErrorEndOfFile,
     ErrorIsDir,
     ErrorUnsupportedOperatingSystem,
+    ErrorSharingViolation,
+    ErrorPipeBusy,
 };
 
 const char *err_str(int err);
