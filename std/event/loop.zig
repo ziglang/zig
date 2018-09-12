@@ -27,6 +27,19 @@ pub const Loop = struct {
     pub const ResumeNode = struct {
         id: Id,
         handle: promise,
+        overlapped: Overlapped,
+
+        const overlapped_init = switch (builtin.os) {
+            builtin.Os.windows => windows.OVERLAPPED{
+                .Internal = 0,
+                .InternalHigh = 0,
+                .Offset = 0,
+                .OffsetHigh = 0,
+                .hEvent = null,
+            },
+            else => {},
+        };
+        const Overlapped = @typeOf(overlapped_init);
 
         pub const Id = enum {
             Basic,
@@ -101,6 +114,7 @@ pub const Loop = struct {
             .final_resume_node = ResumeNode{
                 .id = ResumeNode.Id.Stop,
                 .handle = undefined,
+                .overlapped = ResumeNode.overlapped_init,
             },
         };
         const extra_thread_count = thread_count - 1;
@@ -153,6 +167,7 @@ pub const Loop = struct {
                             .base = ResumeNode{
                                 .id = ResumeNode.Id.EventFd,
                                 .handle = undefined,
+                                .overlapped = ResumeNode.overlapped_init,
                             },
                             .eventfd = try os.linuxEventFd(1, posix.EFD_CLOEXEC | posix.EFD_NONBLOCK),
                             .epoll_op = posix.EPOLL_CTL_ADD,
@@ -225,6 +240,7 @@ pub const Loop = struct {
                             .base = ResumeNode{
                                 .id = ResumeNode.Id.EventFd,
                                 .handle = undefined,
+                                .overlapped = ResumeNode.overlapped_init,
                             },
                             // this one is for sending events
                             .kevent = posix.Kevent{
@@ -311,6 +327,7 @@ pub const Loop = struct {
                             .base = ResumeNode{
                                 .id = ResumeNode.Id.EventFd,
                                 .handle = undefined,
+                                .overlapped = ResumeNode.overlapped_init,
                             },
                             // this one is for sending events
                             .completion_key = @ptrToInt(&eventfd_node.data.base),
@@ -325,8 +342,8 @@ pub const Loop = struct {
                     var i: usize = 0;
                     while (i < extra_thread_index) : (i += 1) {
                         while (true) {
-                            const overlapped = @intToPtr(?*windows.OVERLAPPED, 0x1);
-                            os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, @ptrToInt(&self.final_resume_node), overlapped) catch continue;
+                            const overlapped = &self.final_resume_node.overlapped;
+                            os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, undefined, overlapped) catch continue;
                             break;
                         }
                     }
@@ -413,6 +430,7 @@ pub const Loop = struct {
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
                 .handle = @handle(),
+                .overlapped = ResumeNode.overlapped_init,
             },
             .kev = undefined,
         };
@@ -489,15 +507,11 @@ pub const Loop = struct {
                     };
                 },
                 builtin.Os.windows => {
-                    // this value is never dereferenced but we need it to be non-null so that
-                    // the consumer code can decide whether to read the completion key.
-                    // it has to do this for normal I/O, so we match that behavior here.
-                    const overlapped = @intToPtr(?*windows.OVERLAPPED, 0x1);
                     os.windowsPostQueuedCompletionStatus(
                         self.os_data.io_port,
                         undefined,
-                        eventfd_node.completion_key,
-                        overlapped,
+                        undefined,
+                        &eventfd_node.base.overlapped,
                     ) catch {
                         self.next_tick_queue.unget(next_tick_node);
                         self.available_eventfd_resume_nodes.push(resume_stack_node);
@@ -606,8 +620,8 @@ pub const Loop = struct {
                     var i: usize = 0;
                     while (i < self.extra_threads.len + 1) : (i += 1) {
                         while (true) {
-                            const overlapped = @intToPtr(?*windows.OVERLAPPED, 0x1);
-                            os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, @ptrToInt(&self.final_resume_node), overlapped) catch continue;
+                            const overlapped = &self.final_resume_node.overlapped;
+                            os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, undefined, overlapped) catch continue;
                             break;
                         }
                     }
@@ -680,17 +694,19 @@ pub const Loop = struct {
                 },
                 builtin.Os.windows => {
                     var completion_key: usize = undefined;
-                    while (true) {
+                    const overlapped = while (true) {
                         var nbytes: windows.DWORD = undefined;
                         var overlapped: ?*windows.OVERLAPPED = undefined;
-                        switch (os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, &overlapped, windows.INFINITE)) {
+                        switch (os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key,
+                            &overlapped, windows.INFINITE))
+                        {
                             os.WindowsWaitResult.Aborted => return,
                             os.WindowsWaitResult.Normal => {},
                             os.WindowsWaitResult.Cancelled => continue,
                         }
-                        if (overlapped != null) break;
-                    }
-                    const resume_node = @intToPtr(*ResumeNode, completion_key);
+                        if (overlapped) |o| break o;
+                    } else unreachable; // TODO else unreachable should not be necessary
+                    const resume_node = @fieldParentPtr(ResumeNode, "overlapped", overlapped);
                     const handle = resume_node.handle;
                     const resume_node_id = resume_node.id;
                     switch (resume_node_id) {
