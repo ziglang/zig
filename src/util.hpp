@@ -254,4 +254,16 @@ static inline void memCopy(Slice<T> dest, Slice<T> src) {
     memcpy(dest.ptr, src.ptr, src.len * sizeof(T));
 }
 
+// Ported from std/mem.zig.
+// Coordinate struct fields with memSplit function
+struct SplitIterator {
+    size_t index;
+    Slice<uint8_t> buffer;
+    Slice<uint8_t> split_bytes;
+};
+
+bool SplitIterator_isSplitByte(SplitIterator *self, uint8_t byte);
+Optional<Slice<uint8_t>> SplitIterator_next(SplitIterator *self);
+SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes);
+
 #endif

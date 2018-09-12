@@ -78,6 +78,10 @@ static inline Buf *buf_create_from_mem(const char *ptr, size_t len) {
     return buf;
 }
 
+static inline Buf *buf_create_from_slice(Slice<uint8_t> slice) {
+    return buf_create_from_mem((const char *)slice.ptr, slice.len);
+}
+
 static inline Buf *buf_create_from_str(const char *str) {
     return buf_create_from_mem(str, strlen(str));
 }

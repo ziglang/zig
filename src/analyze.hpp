@@ -209,6 +209,8 @@ ZigType *get_primitive_type(CodeGen *g, Buf *name);
 bool calling_convention_allows_zig_types(CallingConvention cc);
 const char *calling_convention_name(CallingConvention cc);
 
+Error ATTRIBUTE_MUST_USE file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents);
+
 void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty);
 bool type_is_c_abi_int(CodeGen *g, ZigType *ty);

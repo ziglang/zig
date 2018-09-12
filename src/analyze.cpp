@@ -6289,6 +6289,12 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
     if (is_libc && g->libc_link_lib != nullptr)
         return g->libc_link_lib;
 
+    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX && g->zig_target.os != OsIOS) {
+        fprintf(stderr, "TODO linking against libc is currently incompatible with `--cache on`.\n"
+        "Zig is not yet capable of determining whether the libc installation has changed on subsequent builds.\n");
+        exit(1);
+    }
+
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
         LinkLib *existing_lib = g->link_libs_list.at(i);
         if (buf_eql_buf(existing_lib->name, name)) {
@@ -6398,6 +6404,14 @@ not_integer:
     return nullptr;
 }
 
+Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents) {
+    if (g->enable_cache) {
+        return cache_add_file_fetch(&g->cache_hash, resolved_path, contents);
+    } else {
+        return os_fetch_file_path(resolved_path, contents, false);
+    }
+}
+
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
     size_t ty_size = type_size(g, ty);
     if (get_codegen_ptr_type(ty) != nullptr)
@@ -6478,4 +6492,3 @@ bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
         ty->id == ZigTypeIdUnreachable ||
         get_codegen_ptr_type(ty) != nullptr);
 }
-

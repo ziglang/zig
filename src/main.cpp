@@ -8,9 +8,9 @@
 #include "ast_render.hpp"
 #include "buffer.hpp"
 #include "codegen.hpp"
+#include "compiler.hpp"
 #include "config.h"
 #include "error.hpp"
-#include "link.hpp"
 #include "os.hpp"
 #include "target.hpp"
 
@@ -24,6 +24,7 @@ static int usage(const char *arg0) {
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of that @import(\"builtin\")\n"
+        "  id                           print the base64-encoded compiler id\n"
         "  run [source]                 create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
@@ -33,9 +34,10 @@ static int usage(const char *arg0) {
         "Compile Options:\n"
         "  --assembly [source]          add assembly file to build\n"
         "  --cache-dir [path]           override the cache directory\n"
+        "  --cache [auto|off|on]        build to the global cache and print output path to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
-        "  --enable-timing-info         print timing diagnostics\n"
+        "  -ftime-report                print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
@@ -256,6 +258,24 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
     }
 }
 
+enum CacheOpt {
+    CacheOptAuto,
+    CacheOptOn,
+    CacheOptOff,
+};
+
+static bool get_cache_opt(CacheOpt opt, bool default_value) {
+    switch (opt) {
+        case CacheOptAuto:
+            return default_value;
+        case CacheOptOn:
+            return true;
+        case CacheOptOff:
+            return false;
+    }
+    zig_unreachable();
+}
+
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
         printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
@@ -268,6 +288,17 @@ int main(int argc, char **argv) {
                 ZIG_C_HEADER_FILES,
                 ZIG_DIA_GUIDS_LIB);
         return 0;
+    }
+
+    if (argc == 2 && strcmp(argv[1], "id") == 0) {
+        Error err;
+        Buf *compiler_id;
+        if ((err = get_compiler_id(&compiler_id))) {
+            fprintf(stderr, "Unable to determine compiler id: %s\n", err_str(err));
+            return EXIT_FAILURE;
+        }
+        printf("%s\n", buf_ptr(compiler_id));
+        return EXIT_SUCCESS;
     }
 
     os_init();
@@ -289,6 +320,7 @@ int main(int argc, char **argv) {
     bool verbose_llvm_ir = false;
     bool verbose_cimport = false;
     ErrColor color = ErrColorAuto;
+    CacheOpt enable_cache = CacheOptAuto;
     const char *libc_lib_dir = nullptr;
     const char *libc_static_lib_dir = nullptr;
     const char *libc_include_dir = nullptr;
@@ -325,8 +357,7 @@ int main(int argc, char **argv) {
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
     ZigList<const char *> test_exec_args = {0};
-    int comptime_args_end = 0;
-    int runtime_args_start = argc;
+    int runtime_args_start = -1;
     bool no_rosegment_workaround = false;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
@@ -370,8 +401,9 @@ int main(int argc, char **argv) {
         Buf *build_runner_path = buf_alloc();
         os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
 
-
         CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
+        g->enable_time_report = timing_info;
+        buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
         codegen_set_out_name(g, buf_create_from_str("build"));
 
         Buf *build_file_buf = buf_create_from_str(build_file);
@@ -380,6 +412,7 @@ int main(int argc, char **argv) {
         Buf build_file_dirname = BUF_INIT;
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
 
+
         Buf full_cache_dir = BUF_INIT;
         if (cache_dir == nullptr) {
             os_path_join(&build_file_dirname, buf_create_from_str(default_zig_cache_name), &full_cache_dir);
@@ -387,10 +420,6 @@ int main(int argc, char **argv) {
             Buf *cache_dir_buf = buf_create_from_str(cache_dir);
             full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
         }
-
-        Buf *path_to_build_exe = buf_alloc();
-        os_path_join(&full_cache_dir, buf_create_from_str("build"), path_to_build_exe);
-        codegen_set_cache_dir(g, full_cache_dir);
 
         args.items[1] = buf_ptr(&build_file_dirname);
         args.items[2] = buf_ptr(&full_cache_dir);
@@ -459,15 +488,14 @@ int main(int argc, char **argv) {
         PackageTableEntry *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
                 buf_ptr(&build_file_basename));
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
-        codegen_build(g);
-        codegen_link(g, buf_ptr(path_to_build_exe));
-        codegen_destroy(g);
+        g->enable_cache = get_cache_opt(enable_cache, true);
+        codegen_build_and_link(g);
 
         Termination term;
-        os_spawn_process(buf_ptr(path_to_build_exe), args, &term);
+        os_spawn_process(buf_ptr(&g->output_file_path), args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nBuild failed. The following command failed:\n");
-            fprintf(stderr, "%s", buf_ptr(path_to_build_exe));
+            fprintf(stderr, "%s", buf_ptr(&g->output_file_path));
             for (size_t i = 0; i < args.length; i += 1) {
                 fprintf(stderr, " %s", args.at(i));
             }
@@ -476,15 +504,11 @@ int main(int argc, char **argv) {
         return (term.how == TerminationIdClean) ? term.code : -1;
     }
 
-    for (int i = 1; i < argc; i += 1, comptime_args_end += 1) {
+    for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
 
         if (arg[0] == '-') {
-            if (strcmp(arg, "--") == 0) {
-                // ignore -- from both compile and runtime arg sets
-                runtime_args_start = i + 1;
-                break;
-            } else if (strcmp(arg, "--release-fast") == 0) {
+            if (strcmp(arg, "--release-fast") == 0) {
                 build_mode = BuildModeFastRelease;
             } else if (strcmp(arg, "--release-safe") == 0) {
                 build_mode = BuildModeSafeRelease;
@@ -516,7 +540,7 @@ int main(int argc, char **argv) {
                 no_rosegment_workaround = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
                 each_lib_rpath = true;
-            } else if (strcmp(arg, "--enable-timing-info") == 0) {
+            } else if (strcmp(arg, "-ftime-report") == 0) {
                 timing_info = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
@@ -560,6 +584,17 @@ int main(int argc, char **argv) {
                         color = ErrColorOff;
                     } else {
                         fprintf(stderr, "--color options are 'auto', 'on', or 'off'\n");
+                        return usage(arg0);
+                    }
+                } else if (strcmp(arg, "--cache") == 0) {
+                    if (strcmp(argv[i], "auto") == 0) {
+                        enable_cache = CacheOptAuto;
+                    } else if (strcmp(argv[i], "on") == 0) {
+                        enable_cache = CacheOptOn;
+                    } else if (strcmp(argv[i], "off") == 0) {
+                        enable_cache = CacheOptOff;
+                    } else {
+                        fprintf(stderr, "--cache options are 'auto', 'on', or 'off'\n");
                         return usage(arg0);
                     }
                 } else if (strcmp(arg, "--emit") == 0) {
@@ -681,6 +716,10 @@ int main(int argc, char **argv) {
                 case CmdTest:
                     if (!in_file) {
                         in_file = arg;
+                        if (cmd == CmdRun) {
+                            runtime_args_start = i + 1;
+                            break; // rest of the args are for the program
+                        }
                     } else {
                         fprintf(stderr, "Unexpected extra parameter: %s\n", arg);
                         return usage(arg0);
@@ -790,32 +829,18 @@ int main(int argc, char **argv) {
 
             Buf *zig_root_source_file = (cmd == CmdTranslateC) ? nullptr : in_file_buf;
 
-            Buf full_cache_dir = BUF_INIT;
-            Buf *run_exec_path = buf_alloc();
-            if (cmd == CmdRun) {
-                if (buf_out_name == nullptr) {
-                    buf_out_name = buf_create_from_str("run");
-                }
-
-                Buf *global_cache_dir = buf_alloc();
-                os_get_global_cache_directory(global_cache_dir);
-                os_path_join(global_cache_dir, buf_out_name, run_exec_path);
-                full_cache_dir = os_path_resolve(&global_cache_dir, 1);
-
-                out_file = buf_ptr(run_exec_path);
-            } else {
-                Buf *resolve_paths = buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir);
-                full_cache_dir = os_path_resolve(&resolve_paths, 1);
+            if (cmd == CmdRun && buf_out_name == nullptr) {
+                buf_out_name = buf_create_from_str("run");
             }
-
             Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
 
             CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf);
+            g->enable_time_report = timing_info;
+            buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);
             codegen_set_linker_script(g, linker_script);
-            codegen_set_cache_dir(g, full_cache_dir);
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 
@@ -885,6 +910,8 @@ int main(int argc, char **argv) {
                 codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));
             }
 
+            if (out_file)
+                codegen_set_output_path(g, buf_create_from_str(out_file));
             if (out_file_h)
                 codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
 
@@ -904,8 +931,8 @@ int main(int argc, char **argv) {
             if (cmd == CmdBuild || cmd == CmdRun) {
                 codegen_set_emit_file_type(g, emit_file_type);
 
-                codegen_build(g);
-                codegen_link(g, out_file);
+                g->enable_cache = get_cache_opt(enable_cache, cmd == CmdRun);
+                codegen_build_and_link(g);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
 
@@ -915,12 +942,26 @@ int main(int argc, char **argv) {
                         args.append(argv[i]);
                     }
 
-                    Termination term;
-                    os_spawn_process(buf_ptr(run_exec_path), args, &term);
-                    return term.code;
-                }
+                    const char *exec_path = buf_ptr(&g->output_file_path);
+                    args.append(nullptr);
 
-                return EXIT_SUCCESS;
+                    os_execv(exec_path, args.items);
+
+                    args.pop();
+                    Termination term;
+                    os_spawn_process(exec_path, args, &term);
+                    return term.code;
+                } else if (cmd == CmdBuild) {
+                    if (g->enable_cache) {
+                        printf("%s\n", buf_ptr(&g->output_file_path));
+                        if (g->out_h_path != nullptr) {
+                            printf("%s\n", buf_ptr(g->out_h_path));
+                        }
+                    }
+                    return EXIT_SUCCESS;
+                } else {
+                    zig_unreachable();
+                }
             } else if (cmd == CmdTranslateC) {
                 codegen_translate_c(g, in_file_buf);
                 ast_render(g, stdout, g->root_import->root, 4);
@@ -933,20 +974,22 @@ int main(int argc, char **argv) {
                 ZigTarget native;
                 get_native_target(&native);
 
-                ZigTarget *non_null_target = target ? target : &native;
+                g->enable_cache = get_cache_opt(enable_cache, false);
+                codegen_build_and_link(g);
 
-                Buf *test_exe_name = buf_sprintf("test%s", target_exe_file_ext(non_null_target));
+                if (timing_info) {
+                    codegen_print_timing_report(g, stdout);
+                }
+
+                Buf *test_exe_path_unresolved = &g->output_file_path;
                 Buf *test_exe_path = buf_alloc();
-                os_path_join(&full_cache_dir, test_exe_name, test_exe_path);
+                *test_exe_path = os_path_resolve(&test_exe_path_unresolved, 1);
 
                 for (size_t i = 0; i < test_exec_args.length; i += 1) {
                     if (test_exec_args.items[i] == nullptr) {
                         test_exec_args.items[i] = buf_ptr(test_exe_path);
                     }
                 }
-
-                codegen_build(g);
-                codegen_link(g, buf_ptr(test_exe_path));
 
                 if (!target_can_exec(&native, target)) {
                     fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",
@@ -969,8 +1012,6 @@ int main(int argc, char **argv) {
                 if (term.how != TerminationIdClean || term.code != 0) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "%s\n", buf_ptr(test_exe_path));
-                } else if (timing_info) {
-                    codegen_print_timing_report(g, stdout);
                 }
                 return (term.how == TerminationIdClean) ? term.code : -1;
             } else {

@@ -11,6 +11,7 @@ const max_doc_file_size = 10 * 1024 * 1024;
 const exe_ext = std.build.Target(std.build.Target.Native).exeFileExt();
 const obj_ext = std.build.Target(std.build.Target.Native).oFileExt();
 const tmp_dir_name = "docgen_tmp";
+const test_out_path = tmp_dir_name ++ os.path.sep_str ++ "test" ++ exe_ext;
 
 pub fn main() !void {
     var direct_allocator = std.heap.DirectAllocator.init();
@@ -821,6 +822,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "test",
                             tmp_source_file_name,
+                            "--output",
+                            test_out_path,
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -863,6 +866,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "--color",
                             "on",
                             tmp_source_file_name,
+                            "--output",
+                            test_out_path,
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -918,6 +923,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "test",
                             tmp_source_file_name,
+                            "--output",
+                            test_out_path,
                         });
                         switch (code.mode) {
                             builtin.Mode.Debug => {},

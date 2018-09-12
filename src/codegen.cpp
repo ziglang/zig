@@ -8,12 +8,12 @@
 #include "analyze.hpp"
 #include "ast_render.hpp"
 #include "codegen.hpp"
+#include "compiler.hpp"
 #include "config.h"
 #include "errmsg.hpp"
 #include "error.hpp"
 #include "hash_map.hpp"
 #include "ir.hpp"
-#include "link.hpp"
 #include "os.hpp"
 #include "translate_c.hpp"
 #include "target.hpp"
@@ -183,12 +183,12 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     return g;
 }
 
-void codegen_destroy(CodeGen *codegen) {
-    LLVMDisposeTargetMachine(codegen->target_machine);
-}
-
 void codegen_set_output_h_path(CodeGen *g, Buf *h_path) {
     g->out_h_path = h_path;
+}
+
+void codegen_set_output_path(CodeGen *g, Buf *path) {
+    g->wanted_output_file_path = path;
 }
 
 void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
@@ -241,10 +241,6 @@ void codegen_set_strip(CodeGen *g, bool strip) {
 
 void codegen_set_out_name(CodeGen *g, Buf *out_name) {
     g->root_out_name = out_name;
-}
-
-void codegen_set_cache_dir(CodeGen *g, Buf cache_dir) {
-    g->cache_dir = cache_dir;
 }
 
 void codegen_set_libc_lib_dir(CodeGen *g, Buf *libc_lib_dir) {
@@ -6076,13 +6072,6 @@ static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
     // TODO ^^ make an actual global variable
 }
 
-static void ensure_cache_dir(CodeGen *g) {
-    int err;
-    if ((err = os_make_path(&g->cache_dir))) {
-        zig_panic("unable to make cache dir: %s", err_str(err));
-    }
-}
-
 static void validate_inline_fns(CodeGen *g) {
     for (size_t i = 0; i < g->inline_fns.length; i += 1) {
         ZigFn *fn_entry = g->inline_fns.at(i);
@@ -6096,8 +6085,6 @@ static void validate_inline_fns(CodeGen *g) {
 
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
-
-    codegen_add_time_event(g, "Code Generation");
 
     {
         // create debug type for error sets
@@ -6401,45 +6388,18 @@ static void do_code_gen(CodeGen *g) {
     char *error = nullptr;
     LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
 #endif
+}
 
-    codegen_add_time_event(g, "LLVM Emit Output");
-
-    char *err_msg = nullptr;
-    Buf *o_basename = buf_create_from_buf(g->root_out_name);
-
-    switch (g->emit_file_type) {
-        case EmitFileTypeBinary:
-        {
-            const char *o_ext = target_o_file_ext(&g->zig_target);
-            buf_append_str(o_basename, o_ext);
-            break;
-        }
-        case EmitFileTypeAssembly:
-        {
-            const char *asm_ext = target_asm_file_ext(&g->zig_target);
-            buf_append_str(o_basename, asm_ext);
-            break;
-        }
-        case EmitFileTypeLLVMIr:
-        {
-            const char *llvm_ir_ext = target_llvm_ir_file_ext(&g->zig_target);
-            buf_append_str(o_basename, llvm_ir_ext);
-            break;
-        }
-        default:
-            zig_unreachable();
-    }
-
-    Buf *output_path = buf_alloc();
-    os_path_join(&g->cache_dir, o_basename, output_path);
-    ensure_cache_dir(g);
-
+static void zig_llvm_emit_output(CodeGen *g) {
     bool is_small = g->build_mode == BuildModeSmallRelease;
 
+    Buf *output_path = &g->o_file_output_path;
+    char *err_msg = nullptr;
     switch (g->emit_file_type) {
         case EmitFileTypeBinary:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small))
+                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small,
+                        g->enable_time_report))
             {
                 zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -6449,22 +6409,22 @@ static void do_code_gen(CodeGen *g) {
 
         case EmitFileTypeAssembly:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug, is_small))
+                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug, is_small,
+                        g->enable_time_report))
             {
                 zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
             }
             validate_inline_fns(g);
-            g->link_objects.append(output_path);
             break;
 
         case EmitFileTypeLLVMIr:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug, is_small))
+                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug, is_small,
+                        g->enable_time_report))
             {
                 zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
             }
             validate_inline_fns(g);
-            g->link_objects.append(output_path);
             break;
 
         default:
@@ -7189,35 +7149,83 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     return contents;
 }
 
-static void define_builtin_compile_vars(CodeGen *g) {
+static Error define_builtin_compile_vars(CodeGen *g) {
     if (g->std_package == nullptr)
-        return;
+        return ErrorNone;
+
+    Error err;
+
+    Buf *manifest_dir = buf_alloc();
+    os_path_join(get_stage1_cache_path(), buf_create_from_str("builtin"), manifest_dir);
+
+    CacheHash cache_hash;
+    cache_init(&cache_hash, manifest_dir);
+
+    Buf *compiler_id;
+    if ((err = get_compiler_id(&compiler_id)))
+        return err;
+
+    // Only a few things affect builtin.zig
+    cache_buf(&cache_hash, compiler_id);
+    cache_int(&cache_hash, g->build_mode);
+    cache_bool(&cache_hash, g->is_test_build);
+    cache_int(&cache_hash, g->zig_target.arch.arch);
+    cache_int(&cache_hash, g->zig_target.arch.sub_arch);
+    cache_int(&cache_hash, g->zig_target.vendor);
+    cache_int(&cache_hash, g->zig_target.os);
+    cache_int(&cache_hash, g->zig_target.env_type);
+    cache_int(&cache_hash, g->zig_target.oformat);
+    cache_bool(&cache_hash, g->have_err_ret_tracing);
+    cache_bool(&cache_hash, g->libc_link_lib != nullptr);
+
+    Buf digest = BUF_INIT;
+    buf_resize(&digest, 0);
+    if ((err = cache_hit(&cache_hash, &digest)))
+        return err;
+
+    // We should always get a cache hit because there are no
+    // files in the input hash.
+    assert(buf_len(&digest) != 0);
+
+    Buf *this_dir = buf_alloc();
+    os_path_join(manifest_dir, &digest, this_dir);
+
+    if ((err = os_make_path(this_dir)))
+        return err;
 
     const char *builtin_zig_basename = "builtin.zig";
     Buf *builtin_zig_path = buf_alloc();
-    os_path_join(&g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+    os_path_join(this_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
 
-    Buf *contents = codegen_generate_builtin_source(g);
-    ensure_cache_dir(g);
-    os_write_file(builtin_zig_path, contents);
-
-    Buf *resolved_path = buf_alloc();
-    Buf *resolve_paths[] = {builtin_zig_path};
-    *resolved_path = os_path_resolve(resolve_paths, 1);
+    bool hit;
+    if ((err = os_file_exists(builtin_zig_path, &hit)))
+        return err;
+    Buf *contents;
+    if (hit) {
+        contents = buf_alloc();
+        if ((err = os_fetch_file_path(builtin_zig_path, contents, false))) {
+            fprintf(stderr, "Unable to open '%s': %s\n", buf_ptr(builtin_zig_path), err_str(err));
+            exit(1);
+        }
+    } else {
+        contents = codegen_generate_builtin_source(g);
+        os_write_file(builtin_zig_path, contents);
+    }
 
     assert(g->root_package);
     assert(g->std_package);
-    g->compile_var_package = new_package(buf_ptr(&g->cache_dir), builtin_zig_basename);
+    g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
-    g->compile_var_import = add_source_file(g, g->compile_var_package, resolved_path, contents);
+    g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents);
     scan_import(g, g->compile_var_import);
+
+    return ErrorNone;
 }
 
 static void init(CodeGen *g) {
     if (g->module)
         return;
-
 
     if (g->llvm_argv_len > 0) {
         const char **args = allocate_nonzero<const char *>(g->llvm_argv_len + 2);
@@ -7325,7 +7333,11 @@ static void init(CodeGen *g) {
     g->have_err_ret_tracing = g->build_mode != BuildModeFastRelease && g->build_mode != BuildModeSmallRelease;
 
     define_builtin_fns(g);
-    define_builtin_compile_vars(g);
+    Error err;
+    if ((err = define_builtin_compile_vars(g))) {
+        fprintf(stderr, "Unable to create builtin.zig: %s\n", err_str(err));
+        exit(1);
+    }
 }
 
 void codegen_translate_c(CodeGen *g, Buf *full_path) {
@@ -7371,8 +7383,8 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
     Buf *resolved_path = buf_alloc();
     *resolved_path = os_path_resolve(resolve_paths, 1);
     Buf *import_code = buf_alloc();
-    int err;
-    if ((err = os_fetch_file_path(resolved_path, import_code, false))) {
+    Error err;
+    if ((err = file_fetch(g, resolved_path, import_code))) {
         zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
 
@@ -7445,23 +7457,32 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
     g->test_runner_import = add_special_code(g, g->test_runner_package, "test_runner.zig");
 }
 
-static void gen_root_source(CodeGen *g) {
+static Buf *get_resolved_root_src_path(CodeGen *g) {
+    // TODO memoize
     if (buf_len(&g->root_package->root_src_path) == 0)
-        return;
+        return nullptr;
 
-    codegen_add_time_event(g, "Semantic Analysis");
-
-    Buf *rel_full_path = buf_alloc();
-    os_path_join(&g->root_package->root_src_dir, &g->root_package->root_src_path, rel_full_path);
+    Buf rel_full_path = BUF_INIT;
+    os_path_join(&g->root_package->root_src_dir, &g->root_package->root_src_path, &rel_full_path);
 
     Buf *resolved_path = buf_alloc();
-    Buf *resolve_paths[] = {rel_full_path};
+    Buf *resolve_paths[] = {&rel_full_path};
     *resolved_path = os_path_resolve(resolve_paths, 1);
+
+    return resolved_path;
+}
+
+static void gen_root_source(CodeGen *g) {
+    Buf *resolved_path = get_resolved_root_src_path(g);
+    if (resolved_path == nullptr)
+        return;
 
     Buf *source_code = buf_alloc();
     int err;
-    if ((err = os_fetch_file_path(rel_full_path, source_code, true))) {
-        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(rel_full_path), err_str(err));
+    // No need for using the caching system for this file fetch because it is handled
+    // separately.
+    if ((err = os_fetch_file_path(resolved_path, source_code, true))) {
+        fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(resolved_path), err_str(err));
         exit(1);
     }
 
@@ -7526,6 +7547,8 @@ static void gen_global_asm(CodeGen *g) {
     int err;
     for (size_t i = 0; i < g->assembly_files.length; i += 1) {
         Buf *asm_file = g->assembly_files.at(i);
+        // No need to use the caching system for these fetches because they
+        // are handled separately.
         if ((err = os_fetch_file_path(asm_file, &contents,  false))) {
             zig_panic("Unable to read %s: %s", buf_ptr(asm_file), err_str(err));
         }
@@ -7789,19 +7812,11 @@ static Buf *preprocessor_mangle(Buf *src) {
 }
 
 static void gen_h_file(CodeGen *g) {
-    if (!g->want_h_file)
-        return;
-
     GenH gen_h_data = {0};
     GenH *gen_h = &gen_h_data;
 
-    codegen_add_time_event(g, "Generate .h");
-
     assert(!g->is_test_build);
-
-    if (!g->out_h_path) {
-        g->out_h_path = buf_sprintf("%s.h", buf_ptr(g->root_out_name));
-    }
+    assert(g->out_h_path != nullptr);
 
     FILE *out_h = fopen(buf_ptr(g->out_h_path), "wb");
     if (!out_h)
@@ -8004,14 +8019,231 @@ void codegen_add_time_event(CodeGen *g, const char *name) {
     g->timing_events.append({os_get_time(), name});
 }
 
-void codegen_build(CodeGen *g) {
-    assert(g->out_type != OutTypeUnknown);
-    init(g);
+static void add_cache_pkg(CodeGen *g, CacheHash *ch, PackageTableEntry *pkg) {
+    if (buf_len(&pkg->root_src_path) == 0)
+        return;
 
-    gen_global_asm(g);
-    gen_root_source(g);
-    do_code_gen(g);
-    gen_h_file(g);
+    Buf *rel_full_path = buf_alloc();
+    os_path_join(&pkg->root_src_dir, &pkg->root_src_path, rel_full_path);
+    cache_file(ch, rel_full_path);
+
+    auto it = pkg->package_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        cache_buf(ch, entry->key);
+        add_cache_pkg(g, ch, entry->value);
+    }
+}
+
+// Called before init()
+static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
+    Error err;
+
+    Buf *compiler_id;
+    if ((err = get_compiler_id(&compiler_id)))
+        return err;
+
+    CacheHash *ch = &g->cache_hash;
+    cache_init(ch, manifest_dir);
+
+    add_cache_pkg(g, ch, g->root_package);
+    if (g->linker_script != nullptr) {
+        cache_file(ch, buf_create_from_str(g->linker_script));
+    }
+    cache_buf(ch, compiler_id);
+    cache_buf(ch, g->root_out_name);
+    cache_list_of_link_lib(ch, g->link_libs_list.items, g->link_libs_list.length);
+    cache_list_of_buf(ch, g->darwin_frameworks.items, g->darwin_frameworks.length);
+    cache_list_of_buf(ch, g->rpath_list.items, g->rpath_list.length);
+    cache_list_of_buf(ch, g->forbidden_libs.items, g->forbidden_libs.length);
+    cache_list_of_file(ch, g->link_objects.items, g->link_objects.length);
+    cache_list_of_file(ch, g->assembly_files.items, g->assembly_files.length);
+    cache_int(ch, g->emit_file_type);
+    cache_int(ch, g->build_mode);
+    cache_int(ch, g->out_type);
+    cache_int(ch, g->zig_target.arch.arch);
+    cache_int(ch, g->zig_target.arch.sub_arch);
+    cache_int(ch, g->zig_target.vendor);
+    cache_int(ch, g->zig_target.os);
+    cache_int(ch, g->zig_target.env_type);
+    cache_int(ch, g->zig_target.oformat);
+    cache_bool(ch, g->is_static);
+    cache_bool(ch, g->strip_debug_symbols);
+    cache_bool(ch, g->is_test_build);
+    cache_bool(ch, g->is_native_target);
+    cache_bool(ch, g->windows_subsystem_windows);
+    cache_bool(ch, g->windows_subsystem_console);
+    cache_bool(ch, g->linker_rdynamic);
+    cache_bool(ch, g->no_rosegment_workaround);
+    cache_bool(ch, g->each_lib_rpath);
+    cache_buf_opt(ch, g->mmacosx_version_min);
+    cache_buf_opt(ch, g->mios_version_min);
+    cache_usize(ch, g->version_major);
+    cache_usize(ch, g->version_minor);
+    cache_usize(ch, g->version_patch);
+    cache_buf_opt(ch, g->test_filter);
+    cache_buf_opt(ch, g->test_name_prefix);
+    cache_list_of_str(ch, g->llvm_argv, g->llvm_argv_len);
+    cache_list_of_str(ch, g->clang_argv, g->clang_argv_len);
+    cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
+
+    buf_resize(digest, 0);
+    if ((err = cache_hit(ch, digest)))
+        return err;
+
+    return ErrorNone;
+}
+
+static void resolve_out_paths(CodeGen *g) {
+    Buf *o_basename = buf_create_from_buf(g->root_out_name);
+
+    switch (g->emit_file_type) {
+        case EmitFileTypeBinary:
+        {
+            const char *o_ext = target_o_file_ext(&g->zig_target);
+            buf_append_str(o_basename, o_ext);
+            break;
+        }
+        case EmitFileTypeAssembly:
+        {
+            const char *asm_ext = target_asm_file_ext(&g->zig_target);
+            buf_append_str(o_basename, asm_ext);
+            break;
+        }
+        case EmitFileTypeLLVMIr:
+        {
+            const char *llvm_ir_ext = target_llvm_ir_file_ext(&g->zig_target);
+            buf_append_str(o_basename, llvm_ir_ext);
+            break;
+        }
+        default:
+            zig_unreachable();
+    }
+
+    if (g->enable_cache || g->out_type != OutTypeObj) {
+        os_path_join(&g->artifact_dir, o_basename, &g->o_file_output_path);
+    } else if (g->wanted_output_file_path != nullptr && g->out_type == OutTypeObj) {
+        buf_init_from_buf(&g->o_file_output_path, g->wanted_output_file_path);
+    } else {
+        buf_init_from_buf(&g->o_file_output_path, o_basename);
+    }
+
+    if (g->out_type == OutTypeObj) {
+        buf_init_from_buf(&g->output_file_path, &g->o_file_output_path);
+    } else if (g->out_type == OutTypeExe) {
+        if (!g->enable_cache && g->wanted_output_file_path != nullptr) {
+            buf_init_from_buf(&g->output_file_path, g->wanted_output_file_path);
+        } else {
+            assert(g->root_out_name);
+
+            Buf basename = BUF_INIT;
+            buf_init_from_buf(&basename, g->root_out_name);
+            buf_append_str(&basename, target_exe_file_ext(&g->zig_target));
+            if (g->enable_cache) {
+                os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
+            } else {
+                buf_init_from_buf(&g->output_file_path, &basename);
+            }
+        }
+    } else if (g->out_type == OutTypeLib) {
+        if (!g->enable_cache && g->wanted_output_file_path != nullptr) {
+            buf_init_from_buf(&g->output_file_path, g->wanted_output_file_path);
+        } else {
+            Buf basename = BUF_INIT;
+            buf_init_from_buf(&basename, g->root_out_name);
+            buf_append_str(&basename, target_lib_file_ext(&g->zig_target, g->is_static,
+                        g->version_major, g->version_minor, g->version_patch));
+            if (g->enable_cache) {
+                os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
+            } else {
+                buf_init_from_buf(&g->output_file_path, &basename);
+            }
+        }
+    } else {
+        zig_unreachable();
+    }
+
+    if (g->want_h_file && !g->out_h_path) {
+        assert(g->root_out_name);
+        Buf *h_basename = buf_sprintf("%s.h", buf_ptr(g->root_out_name)); 
+        if (g->enable_cache) {
+            g->out_h_path = buf_alloc();
+            os_path_join(&g->artifact_dir, h_basename, g->out_h_path);
+        } else {
+            g->out_h_path = h_basename;
+        }
+    }
+}
+
+
+void codegen_build_and_link(CodeGen *g) {
+    Error err;
+    assert(g->out_type != OutTypeUnknown);
+
+    Buf *stage1_dir = get_stage1_cache_path();
+    Buf *artifact_dir = buf_alloc();
+    Buf digest = BUF_INIT;
+    if (g->enable_cache) {
+        codegen_add_time_event(g, "Check Cache");
+
+        Buf *manifest_dir = buf_alloc();
+        os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
+
+        if ((err = check_cache(g, manifest_dir, &digest))) {
+            fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+            exit(1);
+        }
+
+        os_path_join(stage1_dir, buf_create_from_str("artifact"), artifact_dir);
+    }
+
+    if (g->enable_cache && buf_len(&digest) != 0) {
+        os_path_join(artifact_dir, &digest, &g->artifact_dir);
+        resolve_out_paths(g);
+    } else {
+        init(g);
+
+        codegen_add_time_event(g, "Semantic Analysis");
+
+        gen_global_asm(g);
+        gen_root_source(g);
+
+        if (g->enable_cache) {
+            if ((err = cache_final(&g->cache_hash, &digest))) {
+                fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+                exit(1);
+            }
+            os_path_join(artifact_dir, &digest, &g->artifact_dir);
+        } else {
+            buf_init_from_buf(&g->artifact_dir, &g->cache_dir);
+        }
+        if ((err = os_make_path(&g->artifact_dir))) {
+            fprintf(stderr, "Unable to create artifact directory: %s\n", err_str(err));
+            exit(1);
+        }
+        resolve_out_paths(g);
+
+        codegen_add_time_event(g, "Code Generation");
+        do_code_gen(g);
+        codegen_add_time_event(g, "LLVM Emit Output");
+        zig_llvm_emit_output(g);
+
+        if (g->want_h_file) {
+            codegen_add_time_event(g, "Generate .h");
+            gen_h_file(g);
+        }
+        if (g->out_type != OutTypeObj) {
+            codegen_link(g);
+        }
+    }
+
+    if (g->enable_cache) {
+        cache_release(&g->cache_hash);
+    }
+    codegen_add_time_event(g, "Done");
 }
 
 PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path) {

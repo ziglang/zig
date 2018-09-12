@@ -43,3 +43,42 @@ uint32_t ptr_hash(const void *ptr) {
 bool ptr_eq(const void *a, const void *b) {
     return a == b;
 }
+
+// Ported from std/mem.zig.
+bool SplitIterator_isSplitByte(SplitIterator *self, uint8_t byte) {
+    for (size_t i = 0; i < self->split_bytes.len; i += 1) {
+        if (byte == self->split_bytes.ptr[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Ported from std/mem.zig.
+Optional<Slice<uint8_t>> SplitIterator_next(SplitIterator *self) {
+    // move to beginning of token
+    while (self->index < self->buffer.len &&
+        SplitIterator_isSplitByte(self, self->buffer.ptr[self->index]))
+    {
+        self->index += 1;
+    }
+    size_t start = self->index;
+    if (start == self->buffer.len) {
+        return {};
+    }
+
+    // move to end of token
+    while (self->index < self->buffer.len &&
+        !SplitIterator_isSplitByte(self, self->buffer.ptr[self->index]))
+    {
+        self->index += 1;
+    }
+    size_t end = self->index;
+
+    return Optional<Slice<uint8_t>>::some(self->buffer.slice(start, end));
+}
+
+// Ported from std/mem.zig
+SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes) {
+    return SplitIterator{0, buffer, split_bytes};
+}
