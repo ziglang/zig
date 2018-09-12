@@ -467,11 +467,3 @@ void cache_release(CacheHash *ch) {
     assert(ch->manifest_file_path != nullptr);
     os_file_close(ch->manifest_file);
 }
-
-Buf *get_random_basename() {
-    Buf *result = buf_alloc();
-    for (size_t i = 0; i < 16; i += 1) {
-        buf_append_char(result, base64_fs_alphabet[rand() % 64]);
-    }
-    return result;
-}

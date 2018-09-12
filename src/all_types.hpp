@@ -1682,6 +1682,7 @@ struct CodeGen {
     Buf output_file_path;
     Buf o_file_output_path;
     Buf *wanted_output_file_path;
+    Buf cache_dir;
 
     IrInstruction *invalid_instruction;
 

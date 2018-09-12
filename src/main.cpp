@@ -353,7 +353,7 @@ int main(int argc, char **argv) {
     size_t ver_minor = 0;
     size_t ver_patch = 0;
     bool timing_info = false;
-    const char *cache_dir = nullptr;
+    const char *cache_dir = default_zig_cache_name;
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
     ZigList<const char *> test_exec_args = {0};
@@ -402,6 +402,7 @@ int main(int argc, char **argv) {
         os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
 
         CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
+        buf_init_from_str(&g->cache_dir, cache_dir);
         codegen_set_out_name(g, buf_create_from_str("build"));
 
         Buf *build_file_buf = buf_create_from_str(build_file);
@@ -410,13 +411,8 @@ int main(int argc, char **argv) {
         Buf build_file_dirname = BUF_INIT;
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
 
-        Buf full_cache_dir = BUF_INIT;
-        if (cache_dir == nullptr) {
-            os_path_join(&build_file_dirname, buf_create_from_str(default_zig_cache_name), &full_cache_dir);
-        } else {
-            Buf *cache_dir_buf = buf_create_from_str(cache_dir);
-            full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
-        }
+        Buf *cache_dir_buf = buf_create_from_str(cache_dir);
+        Buf full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
 
         args.items[1] = buf_ptr(&build_file_dirname);
         args.items[2] = buf_ptr(&full_cache_dir);
@@ -832,6 +828,7 @@ int main(int argc, char **argv) {
             Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
 
             CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf);
+            buf_init_from_str(&g->cache_dir, cache_dir);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);

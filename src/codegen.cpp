@@ -8195,8 +8195,6 @@ void codegen_build_and_link(CodeGen *g) {
         }
 
         os_path_join(stage1_dir, buf_create_from_str("artifact"), artifact_dir);
-    } else {
-        os_path_join(stage1_dir, buf_create_from_str("tmp"), artifact_dir);
     }
 
     if (g->enable_cache && buf_len(&digest) != 0) {
@@ -8217,8 +8215,7 @@ void codegen_build_and_link(CodeGen *g) {
             }
             os_path_join(artifact_dir, &digest, &g->artifact_dir);
         } else {
-            Buf *tmp_basename = get_random_basename(); 
-            os_path_join(artifact_dir, tmp_basename, &g->artifact_dir);
+            buf_init_from_buf(&g->artifact_dir, &g->cache_dir);
         }
         if ((err = os_make_path(&g->artifact_dir))) {
             fprintf(stderr, "Unable to create artifact directory: %s\n", err_str(err));
