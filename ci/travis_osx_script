@@ -9,4 +9,4 @@ cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@6/ -DCMAKE_BUILD_TYPE=Release
 make VERBOSE=1
 make install
 
-./zig build --build-file ../build.zig test
+./zig build --build-file ../build.zig test -Dskip-release-small

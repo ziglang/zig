@@ -23,4 +23,4 @@ cd %ZIGBUILDDIR%
 cmake.exe .. -Thost=x64 -G"Visual Studio 14 2015 Win64" "-DCMAKE_INSTALL_PREFIX=%ZIGBUILDDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
 msbuild /p:Configuration=Release INSTALL.vcxproj || exit /b
 
-bin\zig.exe build --build-file ..\build.zig test || exit /b
+bin\zig.exe build --build-file ..\build.zig test -Dskip-release-small || exit /b

@@ -10,7 +10,7 @@ mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j2 install
-./zig build --build-file ../build.zig test
+./zig build --build-file ../build.zig test -Dskip-release-small
 
 if [ "${TRAVIS_PULL_REQUEST}" = "false" ]; then
   mkdir $TRAVIS_BUILD_DIR/artifacts

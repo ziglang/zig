@@ -62,6 +62,9 @@ pub fn build(b: *Builder) !void {
     b.default_step.dependOn(&exe.step);
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
+    const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
+    const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
+    const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
@@ -83,13 +86,23 @@ pub fn build(b: *Builder) !void {
         test_step.dependOn(test_stage2_step);
     }
 
-    const all_modes = []builtin.Mode{
-        builtin.Mode.Debug,
-        builtin.Mode.ReleaseSafe,
-        builtin.Mode.ReleaseFast,
-        builtin.Mode.ReleaseSmall,
-    };
-    const modes = if (skip_release) []builtin.Mode{builtin.Mode.Debug} else all_modes;
+    var chosen_modes: [4]builtin.Mode = undefined;
+    var chosen_mode_index: usize = 0;
+    chosen_modes[chosen_mode_index] = builtin.Mode.Debug;
+    chosen_mode_index += 1;
+    if (!skip_release_safe) {
+        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSafe;
+        chosen_mode_index += 1;
+    }
+    if (!skip_release_fast) {
+        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseFast;
+        chosen_mode_index += 1;
+    }
+    if (!skip_release_small) {
+        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSmall;
+        chosen_mode_index += 1;
+    }
+    const modes = chosen_modes[0..chosen_mode_index];
 
     test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", modes));
 
