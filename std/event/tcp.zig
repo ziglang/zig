@@ -32,6 +32,7 @@ pub const Server = struct {
             .listen_resume_node = event.Loop.ResumeNode{
                 .id = event.Loop.ResumeNode.Id.Basic,
                 .handle = undefined,
+                .overlapped = event.Loop.ResumeNode.overlapped_init,
             },
         };
     }

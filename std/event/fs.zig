@@ -119,7 +119,7 @@ pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, off
         },
     };
     // TODO only call create io completion port once per fd
-    _ = try os.windowsCreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
+    _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
     loop.beginOneEvent();
     errdefer loop.finishOneEvent();
 
@@ -251,7 +251,7 @@ pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u6
         },
     };
     // TODO only call create io completion port once per fd
-    _ = try os.windowsCreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
+    _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
     loop.beginOneEvent();
     errdefer loop.finishOneEvent();
 
@@ -264,12 +264,13 @@ pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u6
     var bytes_transferred: windows.DWORD = undefined;
     if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
         const err = windows.GetLastError();
-        return switch (err) {
+        switch (err) {
             windows.ERROR.IO_PENDING => unreachable,
-            windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
-            windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
-            else => os.unexpectedErrorWindows(err),
-        };
+            windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
+            windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
+            windows.ERROR.HANDLE_EOF => return usize(bytes_transferred),
+            else => return os.unexpectedErrorWindows(err),
+        }
     }
     return usize(bytes_transferred);
 }

@@ -29,7 +29,7 @@ pub const Loop = struct {
         handle: promise,
         overlapped: Overlapped,
 
-        const overlapped_init = switch (builtin.os) {
+        pub const overlapped_init = switch (builtin.os) {
             builtin.Os.windows => windows.OVERLAPPED{
                 .Internal = 0,
                 .InternalHigh = 0,
@@ -39,7 +39,7 @@ pub const Loop = struct {
             },
             else => {},
         };
-        const Overlapped = @typeOf(overlapped_init);
+        pub const Overlapped = @typeOf(overlapped_init);
 
         pub const Id = enum {
             Basic,
@@ -415,6 +415,7 @@ pub const Loop = struct {
                 .base = ResumeNode{
                     .id = ResumeNode.Id.Basic,
                     .handle = @handle(),
+                    .overlapped = ResumeNode.overlapped_init,
                 },
             };
             try self.linuxAddFd(fd, &resume_node.base, flags);
@@ -697,11 +698,10 @@ pub const Loop = struct {
                     const overlapped = while (true) {
                         var nbytes: windows.DWORD = undefined;
                         var overlapped: ?*windows.OVERLAPPED = undefined;
-                        switch (os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key,
-                            &overlapped, windows.INFINITE))
-                        {
+                        switch (os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, &overlapped, windows.INFINITE)) {
                             os.WindowsWaitResult.Aborted => return,
                             os.WindowsWaitResult.Normal => {},
+                            os.WindowsWaitResult.EOF => {},
                             os.WindowsWaitResult.Cancelled => continue,
                         }
                         if (overlapped) |o| break o;

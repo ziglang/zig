@@ -242,9 +242,12 @@ pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color
     }
 }
 
-pub fn writeCurrentStackTraceWindows(out_stream: var, debug_info: *DebugInfo,
-    tty_color: bool, start_addr: ?usize) !void
-{
+pub fn writeCurrentStackTraceWindows(
+    out_stream: var,
+    debug_info: *DebugInfo,
+    tty_color: bool,
+    start_addr: ?usize,
+) !void {
     var addr_buf: [1024]usize = undefined;
     const casted_len = @intCast(u32, addr_buf.len); // TODO shouldn't need this cast
     const n = windows.RtlCaptureStackBackTrace(0, casted_len, @ptrCast(**c_void, &addr_buf), null);
@@ -391,7 +394,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
             break :subsections null;
         }
     };
-    
+
     if (tty_color) {
         setTtyColor(TtyColor.White);
         if (opt_line_info) |li| {
@@ -438,7 +441,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
     }
 }
 
-const TtyColor = enum{
+const TtyColor = enum {
     Red,
     Green,
     Cyan,
@@ -465,18 +468,16 @@ fn setTtyColor(tty_color: TtyColor) void {
     // TODO handle errors
     switch (tty_color) {
         TtyColor.Red => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED|windows.FOREGROUND_INTENSITY);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
         },
         TtyColor.Green => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN|windows.FOREGROUND_INTENSITY);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
         },
         TtyColor.Cyan => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle,
-                windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE|windows.FOREGROUND_INTENSITY);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
         },
         TtyColor.White, TtyColor.Bold => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle,
-                windows.FOREGROUND_RED|windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE|windows.FOREGROUND_INTENSITY);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
         },
         TtyColor.Dim => {
             _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);

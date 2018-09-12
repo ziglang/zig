@@ -206,7 +206,6 @@ pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
 pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
 pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
 
-
 pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
     dwSize: COORD,
     dwCursorPosition: COORD,

@@ -64,19 +64,35 @@ pub const ModInfo = packed struct {
 };
 
 pub const SectionMapHeader = packed struct {
-  Count: u16,    /// Number of segment descriptors
-  LogCount: u16, /// Number of logical segment descriptors
+    /// Number of segment descriptors
+    Count: u16,
+
+    /// Number of logical segment descriptors
+    LogCount: u16,
 };
 
 pub const SectionMapEntry = packed struct {
-  Flags: u16 ,         /// See the SectionMapEntryFlags enum below.
-  Ovl: u16 ,           /// Logical overlay number
-  Group: u16 ,         /// Group index into descriptor array.
-  Frame: u16 ,
-  SectionName: u16 ,   /// Byte index of segment / group name in string table, or 0xFFFF.
-  ClassName: u16 ,     /// Byte index of class in string table, or 0xFFFF.
-  Offset: u32 ,        /// Byte offset of the logical segment within physical segment.  If group is set in flags, this is the offset of the group.
-  SectionLength: u32 , /// Byte count of the segment or group.
+    /// See the SectionMapEntryFlags enum below.
+    Flags: u16,
+
+    /// Logical overlay number
+    Ovl: u16,
+
+    /// Group index into descriptor array.
+    Group: u16,
+    Frame: u16,
+
+    /// Byte index of segment / group name in string table, or 0xFFFF.
+    SectionName: u16,
+
+    /// Byte index of class in string table, or 0xFFFF.
+    ClassName: u16,
+
+    /// Byte offset of the logical segment within physical segment.  If group is set in flags, this is the offset of the group.
+    Offset: u32,
+
+    /// Byte count of the segment or group.
+    SectionLength: u32,
 };
 
 pub const StreamType = enum(u16) {
@@ -290,13 +306,13 @@ pub const SymbolKind = packed enum(u16) {
 pub const TypeIndex = u32;
 
 pub const ProcSym = packed struct {
-    Parent: u32 ,
-    End: u32 ,
-    Next: u32 ,
-    CodeSize: u32 ,
-    DbgStart: u32 ,
-    DbgEnd: u32 ,
-    FunctionType: TypeIndex ,
+    Parent: u32,
+    End: u32,
+    Next: u32,
+    CodeSize: u32,
+    DbgStart: u32,
+    DbgEnd: u32,
+    FunctionType: TypeIndex,
     CodeOffset: u32,
     Segment: u16,
     Flags: ProcSymFlags,
@@ -315,25 +331,34 @@ pub const ProcSymFlags = packed struct {
     HasOptimizedDebugInfo: bool,
 };
 
-pub const SectionContrSubstreamVersion  = enum(u32) {
-  Ver60 = 0xeffe0000 + 19970605,
-  V2 = 0xeffe0000 + 20140516
+pub const SectionContrSubstreamVersion = enum(u32) {
+    Ver60 = 0xeffe0000 + 19970605,
+    V2 = 0xeffe0000 + 20140516,
 };
 
 pub const RecordPrefix = packed struct {
-    RecordLen: u16, /// Record length, starting from &RecordKind.
-    RecordKind: SymbolKind, /// Record kind enum (SymRecordKind or TypeRecordKind)
+    /// Record length, starting from &RecordKind.
+    RecordLen: u16,
+
+    /// Record kind enum (SymRecordKind or TypeRecordKind)
+    RecordKind: SymbolKind,
 };
 
 pub const LineFragmentHeader = packed struct {
-    RelocOffset: u32, /// Code offset of line contribution.
-    RelocSegment: u16, /// Code segment of line contribution.
+    /// Code offset of line contribution.
+    RelocOffset: u32,
+
+    /// Code segment of line contribution.
+    RelocSegment: u16,
     Flags: LineFlags,
-    CodeSize: u32, /// Code size of this line contribution.
+
+    /// Code size of this line contribution.
+    CodeSize: u32,
 };
 
 pub const LineFlags = packed struct {
-    LF_HaveColumns: bool, /// CV_LINES_HAVE_COLUMNS
+    /// CV_LINES_HAVE_COLUMNS
+    LF_HaveColumns: bool,
     unused: u15,
 };
 
@@ -348,12 +373,14 @@ pub const LineBlockFragmentHeader = packed struct {
     /// table of the actual name.
     NameIndex: u32,
     NumLines: u32,
-    BlockSize: u32, /// code size of block, in bytes
+
+    /// code size of block, in bytes
+    BlockSize: u32,
 };
 
-
 pub const LineNumberEntry = packed struct {
-    Offset: u32, /// Offset to start of code bytes for line number
+    /// Offset to start of code bytes for line number
+    Offset: u32,
     Flags: u32,
 
     /// TODO runtime crash when I make the actual type of Flags this
@@ -371,42 +398,53 @@ pub const ColumnNumberEntry = packed struct {
 
 /// Checksum bytes follow.
 pub const FileChecksumEntryHeader = packed struct {
-    FileNameOffset: u32, /// Byte offset of filename in global string table.
-    ChecksumSize: u8, /// Number of bytes of checksum.
-    ChecksumKind: u8, /// FileChecksumKind
+    /// Byte offset of filename in global string table.
+    FileNameOffset: u32,
+
+    /// Number of bytes of checksum.
+    ChecksumSize: u8,
+
+    /// FileChecksumKind
+    ChecksumKind: u8,
 };
 
 pub const DebugSubsectionKind = packed enum(u32) {
-  None = 0,
-  Symbols = 0xf1,
-  Lines = 0xf2,
-  StringTable = 0xf3,
-  FileChecksums = 0xf4,
-  FrameData = 0xf5,
-  InlineeLines = 0xf6,
-  CrossScopeImports = 0xf7,
-  CrossScopeExports = 0xf8,
+    None = 0,
+    Symbols = 0xf1,
+    Lines = 0xf2,
+    StringTable = 0xf3,
+    FileChecksums = 0xf4,
+    FrameData = 0xf5,
+    InlineeLines = 0xf6,
+    CrossScopeImports = 0xf7,
+    CrossScopeExports = 0xf8,
 
-  // These appear to relate to .Net assembly info.
-  ILLines = 0xf9,
-  FuncMDTokenMap = 0xfa,
-  TypeMDTokenMap = 0xfb,
-  MergedAssemblyInput = 0xfc,
+    // These appear to relate to .Net assembly info.
+    ILLines = 0xf9,
+    FuncMDTokenMap = 0xfa,
+    TypeMDTokenMap = 0xfb,
+    MergedAssemblyInput = 0xfc,
 
-  CoffSymbolRVA = 0xfd,
+    CoffSymbolRVA = 0xfd,
 };
-
 
 pub const DebugSubsectionHeader = packed struct {
-    Kind: DebugSubsectionKind, /// codeview::DebugSubsectionKind enum
-    Length: u32, /// number of bytes occupied by this record.
+    /// codeview::DebugSubsectionKind enum
+    Kind: DebugSubsectionKind,
+
+    /// number of bytes occupied by this record.
+    Length: u32,
 };
 
-
 pub const PDBStringTableHeader = packed struct {
-    Signature: u32, /// PDBStringTableSignature
-    HashVersion: u32, /// 1 or 2
-    ByteSize: u32, /// Number of bytes of names buffer.
+    /// PDBStringTableSignature
+    Signature: u32,
+
+    /// 1 or 2
+    HashVersion: u32,
+
+    /// Number of bytes of names buffer.
+    ByteSize: u32,
 };
 
 pub const Pdb = struct {
@@ -456,7 +494,7 @@ const Msf = struct {
         switch (superblock.BlockSize) {
             // llvm only supports 4096 but we can handle any of these values
             512, 1024, 2048, 4096 => {},
-            else => return error.InvalidDebugInfo
+            else => return error.InvalidDebugInfo,
         }
 
         if (superblock.NumBlocks * superblock.BlockSize != try file.getEndPos())
@@ -536,7 +574,6 @@ const SuperBlock = packed struct {
     /// The number of ulittle32_t’s in this array is given by
     /// ceil(NumDirectoryBytes / BlockSize).
     BlockMapAddr: u32,
-
 };
 
 const MsfStream = struct {
@@ -552,14 +589,12 @@ const MsfStream = struct {
     pub const Stream = io.InStream(Error);
 
     fn init(block_size: u32, block_count: u32, pos: usize, file: os.File, allocator: *mem.Allocator) !MsfStream {
-        var stream = MsfStream {
+        var stream = MsfStream{
             .in_file = file,
             .pos = 0,
             .blocks = try allocator.alloc(u32, block_count),
             .block_size = block_size,
-            .stream = Stream {
-                .readFn = readFn,
-            },
+            .stream = Stream{ .readFn = readFn },
         };
 
         var file_stream = io.FileInStream.init(file);
@@ -597,7 +632,7 @@ const MsfStream = struct {
 
         var size: usize = 0;
         for (buffer) |*byte| {
-            byte.* = try in.readByte();           
+            byte.* = try in.readByte();
 
             offset += 1;
             size += 1;
