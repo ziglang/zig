@@ -5809,15 +5809,6 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       This function returns an integer type with the given signness and bit count.
       </p>
       {#header_close#}
-      {#header_open|@maxValue#}
-      <pre>{#syntax#}@maxValue(comptime T: type) comptime_int{#endsyntax#}</pre>
-      <p>
-      This function returns the maximum value of the integer type {#syntax#}T{#endsyntax#}.
-      </p>
-      <p>
-      The result is a compile time constant.
-      </p>
-      {#header_close#}
       {#header_open|@memberCount#}
       <pre>{#syntax#}@memberCount(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
@@ -5878,15 +5869,6 @@ mem.copy(u8, dest[0...byte_count], source[0...byte_count]);{#endsyntax#}</pre>
       <p>There is also a standard library function for this:</p>
       <pre>{#syntax#}const mem = @import("std").mem;
 mem.set(u8, dest, c);{#endsyntax#}</pre>
-      {#header_close#}
-      {#header_open|@minValue#}
-      <pre>{#syntax#}@minValue(comptime T: type) comptime_int{#endsyntax#}</pre>
-      <p>
-      This function returns the minimum value of the integer type T.
-      </p>
-      <p>
-      The result is a compile time constant.
-      </p>
       {#header_close#}
       {#header_open|@mod#}
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
