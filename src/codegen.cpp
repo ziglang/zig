@@ -8142,7 +8142,7 @@ static void resolve_out_paths(CodeGen *g) {
             Buf basename = BUF_INIT;
             buf_init_from_buf(&basename, g->root_out_name);
             buf_append_str(&basename, target_exe_file_ext(&g->zig_target));
-            if (g->enable_cache) {
+            if (g->enable_cache || g->is_test_build) {
                 os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
             } else {
                 buf_init_from_buf(&g->output_file_path, &basename);
