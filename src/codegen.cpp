@@ -5886,9 +5886,16 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case ZigTypeIdEnum:
             return bigint_to_llvm_const(type_entry->type_ref, &const_val->data.x_enum_tag);
         case ZigTypeIdFn:
-            assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
-            assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
-            return fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry);
+            if (const_val->data.x_ptr.special == ConstPtrSpecialFunction) {
+                assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
+                return fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry);
+            } else if (const_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+                LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->type_ref;
+                uint64_t addr = const_val->data.x_ptr.data.hard_coded_addr.addr;
+                return LLVMConstIntToPtr(LLVMConstInt(usize_type_ref, addr, false), type_entry->type_ref);
+            } else {
+                zig_unreachable();
+            }
         case ZigTypeIdPointer:
             return gen_const_val_ptr(g, const_val, name);
         case ZigTypeIdErrorUnion:
