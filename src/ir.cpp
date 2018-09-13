@@ -10113,7 +10113,7 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
         IrInstruction *target, ZigType *wanted_type)
 {
     Error err;
-    assert(wanted_type->id == ZigTypeIdInt);
+    assert(wanted_type->id == ZigTypeIdInt || wanted_type->id == ZigTypeIdComptimeInt);
 
     ZigType *actual_type = target->value.type;
     if ((err = ensure_complete_type(ira->codegen, actual_type)))
@@ -10139,6 +10139,18 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
         return result;
     }
 
+    // If there is only one possible tag, then we know at comptime what it is.
+    if (actual_type->data.enumeration.layout == ContainerLayoutAuto &&
+        actual_type->data.enumeration.src_field_count == 1)
+    {
+        assert(wanted_type== ira->codegen->builtin_types.entry_num_lit_int);
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type);
+        init_const_bigint(&result->value, wanted_type,
+                &actual_type->data.enumeration.fields[0].value);
+        return result;
+    }
+
     IrInstruction *result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
             source_instr->source_node, target);
     result->value.type = wanted_type;
@@ -10161,6 +10173,19 @@ static IrInstruction *ir_analyze_union_to_tag(IrAnalyze *ira, IrInstruction *sou
         result->value.special = ConstValSpecialStatic;
         result->value.type = wanted_type;
         bigint_init_bigint(&result->value.data.x_enum_tag, &val->data.x_union.tag);
+        return result;
+    }
+
+    // If there is only 1 possible tag, then we know at comptime what it is.
+    if (wanted_type->data.enumeration.layout == ContainerLayoutAuto &&
+        wanted_type->data.enumeration.src_field_count == 1)
+    {
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type);
+        result->value.special = ConstValSpecialStatic;
+        result->value.type = wanted_type;
+        TypeEnumField *enum_field = target->value.type->data.unionation.fields[0].enum_field;
+        bigint_init_bigint(&result->value.data.x_enum_tag, &enum_field->value);
         return result;
     }
 

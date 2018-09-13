@@ -324,3 +324,42 @@ test "tagged union with no payloads" {
         @TagType(UnionEnumNoPayloads).B => {},
     }
 }
+
+test "union with only 1 field casted to its enum type" {
+    const Literal = union(enum) {
+        Number: f64,
+        Bool: bool,
+    };
+
+    const Expr = union(enum) {
+        Literal: Literal,
+    };
+
+    var e = Expr{ .Literal = Literal{ .Bool = true } };
+    const Tag = @TagType(Expr);
+    comptime assert(@TagType(Tag) == comptime_int);
+    var t = Tag(e);
+    assert(t == Expr.Literal);
+}
+
+test "union with only 1 field casted to its enum type which has enum value specified" {
+    const Literal = union(enum) {
+        Number: f64,
+        Bool: bool,
+    };
+
+    const Tag = enum {
+        Literal = 33,
+    };
+
+    const Expr = union(Tag) {
+        Literal: Literal,
+    };
+
+    var e = Expr{ .Literal = Literal{ .Bool = true } };
+    comptime assert(@TagType(Tag) == comptime_int);
+    var t = Tag(e);
+    assert(t == Expr.Literal);
+    assert(@enumToInt(t) == 33);
+    comptime assert(@enumToInt(t) == 33);
+}

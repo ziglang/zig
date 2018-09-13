@@ -5483,6 +5483,10 @@ test "main" {
       <p>
       Converts an enumeration value into its integer tag type.
       </p>
+      <p>
+      If the enum has only 1 possible value, the resut is a <code class="zig">comptime_int</code>
+      known at {#link|comptime#}.
+      </p>
       {#see_also|@intToEnum#}
       {#header_close#}
 

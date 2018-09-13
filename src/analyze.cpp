@@ -2450,6 +2450,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     ZigType *tag_int_type;
     if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
         tag_int_type = get_c_int_type(g, CIntTypeInt);
+    } else if (enum_type->data.enumeration.layout == ContainerLayoutAuto && field_count == 1) {
+        tag_int_type = g->builtin_types.entry_num_lit_int;
     } else {
         tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
     }
@@ -2513,7 +2515,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                 continue;
             }
             assert(result_inst->value.special != ConstValSpecialRuntime);
-            assert(result_inst->value.type->id == ZigTypeIdInt);
+            assert(result_inst->value.type->id == ZigTypeIdInt ||
+                   result_inst->value.type->id == ZigTypeIdComptimeInt);
             auto entry = occupied_tag_values.put_unique(result_inst->value.data.x_bigint, tag_value);
             if (entry == nullptr) {
                 bigint_init_bigint(&type_enum_field->value, &result_inst->value.data.x_bigint);
@@ -2776,6 +2779,8 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 union_type->data.unionation.is_invalid = true;
                 return ErrorSemanticAnalyzeFail;
             }
+        } else if (auto_layout && field_count == 1) {
+            tag_int_type = g->builtin_types.entry_num_lit_int;
         } else {
             tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
         }
@@ -2808,6 +2813,10 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             add_node_error(g, enum_type_node,
                 buf_sprintf("expected enum tag type, found '%s'", buf_ptr(&enum_type->name)));
             return ErrorSemanticAnalyzeFail;
+        }
+        if ((err = type_ensure_zero_bits_known(g, enum_type))) {
+            assert(g->errors.length != 0);
+            return err;
         }
         tag_type = enum_type;
         abi_alignment_so_far = get_abi_alignment(g, enum_type); // this populates src_field_count
