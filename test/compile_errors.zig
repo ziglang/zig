@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "non error sets used in merge error sets operator",
+        \\export fn foo() void {
+        \\    const Errors = u8 || u16;
+        \\}
+        \\export fn bar() void {
+        \\    const Errors = error{} || u16;
+        \\}
+    ,
+        ".tmp_source.zig:2:20: error: expected error set type, found 'u8'",
+        ".tmp_source.zig:5:31: error: expected error set type, found 'u16'",
+    );
+
+    cases.add(
         "variable initialization compile error then referenced",
         \\fn Undeclared() type {
         \\    return T;

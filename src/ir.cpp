@@ -12469,9 +12469,21 @@ static ZigType *ir_analyze_merge_error_sets(IrAnalyze *ira, IrInstructionBinOp *
     if (type_is_invalid(op1_type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    if (op1_type->id != ZigTypeIdErrorSet) {
+        ir_add_error(ira, instruction->op1,
+                buf_sprintf("expected error set type, found '%s'", buf_ptr(&op1_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     ZigType *op2_type = ir_resolve_type(ira, instruction->op2->other);
     if (type_is_invalid(op2_type))
         return ira->codegen->builtin_types.entry_invalid;
+
+    if (op2_type->id != ZigTypeIdErrorSet) {
+        ir_add_error(ira, instruction->op2,
+                buf_sprintf("expected error set type, found '%s'", buf_ptr(&op2_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
     if (type_is_global_error_set(op1_type) ||
         type_is_global_error_set(op2_type))

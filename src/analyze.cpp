@@ -4069,6 +4069,7 @@ static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
 }
 
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node) {
+    assert(err_set_type->id == ZigTypeIdErrorSet);
     ZigFn *infer_fn = err_set_type->data.error_set.infer_fn;
     if (infer_fn != nullptr) {
         if (infer_fn->anal_state == FnAnalStateInvalid) {
