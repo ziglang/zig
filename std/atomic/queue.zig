@@ -12,7 +12,7 @@ pub fn Queue(comptime T: type) type {
         tail: ?*Node,
         mutex: std.Mutex,
 
-        pub const Self = this;
+        pub const Self = @This();
         pub const Node = std.LinkedList(T).Node;
 
         pub fn init() Self {

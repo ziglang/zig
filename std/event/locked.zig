@@ -10,7 +10,7 @@ pub fn Locked(comptime T: type) type {
         lock: Lock,
         private_data: T,
 
-        const Self = this;
+        const Self = @This();
 
         pub const HeldLock = struct {
             value: *T,

@@ -64,7 +64,7 @@ test "implicitly cast a container to a const pointer of it" {
 
 fn Struct(comptime T: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         x: T,
 
         fn pointer(self: *const Self) Self {
@@ -106,7 +106,7 @@ const Enum = enum {
 
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
     const S = struct {
-        const Self = this;
+        const Self = @This();
         x: u8,
         fn constConst(p: *const *const Self) u8 {
             return p.*.x;

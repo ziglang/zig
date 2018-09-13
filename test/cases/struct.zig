@@ -423,10 +423,10 @@ fn alloc(comptime T: type) []T {
 
 test "call method with mutable reference to struct with no fields" {
     const S = struct {
-        fn doC(s: *const this) bool {
+        fn doC(s: *const @This()) bool {
             return true;
         }
-        fn do(s: *this) bool {
+        fn do(s: *@This()) bool {
             return true;
         }
     };

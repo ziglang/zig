@@ -478,13 +478,9 @@ pub fn main() void {
           <td><code>undefined</code></td>
           <td>used to leave a value unspecified</td>
         </tr>
-        <tr>
-          <td><code>this</code></td>
-          <td>refers to the thing in immediate scope</td>
-        </tr>
       </table>
       </div>
-      {#see_also|Optionals|this#}
+      {#see_also|Optionals#}
       {#header_close#}
       {#header_open|String Literals#}
       {#code_begin|test#}
@@ -4186,11 +4182,6 @@ fn foo() void {}
       {#code_end#}
       {#header_close#}
 
-      {#header_open|this#}
-      <p>TODO: example of this referring to Self struct</p>
-      <p>TODO: example of this referring to recursion function</p>
-      <p>TODO: example of this referring to basic block for @setRuntimeSafety</p>
-      {#header_close#}
       {#header_open|comptime#}
       <p>
       Zig places importance on the concept of whether an expression is known at compile-time.
@@ -7744,7 +7735,7 @@ ArrayType : "[" option(Expression) "]" option("align" "(" Expression option(":" 
 
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable" | "suspend"
+KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "unreachable" | "suspend"
 
 ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
 

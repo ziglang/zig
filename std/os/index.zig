@@ -6,7 +6,7 @@ const is_posix = switch (builtin.os) {
     builtin.Os.linux, builtin.Os.macosx => true,
     else => false,
 };
-const os = this;
+const os = @This();
 
 test "std.os" {
     _ = @import("child_process.zig");

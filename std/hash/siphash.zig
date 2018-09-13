@@ -25,7 +25,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
     debug.assert(c_rounds > 0 and d_rounds > 0);
 
     return struct {
-        const Self = this;
+        const Self = @This();
         const digest_size = 64;
         const block_size = 64;
 

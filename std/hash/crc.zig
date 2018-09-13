@@ -20,7 +20,7 @@ pub const Crc32 = Crc32WithPoly(Polynomial.IEEE);
 // slicing-by-8 crc32 implementation.
 pub fn Crc32WithPoly(comptime poly: u32) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const lookup_tables = comptime block: {
             @setEvalBranchQuota(20000);
             var tables: [8][256]u32 = undefined;
@@ -117,7 +117,7 @@ test "crc32 castagnoli" {
 // half-byte lookup table implementation.
 pub fn Crc32SmallWithPoly(comptime poly: u32) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const lookup_table = comptime block: {
             var table: [16]u32 = undefined;
 

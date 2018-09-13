@@ -5479,7 +5479,6 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
@@ -5954,7 +5953,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -6478,12 +6476,6 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_namespace = entry;
     }
     {
-        ZigType *entry = new_type_table_entry(ZigTypeIdBlock);
-        buf_init_from_str(&entry->name, "(block)");
-        entry->zero_bits = true;
-        g->builtin_types.entry_block = entry;
-    }
-    {
         ZigType *entry = new_type_table_entry(ZigTypeIdComptimeFloat);
         buf_init_from_str(&entry->name, "comptime_float");
         entry->zero_bits = true;
@@ -6763,6 +6755,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdErrSetCast, "errSetCast", 2);
     create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
+    create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
 }
 
 static const char *bool_to_str(bool b) {
@@ -6944,7 +6937,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    Union: Union,\n"
             "    Fn: Fn,\n"
             "    Namespace: void,\n"
-            "    Block: void,\n"
             "    BoundFn: Fn,\n"
             "    ArgTuple: void,\n"
             "    Opaque: void,\n"
@@ -7589,7 +7581,6 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdErrorUnion:
@@ -7768,7 +7759,6 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
         case ZigTypeIdMetaType:
         case ZigTypeIdBoundFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
@@ -7921,7 +7911,6 @@ static void gen_h_file(CodeGen *g) {
             case ZigTypeIdErrorUnion:
             case ZigTypeIdErrorSet:
             case ZigTypeIdNamespace:
-            case ZigTypeIdBlock:
             case ZigTypeIdBoundFn:
             case ZigTypeIdArgTuple:
             case ZigTypeIdOptional:

@@ -1,10 +1,10 @@
 const assert = @import("std").debug.assert;
 
-const module = this;
+const module = @This();
 
 fn Point(comptime T: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         x: T,
         y: T,
 
@@ -19,11 +19,6 @@ fn add(x: i32, y: i32) i32 {
     return x + y;
 }
 
-fn factorial(x: i32) i32 {
-    const selfFn = this;
-    return if (x == 0) 1 else x * selfFn(x - 1);
-}
-
 test "this refer to module call private fn" {
     assert(module.add(1, 2) == 3);
 }
@@ -36,8 +31,4 @@ test "this refer to container" {
     pt.addOne();
     assert(pt.x == 13);
     assert(pt.y == 35);
-}
-
-test "this refer to fn" {
-    assert(factorial(5) == 120);
 }

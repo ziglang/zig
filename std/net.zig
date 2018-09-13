@@ -1,7 +1,7 @@
 const std = @import("index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const net = this;
+const net = @This();
 const posix = std.os.posix;
 const mem = std.mem;
 

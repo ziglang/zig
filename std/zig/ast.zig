@@ -231,7 +231,7 @@ pub const Error = union(enum) {
 
     fn SingleTokenError(comptime msg: []const u8) type {
         return struct {
-            const ThisError = this;
+            const ThisError = @This();
 
             token: TokenIndex,
 
@@ -244,7 +244,7 @@ pub const Error = union(enum) {
 
     fn SimpleError(comptime msg: []const u8) type {
         return struct {
-            const ThisError = this;
+            const ThisError = @This();
 
             token: TokenIndex,
 

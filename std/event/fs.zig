@@ -724,7 +724,7 @@ pub fn Watch(comptime V: type) type {
 
         const FileToHandle = std.AutoHashMap([]const u8, promise);
 
-        const Self = this;
+        const Self = @This();
 
         pub const Event = struct {
             id: Id,

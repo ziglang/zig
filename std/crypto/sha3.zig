@@ -12,7 +12,7 @@ pub const Sha3_512 = Keccak(512, 0x06);
 
 fn Keccak(comptime bits: usize, comptime delim: u8) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const block_length = 200;
         const digest_length = bits / 8;
 

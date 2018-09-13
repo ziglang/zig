@@ -283,7 +283,6 @@ struct ConstExprValue {
         ConstArrayValue x_array;
         ConstPtrValue x_ptr;
         ImportTableEntry *x_import;
-        Scope *x_block;
         ConstArgTuple x_arg_tuple;
 
         // populated if special == ConstValSpecialRuntime
@@ -413,7 +412,6 @@ enum NodeType {
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
     NodeTypeUndefinedLiteral,
-    NodeTypeThisLiteral,
     NodeTypeUnreachable,
     NodeTypeIfBoolExpr,
     NodeTypeWhileExpr,
@@ -1205,7 +1203,6 @@ enum ZigTypeId {
     ZigTypeIdUnion,
     ZigTypeIdFn,
     ZigTypeIdNamespace,
-    ZigTypeIdBlock,
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
@@ -1413,6 +1410,7 @@ enum BuiltinFnId {
     BuiltinFnIdSetEvalBranchQuota,
     BuiltinFnIdAlignCast,
     BuiltinFnIdOpaqueType,
+    BuiltinFnIdThis,
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdArgType,
     BuiltinFnIdExport,

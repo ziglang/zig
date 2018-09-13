@@ -77,7 +77,7 @@ pub const Sha256 = Sha2_32(Sha256Params);
 
 fn Sha2_32(comptime params: Sha2Params32) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const block_length = 64;
         const digest_length = params.out_len / 8;
 
@@ -418,7 +418,7 @@ pub const Sha512 = Sha2_64(Sha512Params);
 
 fn Sha2_64(comptime params: Sha2Params64) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const block_length = 128;
         const digest_length = params.out_len / 8;
 

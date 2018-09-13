@@ -246,7 +246,6 @@ AstNode *type_decl_node(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -284,7 +283,6 @@ bool type_is_complete(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -320,7 +318,6 @@ bool type_has_zero_bits_known(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -1414,7 +1411,6 @@ static bool type_allowed_in_packed_struct(ZigType *type_entry) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -1455,7 +1451,6 @@ static bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -1613,7 +1608,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             case ZigTypeIdComptimeFloat:
             case ZigTypeIdComptimeInt:
             case ZigTypeIdNamespace:
-            case ZigTypeIdBlock:
             case ZigTypeIdBoundFn:
             case ZigTypeIdMetaType:
             case ZigTypeIdVoid:
@@ -1703,7 +1697,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdMetaType:
         case ZigTypeIdUnreachable:
@@ -3437,7 +3430,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
-        case NodeTypeThisLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypePointerType:
@@ -3497,7 +3489,6 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdBlock:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             add_node_error(g, source_node, buf_sprintf("variable of type '%s' not allowed",
@@ -3798,34 +3789,6 @@ ZigFn *scope_fn_entry(Scope *scope) {
     return nullptr;
 }
 
-ZigFn *scope_get_fn_if_root(Scope *scope) {
-    assert(scope);
-    scope = scope->parent;
-    while (scope) {
-        switch (scope->id) {
-            case ScopeIdBlock:
-                return nullptr;
-            case ScopeIdDecls:
-            case ScopeIdDefer:
-            case ScopeIdDeferExpr:
-            case ScopeIdVarDecl:
-            case ScopeIdCImport:
-            case ScopeIdLoop:
-            case ScopeIdSuspend:
-            case ScopeIdCompTime:
-            case ScopeIdCoroPrelude:
-            case ScopeIdRuntime:
-                scope = scope->parent;
-                continue;
-            case ScopeIdFnDef:
-                ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
-                return fn_scope->fn_entry;
-        }
-        zig_unreachable();
-    }
-    return nullptr;
-}
-
 TypeEnumField *find_enum_type_field(ZigType *enum_type, Buf *name) {
     assert(enum_type->id == ZigTypeIdEnum);
     if (enum_type->data.enumeration.src_field_count == 0)
@@ -3907,7 +3870,6 @@ static bool is_container(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -3966,7 +3928,6 @@ void resolve_container_type(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdArgTuple:
@@ -4427,7 +4388,6 @@ bool handle_is_ptr(ZigType *type_entry) {
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -4842,8 +4802,6 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             return const_val->data.x_err_set->value ^ 2630160122;
         case ZigTypeIdNamespace:
             return hash_ptr(const_val->data.x_import);
-        case ZigTypeIdBlock:
-            return hash_ptr(const_val->data.x_block);
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -4904,7 +4862,6 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
         case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdFn:
-        case ZigTypeIdBlock:
         case ZigTypeIdOpaque:
         case ZigTypeIdPromise:
         case ZigTypeIdErrorSet:
@@ -4971,7 +4928,6 @@ static bool return_type_is_cacheable(ZigType *return_type) {
         case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdFn:
-        case ZigTypeIdBlock:
         case ZigTypeIdOpaque:
         case ZigTypeIdPromise:
         case ZigTypeIdErrorSet:
@@ -5083,7 +5039,6 @@ bool type_requires_comptime(ZigType *type_entry) {
         case ZigTypeIdNull:
         case ZigTypeIdMetaType:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
             return true;
@@ -5615,8 +5570,6 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             zig_panic("TODO");
         case ZigTypeIdNamespace:
             return a->data.x_import == b->data.x_import;
-        case ZigTypeIdBlock:
-            return a->data.x_block == b->data.x_block;
         case ZigTypeIdArgTuple:
             return a->data.x_arg_tuple.start_index == b->data.x_arg_tuple.start_index &&
                    a->data.x_arg_tuple.end_index == b->data.x_arg_tuple.end_index;
@@ -5795,12 +5748,6 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdPointer:
             return render_const_val_ptr(g, buf, const_val, type_entry);
-        case ZigTypeIdBlock:
-            {
-                AstNode *node = const_val->data.x_block->source_node;
-                buf_appendf(buf, "(scope:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", node->line + 1, node->column + 1);
-                return;
-            }
         case ZigTypeIdArray:
             {
                 ZigType *child_type = type_entry->data.array.child_type;
@@ -5980,7 +5927,6 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -6027,7 +5973,6 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -6153,7 +6098,6 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdUnion,
     ZigTypeIdFn,
     ZigTypeIdNamespace,
-    ZigTypeIdBlock,
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
@@ -6215,16 +6159,14 @@ size_t type_id_index(ZigType *entry) {
             return 18;
         case ZigTypeIdNamespace:
             return 19;
-        case ZigTypeIdBlock:
-            return 20;
         case ZigTypeIdBoundFn:
-            return 21;
+            return 20;
         case ZigTypeIdArgTuple:
-            return 22;
+            return 21;
         case ZigTypeIdOpaque:
-            return 23;
+            return 22;
         case ZigTypeIdPromise:
-            return 24;
+            return 23;
     }
     zig_unreachable();
 }
@@ -6273,8 +6215,6 @@ const char *type_id_name(ZigTypeId id) {
             return "Fn";
         case ZigTypeIdNamespace:
             return "Namespace";
-        case ZigTypeIdBlock:
-            return "Block";
         case ZigTypeIdBoundFn:
             return "BoundFn";
         case ZigTypeIdArgTuple:

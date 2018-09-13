@@ -166,7 +166,7 @@ fn testUnion() void {
     assert(TypeId(typeinfo_info) == TypeId.Union);
     assert(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     assert(typeinfo_info.Union.tag_type.? == TypeId);
-    assert(typeinfo_info.Union.fields.len == 25);
+    assert(typeinfo_info.Union.fields.len == 24);
     assert(typeinfo_info.Union.fields[4].enum_field != null);
     assert(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     assert(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
@@ -217,7 +217,7 @@ fn testStruct() void {
 }
 
 const TestStruct = packed struct {
-    const Self = this;
+    const Self = @This();
 
     fieldA: usize,
     fieldB: void,

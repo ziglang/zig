@@ -76,7 +76,7 @@ pub const FileOutStream = struct {
 
 pub fn InStream(comptime ReadError: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         pub const Error = ReadError;
 
         /// Return the number of bytes read. If the number read is smaller than buf.len, it
@@ -218,7 +218,7 @@ pub fn InStream(comptime ReadError: type) type {
 
 pub fn OutStream(comptime WriteError: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         pub const Error = WriteError;
 
         writeFn: fn (self: *Self, bytes: []const u8) Error!void,
@@ -291,7 +291,7 @@ pub fn BufferedInStream(comptime Error: type) type {
 
 pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const Stream = InStream(Error);
 
         pub stream: Stream,
@@ -361,7 +361,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
 /// This makes look-ahead style parsing much easier.
 pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         pub const Error = InStreamError;
         pub const Stream = InStream(Error);
 
@@ -424,7 +424,7 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
 }
 
 pub const SliceInStream = struct {
-    const Self = this;
+    const Self = @This();
     pub const Error = error{};
     pub const Stream = InStream(Error);
 
@@ -505,7 +505,7 @@ pub fn BufferedOutStream(comptime Error: type) type {
 
 pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         pub const Stream = OutStream(Error);
         pub const Error = OutStreamError;
 

@@ -28,7 +28,7 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) RoundPar
 }
 
 pub const Md5 = struct {
-    const Self = this;
+    const Self = @This();
     const block_length = 64;
     const digest_length = 16;
 

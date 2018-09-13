@@ -1890,7 +1890,7 @@ const InstallArtifactStep = struct {
     artifact: *LibExeObjStep,
     dest_file: []const u8,
 
-    const Self = this;
+    const Self = @This();
 
     pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
         const dest_dir = switch (artifact.kind) {

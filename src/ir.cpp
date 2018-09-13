@@ -1029,27 +1029,11 @@ static IrInstruction *ir_create_const_fn(IrBuilder *irb, Scope *scope, AstNode *
     return &const_instruction->base;
 }
 
-static IrInstruction *ir_build_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigFn *fn_entry) {
-    IrInstruction *instruction = ir_create_const_fn(irb, scope, source_node, fn_entry);
-    ir_instruction_append(irb->current_basic_block, instruction);
-    return instruction;
-}
-
 static IrInstruction *ir_build_const_import(IrBuilder *irb, Scope *scope, AstNode *source_node, ImportTableEntry *import) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = irb->codegen->builtin_types.entry_namespace;
     const_instruction->base.value.special = ConstValSpecialStatic;
     const_instruction->base.value.data.x_import = import;
-    return &const_instruction->base;
-}
-
-static IrInstruction *ir_build_const_scope(IrBuilder *irb, Scope *parent_scope, AstNode *source_node,
-        Scope *target_scope)
-{
-    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, parent_scope, source_node);
-    const_instruction->base.value.type = irb->codegen->builtin_types.entry_block;
-    const_instruction->base.value.special = ConstValSpecialStatic;
-    const_instruction->base.value.data.x_block = target_scope;
     return &const_instruction->base;
 }
 
@@ -3892,6 +3876,21 @@ static IrInstruction *ir_gen_overflow_op(IrBuilder *irb, Scope *scope, AstNode *
     return ir_build_overflow_op(irb, scope, node, op, type_value, op1, op2, result_ptr, nullptr);
 }
 
+static IrInstruction *ir_gen_this(IrBuilder *irb, Scope *orig_scope, AstNode *node) {
+    for (Scope *it_scope = orig_scope; it_scope != nullptr; it_scope = it_scope->parent) {
+        if (it_scope->id == ScopeIdDecls) {
+            ScopeDecls *decls_scope = (ScopeDecls *)it_scope;
+            ZigType *container_type = decls_scope->container_type;
+            if (container_type != nullptr) {
+                return ir_build_const_type(irb, orig_scope, node, container_type);
+            } else {
+                return ir_build_const_import(irb, orig_scope, node, decls_scope->import);
+            }
+        }
+    }
+    zig_unreachable();
+}
+
 static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -4830,6 +4829,11 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *opaque_type = ir_build_opaque_type(irb, scope, node);
                 return ir_lval_wrap(irb, scope, opaque_type, lval);
             }
+        case BuiltinFnIdThis:
+            {
+                IrInstruction *this_inst = ir_gen_this(irb, scope, node);
+                return ir_lval_wrap(irb, scope, this_inst, lval);
+            }
         case BuiltinFnIdSetAlignStack:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -5679,33 +5683,6 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     }
 
     return ir_build_phi(irb, parent_scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
-}
-
-static IrInstruction *ir_gen_this_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeThisLiteral);
-
-    if (!scope->parent)
-        return ir_build_const_import(irb, scope, node, node->owner);
-
-    ZigFn *fn_entry = scope_get_fn_if_root(scope);
-    if (fn_entry)
-        return ir_build_const_fn(irb, scope, node, fn_entry);
-
-    while (scope->id != ScopeIdBlock && scope->id != ScopeIdDecls) {
-        scope = scope->parent;
-    }
-
-    if (scope->id == ScopeIdDecls) {
-        ScopeDecls *decls_scope = (ScopeDecls *)scope;
-        ZigType *container_type = decls_scope->container_type;
-        assert(container_type);
-        return ir_build_const_type(irb, scope, node, container_type);
-    }
-
-    if (scope->id == ScopeIdBlock)
-        return ir_build_const_scope(irb, scope, node, scope);
-
-    zig_unreachable();
 }
 
 static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -7285,8 +7262,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
 
             return ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
         }
-        case NodeTypeThisLiteral:
-            return ir_lval_wrap(irb, scope, ir_gen_this_literal(irb, scope, node), lval);
         case NodeTypeBoolLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_bool_literal(irb, scope, node), lval);
         case NodeTypeArrayType:
@@ -11621,7 +11596,6 @@ static ZigType *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op
         case ZigTypeIdFn:
         case ZigTypeIdOpaque:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -12822,7 +12796,6 @@ static ZigType *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructionExpor
                 case ZigTypeIdErrorUnion:
                 case ZigTypeIdErrorSet:
                 case ZigTypeIdNamespace:
-                case ZigTypeIdBlock:
                 case ZigTypeIdBoundFn:
                 case ZigTypeIdArgTuple:
                 case ZigTypeIdOpaque:
@@ -12847,7 +12820,6 @@ static ZigType *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructionExpor
         case ZigTypeIdErrorSet:
             zig_panic("TODO export const value of type %s", buf_ptr(&target->value.type->name));
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -13905,7 +13877,6 @@ static ZigType *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_instru
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -15263,7 +15234,6 @@ static ZigType *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructionTypeO
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
@@ -15516,7 +15486,6 @@ static ZigType *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdBlock:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             ir_add_error_node(ira, slice_type_instruction->base.source_node,
@@ -15627,7 +15596,6 @@ static ZigType *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdBlock:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             ir_add_error_node(ira, array_type_instruction->base.source_node,
@@ -15698,7 +15666,6 @@ static ZigType *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdBlock:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
         case ZigTypeIdBoundFn:
@@ -16184,7 +16151,6 @@ static ZigType *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -16705,7 +16671,6 @@ static ZigType *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_instruc
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -17368,7 +17333,6 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             *out = nullptr;
@@ -19341,7 +19305,6 @@ static ZigType *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAli
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
@@ -20102,7 +20065,6 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -20169,7 +20131,6 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -20249,7 +20210,6 @@ static ZigType *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstructionBit
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -20275,7 +20235,6 @@ static ZigType *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstructionBit
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdNamespace:
-        case ZigTypeIdBlock:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:

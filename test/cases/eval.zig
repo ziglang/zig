@@ -628,7 +628,7 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     const S = struct {
         a: u8,
 
-        fn b(comptime s: this) u8 {
+        fn b(comptime s: @This()) u8 {
             return s.a;
         }
     };

@@ -13,7 +13,7 @@ pub const Fnv1a_128 = Fnv1a(u128, 0x1000000000000000000013b, 0x6c62272e07bb01426
 
 fn Fnv1a(comptime T: type, comptime prime: T, comptime offset: T) type {
     return struct {
-        const Self = this;
+        const Self = @This();
 
         value: T,
 

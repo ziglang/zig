@@ -11,7 +11,7 @@ pub fn ArrayList(comptime T: type) type {
 
 pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
     return struct {
-        const Self = this;
+        const Self = @This();
 
         /// Use toSlice instead of slicing this directly, because if you don't
         /// specify the end position of the slice, this will potentially give

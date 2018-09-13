@@ -1183,7 +1183,7 @@ test "fmt.format" {
     //custom type format
     {
         const Vec2 = struct {
-            const SelfType = this;
+            const SelfType = @This();
             x: f32,
             y: f32,
 
