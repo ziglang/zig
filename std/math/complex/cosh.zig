@@ -44,7 +44,7 @@ fn cosh32(z: *const Complex(f32)) Complex(f32) {
         else if (ix < 0x4340b1e7) {
             const v = Complex(f32).new(math.fabs(x), y);
             const r = ldexp_cexp(v, -1);
-            return Complex(f32).new(x, y * math.copysign(f32, 1, x));
+            return Complex(f32).new(r.re, r.im * math.copysign(f32, 1, x));
         }
         // x >= 192.7: result always overflows
         else {
@@ -112,7 +112,7 @@ fn cosh64(z: *const Complex(f64)) Complex(f64) {
         else if (ix < 0x4096bbaa) {
             const v = Complex(f64).new(math.fabs(x), y);
             const r = ldexp_cexp(v, -1);
-            return Complex(f64).new(x, y * math.copysign(f64, 1, x));
+            return Complex(f64).new(r.re, r.im * math.copysign(f64, 1, x));
         }
         // x >= 1455: result always overflows
         else {

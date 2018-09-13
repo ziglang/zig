@@ -44,7 +44,7 @@ fn sinh32(z: Complex(f32)) Complex(f32) {
         else if (ix < 0x4340b1e7) {
             const v = Complex(f32).new(math.fabs(x), y);
             const r = ldexp_cexp(v, -1);
-            return Complex(f32).new(x * math.copysign(f32, 1, x), y);
+            return Complex(f32).new(r.re * math.copysign(f32, 1, x), r.im);
         }
         // x >= 192.7: result always overflows
         else {
@@ -111,7 +111,7 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
         else if (ix < 0x4096bbaa) {
             const v = Complex(f64).new(math.fabs(x), y);
             const r = ldexp_cexp(v, -1);
-            return Complex(f64).new(x * math.copysign(f64, 1, x), y);
+            return Complex(f64).new(r.re * math.copysign(f64, 1, x), r.im);
         }
         // x >= 1455: result always overflows
         else {
