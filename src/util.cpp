@@ -79,6 +79,16 @@ Optional<Slice<uint8_t>> SplitIterator_next(SplitIterator *self) {
 }
 
 // Ported from std/mem.zig
+Slice<uint8_t> SplitIterator_rest(SplitIterator *self) {
+    // move to beginning of token
+    size_t index = self->index;
+    while (index < self->buffer.len && SplitIterator_isSplitByte(self, self->buffer.ptr[index])) {
+        index += 1;
+    }
+    return self->buffer.sliceFrom(index);
+}
+
+// Ported from std/mem.zig
 SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes) {
     return SplitIterator{0, buffer, split_bytes};
 }
