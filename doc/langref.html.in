@@ -811,7 +811,7 @@ a +%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}u32(@maxValue(u32)) +% 1 == 0{#endsyntax#}</pre>
+            <pre>{#syntax#}u32(std.math.maxInt(u32)) +% 1 == 0{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -850,7 +850,7 @@ a -%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}u32(0) -% 1 == @maxValue(u32){#endsyntax#}</pre>
+            <pre>{#syntax#}u32(0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -885,7 +885,7 @@ a -%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}-%i32(@minValue(i32)) == @minValue(i32){#endsyntax#}</pre>
+            <pre>{#syntax#}-%i32(std.math.minInt(i32)) == std.math.minInt(i32){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -3311,7 +3311,7 @@ fn charToDigit(c: u8) u8 {
         '0' ... '9' => c - '0',
         'A' ... 'Z' => c - 'A' + 10,
         'a' ... 'z' => c - 'a' + 10,
-        else => @maxValue(u8),
+        else => @import("std").math.maxInt(u8),
     };
 }
 
@@ -5532,7 +5532,7 @@ test "main" {
       <p>
       Floored division. Rounds toward negative infinity. For unsigned integers it is
       the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
-              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1){#endsyntax#}.
+              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@divFloor(-5, 3) == -2{#endsyntax#}</li>
@@ -5546,7 +5546,7 @@ test "main" {
       <p>
       Truncated division. Rounds toward zero. For unsigned integers it is
       the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
-              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1){#endsyntax#}.
+              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@divTrunc(-5, 3) == -1{#endsyntax#}</li>
@@ -6663,7 +6663,7 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-      To obtain the maximum value of an unsigned integer, use {#link|@maxValue#}.
+      To obtain the maximum value of an unsigned integer, use <code>std.math.maxInt(type)</code>.
       </p>
       {#header_close#}
       {#header_open|Cast Truncates Data#}
@@ -6785,14 +6785,15 @@ pub fn main() void {
           <li>{#syntax#}*%{#endsyntax#} (wraparound multiplication)</li>
       </ul>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "wraparound addition and subtraction" {
-    const x: i32 = @maxValue(i32);
+    const x: i32 = std.math.maxInt(i32);
     const min_val = x +% 1;
-    assert(min_val == @minValue(i32));
+    assert(min_val == std.math.minInt(i32));
     const max_val = min_val -% 1;
-    assert(max_val == @maxValue(i32));
+    assert(max_val == std.math.maxInt(i32));
 }
       {#code_end#}
       {#header_close#}
