@@ -337,12 +337,12 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
             return ErrorInvalidFormat;
         }
 
-        Optional<Slice<uint8_t>> opt_file_path = SplitIterator_next(&it);
-        if (!opt_file_path.is_some) {
+        Slice<uint8_t> file_path = SplitIterator_rest(&it);
+        if (file_path.len == 0) {
             os_file_close(ch->manifest_file);
             return ErrorInvalidFormat;
         }
-        Buf *this_path = buf_create_from_slice(opt_file_path.value);
+        Buf *this_path = buf_create_from_slice(file_path);
         if (chf->path != nullptr && !buf_eql_buf(this_path, chf->path)) {
             os_file_close(ch->manifest_file);
             return ErrorInvalidFormat;
