@@ -734,7 +734,7 @@ export fn foo_strict(x: f64) f64 {
 }
 
 export fn foo_optimized(x: f64) f64 {
-    @setFloatMode(this, builtin.FloatMode.Optimized);
+    @setFloatMode(builtin.FloatMode.Optimized);
     return x + big - big;
 }
       {#code_end#}
@@ -6030,17 +6030,20 @@ test "foo" {
       {#see_also|comptime#}
       {#header_close#}
       {#header_open|@setFloatMode#}
-      <pre><code class="zig">@setFloatMode(scope, mode: @import("builtin").FloatMode)</code></pre>
+      <pre><code class="zig">@setFloatMode(mode: @import("builtin").FloatMode)</code></pre>
       <p>
-      Sets the floating point mode for a given scope. Possible values are:
+      Sets the floating point mode of the current scope. Possible values are:
       </p>
       {#code_begin|syntax#}
 pub const FloatMode = enum {
-    Optimized,
     Strict,
+    Optimized,
 };
       {#code_end#}
       <ul>
+        <li>
+          <code>Strict</code> (default) - Floating point operations follow strict IEEE compliance.
+        </li>
         <li>
           <code>Optimized</code> - Floating point operations may do all of the following:
           <ul>
@@ -6053,10 +6056,11 @@ pub const FloatMode = enum {
           </ul>
           This is equivalent to <code>-ffast-math</code> in GCC.
         </li>
-        <li>
-          <code>Strict</code> (default) - Floating point operations follow strict IEEE compliance.
-        </li>
       </ul>
+      <p>
+      The floating point mode is inherited by child scopes, and can be overridden in any scope.
+      You can set the floating point mode in a struct or module scope by using a comptime block.
+      </p>
       {#see_also|Floating Point Operations#}
       {#header_close#}
       {#header_open|@setGlobalLinkage#}

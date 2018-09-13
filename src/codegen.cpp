@@ -6729,7 +6729,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
     create_builtin_fn(g, BuiltinFnIdSetCold, "setCold", 1);
     create_builtin_fn(g, BuiltinFnIdSetRuntimeSafety, "setRuntimeSafety", 1);
-    create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 2);
+    create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 1);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
     create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrCast", 2);
     create_builtin_fn(g, BuiltinFnIdBitCast, "bitCast", 2);
@@ -7115,11 +7115,11 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     {
         buf_appendf(contents,
             "pub const FloatMode = enum {\n"
-            "    Optimized,\n"
             "    Strict,\n"
+            "    Optimized,\n"
             "};\n\n");
-        assert(FloatModeOptimized == 0);
-        assert(FloatModeStrict == 1);
+        assert(FloatModeStrict == 0);
+        assert(FloatModeOptimized == 1);
     }
     {
         buf_appendf(contents,
@@ -7127,8 +7127,8 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    Big,\n"
             "    Little,\n"
             "};\n\n");
-        assert(FloatModeOptimized == 0);
-        assert(FloatModeStrict == 1);
+        //assert(EndianBig == 0);
+        //assert(EndianLittle == 1);
     }
     {
         const char *endian_str = g->is_big_endian ? "Endian.Big" : "Endian.Little";

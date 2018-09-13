@@ -3996,8 +3996,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@setFloatMode twice for same scope",
         \\export fn foo() void {
-        \\    @setFloatMode(this, @import("builtin").FloatMode.Optimized);
-        \\    @setFloatMode(this, @import("builtin").FloatMode.Optimized);
+        \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
+        \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
         \\}
     ,
         ".tmp_source.zig:3:5: error: float mode set twice for same scope",

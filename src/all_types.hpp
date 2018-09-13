@@ -3287,8 +3287,8 @@ static const size_t stack_trace_ptr_count = 30;
 
 
 enum FloatMode {
-    FloatModeOptimized,
     FloatModeStrict,
+    FloatModeOptimized,
 };
 
 enum FnWalkId {

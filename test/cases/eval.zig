@@ -275,7 +275,7 @@ test "eval @setFloatMode at compile-time" {
 }
 
 fn fnWithFloatMode() f32 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
+    @setFloatMode(builtin.FloatMode.Strict);
     return 1234.0;
 }
 
