@@ -775,7 +775,8 @@ static LLVMValueRef gen_store_untyped(CodeGen *g, LLVMValueRef value, LLVMValueR
 
 static LLVMValueRef gen_store(CodeGen *g, LLVMValueRef value, LLVMValueRef ptr, ZigType *ptr_type) {
     assert(ptr_type->id == ZigTypeIdPointer);
-    return gen_store_untyped(g, value, ptr, ptr_type->data.pointer.alignment, ptr_type->data.pointer.is_volatile);
+    uint32_t alignment = get_ptr_align(g, ptr_type);
+    return gen_store_untyped(g, value, ptr, alignment, ptr_type->data.pointer.is_volatile);
 }
 
 static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMValueRef ptr, uint32_t alignment, bool is_volatile,
@@ -793,7 +794,8 @@ static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMValueRef ptr, uint32_t alig
 
 static LLVMValueRef gen_load(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type, const char *name) {
     assert(ptr_type->id == ZigTypeIdPointer);
-    return gen_load_untyped(g, ptr, ptr_type->data.pointer.alignment, ptr_type->data.pointer.is_volatile, name);
+    uint32_t alignment = get_ptr_align(g, ptr_type);
+    return gen_load_untyped(g, ptr, alignment, ptr_type->data.pointer.is_volatile, name);
 }
 
 static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, ZigType *type, ZigType *ptr_type) {
@@ -1795,7 +1797,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
 
         ZigType *usize = g->builtin_types.entry_usize;
         uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, child_type->type_ref);
-        uint64_t align_bytes = ptr_type->data.pointer.alignment;
+        uint64_t align_bytes = get_ptr_align(g, ptr_type);
         assert(size_bytes > 0);
         assert(align_bytes > 0);
 
@@ -4084,7 +4086,7 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     LLVMValueRef ptr_val;
 
     if (target_type->id == ZigTypeIdPointer) {
-        align_bytes = target_type->data.pointer.alignment;
+        align_bytes = get_ptr_align(g, target_type);
         ptr_val = target_val;
     } else if (target_type->id == ZigTypeIdFn) {
         align_bytes = target_type->data.fn.fn_type_id.alignment;
@@ -4092,7 +4094,7 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     } else if (target_type->id == ZigTypeIdOptional &&
             target_type->data.maybe.child_type->id == ZigTypeIdPointer)
     {
-        align_bytes = target_type->data.maybe.child_type->data.pointer.alignment;
+        align_bytes = get_ptr_align(g, target_type->data.maybe.child_type);
         ptr_val = target_val;
     } else if (target_type->id == ZigTypeIdOptional &&
             target_type->data.maybe.child_type->id == ZigTypeIdFn)
@@ -4105,7 +4107,7 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
         zig_panic("TODO audit this function");
     } else if (target_type->id == ZigTypeIdStruct && target_type->data.structure.is_slice) {
         ZigType *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
-        align_bytes = slice_ptr_type->data.pointer.alignment;
+        align_bytes = get_ptr_align(g, slice_ptr_type);
 
         size_t ptr_index = target_type->data.structure.fields[slice_ptr_index].gen_index;
         LLVMValueRef ptr_val_ptr = LLVMBuildStructGEP(g->builder, target_val, (unsigned)ptr_index, "");
@@ -4260,7 +4262,8 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
     LLVMValueRef is_volatile = ptr_type->data.pointer.is_volatile ?
         LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
 
-    LLVMValueRef align_val = LLVMConstInt(LLVMInt32Type(), ptr_type->data.pointer.alignment, false);
+    uint32_t alignment = get_ptr_align(g, ptr_type);
+    LLVMValueRef align_val = LLVMConstInt(LLVMInt32Type(), alignment, false);
 
     LLVMValueRef params[] = {
         dest_ptr_casted,
@@ -4293,7 +4296,7 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
     LLVMValueRef is_volatile = (dest_ptr_type->data.pointer.is_volatile || src_ptr_type->data.pointer.is_volatile) ?
         LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
 
-    uint32_t min_align_bytes = min(src_ptr_type->data.pointer.alignment, dest_ptr_type->data.pointer.alignment);
+    uint32_t min_align_bytes = min(get_ptr_align(g, src_ptr_type), get_ptr_align(g, dest_ptr_type));
     LLVMValueRef align_val = LLVMConstInt(LLVMInt32Type(), min_align_bytes, false);
 
     LLVMValueRef params[] = {

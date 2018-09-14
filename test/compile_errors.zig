@@ -3444,7 +3444,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(1:3:6) const u3'",
+        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(:3:6) const u3'",
     );
 
     cases.add(

@@ -1012,13 +1012,13 @@ enum PtrLen {
 
 struct ZigTypePointer {
     ZigType *child_type;
+    ZigType *slice_parent;
     PtrLen ptr_len;
-    bool is_const;
-    bool is_volatile;
-    uint32_t alignment;
+    uint32_t explicit_alignment; // 0 means use ABI alignment
     uint32_t bit_offset;
     uint32_t unaligned_bit_count;
-    ZigType *slice_parent;
+    bool is_const;
+    bool is_volatile;
 };
 
 struct ZigTypeInt {
@@ -1046,32 +1046,35 @@ struct TypeStructField {
     size_t unaligned_bit_count;
     AstNode *decl_node;
 };
+
+enum ResolveStatus {
+    ResolveStatusUnstarted,
+    ResolveStatusInvalid,
+    ResolveStatusZeroBitsKnown,
+    ResolveStatusAlignmentKnown,
+    ResolveStatusSizeKnown,
+};
+
 struct ZigTypeStruct {
     AstNode *decl_node;
-    ContainerLayout layout;
+    TypeStructField *fields;
+    ScopeDecls *decls_scope;
+    uint64_t size_bytes;
+    HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
+
     uint32_t src_field_count;
     uint32_t gen_field_count;
-    TypeStructField *fields;
-    uint64_t size_bytes;
-    bool is_invalid; // true if any fields are invalid
+
+    uint32_t abi_alignment; // known after ResolveStatusAlignmentKnown
+    ContainerLayout layout;
+    ResolveStatus resolve_status;
+
     bool is_slice;
-    ScopeDecls *decls_scope;
-
-    // set this flag temporarily to detect infinite loops
-    bool embedded_in_current;
+    bool resolve_loop_flag; // set this flag temporarily to detect infinite loops
     bool reported_infinite_err;
-    // whether we've finished resolving it
-    bool complete;
-
     // whether any of the fields require comptime
-    // the value is not valid until zero_bits_known == true
+    // known after ResolveStatusZeroBitsKnown
     bool requires_comptime;
-
-    bool zero_bits_loop_flag;
-    bool zero_bits_known;
-    uint32_t abi_alignment; // also figured out with zero_bits pass
-
-    HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
 struct ZigTypeOptional {
