@@ -461,7 +461,7 @@ pub const SliceOutStream = struct {
 
     pub stream: Stream,
 
-    pos: usize,
+    pub pos: usize,
     slice: []u8,
 
     pub fn init(slice: []u8) SliceOutStream {

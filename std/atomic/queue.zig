@@ -103,24 +103,29 @@ pub fn Queue(comptime T: type) type {
         }
 
         pub fn dump(self: *Self) void {
+            var stderr_file = std.io.getStdErr() catch return;
+            const stderr = &std.io.FileOutStream.init(stderr_file).stream;
+
+            self.dumpToStream(stderr) catch return;
+        }
+
+        pub fn dumpToStream(self: *Self, stream: var) !void {
             const held = self.mutex.acquire();
             defer held.release();
 
-            std.debug.warn("head: ");
-            dumpRecursive(self.head, 0);
-            std.debug.warn("tail: ");
-            dumpRecursive(self.tail, 0);
+            try stream.print("head: ");
+            try dumpRecursive(stream, self.head, 0);
+            try stream.print("tail: ");
+            try dumpRecursive(stream, self.tail, 0);
         }
 
-        fn dumpRecursive(optional_node: ?*Node, indent: usize) void {
-            var stderr_file = std.io.getStdErr() catch return;
-            const stderr = &std.io.FileOutStream.init(stderr_file).stream;
-            stderr.writeByteNTimes(' ', indent) catch return;
+        fn dumpRecursive(stream: var, optional_node: ?*Node, indent: usize) error!void {
+            try stream.writeByteNTimes(' ', indent);
             if (optional_node) |node| {
-                std.debug.warn("0x{x}={}\n", @ptrToInt(node), node.data);
-                dumpRecursive(node.next, indent + 1);
+                try stream.print("0x{x}={}\n", @ptrToInt(node), node.data);
+                try dumpRecursive(stream, node.next, indent + 1);
             } else {
-                std.debug.warn("(null)\n");
+                try stream.print("(null)\n");
             }
         }
     };
@@ -273,4 +278,64 @@ test "std.atomic.Queue single-threaded" {
     assert(queue.get().?.data == 4);
 
     assert(queue.get() == null);
+}
+
+test "std.atomic.Queue dump" {
+    const mem = std.mem;
+    const SliceOutStream = std.io.SliceOutStream;
+    var buffer: [1024]u8 = undefined;
+    var expected_buffer: [1024]u8 = undefined;
+    var sos = SliceOutStream.init(buffer[0..]);
+
+    var queue = Queue(i32).init();
+
+    // Test empty stream
+    sos.reset();
+    try queue.dumpToStream(&sos.stream);
+    assert(mem.eql(u8, buffer[0..sos.pos],
+        \\head: (null)
+        \\tail: (null)
+        \\
+        ));
+
+    // Test a stream with one element
+    var node_0 = Queue(i32).Node {
+        .data = 1,
+        .next = undefined,
+        .prev = undefined,
+    };
+    queue.put(&node_0);
+
+    sos.reset();
+    try queue.dumpToStream(&sos.stream);
+
+    var expected = try std.fmt.bufPrint(expected_buffer[0..],
+        \\head: 0x{x}=1
+        \\ (null)
+        \\tail: 0x{x}=1
+        \\ (null)
+        \\
+        , @ptrToInt(queue.head), @ptrToInt(queue.tail));
+    assert(mem.eql(u8, buffer[0..sos.pos], expected));
+
+    // Test a stream with two elements
+    var node_1 = Queue(i32).Node {
+        .data = 2,
+        .next = undefined,
+        .prev = undefined,
+    };
+    queue.put(&node_1);
+
+    sos.reset();
+    try queue.dumpToStream(&sos.stream);
+
+    expected = try std.fmt.bufPrint(expected_buffer[0..],
+        \\head: 0x{x}=1
+        \\ 0x{x}=2
+        \\  (null)
+        \\tail: 0x{x}=2
+        \\ (null)
+        \\
+        , @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail));
+    assert(mem.eql(u8, buffer[0..sos.pos], expected));
 }
