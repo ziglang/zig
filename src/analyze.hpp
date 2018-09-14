@@ -54,7 +54,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *so
 bool type_is_codegen_pointer(ZigType *type);
 
 ZigType *get_codegen_ptr_type(ZigType *type);
-uint32_t get_ptr_align(ZigType *type);
+uint32_t get_ptr_align(CodeGen *g, ZigType *type);
 bool get_ptr_const(ZigType *type);
 ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry);
 ZigType *container_ref_type(ZigType *type_entry);

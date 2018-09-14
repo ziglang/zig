@@ -20023,8 +20023,8 @@ static ZigType *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtr
         return dest_type;
     }
 
-    uint32_t src_align_bytes = get_ptr_align(src_type);
-    uint32_t dest_align_bytes = get_ptr_align(dest_type);
+    uint32_t src_align_bytes = get_ptr_align(ira->codegen, src_type);
+    uint32_t dest_align_bytes = get_ptr_align(ira->codegen, dest_type);
 
     if (dest_align_bytes > src_align_bytes) {
         ErrorMsg *msg = ir_add_error(ira, &instruction->base, buf_sprintf("cast increases pointer alignment"));

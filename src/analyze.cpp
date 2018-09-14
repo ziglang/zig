@@ -3953,14 +3953,14 @@ bool type_is_codegen_pointer(ZigType *type) {
     return get_codegen_ptr_type(type) == type;
 }
 
-uint32_t get_ptr_align(ZigType *type) {
+uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
     ZigType *ptr_type = get_codegen_ptr_type(type);
     if (ptr_type->id == ZigTypeIdPointer) {
         return ptr_type->data.pointer.alignment;
     } else if (ptr_type->id == ZigTypeIdFn) {
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdPromise) {
-        return 1;
+        return get_coro_frame_align_bytes(g);
     } else {
         zig_unreachable();
     }
@@ -6277,10 +6277,6 @@ uint32_t get_abi_alignment(CodeGen *g, ZigType *type_entry) {
         return 1;
     } else {
         uint32_t llvm_alignment = LLVMABIAlignmentOfType(g->target_data_ref, type_entry->type_ref);
-        // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
-        if (type_entry->id == ZigTypeIdPromise && llvm_alignment < 8) {
-            return 8;
-        }
         return llvm_alignment;
     }
 }
@@ -6318,7 +6314,10 @@ bool type_is_global_error_set(ZigType *err_set_type) {
 }
 
 uint32_t get_coro_frame_align_bytes(CodeGen *g) {
-    return g->pointer_size_bytes * 2;
+    uint32_t a = g->pointer_size_bytes * 2;
+    // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
+    if (a < 8) a = 8;
+    return a;
 }
 
 bool type_can_fail(ZigType *type_entry) {
