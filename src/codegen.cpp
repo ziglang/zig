@@ -4715,7 +4715,6 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
 
 static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, IrInstructionUnionTag *instruction) {
     ZigType *union_type = instruction->value->value.type;
-    assert(union_type->data.unionation.gen_tag_index != SIZE_MAX);
 
     ZigType *tag_type = union_type->data.unionation.tag_type;
     if (!type_has_bits(tag_type))
@@ -4725,6 +4724,7 @@ static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, Ir
     if (union_type->data.unionation.gen_field_count == 0)
         return union_val;
 
+    assert(union_type->data.unionation.gen_tag_index != SIZE_MAX);
     LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_val,
             union_type->data.unionation.gen_tag_index, "");
     ZigType *ptr_type = get_pointer_to_type(g, tag_type, false);
