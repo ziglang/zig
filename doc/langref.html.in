@@ -161,8 +161,8 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-      Note that we also left off the <code class="zig">!</code> from the return type.
-      In Zig, if your main function cannot fail, you must use the <code class="zig">void</code> return type.
+      Note that we also left off the {#syntax#}!{#endsyntax#} from the return type.
+      In Zig, if your main function cannot fail, you must use the {#syntax#}void{#endsyntax#} return type.
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
@@ -181,14 +181,14 @@ test "comments" {
 }
       {#code_end#}
       <p>
-      There are no multiline comments in Zig (e.g. like <code>/* */</code>
+      There are no multiline comments in Zig (e.g. like <code class="c">/* */</code>
       comments in C).  This helps allow Zig to have the property that each line
       of code can be tokenized out of context.
       </p>
       {#header_open|Doc comments#}
       <p>
       A doc comment is one that begins with exactly three slashes (i.e.
-      <code class="zig">///</code> but not <code class="zig">////</code>);
+      {#syntax#}///{#endsyntax#} but not {#syntax#}////{#endsyntax#});
       multiple doc comments in a row are merged together to form a multiline
       doc comment.  The doc comment documents whatever immediately follows it.
       </p>
@@ -280,169 +280,169 @@ pub fn main() void {
           </th>
         </tr>
         <tr>
-          <td><code>i8</code></td>
-          <td><code>int8_t</code></td>
+            <td>{#syntax#}i8{#endsyntax#}</td>
+          <td><code class="c">int8_t</code></td>
           <td>signed 8-bit integer</td>
         </tr>
         <tr>
-          <td><code>u8</code></td>
-          <td><code>uint8_t</code></td>
+            <td>{#syntax#}u8{#endsyntax#}</td>
+          <td><code class="c">uint8_t</code></td>
           <td>unsigned 8-bit integer</td>
         </tr>
         <tr>
-          <td><code>i16</code></td>
-          <td><code>int16_t</code></td>
+            <td>{#syntax#}i16{#endsyntax#}</td>
+          <td><code class="c">int16_t</code></td>
           <td>signed 16-bit integer</td>
         </tr>
         <tr>
-          <td><code>u16</code></td>
-          <td><code>uint16_t</code></td>
+            <td>{#syntax#}u16{#endsyntax#}</td>
+          <td><code class="c">uint16_t</code></td>
           <td>unsigned 16-bit integer</td>
         </tr>
         <tr>
-          <td><code>i32</code></td>
-          <td><code>int32_t</code></td>
+            <td>{#syntax#}i32{#endsyntax#}</td>
+          <td><code class="c">int32_t</code></td>
           <td>signed 32-bit integer</td>
         </tr>
         <tr>
-          <td><code>u32</code></td>
-          <td><code>uint32_t</code></td>
+            <td>{#syntax#}u32{#endsyntax#}</td>
+          <td><code class="c">uint32_t</code></td>
           <td>unsigned 32-bit integer</td>
         </tr>
         <tr>
-          <td><code>i64</code></td>
-          <td><code>int64_t</code></td>
+            <td>{#syntax#}i64{#endsyntax#}</td>
+          <td><code class="c">int64_t</code></td>
           <td>signed 64-bit integer</td>
         </tr>
         <tr>
-          <td><code>u64</code></td>
-          <td><code>uint64_t</code></td>
+            <td>{#syntax#}u64{#endsyntax#}</td>
+          <td><code class="c">uint64_t</code></td>
           <td>unsigned 64-bit integer</td>
         </tr>
         <tr>
-          <td><code>i128</code></td>
-          <td><code>__int128</code></td>
+            <td>{#syntax#}i128{#endsyntax#}</td>
+          <td><code class="c">__int128</code></td>
           <td>signed 128-bit integer</td>
         </tr>
         <tr>
-          <td><code>u128</code></td>
-          <td><code>unsigned __int128</code></td>
+            <td>{#syntax#}u128{#endsyntax#}</td>
+          <td><code class="c">unsigned __int128</code></td>
           <td>unsigned 128-bit integer</td>
         </tr>
         <tr>
-          <td><code>isize</code></td>
-          <td><code>intptr_t</code></td>
+            <td>{#syntax#}isize{#endsyntax#}</td>
+          <td><code class="c">intptr_t</code></td>
           <td>signed pointer sized integer</td>
         </tr>
         <tr>
-          <td><code>usize</code></td>
-          <td><code>uintptr_t</code></td>
+            <td>{#syntax#}usize{#endsyntax#}</td>
+          <td><code class="c">uintptr_t</code></td>
           <td>unsigned pointer sized integer</td>
         </tr>
 
         <tr>
-          <td><code>c_short</code></td>
-          <td><code>short</code></td>
+            <td>{#syntax#}c_short{#endsyntax#}</td>
+          <td><code class="c">short</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_ushort</code></td>
-          <td><code>unsigned short</code></td>
+            <td>{#syntax#}c_ushort{#endsyntax#}</td>
+          <td><code class="c">unsigned short</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_int</code></td>
-          <td><code>int</code></td>
+            <td>{#syntax#}c_int{#endsyntax#}</td>
+          <td><code class="c">int</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_uint</code></td>
-          <td><code>unsigned int</code></td>
+            <td>{#syntax#}c_uint{#endsyntax#}</td>
+          <td><code class="c">unsigned int</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_long</code></td>
-          <td><code>long</code></td>
+            <td>{#syntax#}c_long{#endsyntax#}</td>
+          <td><code class="c">long</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_ulong</code></td>
-          <td><code>unsigned long</code></td>
+            <td>{#syntax#}c_ulong{#endsyntax#}</td>
+          <td><code class="c">unsigned long</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_longlong</code></td>
-          <td><code>long long</code></td>
+            <td>{#syntax#}c_longlong{#endsyntax#}</td>
+          <td><code class="c">long long</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_ulonglong</code></td>
-          <td><code>unsigned long long</code></td>
+            <td>{#syntax#}c_ulonglong{#endsyntax#}</td>
+          <td><code class="c">unsigned long long</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_longdouble</code></td>
-          <td><code>long double</code></td>
+            <td>{#syntax#}c_longdouble{#endsyntax#}</td>
+          <td><code class="c">long double</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
-          <td><code>c_void</code></td>
-          <td><code>void</code></td>
+            <td>{#syntax#}c_void{#endsyntax#}</td>
+          <td><code class="c">void</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
 
         <tr>
-          <td><code>f16</code></td>
-          <td><code>float</code></td>
+            <td>{#syntax#}f16{#endsyntax#}</td>
+          <td><code class="c">float</code></td>
           <td>16-bit floating point (10-bit mantissa) IEEE-754-2008 binary16</td>
         </tr>
         <tr>
-          <td><code>f32</code></td>
-          <td><code>float</code></td>
+            <td>{#syntax#}f32{#endsyntax#}</td>
+          <td><code class="c">float</code></td>
           <td>32-bit floating point (23-bit mantissa) IEEE-754-2008 binary32</td>
         </tr>
         <tr>
-          <td><code>f64</code></td>
-          <td><code>double</code></td>
+            <td>{#syntax#}f64{#endsyntax#}</td>
+          <td><code class="c">double</code></td>
           <td>64-bit floating point (52-bit mantissa) IEEE-754-2008 binary64</td>
         </tr>
         <tr>
-          <td><code>f128</code></td>
+            <td>{#syntax#}f128{#endsyntax#}</td>
           <td>(none)</td>
           <td>128-bit floating point (112-bit mantissa) IEEE-754-2008 binary128</td>
         </tr>
         <tr>
-          <td><code>bool</code></td>
-          <td><code>bool</code></td>
-          <td><code>true</code> or <code>false</code></td>
+            <td>{#syntax#}bool{#endsyntax#}</td>
+          <td><code class="c">bool</code></td>
+          <td>{#syntax#}true{#endsyntax#} or {#syntax#}false{#endsyntax#}</td>
         </tr>
         <tr>
-          <td><code>void</code></td>
+            <td>{#syntax#}void{#endsyntax#}</td>
           <td>(none)</td>
           <td>0 bit type</td>
         </tr>
         <tr>
-          <td><code>noreturn</code></td>
+            <td>{#syntax#}noreturn{#endsyntax#}</td>
           <td>(none)</td>
-          <td>the type of <code>break</code>, <code>continue</code>, <code>return</code>, <code>unreachable</code>, and <code>while (true) {}</code></td>
+          <td>the type of {#syntax#}break{#endsyntax#}, {#syntax#}continue{#endsyntax#}, {#syntax#}return{#endsyntax#}, {#syntax#}unreachable{#endsyntax#}, and {#syntax#}while (true) {}{#endsyntax#}</td>
         </tr>
         <tr>
-          <td><code>type</code></td>
+            <td>{#syntax#}type{#endsyntax#}</td>
           <td>(none)</td>
           <td>the type of types</td>
         </tr>
         <tr>
-          <td><code>error</code></td>
+            <td>{#syntax#}error{#endsyntax#}</td>
           <td>(none)</td>
           <td>an error code</td>
         </tr>
         <tr>
-          <td><code>comptime_int</code></td>
+            <td>{#syntax#}comptime_int{#endsyntax#}</td>
           <td>(none)</td>
           <td>Only allowed for {#link|comptime#}-known values. The type of integer literals.</td>
         </tr>
         <tr>
-          <td><code>comptime_float</code></td>
+            <td>{#syntax#}comptime_float{#endsyntax#}</td>
           <td>(none)</td>
           <td>Only allowed for {#link|comptime#}-known values. The type of float literals.</td>
         </tr>
@@ -451,7 +451,7 @@ pub fn main() void {
       <p>
       In addition to the integer types above, arbitrary bit-width integers can be referenced by using
       an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
-      <code>i7</code> refers to a signed 7-bit integer.
+      {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer.
       </p>
       {#see_also|Integers|Floats|void|Errors#}
       {#header_close#}
@@ -467,15 +467,15 @@ pub fn main() void {
           </th>
         </tr>
         <tr>
-          <td><code>true</code> and <code>false</code></td>
-          <td><code>bool</code> values</td>
+            <td>{#syntax#}true{#endsyntax#} and {#syntax#}false{#endsyntax#}</td>
+            <td>{#syntax#}bool{#endsyntax#} values</td>
         </tr>
         <tr>
-          <td><code>null</code></td>
-          <td>used to set an optional type to <code>null</code></td>
+            <td>{#syntax#}null{#endsyntax#}</td>
+            <td>used to set an optional type to {#syntax#}null{#endsyntax#}</td>
         </tr>
         <tr>
-          <td><code>undefined</code></td>
+            <td>{#syntax#}undefined{#endsyntax#}</td>
           <td>used to leave a value unspecified</td>
         </tr>
       </table>
@@ -515,52 +515,52 @@ test "string literals" {
           </th>
         </tr>
         <tr>
-          <td><code>\n</code></td>
+            <td><code>\n</code></td>
           <td>Newline</td>
         </tr>
         <tr>
-          <td><code>\r</code></td>
+            <td><code>\r</code></td>
           <td>Carriage Return</td>
         </tr>
         <tr>
-          <td><code>\t</code></td>
+            <td><code>\t</code></td>
           <td>Tab</td>
         </tr>
         <tr>
-          <td><code>\\</code></td>
+            <td><code>\\</code></td>
           <td>Backslash</td>
         </tr>
         <tr>
-          <td><code>\'</code></td>
+            <td><code>\'</code></td>
           <td>Single Quote</td>
         </tr>
         <tr>
-          <td><code>\"</code></td>
+            <td><code>\"</code></td>
           <td>Double Quote</td>
         </tr>
         <tr>
-          <td><code>\xNN</code></td>
+            <td><code>\xNN</code></td>
           <td>hexadecimal 8-bit character code (2 digits)</td>
         </tr>
         <tr>
-          <td><code>\uNNNN</code></td>
+            <td><code>\uNNNN</code></td>
           <td>hexadecimal 16-bit Unicode character code UTF-8 encoded (4 digits)</td>
         </tr>
         <tr>
-          <td><code>\UNNNNNN</code></td>
+            <td><code>\UNNNNNN</code></td>
           <td>hexadecimal 24-bit Unicode character code UTF-8 encoded (6 digits)</td>
         </tr>
       </table>
       </div>
-      <p>Note that the maximum valid Unicode point is <code>0x10ffff</code>.</p>
+      <p>Note that the maximum valid Unicode point is {#syntax#}0x10ffff{#endsyntax#}.</p>
       {#header_close#}
       {#header_open|Multiline String Literals#}
       <p>
       Multiline string literals have no escapes and can span across multiple lines.
-      To start a multiline string literal, use the <code>\\</code> token. Just like a comment,
+      To start a multiline string literal, use the {#syntax#}\\{#endsyntax#} token. Just like a comment,
       the string literal goes until the end of the line. The end of the line is
       not included in the string literal.
-      However, if the next line begins with <code>\\</code> then a newline is appended and
+      However, if the next line begins with {#syntax#}\\{#endsyntax#} then a newline is appended and
       the string literal continues.
       </p>
       {#code_begin|syntax#}
@@ -574,7 +574,7 @@ const hello_world_in_c =
 ;
       {#code_end#}
       <p>
-      For a multiline C string literal, prepend <code>c</code> to each <code>\\</code>:
+      For a multiline C string literal, prepend <code>c</code> to each {#syntax#}\\{#endsyntax#}:
       </p>
       {#code_begin|syntax#}
 const c_string_literal =
@@ -587,14 +587,14 @@ const c_string_literal =
 ;
       {#code_end#}
       <p>
-      In this example the variable <code>c_string_literal</code> has type <code>[*]const char</code> and
+      In this example the variable {#syntax#}c_string_literal{#endsyntax#} has type {#syntax#}[*]const char{#endsyntax#} and
       has a terminating null byte.
       </p>
       {#see_also|@embedFile#}
       {#header_close#}
       {#header_close#}
       {#header_open|Assignment#}
-      <p>Use the <code>const</code> keyword to assign a value to an identifier:</p>
+      <p>Use the {#syntax#}const{#endsyntax#} keyword to assign a value to an identifier:</p>
       {#code_begin|test_err|cannot assign to constant#}
 const x = 1234;
 
@@ -610,8 +610,8 @@ test "assignment" {
     foo();
 }
       {#code_end#}
-      <p><code>const</code> applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
-      <p>If you need a variable that you can modify, use the <code>var</code> keyword:</p>
+      <p>{#syntax#}const{#endsyntax#} applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
+      <p>If you need a variable that you can modify, use the {#syntax#}var{#endsyntax#} keyword:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
@@ -632,7 +632,7 @@ test "initialization" {
 }
       {#code_end#}
       {#header_open|undefined#}
-      <p>Use <code>undefined</code> to leave variables uninitialized:</p>
+      <p>Use {#syntax#}undefined{#endsyntax#} to leave variables uninitialized:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
@@ -643,14 +643,14 @@ test "init with undefined" {
 }
       {#code_end#}
       <p>
-      <code>undefined</code> can be {#link|implicitly cast|Implicit Casts#} to any type.
-      Once this happens, it is no longer possible to detect that the value is <code>undefined</code>.
-      <code>undefined</code> means the value could be anything, even something that is nonsense
-      according to the type. Translated into English, <code>undefined</code> means "Not a meaningful
+      {#syntax#}undefined{#endsyntax#} can be {#link|implicitly cast|Implicit Casts#} to any type.
+          Once this happens, it is no longer possible to detect that the value is {#syntax#}undefined{#endsyntax#}.
+              {#syntax#}undefined{#endsyntax#} means the value could be anything, even something that is nonsense
+                  according to the type. Translated into English, {#syntax#}undefined{#endsyntax#} means "Not a meaningful
       value. Using this value would be a bug. The value will be unused, or overwritten before being used."
       </p>
       <p>
-      In {#link|Debug#} mode, Zig writes <code>0xaa</code> bytes to undefined memory. This is to catch
+      In {#link|Debug#} mode, Zig writes {#syntax#}0xaa{#endsyntax#} bytes to undefined memory. This is to catch
       bugs early, and to help detect use of undefined memory in a debugger.
       </p>
       {#header_close#}
@@ -681,14 +681,14 @@ fn divide(a: i32, b: i32) i32 {
 }
       {#code_end#}
       <p>
-      In this function, values <code>a</code> and <code>b</code> are known only at runtime,
+      In this function, values {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are known only at runtime,
       and thus this division operation is vulnerable to both integer overflow and
       division by zero.
       </p>
       <p>
-      Operators such as <code>+</code> and <code>-</code> cause undefined behavior on
-      integer overflow. Also available are operations such as <code>+%</code> and
-      <code>-%</code> which are defined to have wrapping arithmetic on all targets.
+      Operators such as {#syntax#}+{#endsyntax#} and {#syntax#}-{#endsyntax#} cause undefined behavior on
+              integer overflow. Also available are operations such as {#syntax#}+%{#endsyntax#} and
+                  {#syntax#}-%{#endsyntax#} which are defined to have wrapping arithmetic on all targets.
       </p>
       {#see_also|Integer Overflow|Division by Zero|Wrapping Operations#}
       {#header_close#}
@@ -696,15 +696,15 @@ fn divide(a: i32, b: i32) i32 {
       {#header_open|Floats#}
       <p>Zig has the following floating point types:</p>
       <ul>
-          <li><code>f16</code> - IEEE-754-2008 binary16</li>
-          <li><code>f32</code> - IEEE-754-2008 binary32</li>
-          <li><code>f64</code> - IEEE-754-2008 binary64</li>
-          <li><code>f128</code> - IEEE-754-2008 binary128</li>
-          <li><code>c_longdouble</code> - matches <code>long double</code> for the target C ABI</li>
+          <li>{#syntax#}f16{#endsyntax#} - IEEE-754-2008 binary16</li>
+          <li>{#syntax#}f32{#endsyntax#} - IEEE-754-2008 binary32</li>
+          <li>{#syntax#}f64{#endsyntax#} - IEEE-754-2008 binary64</li>
+          <li>{#syntax#}f128{#endsyntax#} - IEEE-754-2008 binary128</li>
+          <li>{#syntax#}c_longdouble{#endsyntax#} - matches <code class="c">long double</code> for the target C ABI</li>
       </ul>
       {#header_open|Float Literals#}
       <p>
-      Float literals have type <code>comptime_float</code> which is guaranteed to hold at least all possible values
+      Float literals have type {#syntax#}comptime_float{#endsyntax#} which is guaranteed to hold at least all possible values
       that the largest other floating point type can hold. Float literals {#link|implicitly cast|Implicit Casts#} to any other type.
       </p>
       {#code_begin|syntax#}
@@ -718,8 +718,8 @@ const yet_another_hex_float = 0x103.70P-5;
       {#code_end#}
       {#header_close#}
       {#header_open|Floating Point Operations#}
-      <p>By default floating point operations use <code>Strict</code> mode,
-      but you can switch to <code>Optimized</code> mode on a per-block basis:</p>
+      <p>By default floating point operations use {#syntax#}Strict{#endsyntax#} mode,
+          but you can switch to {#syntax#}Optimized{#endsyntax#} mode on a per-block basis:</p>
       {#code_begin|obj|foo#}
       {#code_release_fast#}
 const builtin = @import("builtin");
@@ -772,8 +772,8 @@ pub fn main() void {
           </th>
         </tr>
         <tr>
-          <td><pre><code class="zig">a + b
-a += b</code></pre></td>
+          <td><pre>{#syntax#}a + b
+a += b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -788,12 +788,12 @@ a += b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">2 + 5 == 7</code></pre>
+            <pre>{#syntax#}2 + 5 == 7{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a +% b
-a +%= b</code></pre></td>
+          <td><pre>{#syntax#}a +% b
+a +%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -807,12 +807,12 @@ a +%= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">u32(@maxValue(u32)) +% 1 == 0</code></pre>
+            <pre>{#syntax#}u32(@maxValue(u32)) +% 1 == 0{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a - b
-a -= b</code></pre></td>
+          <td><pre>{#syntax#}a - b
+a -= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -827,12 +827,12 @@ a -= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">2 - 5 == -3</code></pre>
+            <pre>{#syntax#}2 - 5 == -3{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a -% b
-a -%= b</code></pre></td>
+          <td><pre>{#syntax#}a -% b
+a -%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -846,11 +846,11 @@ a -%= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">u32(0) -% 1 == @maxValue(u32)</code></pre>
+            <pre>{#syntax#}u32(0) -% 1 == @maxValue(u32){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">-a<code></pre></td>
+          <td><pre>{#syntax#}-a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -864,11 +864,11 @@ a -%= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">-1 == 0 - 1</code></pre>
+            <pre>{#syntax#}-1 == 0 - 1{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">-%a<code></pre></td>
+          <td><pre>{#syntax#}-%a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -881,12 +881,12 @@ a -%= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">-%i32(@minValue(i32)) == @minValue(i32)</code></pre>
+            <pre>{#syntax#}-%i32(@minValue(i32)) == @minValue(i32){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a * b
-a *= b</code></pre></td>
+          <td><pre>{#syntax#}a * b
+a *= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -901,12 +901,12 @@ a *= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">2 * 5 == 10</code></pre>
+            <pre>{#syntax#}2 * 5 == 10{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a *% b
-a *%= b</code></pre></td>
+          <td><pre>{#syntax#}a *% b
+a *%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -920,12 +920,12 @@ a *%= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">u8(200) *% 2 == 144</code></pre>
+            <pre>{#syntax#}u8(200) *% 2 == 144{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a / b
-a /= b</code></pre></td>
+          <td><pre>{#syntax#}a / b
+a /= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -940,18 +940,18 @@ a /= b</code></pre></td>
               <li>For non-compile-time-known signed integers, must use
                 {#link|@divTrunc#},
                 {#link|@divFloor#}, or
-                {#link|@divExact#} instead of <code>/</code>.
+                {#link|@divExact#} instead of {#syntax#}/{#endsyntax#}.
               </li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">10 / 5 == 2</code></pre>
+            <pre>{#syntax#}10 / 5 == 2{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a % b
-a %= b</code></pre></td>
+          <td><pre>{#syntax#}a % b
+a %= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -964,18 +964,18 @@ a %= b</code></pre></td>
               <li>Can cause {#link|Division by Zero#} for floats in {#link|FloatMode.Optimized Mode|Floating Point Operations#}.</li>
               <li>For non-compile-time-known signed integers, must use
                 {#link|@rem#} or
-                {#link|@mod#} instead of <code>%</code>.
+                {#link|@mod#} instead of {#syntax#}%{#endsyntax#}.
               </li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">10 % 3 == 1</code></pre>
+            <pre>{#syntax#}10 % 3 == 1{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a &lt;&lt; b
-a &lt;&lt;= b</code></pre></td>
+          <td><pre>{#syntax#}a << b
+a <<= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -983,18 +983,18 @@ a &lt;&lt;= b</code></pre></td>
           </td>
           <td>Bit Shift Left.
             <ul>
-              <li><code>b</code> must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as <code>a</code>.</li>
+                <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
               <li>See also {#link|@shlExact#}.</li>
               <li>See also {#link|@shlWithOverflow#}.</li>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">1 &lt;&lt; 8 == 256</code></pre>
+            <pre>{#syntax#}1 << 8 == 256{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a &gt;&gt; b
-a &gt;&gt;= b</code></pre></td>
+          <td><pre>{#syntax#}a >> b
+a >>= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1002,17 +1002,17 @@ a &gt;&gt;= b</code></pre></td>
           </td>
           <td>Bit Shift Right.
             <ul>
-              <li><code>b</code> must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as <code>a</code>.</li>
+                <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
               <li>See also {#link|@shrExact#}.</li>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">10 &gt;&gt; 1 == 5</code></pre>
+            <pre>{#syntax#}10 >> 1 == 5{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a &amp; b
-a &amp;= b</code></pre></td>
+          <td><pre>{#syntax#}a & b
+a &= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1024,12 +1024,12 @@ a &amp;= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">0b011 &amp; 0b101 == 0b001</code></pre>
+            <pre>{#syntax#}0b011 &amp; 0b101 == 0b001{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a | b
-a |= b</code></pre></td>
+          <td><pre>{#syntax#}a | b
+a |= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1041,12 +1041,12 @@ a |= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">0b010 | 0b100 == 0b110</code></pre>
+            <pre>{#syntax#}0b010 | 0b100 == 0b110{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a ^ b
-a ^= b</code></pre></td>
+          <td><pre>{#syntax#}a ^ b
+a ^= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1058,11 +1058,11 @@ a ^= b</code></pre></td>
             </ul>
           </td>
           <td>
-            <pre><code class="zig">0b011 ^ 0b101 == 0b110</code></pre>
+            <pre>{#syntax#}0b011 ^ 0b101 == 0b110{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">~a<code></pre></td>
+          <td><pre>{#syntax#}~a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1072,29 +1072,29 @@ a ^= b</code></pre></td>
             Bitwise NOT.
           </td>
           <td>
-            <pre><code class="zig">~u8(0b0101111) == 0b1010000</code></pre>
+            <pre>{#syntax#}~u8(0b0101111) == 0b1010000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a orelse b</code></pre></td>
+          <td><pre>{#syntax#}a orelse b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
             </ul>
           </td>
-          <td>If <code>a</code> is <code>null</code>,
-            returns <code>b</code> ("default value"),
-            otherwise returns the unwrapped value of <code>a</code>.
-            Note that <code>b</code> may be a value of type {#link|noreturn#}.
+          <td>If {#syntax#}a{#endsyntax#} is {#syntax#}null{#endsyntax#},
+                      returns {#syntax#}b{#endsyntax#} ("default value"),
+                          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
+                              Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
           </td>
           <td>
-            <pre><code class="zig">const value: ?u32 = null;
+            <pre>{#syntax#}const value: ?u32 = null;
 const unwrapped = value orelse 1234;
-unwrapped == 1234</code></pre>
+unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a.?</code></pre></td>
+          <td><pre>{#syntax#}a.?{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -1102,65 +1102,65 @@ unwrapped == 1234</code></pre>
           </td>
           <td>
             Equivalent to:
-            <pre><code class="zig">a orelse unreachable</code></pre>
+            <pre>{#syntax#}a orelse unreachable{#endsyntax#}</pre>
           </td>
           <td>
-            <pre><code class="zig">const value: ?u32 = 5678;
-value.? == 5678</code></pre>
+            <pre>{#syntax#}const value: ?u32 = 5678;
+value.? == 5678{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a catch b
-a catch |err| b</code></pre></td>
+          <td><pre>{#syntax#}a catch b
+a catch |err| b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Error Unions|Errors#}</li>
             </ul>
           </td>
-          <td>If <code>a</code> is an <code>error</code>,
-            returns <code>b</code> ("default value"),
-            otherwise returns the unwrapped value of <code>a</code>.
-            Note that <code>b</code> may be a value of type {#link|noreturn#}.
-            <code>err</code> is the <code>error</code> and is in scope of the expression <code>b</code>.
+          <td>If {#syntax#}a{#endsyntax#} is an {#syntax#}error{#endsyntax#},
+                      returns {#syntax#}b{#endsyntax#} ("default value"),
+                          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
+                              Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
+                                  {#syntax#}err{#endsyntax#} is the {#syntax#}error{#endsyntax#} and is in scope of the expression {#syntax#}b{#endsyntax#}.
           </td>
           <td>
-            <pre><code class="zig">const value: error!u32 = error.Broken;
+            <pre>{#syntax#}const value: error!u32 = error.Broken;
 const unwrapped = value catch 1234;
-unwrapped == 1234</code></pre>
+unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a and b<code></pre></td>
+          <td><pre>{#syntax#}a and b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
-            If <code>a</code> is <code>false</code>, returns <code>false</code>
-            without evaluating <code>b</code>. Otherwise, returns <code>b</code>.
+              If {#syntax#}a{#endsyntax#} is {#syntax#}false{#endsyntax#}, returns {#syntax#}false{#endsyntax#}
+                          without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
           </td>
           <td>
-            <pre><code class="zig">false and true == false</code></pre>
+            <pre>{#syntax#}false and true == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a or b<code></pre></td>
+          <td><pre>{#syntax#}a or b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
-            If <code>a</code> is <code>true</code>, returns <code>true</code>
-            without evaluating <code>b</code>. Otherwise, returns <code>b</code>.
+              If {#syntax#}a{#endsyntax#} is {#syntax#}true{#endsyntax#}, returns {#syntax#}true{#endsyntax#}
+                          without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
           </td>
           <td>
-            <pre><code class="zig">false or true == true</code></pre>
+            <pre>{#syntax#}false or true == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">!a<code></pre></td>
+          <td><pre>{#syntax#}!a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
@@ -1170,11 +1170,11 @@ unwrapped == 1234</code></pre>
             Boolean NOT.
           </td>
           <td>
-            <pre><code class="zig">!false == true</code></pre>
+            <pre>{#syntax#}!false == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a == b<code></pre></td>
+          <td><pre>{#syntax#}a == b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1184,30 +1184,30 @@ unwrapped == 1234</code></pre>
             </ul>
           </td>
           <td>
-            Returns <code>true</code> if a and b are equal, otherwise returns <code>false</code>.
+              Returns {#syntax#}true{#endsyntax#} if a and b are equal, otherwise returns {#syntax#}false{#endsyntax#}.
             Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
-            <pre><code class="zig">(1 == 1) == true</code></pre>
+            <pre>{#syntax#}(1 == 1) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a == null<code></pre></td>
+          <td><pre>{#syntax#}a == null{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
             </ul>
           </td>
           <td>
-            Returns <code>true</code> if a is <code>null</code>, otherwise returns <code>false</code>.
+              Returns {#syntax#}true{#endsyntax#} if a is {#syntax#}null{#endsyntax#}, otherwise returns {#syntax#}false{#endsyntax#}.
           </td>
           <td>
-            <pre><code class="zig">const value: ?u32 = null;
-value == null</code></pre>
+            <pre>{#syntax#}const value: ?u32 = null;
+value == null{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a != b<code></pre></td>
+          <td><pre>{#syntax#}a != b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1217,15 +1217,15 @@ value == null</code></pre>
             </ul>
           </td>
           <td>
-            Returns <code>false</code> if a and b are equal, otherwise returns <code>true</code>.
+              Returns {#syntax#}false{#endsyntax#} if a and b are equal, otherwise returns {#syntax#}true{#endsyntax#}.
             Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
-            <pre><code class="zig">(1 != 1) == false</code></pre>
+            <pre>{#syntax#}(1 != 1) == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a &gt; b<code></pre></td>
+          <td><pre>{#syntax#}a > b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1233,15 +1233,15 @@ value == null</code></pre>
             </ul>
           </td>
           <td>
-            Returns <code>true</code> if a is greater than b, otherwise returns <code>false</code>.
+              Returns {#syntax#}true{#endsyntax#} if a is greater than b, otherwise returns {#syntax#}false{#endsyntax#}.
             Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
-            <pre><code class="zig">(2 &gt; 1) == true</code></pre>
+            <pre>{#syntax#}(2 > 1) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a &gt;= b<code></pre></td>
+          <td><pre>{#syntax#}a >= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1249,15 +1249,15 @@ value == null</code></pre>
             </ul>
           </td>
           <td>
-            Returns <code>true</code> if a is greater than or equal to b, otherwise returns <code>false</code>.
+              Returns {#syntax#}true{#endsyntax#} if a is greater than or equal to b, otherwise returns {#syntax#}false{#endsyntax#}.
             Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
-            <pre><code class="zig">(2 &gt;= 1) == true</code></pre>
+            <pre>{#syntax#}(2 >= 1) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a &lt; b<code></pre></td>
+          <td><pre>{#syntax#}a < b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1265,15 +1265,15 @@ value == null</code></pre>
             </ul>
           </td>
           <td>
-            Returns <code>true</code> if a is less than b, otherwise returns <code>false</code>.
+              Returns {#syntax#}true{#endsyntax#} if a is less than b, otherwise returns {#syntax#}false{#endsyntax#}.
             Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
-            <pre><code class="zig">(1 &lt; 2) == true</code></pre>
+            <pre>{#syntax#}(1 < 2) == true{#endsyntax#}></pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a &lt;= b<code></pre></td>
+          <td><pre>{#syntax#}a <= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1281,15 +1281,15 @@ value == null</code></pre>
             </ul>
           </td>
           <td>
-            Returns <code>true</code> if a is less than or equal to b, otherwise returns <code>false</code>.
+              Returns {#syntax#}true{#endsyntax#} if a is less than or equal to b, otherwise returns {#syntax#}false{#endsyntax#}.
             Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
-            <pre><code class="zig">(1 &lt;= 2) == true</code></pre>
+            <pre>{#syntax#}(1 <= 2) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a ++ b<code></pre></td>
+          <td><pre>{#syntax#}a ++ b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Arrays#}</li>
@@ -1298,19 +1298,19 @@ value == null</code></pre>
           <td>
             Array concatenation.
             <ul>
-              <li>Only available when <code>a</code> and <code>b</code> are {#link|compile-time known|comptime#}.
+                <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.
             </ul>
           </td>
           <td>
-            <pre><code class="zig">const mem = @import("std").mem;
+            <pre>{#syntax#}const mem = @import("std").mem;
 const array1 = []u32{1,2};
 const array2 = []u32{3,4};
 const together = array1 ++ array2;
-mem.eql(u32, together, []u32{1,2,3,4})</code></pre>
+mem.eql(u32, together, []u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a ** b<code></pre></td>
+          <td><pre>{#syntax#}a ** b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Arrays#}</li>
@@ -1319,17 +1319,17 @@ mem.eql(u32, together, []u32{1,2,3,4})</code></pre>
           <td>
             Array multiplication.
             <ul>
-              <li>Only available when <code>a</code> and <code>b</code> are {#link|compile-time known|comptime#}.
+                <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.
             </ul>
           </td>
           <td>
-            <pre><code class="zig">const mem = @import("std").mem;
+            <pre>{#syntax#}const mem = @import("std").mem;
 const pattern = "ab" ** 3;
-mem.eql(u8, pattern, "ababab")</code></pre>
+mem.eql(u8, pattern, "ababab"){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a.*<code></pre></td>
+          <td><pre>{#syntax#}a.*{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Pointers#}</li>
@@ -1339,13 +1339,13 @@ mem.eql(u8, pattern, "ababab")</code></pre>
             Pointer dereference.
           </td>
           <td>
-            <pre><code class="zig">const x: u32 = 1234;
-const ptr = &amp;x;
-x.* == 1234</code></pre>
+            <pre>{#syntax#}const x: u32 = 1234;
+const ptr = &x;
+x.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">&amp;a<code></pre></td>
+          <td><pre>{#syntax#}&amp;a{#endsyntax#}</pre></td>
           <td>
             All types
           </td>
@@ -1353,13 +1353,13 @@ x.* == 1234</code></pre>
             Address of.
           </td>
           <td>
-            <pre><code class="zig">const x: u32 = 1234;
-const ptr = &amp;x;
-x.* == 1234</code></pre>
+            <pre>{#syntax#}const x: u32 = 1234;
+const ptr = &x;
+x.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a || b<code></pre></td>
+          <td><pre>{#syntax#}a || b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Error Set Type#}</li>
@@ -1369,30 +1369,30 @@ x.* == 1234</code></pre>
               {#link|Merging Error Sets#}
           </td>
           <td>
-            <pre><code class="zig">const A = error{One};
+            <pre>{#syntax#}const A = error{One};
 const B = error{Two};
-(A || B) == error{One, Two}</code></pre>
+(A || B) == error{One, Two}{#endsyntax#}</pre>
           </td>
         </tr>
       </table>
       </div>
       {#header_close#}
       {#header_open|Precedence#}
-      <pre><code>x() x[] x.y
+      <pre>{#syntax#}x() x[] x.y
 a!b
-!x -x -%x ~x &amp;x ?x
+!x -x -%x ~x &x ?x
 x{} x.* x.?
 ! * / % ** *% ||
 + - ++ +% -%
-&lt;&lt; &gt;&gt;
-&amp;
+<< >>
+&
 ^
 |
-== != &lt; &gt; &lt;= &gt;=
+== != < > <= >=
 and
 or
 orelse catch
-= *= /= %= += -= &lt;&lt;= &gt;&gt;= &amp;= ^= |=</code></pre>
+= *= /= %= += -= <<= >>= &= ^= |={#endsyntax#}</pre>
       {#header_close#}
       {#header_close#}
       {#header_open|Arrays#}
@@ -1641,7 +1641,7 @@ test "pointer child type" {
       </p>
       <p>
       Alignment depends on the CPU architecture, but is always a power of two, and
-      less than <code>1 &lt;&lt; 29</code>.
+      less than {#syntax#}1 << 29{#endsyntax#}.
       </p>
       <p>
       In Zig, a pointer type has an alignment value. If the value is equal to the
@@ -1661,8 +1661,8 @@ test "variable alignment" {
     }
 }
       {#code_end#}
-      <p>In the same way that a <code>*i32</code> can be {#link|implicitly cast|Implicit Casts#} to a
-      <code>*const i32</code>, a pointer with a larger alignment can be implicitly
+      <p>In the same way that a {#syntax#}*i32{#endsyntax#} can be {#link|implicitly cast|Implicit Casts#} to a
+          {#syntax#}*const i32{#endsyntax#}, a pointer with a larger alignment can be implicitly
       cast to a pointer with a smaller alignment, but not vice versa.
       </p>
       <p>
@@ -1717,14 +1717,14 @@ fn foo(bytes: []u8) u32 {
       {#header_open|Type Based Alias Analysis#}
       <p>Zig uses Type Based Alias Analysis (also known as Strict Aliasing) to
       perform some optimizations. This means that pointers of different types must
-      not alias the same memory, with the exception of <code>u8</code>. Pointers to
-      <code>u8</code> can alias any memory.
+      not alias the same memory, with the exception of {#syntax#}u8{#endsyntax#}. Pointers to
+          {#syntax#}u8{#endsyntax#} can alias any memory.
       </p>
       <p>As an example, this code produces undefined behavior:</p>
-      <pre><code class="zig">@ptrCast(*u32, f32(12.34)).*</code></pre>
+      <pre>{#syntax#}@ptrCast(*u32, f32(12.34)).*{#endsyntax#}</pre>
       <p>Instead, use {#link|@bitCast#}:
-      <pre><code class="zig">@bitCast(u32, f32(12.34))</code></pre>
-      <p>As an added benefit, the <code>@bitCast</code> version works at compile-time.</p>
+      <pre>{#syntax#}@bitCast(u32, f32(12.34)){#endsyntax#}</pre>
+      <p>As an added benefit, the {#syntax#}@bitCast{#endsyntax#} version works at compile-time.</p>
       {#see_also|Slices|Memory#}
       {#header_close#}
       {#header_close#}
@@ -1952,9 +1952,9 @@ test "linked list" {
       <ul>
           <li>If the struct is in the initialization expression of a variable, it gets named after
           that variable.</li>
-          <li>If the struct is in the <code>return</code> expression, it gets named after
+          <li>If the struct is in the {#syntax#}return{#endsyntax#} expression, it gets named after
           the function it is returning from, with the parameter values serialized.</li>
-          <li>Otherwise, the struct gets a same such as <code>(anonymous struct at file.zig:7:38)</code>.</li>
+          <li>Otherwise, the struct gets a same such as {#syntax#}(anonymous struct at file.zig:7:38){#endsyntax#}.</li>
       </ul>
       {#code_begin|exe|struct_name#}
 const std = @import("std");
@@ -2086,7 +2086,7 @@ const Foo = enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       <p>
-      For a C-ABI-compatible enum, use <code class="zig">extern enum</code>:
+      For a C-ABI-compatible enum, use {#syntax#}extern enum{#endsyntax#}:
       </p>
       {#code_begin|obj#}
 const Foo = extern enum { A, B, C };
@@ -2095,7 +2095,7 @@ export fn entry(foo: Foo) void { }
       {#header_close#}
       {#header_open|packed enum#}
       <p>By default, the size of enums is not guaranteed.</p>
-      <p><code>packed enum</code> causes the size of the enum to be the same as the size of the integer tag type
+      <p>{#syntax#}packed enum{#endsyntax#} causes the size of the enum to be the same as the size of the integer tag type
       of the enum:</p>
       {#code_begin|test#}
 const std = @import("std");
@@ -2246,7 +2246,7 @@ test "access variable after block scope" {
     x += 1;
 }
       {#code_end#}
-      <p>Blocks are expressions. When labeled, <code>break</code> can be used
+      <p>Blocks are expressions. When labeled, {#syntax#}break{#endsyntax#} can be used
       to return a value from the block:
       </p>
       {#code_begin|test#}
@@ -2264,7 +2264,7 @@ test "labeled break from labeled block expression" {
     assert(y == 124);
 }
       {#code_end#}
-      <p>Here, <code>blk</code> can be any name.</p>
+      <p>Here, {#syntax#}blk{#endsyntax#} can be any name.</p>
       {#see_also|Labeled while|Labeled for#}
       {#header_close#}
       {#header_open|switch#}
@@ -2380,7 +2380,7 @@ test "while basic" {
 }
       {#code_end#}
       <p>
-      Use <code>break</code> to exit a while loop early.
+      Use {#syntax#}break{#endsyntax#} to exit a while loop early.
       </p>
       {#code_begin|test|while#}
 const assert = @import("std").debug.assert;
@@ -2396,7 +2396,7 @@ test "while break" {
 }
       {#code_end#}
       <p>
-      Use <code>continue</code> to jump back to the beginning of the loop.
+      Use {#syntax#}continue{#endsyntax#} to jump back to the beginning of the loop.
       </p>
       {#code_begin|test|while#}
 const assert = @import("std").debug.assert;
@@ -2414,7 +2414,7 @@ test "while continue" {
       {#code_end#}
       <p>
       While loops support a continue expression which is executed when the loop
-      is continued. The <code>continue</code> keyword respects this expression.
+      is continued. The {#syntax#}continue{#endsyntax#} keyword respects this expression.
       </p>
       {#code_begin|test|while#}
 const assert = @import("std").debug.assert;
@@ -2436,13 +2436,13 @@ test "while loop continue expression, more complicated" {
       {#code_end#}
       <p>
       While loops are expressions. The result of the expression is the
-      result of the <code>else</code> clause of a while loop, which is executed when
+      result of the {#syntax#}else{#endsyntax#} clause of a while loop, which is executed when
       the condition of the while loop is tested as false.
       </p>
       <p>
-      <code>break</code>, like <code>return</code>, accepts a value
-      parameter. This is the result of the <code>while</code> expression.
-      When you <code>break</code> from a while loop, the <code>else</code> branch is not
+      {#syntax#}break{#endsyntax#}, like {#syntax#}return{#endsyntax#}, accepts a value
+              parameter. This is the result of the {#syntax#}while{#endsyntax#} expression.
+                  When you {#syntax#}break{#endsyntax#} from a while loop, the {#syntax#}else{#endsyntax#} branch is not
       evaluated.
       </p>
       {#code_begin|test|while#}
@@ -2463,8 +2463,8 @@ fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
 }
       {#code_end#}
       {#header_open|Labeled while#}
-      <p>When a <code>while</code> loop is labeled, it can be referenced from a <code>break</code>
-      or <code>continue</code> from within a nested loop:</p>
+      <p>When a {#syntax#}while{#endsyntax#} loop is labeled, it can be referenced from a {#syntax#}break{#endsyntax#}
+              or {#syntax#}continue{#endsyntax#} from within a nested loop:</p>
       {#code_begin|test#}
 test "nested break" {
     outer: while (true) {
@@ -2491,11 +2491,11 @@ test "nested continue" {
       exits.
       </p>
       <p>
-      When the <code>|x|</code> syntax is present on a <code>while</code> expression,
+      When the {#syntax#}|x|{#endsyntax#} syntax is present on a {#syntax#}while{#endsyntax#} expression,
       the while condition must have an {#link|Optional Type#}.
       </p>
       <p>
-      The <code>else</code> branch is allowed on optional iteration. In this case, it will
+      The {#syntax#}else{#endsyntax#} branch is allowed on optional iteration. In this case, it will
       be executed on the first null value encountered.
       </p>
       {#code_begin|test|while#}
@@ -2537,7 +2537,7 @@ fn eventuallyNullSequence() ?u32 {
       the loop is finished.
       </p>
       <p>
-      When the <code>else |x|</code> syntax is present on a <code>while</code> expression,
+      When the {#syntax#}else |x|{#endsyntax#} syntax is present on a {#syntax#}while{#endsyntax#} expression,
       the while condition must have an {#link|Error Union Type#}.
       </p>
       {#code_begin|test|while#}
@@ -2593,7 +2593,7 @@ fn typeNameLength(comptime T: type) usize {
 }
       {#code_end#}
       <p>
-      It is recommended to use <code>inline</code> loops only for one of these reasons:
+      It is recommended to use {#syntax#}inline{#endsyntax#} loops only for one of these reasons:
       </p>
       <ul>
         <li>You need the loop to execute at {#link|comptime#} for the semantics to work.</li>
@@ -2671,8 +2671,8 @@ test "for else" {
 }
       {#code_end#}
       {#header_open|Labeled for#}
-      <p>When a <code>for</code> loop is labeled, it can be referenced from a <code>break</code>
-      or <code>continue</code> from within a nested loop:</p>
+      <p>When a {#syntax#}for{#endsyntax#} loop is labeled, it can be referenced from a {#syntax#}break{#endsyntax#}
+              or {#syntax#}continue{#endsyntax#} from within a nested loop:</p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
@@ -2732,7 +2732,7 @@ fn typeNameLength(comptime T: type) usize {
 }
       {#code_end#}
       <p>
-      It is recommended to use <code>inline</code> loops only for one of these reasons:
+      It is recommended to use {#syntax#}inline{#endsyntax#} loops only for one of these reasons:
       </p>
       <ul>
         <li>You need the loop to execute at {#link|comptime#} for the semantics to work.</li>
@@ -2932,13 +2932,13 @@ test "errdefer unwinding" {
       {#header_close#}
       {#header_open|unreachable#}
       <p>
-      In <code>Debug</code> and <code>ReleaseSafe</code> mode, and when using <code>zig test</code>,
-      <code>unreachable</code> emits a call to <code>panic</code> with the message <code>reached unreachable code</code>.
+      In {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, and when using <code>zig test</code>,
+      {#syntax#}unreachable{#endsyntax#} emits a call to {#syntax#}panic{#endsyntax#} with the message <code>reached unreachable code</code>.
       </p>
       <p>
-      In <code>ReleaseFast</code> mode, the optimizer uses the assumption that <code>unreachable</code> code
-      will never be hit to perform optimizations. However, <code>zig test</code> even in <code>ReleaseFast</code> mode
-      still emits <code>unreachable</code> as calls to <code>panic</code>.
+      In {#syntax#}ReleaseFast{#endsyntax#} mode, the optimizer uses the assumption that {#syntax#}unreachable{#endsyntax#} code
+      will never be hit to perform optimizations. However, <code>zig test</code> even in {#syntax#}ReleaseFast{#endsyntax#} mode
+                  still emits {#syntax#}unreachable{#endsyntax#} as calls to {#syntax#}panic{#endsyntax#}.
       </p>
       {#header_open|Basics#}
       {#code_begin|test#}
@@ -2984,17 +2984,17 @@ test "type of unreachable" {
       {#header_close#}
       {#header_open|noreturn#}
       <p>
-      <code>noreturn</code> is the type of:
+      {#syntax#}noreturn{#endsyntax#} is the type of:
       </p>
       <ul>
-        <li><code>break</code></li>
-        <li><code>continue</code></li>
-        <li><code>return</code></li>
-        <li><code>unreachable</code></li>
-        <li><code>while (true) {}</code></li>
+          <li>{#syntax#}break{#endsyntax#}</li>
+          <li>{#syntax#}continue{#endsyntax#}</li>
+          <li>{#syntax#}return{#endsyntax#}</li>
+          <li>{#syntax#}unreachable{#endsyntax#}</li>
+          <li>{#syntax#}while (true) {}{#endsyntax#}</li>
       </ul>
-      <p>When resolving types together, such as <code>if</code> clauses or <code>switch</code> prongs,
-      the <code>noreturn</code> type is compatible with every other type. Consider:
+      <p>When resolving types together, such as {#syntax#}if{#endsyntax#} clauses or {#syntax#}switch{#endsyntax#} prongs,
+              the {#syntax#}noreturn{#endsyntax#} type is compatible with every other type. Consider:
       </p>
       {#code_begin|test#}
 fn foo(condition: bool, b: u32) void {
@@ -3005,7 +3005,7 @@ test "noreturn" {
     foo(false, 1);
 }
       {#code_end#}
-      <p>Another use case for <code>noreturn</code> is the <code>exit</code> function:</p>
+      <p>Another use case for {#syntax#}noreturn{#endsyntax#} is the {#syntax#}exit{#endsyntax#} function:</p>
       {#code_begin|test#}
       {#target_windows#}
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: c_uint) noreturn;
@@ -3134,7 +3134,7 @@ test "fn reflection" {
       </p>
       <p>
       The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
+      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
       You can {#link|implicitly cast|Implicit Casts#} an error from a subset to its superset:
@@ -3197,7 +3197,7 @@ const err = (error {FileNotFound}).FileNotFound;
       This becomes useful when using {#link|Inferred Error Sets#}.
       </p>
       {#header_open|The Global Error Set#}
-      <p><code>error</code> refers to the global error set.
+      <p>{#syntax#}error{#endsyntax#} refers to the global error set.
       This is the error set that contains all errors in the entire compilation unit.
       It is a superset of all other error sets and a subset of none of them.
       </p>
@@ -3216,7 +3216,7 @@ const err = (error {FileNotFound}).FileNotFound;
       {#header_close#}
       {#header_open|Error Union Type#}
       <p>
-      An error set type and normal type can be combined with the <code>!</code>
+      An error set type and normal type can be combined with the {#syntax#}!{#endsyntax#}
       binary operator to form an error union type. You are likely to use an
       error union type more often than an error set type by itself.
       </p>
@@ -3263,14 +3263,14 @@ test "parse u64" {
 }
       {#code_end#}
       <p>
-      Notice the return type is <code>!u64</code>. This means that the function
+      Notice the return type is {#syntax#}!u64{#endsyntax#}. This means that the function
       either returns an unsigned 64 bit integer, or an error. We left off the error set
-      to the left of the <code>!</code>, so the error set is inferred.
+      to the left of the {#syntax#}!{#endsyntax#}, so the error set is inferred.
       </p>
       <p>
       Within the function definition, you can see some return statements that return
-      an error, and at the bottom a return statement that returns a <code>u64</code>.
-      Both types {#link|implicitly cast|Implicit Casts#} to <code>error!u64</code>.
+      an error, and at the bottom a return statement that returns a {#syntax#}u64{#endsyntax#}.
+          Both types {#link|implicitly cast|Implicit Casts#} to {#syntax#}error!u64{#endsyntax#}.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
@@ -3283,7 +3283,7 @@ test "parse u64" {
         <li>You want to take a different action for each possible error.</li>
       </ul>
       {#header_open|catch#}
-      <p>If you want to provide a default value, you can use the <code>catch</code> binary operator:</p>
+      <p>If you want to provide a default value, you can use the {#syntax#}catch{#endsyntax#} binary operator:</p>
       {#code_begin|syntax#}
 fn doAThing(str: []u8) void {
     const number = parseU64(str, 10) catch 13;
@@ -3291,9 +3291,9 @@ fn doAThing(str: []u8) void {
 }
       {#code_end#}
       <p>
-      In this code, <code>number</code> will be equal to the successfully parsed string, or
-      a default value of 13. The type of the right hand side of the binary <code>catch</code> operator must
-      match the unwrapped error union type, or be of type <code>noreturn</code>.
+      In this code, {#syntax#}number{#endsyntax#} will be equal to the successfully parsed string, or
+          a default value of 13. The type of the right hand side of the binary {#syntax#}catch{#endsyntax#} operator must
+              match the unwrapped error union type, or be of type {#syntax#}noreturn{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|try#}
@@ -3306,7 +3306,7 @@ fn doAThing(str: []u8) !void {
 }
       {#code_end#}
       <p>
-        There is a shortcut for this. The <code>try</code> expression:
+      There is a shortcut for this. The {#syntax#}try{#endsyntax#} expression:
       </p>
       {#code_begin|syntax#}
 fn doAThing(str: []u8) !void {
@@ -3315,7 +3315,7 @@ fn doAThing(str: []u8) !void {
 }
       {#code_end#}
       <p>
-      <code>try</code> evaluates an error union expression. If it is an error, it returns
+      {#syntax#}try{#endsyntax#} evaluates an error union expression. If it is an error, it returns
       from the current function with the same error. Otherwise, the expression results in
       the unwrapped value.
       </p>
@@ -3327,7 +3327,7 @@ fn doAThing(str: []u8) !void {
       {#code_begin|syntax#}const number = parseU64("1234", 10) catch unreachable;{#code_end#}
       <p>
       Here we know for sure that "1234" will parse successfully. So we put the
-      <code>unreachable</code> value on the right hand side. <code>unreachable</code> generates
+      {#syntax#}unreachable{#endsyntax#} value on the right hand side. {#syntax#}unreachable{#endsyntax#} generates
       a panic in Debug and ReleaseSafe modes and undefined behavior in ReleaseFast mode. So, while we're debugging the
       application, if there <em>was</em> a surprise error here, the application would crash
       appropriately.
@@ -3352,7 +3352,7 @@ fn doAThing(str: []u8) void {
       {#header_open|errdefer#}
       <p>
       The other component to error handling is defer statements.
-      In addition to an unconditional {#link|defer#}, Zig has <code>errdefer</code>,
+      In addition to an unconditional {#link|defer#}, Zig has {#syntax#}errdefer{#endsyntax#},
       which evaluates the deferred expression on block exit path if and only if
       the function returned with an error from the block.
       </p>
@@ -3390,7 +3390,7 @@ fn createFoo(param: i32) !Foo {
       <ul>
         <li>These primitives give enough expressiveness that it's completely practical
             to have failing to check for an error be a compile error. If you really want
-            to ignore the error, you can add <code>catch unreachable</code> and
+            to ignore the error, you can add {#syntax#}catch unreachable{#endsyntax#} and
             get the added benefit of crashing in Debug and ReleaseSafe modes if your assumption was wrong.
         </li>
         <li>
@@ -3401,7 +3401,7 @@ fn createFoo(param: i32) !Foo {
       </ul>
       {#see_also|defer|if|switch#}
 
-      <p>An error union is created with the <code>!</code> binary operator.
+      <p>An error union is created with the {#syntax#}!{#endsyntax#} binary operator.
       You can use compile-time reflection to access the child type of an error union:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
@@ -3424,15 +3424,15 @@ test "error union" {
       {#code_end#}
       {#header_open|Merging Error Sets#}
       <p>
-      Use the <code>||</code> operator to merge two error sets together. The resulting
+      Use the {#syntax#}||{#endsyntax#} operator to merge two error sets together. The resulting
       error set contains the errors of both error sets. Doc comments from the left-hand
       side override doc comments from the right-hand side. In this example, the doc
-      comments for <code>C.PathNotFound</code> is <code>A doc comment</code>.
+      comments for {#syntax#}C.PathNotFound{#endsyntax#} is <code>A doc comment</code>.
       </p>
       <p>
       This is especially useful for functions which return different error sets depending
       on {#link|comptime#} branches. For example, the Zig standard library uses
-      <code>LinuxFileOpenError || WindowsFileOpenError</code> for the error set of opening
+      {#syntax#}LinuxFileOpenError || WindowsFileOpenError{#endsyntax#} for the error set of opening
       files.
       </p>
       {#code_begin|test#}
@@ -3565,8 +3565,8 @@ fn bang2() !void {
       Look closely at this example. This is no stack trace.
       </p>
       <p>
-      You can see that the final error bubbled up was <code>PermissionDenied</code>,
-      but the original error that started this whole thing was <code>FileNotFound</code>. In the <code>bar</code> function, the code handles the original error code,
+      You can see that the final error bubbled up was {#syntax#}PermissionDenied{#endsyntax#},
+          but the original error that started this whole thing was {#syntax#}FileNotFound{#endsyntax#}. In the {#syntax#}bar{#endsyntax#} function, the code handles the original error code,
       and then returns another one, from the switch statement. Error Return Traces make this clear, whereas a stack trace would look like this:
       </p>
       {#code_begin|exe_err#}
@@ -3612,7 +3612,7 @@ fn bang2() void {
       {#code_end#}
       <p>
       Here, the stack trace does not explain how the control
-      flow in <code>bar</code> got to the <code>hello()</code> call.
+      flow in {#syntax#}bar{#endsyntax#} got to the {#syntax#}hello(){#endsyntax#} call.
       One would have to open a debugger or further instrument the application
       in order to find out. The error return trace, on the other hand, 
       shows exactly how the error bubbled up.
@@ -3631,8 +3631,8 @@ fn bang2() void {
       </p>
       <ul>
         <li>Return an error from main</li>
-        <li>An error makes its way to <code>catch unreachable</code> and you have not overridden the default panic handler</li>
-        <li>Use {#link|errorReturnTrace#} to access the current return trace. You can use <code>std.debug.dumpStackTrace</code> to print it. This function returns comptime-known {#link|null#} when building without error return tracing support.</li>
+        <li>An error makes its way to {#syntax#}catch unreachable{#endsyntax#} and you have not overridden the default panic handler</li>
+        <li>Use {#link|errorReturnTrace#} to access the current return trace. You can use {#syntax#}std.debug.dumpStackTrace{#endsyntax#} to print it. This function returns comptime-known {#link|null#} when building without error return tracing support.</li>
       </ul>
       {#header_open|Implementation Details#}
       <p>
@@ -3643,7 +3643,7 @@ fn bang2() void {
         <li>when returning errors</li>
       </ul>
       <p>
-      For the case when no errors are returned, the cost is a single memory write operation, only in the first non-failable function in the call graph that calls a failable function, i.e. when a function returning <code>void</code> calls a function returning <code>error</code>.
+      For the case when no errors are returned, the cost is a single memory write operation, only in the first non-failable function in the call graph that calls a failable function, i.e. when a function returning {#syntax#}void{#endsyntax#} calls a function returning {#syntax#}error{#endsyntax#}.
       This is to initialize this struct in the stack memory:
       </p>
       {#code_begin|syntax#}
@@ -3656,13 +3656,13 @@ pub const StackTrace = struct {
       Here, N is the maximum function call depth as determined by call graph analysis. Recursion is ignored and counts for 2.
       </p>
       <p>
-      A pointer to <code>StackTrace</code> is passed as a secret parameter to every function that can return an error, but it's always the first parameter, so it can likely sit in a register and stay there.
+      A pointer to {#syntax#}StackTrace{#endsyntax#} is passed as a secret parameter to every function that can return an error, but it's always the first parameter, so it can likely sit in a register and stay there.
       </p>
       <p>
       That's it for the path when no errors occur. It's practically free in terms of performance.
       </p>
       <p>
-      When generating the code for a function that returns an error, just before the <code>return</code> statement (only for the <code>return</code> statements that return errors), Zig generates a call to this function:
+      When generating the code for a function that returns an error, just before the {#syntax#}return{#endsyntax#} statement (only for the {#syntax#}return{#endsyntax#} statements that return errors), Zig generates a call to this function:
       </p>
       {#code_begin|syntax#}
 // marked as "no-inline" in LLVM IR
@@ -3677,7 +3677,7 @@ fn __zig_return_error(stack_trace: *StackTrace) void {
       <p>
       As for code size cost, 1 function call before a return statement is no big deal. Even so,
       I have <a href="https://github.com/ziglang/zig/issues/690">a plan</a> to make the call to
-      <code>__zig_return_error</code> a tail call, which brings the code size cost down to actually zero. What is a return statement in code without error return tracing can become a jump instruction in code with error return tracing.
+      {#syntax#}__zig_return_error{#endsyntax#} a tail call, which brings the code size cost down to actually zero. What is a return statement in code without error return tracing can become a jump instruction in code with error return tracing.
       </p>
       {#header_close#}
       {#header_close#}
@@ -3699,7 +3699,7 @@ const normal_int: i32 = 1234;
 const optional_int: ?i32 = 5678;
       {#code_end#}
       <p>
-      Now the variable <code>optional_int</code> could be an <code>i32</code>, or <code>null</code>.
+      Now the variable {#syntax#}optional_int{#endsyntax#} could be an {#syntax#}i32{#endsyntax#}, or {#syntax#}null{#endsyntax#}.
       </p>
       <p>
       Instead of integers, let's talk about pointers. Null references are the source of many runtime
@@ -3740,8 +3740,8 @@ fn doAThing() ?*Foo {
       {#code_end#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
-        is <code>*u8</code> <em>not</em> <code>?*u8</code>. The <code>orelse</code> keyword
-        unwrapped the optional type and therefore <code>ptr</code> is guaranteed to be non-null everywhere
+        is {#syntax#}*u8{#endsyntax#} <em>not</em> {#syntax#}?*u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
+                    unwrapped the optional type and therefore {#syntax#}ptr{#endsyntax#} is guaranteed to be non-null everywhere
         it is used in the function.
       </p>
       <p>
@@ -3772,7 +3772,7 @@ fn doAThing(optional_foo: ?*Foo) void {
       {#code_end#}
       <p>
       Once again, the notable thing here is that inside the if block,
-      <code>foo</code> is no longer an optional pointer, it is a pointer, which
+      {#syntax#}foo{#endsyntax#} is no longer an optional pointer, it is a pointer, which
       cannot be null.
       </p>
       <p>
@@ -3783,7 +3783,7 @@ fn doAThing(optional_foo: ?*Foo) void {
       cannot be null.
       </p>
       {#header_open|Optional Type#}
-      <p>An optional is created by putting <code>?</code> in front of a type. You can use compile-time
+      <p>An optional is created by putting {#syntax#}?{#endsyntax#} in front of a type. You can use compile-time
       reflection to access the child type of an optional:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
@@ -3802,7 +3802,7 @@ test "optional type" {
       {#header_close#}
       {#header_open|null#}
       <p>
-      Just like {#link|undefined#}, <code>null</code> has its own type, and the only way to use it is to
+      Just like {#link|undefined#}, {#syntax#}null{#endsyntax#} has its own type, and the only way to use it is to
       cast it to a different type:
       </p>
       {#code_begin|syntax#}
@@ -3850,9 +3850,9 @@ test "implicit cast - invoke a type as a function" {
       of the qualifiers, no matter how nested the qualifiers are:
       </p>
       <ul>
-          <li><code>const</code> - non-const to const is allowed</li>
-          <li><code>volatile</code> - non-volatile to volatile is allowed</li>
-          <li><code>align</code> - bigger to smaller alignment is allowed </li>
+          <li>{#syntax#}const{#endsyntax#} - non-const to const is allowed</li>
+          <li>{#syntax#}volatile{#endsyntax#} - non-volatile to volatile is allowed</li>
+          <li>{#syntax#}align{#endsyntax#} - bigger to smaller alignment is allowed </li>
           <li>{#link|error sets|Error Set Type#} to supersets is allowed</li>
       </ul>
       <p>
@@ -4100,7 +4100,7 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) error![]u8 {
 
       {#header_open|void#}
       <p>
-      <code>void</code> represents a type that has no value. Code that makes use of void values is
+      {#syntax#}void{#endsyntax#} represents a type that has no value. Code that makes use of void values is
       not included in the final generated code:
       </p>
       {#code_begin|syntax#}
@@ -4110,7 +4110,7 @@ export fn entry() void {
     x = y;
 }
       {#code_end#}
-      <p>When this turns into LLVM IR, there is no code generated in the body of <code>entry</code>,
+      <p>When this turns into LLVM IR, there is no code generated in the body of {#syntax#}entry{#endsyntax#},
       even in debug mode. For example, on x86_64:</p>
       <pre><code>0000000000000010 &lt;entry&gt;:
   10:	55                   	push   %rbp
@@ -4120,9 +4120,9 @@ export fn entry() void {
       <p>These assembly instructions do not have any code associated with the void values -
       they only perform the function call prologue and epilog.</p>
       <p>
-      <code>void</code> can be useful for instantiating generic types. For example, given a
-      <code>Map(Key, Value)</code>, one can pass <code>void</code> for the <code>Value</code>
-      type to make it into a <code>Set</code>:
+      {#syntax#}void{#endsyntax#} can be useful for instantiating generic types. For example, given a
+          {#syntax#}Map(Key, Value){#endsyntax#}, one can pass {#syntax#}void{#endsyntax#} for the {#syntax#}Value{#endsyntax#}
+                      type to make it into a {#syntax#}Set{#endsyntax#}:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -4151,17 +4151,17 @@ fn eql_i32(a: i32, b: i32) bool {
 }
       {#code_end#}
       <p>Note that this is different than using a dummy value for the hash map value.
-      By using <code>void</code> as the type of the value, the hash map entry type has no value field, and
+      By using {#syntax#}void{#endsyntax#} as the type of the value, the hash map entry type has no value field, and
       thus the hash map takes up less space. Further, all the code that deals with storing and loading the
       value is deleted, as seen above.
       </p>
       <p>
-      <code>void</code> is distinct from <code>c_void</code>, which is defined like this:
-      <code>pub const c_void = @OpaqueType();</code>.
-      <code>void</code> has a known size of 0 bytes, and <code>c_void</code> has an unknown, but non-zero, size.
+      {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}, which is defined like this:
+              {#syntax#}pub const c_void = @OpaqueType();{#endsyntax#}.
+                  {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
-      Expressions of type <code>void</code> are the only ones whose value can be ignored. For example:
+      Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example:
       </p>
       {#code_begin|test_err|expression value is ignored#}
 test "ignoring expression value" {
@@ -4172,7 +4172,7 @@ fn foo() i32 {
     return 1234;
 }
       {#code_end#}
-      <p>However, if the expression has type <code>void</code>:</p>
+      <p>However, if the expression has type {#syntax#}void{#endsyntax#}:</p>
       {#code_begin|test#}
 test "ignoring expression value" {
     foo();
@@ -4207,10 +4207,10 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
       <p>
       In Zig, types are first-class citizens. They can be assigned to variables, passed as parameters to functions,
       and returned from functions. However, they can only be used in expressions which are known at <em>compile-time</em>,
-      which is why the parameter <code>T</code> in the above snippet must be marked with <code>comptime</code>.
+      which is why the parameter {#syntax#}T{#endsyntax#} in the above snippet must be marked with {#syntax#}comptime{#endsyntax#}.
       </p>
       <p>
-      A <code>comptime</code> parameter means that:
+      A {#syntax#}comptime{#endsyntax#} parameter means that:
       </p>
       <ul>
         <li>At the callsite, the value must be known at compile-time, or it is a compile error.</li>
@@ -4255,7 +4255,7 @@ test "try to compare bools" {
 }
       {#code_end#}
       <p>
-      On the flip side, inside the function definition with the <code>comptime</code> parameter, the
+      On the flip side, inside the function definition with the {#syntax#}comptime{#endsyntax#} parameter, the
       value is known at compile-time. This means that we actually could make this work for the bool type
       if we wanted to:
       </p>
@@ -4274,12 +4274,12 @@ test "try to compare bools" {
 }
       {#code_end#}
       <p>
-      This works because Zig implicitly inlines <code>if</code> expressions when the condition
+      This works because Zig implicitly inlines {#syntax#}if{#endsyntax#} expressions when the condition
       is known at compile-time, and the compiler guarantees that it will skip analysis of
       the branch not taken.
       </p>
       <p>
-      This means that the actual function generated for <code>max</code> in this situation looks like
+      This means that the actual function generated for {#syntax#}max{#endsyntax#} in this situation looks like
       this:
       </p>
       {#code_begin|syntax#}
@@ -4292,18 +4292,18 @@ fn max(a: bool, b: bool) bool {
       the necessary run-time code to accomplish the task.
       </p>
       <p>
-      This works the same way for <code>switch</code> expressions - they are implicitly inlined
+      This works the same way for {#syntax#}switch{#endsyntax#} expressions - they are implicitly inlined
       when the target expression is compile-time known.
       </p>
       {#header_close#}
       {#header_open|Compile-Time Variables#}
       <p>
-      In Zig, the programmer can label variables as <code>comptime</code>. This guarantees to the compiler
+      In Zig, the programmer can label variables as {#syntax#}comptime{#endsyntax#}. This guarantees to the compiler
       that every load and store of the variable is performed at compile-time. Any violation of this results in a
       compile error.
       </p>
       <p>
-      This combined with the fact that we can <code>inline</code> loops allows us to write
+      This combined with the fact that we can {#syntax#}inline{#endsyntax#} loops allows us to write
       a function which is partially evaluated at compile-time and partially at run-time.
       </p>
       <p>
@@ -4346,8 +4346,8 @@ test "perform fn" {
       <p>
       This example is a bit contrived, because the compile-time evaluation component is unnecessary;
       this code would work fine if it was all done at run-time. But it does end up generating
-      different code. In this example, the function <code>performFn</code> is generated three different times,
-      for the different values of <code>prefix_char</code> provided:
+      different code. In this example, the function {#syntax#}performFn{#endsyntax#} is generated three different times,
+          for the different values of {#syntax#}prefix_char{#endsyntax#} provided:
       </p>
       {#code_begin|syntax#}
 // From the line:
@@ -4388,7 +4388,7 @@ fn performFn(start_value: i32) i32 {
       {#header_open|Compile-Time Expressions#}
       <p>
       In Zig, it matters whether a given expression is known at compile-time or run-time. A programmer can
-      use a <code>comptime</code> expression to guarantee that the expression will be evaluated at compile-time.
+      use a {#syntax#}comptime{#endsyntax#} expression to guarantee that the expression will be evaluated at compile-time.
       If this cannot be accomplished, the compiler will emit an error. For example:
       </p>
       {#code_begin|test_err|unable to evaluate constant expression#}
@@ -4401,16 +4401,16 @@ test "foo" {
 }
       {#code_end#}
       <p>
-      It doesn't make sense that a program could call <code>exit()</code> (or any other external function)
-      at compile-time, so this is a compile error. However, a <code>comptime</code> expression does much
+      It doesn't make sense that a program could call {#syntax#}exit(){#endsyntax#} (or any other external function)
+          at compile-time, so this is a compile error. However, a {#syntax#}comptime{#endsyntax#} expression does much
       more than sometimes cause a compile error.
       </p>
       <p>
-      Within a <code>comptime</code> expression:
+      Within a {#syntax#}comptime{#endsyntax#} expression:
       </p>
       <ul>
-        <li>All variables are <code>comptime</code> variables.</li>
-        <li>All <code>if</code>, <code>while</code>, <code>for</code>, and <code>switch</code>
+          <li>All variables are {#syntax#}comptime{#endsyntax#} variables.</li>
+          <li>All {#syntax#}if{#endsyntax#}, {#syntax#}while{#endsyntax#}, {#syntax#}for{#endsyntax#}, and {#syntax#}switch{#endsyntax#}
           expressions are evaluated at compile-time, or emit a compile error if this is not possible.</li>
         <li>All function calls cause the compiler to interpret the function at compile-time, emitting a
           compile error if the function tries to do something that has global run-time side effects.</li>
@@ -4487,7 +4487,7 @@ test "fibonacci" {
       {#link|@setEvalBranchQuota#} to change the default number 1000 to something else.
       </p>
       <p>
-      What if we fix the base case, but put the wrong value in the <code>assert</code> line?
+      What if we fix the base case, but put the wrong value in the {#syntax#}assert{#endsyntax#} line?
       </p>
       {#code_begin|test_err|encountered @panic at compile-time#}
 const assert = @import("std").debug.assert;
@@ -4504,16 +4504,16 @@ test "fibonacci" {
 }
       {#code_end#}
       <p>
-      What happened is Zig started interpreting the <code>assert</code> function with the
-      parameter <code>ok</code> set to <code>false</code>. When the interpreter hit
-      <code>unreachable</code> it emitted a compile error, because reaching unreachable
+      What happened is Zig started interpreting the {#syntax#}assert{#endsyntax#} function with the
+          parameter {#syntax#}ok{#endsyntax#} set to {#syntax#}false{#endsyntax#}. When the interpreter hit
+                  {#syntax#}unreachable{#endsyntax#} it emitted a compile error, because reaching unreachable
       code is undefined behavior, and undefined behavior causes a compile error if it is detected
       at compile-time.
       </p>
 
       <p>
       In the global scope (outside of any function), all expressions are implicitly
-      <code>comptime</code> expressions. This means that we can use functions to
+      {#syntax#}comptime{#endsyntax#} expressions. This means that we can use functions to
       initialize complex static data. For example:
       </p>
       {#code_begin|test#}
@@ -4561,7 +4561,7 @@ test "variable values" {
 @1 = internal unnamed_addr constant i32 1060</code></pre>
       <p>
       Note that we did not have to do anything special with the syntax of these functions. For example,
-      we could call the <code>sum</code> function as is with a slice of numbers whose length and values were
+      we could call the {#syntax#}sum{#endsyntax#} function as is with a slice of numbers whose length and values were
       only known at run-time.
       </p>
       {#header_close#}
@@ -4573,8 +4573,8 @@ test "variable values" {
       generic data structure.
       </p>
       <p>
-      Here is an example of a generic <code>List</code> data structure, that we will instantiate with
-      the type <code>i32</code>. In Zig we refer to the type as <code>List(i32)</code>.
+      Here is an example of a generic {#syntax#}List{#endsyntax#} data structure, that we will instantiate with
+          the type {#syntax#}i32{#endsyntax#}. In Zig we refer to the type as {#syntax#}List(i32){#endsyntax#}.
       </p>
       {#code_begin|syntax#}
 fn List(comptime T: type) type {
@@ -4585,8 +4585,8 @@ fn List(comptime T: type) type {
 }
       {#code_end#}
       <p>
-      That's it. It's a function that returns an anonymous <code>struct</code>. For the purposes of error messages
-      and debugging, Zig infers the name <code>"List(i32)"</code> from the function name and parameters invoked when creating
+      That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}. For the purposes of error messages
+          and debugging, Zig infers the name {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
       the anonymous struct.
       </p>
       <p>
@@ -4602,13 +4602,13 @@ const Node = struct {
       <p>
       This works because all top level declarations are order-independent, and as long as there isn't
       an actual infinite regression, values can refer to themselves, directly or indirectly. In this case,
-      <code>Node</code> refers to itself as a pointer, which is not actually an infinite regression, so
+      {#syntax#}Node{#endsyntax#} refers to itself as a pointer, which is not actually an infinite regression, so
       it works fine.
       </p>
       {#header_close#}
       {#header_open|Case Study: printf in Zig#}
       <p>
-      Putting all of this together, let's see how <code>printf</code> works in Zig.
+      Putting all of this together, let's see how {#syntax#}printf{#endsyntax#} works in Zig.
       </p>
       {#code_begin|exe|printf#}
 const warn = @import("std").debug.warn;
@@ -4709,7 +4709,7 @@ pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
 }
       {#code_end#}
       <p>
-      <code>printValue</code> is a function that takes a parameter of any type, and does different things depending
+      {#syntax#}printValue{#endsyntax#} is a function that takes a parameter of any type, and does different things depending
       on the type:
       </p>
       {#code_begin|syntax#}
@@ -4725,7 +4725,7 @@ pub fn printValue(self: *OutStream, value: var) !void {
 }
       {#code_end#}
       <p>
-      And now, what happens if we give too many arguments to <code>printf</code>?
+      And now, what happens if we give too many arguments to {#syntax#}printf{#endsyntax#}?
       </p>
       {#code_begin|test_err|Unused arguments#}
 const warn = @import("std").debug.warn;
@@ -4743,7 +4743,7 @@ test "printf too many arguments" {
       </p>
       <p>
       Zig doesn't care whether the format argument is a string literal,
-      only that it is a compile-time known value that is implicitly castable to a <code>[]const u8</code>:
+      only that it is a compile-time known value that is implicitly castable to a {#syntax#}[]const u8{#endsyntax#}:
       </p>
       {#code_begin|exe|printf#}
 const warn = @import("std").debug.warn;
@@ -4797,16 +4797,16 @@ pub fn main() void {
       </p>
       {#header_open|Minimal Coroutine Example#}
       <p>
-      Declare a coroutine with the <code>async</code> keyword.
+      Declare a coroutine with the {#syntax#}async{#endsyntax#} keyword.
       The expression in angle brackets must evaluate to a struct
       which has these fields:
       </p>
       <ul>
-        <li><code>allocFn: fn (self: *Allocator, byte_count: usize, alignment: u29) Error![]u8</code> - where <code>Error</code> can be any error set.</li>
-        <li><code>freeFn: fn (self: *Allocator, old_mem: []u8) void</code></li>
+          <li>{#syntax#}allocFn: fn (self: *Allocator, byte_count: usize, alignment: u29) Error![]u8{#endsyntax#} - where {#syntax#}Error{#endsyntax#} can be any error set.</li>
+          <li>{#syntax#}freeFn: fn (self: *Allocator, old_mem: []u8) void{#endsyntax#}</li>
       </ul>
       <p>
-      You may notice that this corresponds to the <code>std.mem.Allocator</code> interface.
+      You may notice that this corresponds to the {#syntax#}std.mem.Allocator{#endsyntax#} interface.
       This makes it convenient to integrate with existing allocators. Note, however,
       that the language feature does not depend on the standard library, and any struct which
       has these fields is allowed.
@@ -4816,13 +4816,13 @@ pub fn main() void {
       the function generic. Zig will infer the allocator type when the async function is called.
       </p>
       <p>
-      Call a coroutine with the <code>async</code> keyword. Here, the expression in angle brackets
+      Call a coroutine with the {#syntax#}async{#endsyntax#} keyword. Here, the expression in angle brackets
       is a pointer to the allocator struct that the coroutine expects.
       </p>
       <p>
-      The result of an async function call is a <code>promise->T</code> type, where <code>T</code>
+      The result of an async function call is a {#syntax#}promise->T{#endsyntax#} type, where {#syntax#}T{#endsyntax#}
       is the return type of the async function. Once a promise has been created, it must be
-      consumed, either with <code>cancel</code> or <code>await</code>:
+      consumed, either with {#syntax#}cancel{#endsyntax#} or {#syntax#}await{#endsyntax#}:
       </p>
       <p>
       Async functions start executing when created, so in the following example, the entire
@@ -4911,18 +4911,18 @@ async fn testSuspendBlock() void {
       {#code_end#}
       <p>
       Every suspend point in an async function represents a point at which the coroutine
-      could be destroyed. If that happens, <code>defer</code> expressions that are in
-      scope are run, as well as <code>errdefer</code> expressions.
+      could be destroyed. If that happens, {#syntax#}defer{#endsyntax#} expressions that are in
+          scope are run, as well as {#syntax#}errdefer{#endsyntax#} expressions.
       </p>
       <p>
       {#link|Await#} counts as a suspend point.
       </p>
       {#header_open|Resuming from Suspend Blocks#}
       <p>
-      Upon entering a <code>suspend</code> block, the coroutine is already considered
+      Upon entering a {#syntax#}suspend{#endsyntax#} block, the coroutine is already considered
       suspended, and can be resumed. For example, if you started another kernel thread,
-      and had that thread call <code>resume</code> on the promise handle provided by the
-      <code>suspend</code> block, the new thread would begin executing after the suspend
+      and had that thread call {#syntax#}resume{#endsyntax#} on the promise handle provided by the
+          {#syntax#}suspend{#endsyntax#} block, the new thread would begin executing after the suspend
       block, while the old thread continued executing the suspend block.
       </p>
       <p>
@@ -4957,26 +4957,26 @@ async fn testResumeFromSuspend(my_result: *i32) void {
       {#header_close#}
       {#header_open|Await#}
       <p>
-      The <code>await</code> keyword is used to coordinate with an async function's
-      <code>return</code> statement.
+      The {#syntax#}await{#endsyntax#} keyword is used to coordinate with an async function's
+          {#syntax#}return{#endsyntax#} statement.
       </p>
       <p>
-      <code>await</code> is valid only in an <code>async</code> function, and it takes
+      {#syntax#}await{#endsyntax#} is valid only in an {#syntax#}async{#endsyntax#} function, and it takes
       as an operand a promise handle.
       If the async function associated with the promise handle has already returned, 
-      then <code>await</code> destroys the target async function, and gives the return value.
-      Otherwise, <code>await</code> suspends the current async function, registering its
+      then {#syntax#}await{#endsyntax#} destroys the target async function, and gives the return value.
+          Otherwise, {#syntax#}await{#endsyntax#} suspends the current async function, registering its
       promise handle with the target coroutine. It becomes the target coroutine's responsibility
       to have ensured that it will be resumed or destroyed. When the target coroutine reaches
       its return statement, it gives the return value to the awaiter, destroys itself, and then
       resumes the awaiter.
       </p>
       <p>
-      A promise handle must be consumed exactly once after it is created, either by <code>cancel</code> or <code>await</code>.
+      A promise handle must be consumed exactly once after it is created, either by {#syntax#}cancel{#endsyntax#} or {#syntax#}await{#endsyntax#}.
       </p>
       <p>
-      <code>await</code> counts as a suspend point, and therefore at every <code>await</code>,
-      a coroutine can be potentially destroyed, which would run <code>defer</code> and <code>errdefer</code> expressions.
+      {#syntax#}await{#endsyntax#} counts as a suspend point, and therefore at every {#syntax#}await{#endsyntax#},
+              a coroutine can be potentially destroyed, which would run {#syntax#}defer{#endsyntax#} and {#syntax#}errdefer{#endsyntax#} expressions.
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -5020,9 +5020,9 @@ fn seq(c: u8) void {
 }
       {#code_end#}
       <p>
-      In general, <code>suspend</code> is lower level than <code>await</code>. Most application
-      code will use only <code>async</code> and <code>await</code>, but event loop
-      implementations will make use of <code>suspend</code> internally.
+      In general, {#syntax#}suspend{#endsyntax#} is lower level than {#syntax#}await{#endsyntax#}. Most application
+              code will use only {#syntax#}async{#endsyntax#} and {#syntax#}await{#endsyntax#}, but event loop
+                      implementations will make use of {#syntax#}suspend{#endsyntax#} internally.
       </p>
       {#header_close#}
       {#header_open|Open Issues#}
@@ -5052,36 +5052,36 @@ fn seq(c: u8) void {
       {#header_open|Builtin Functions#}
       <p>
       Builtin functions are provided by the compiler and are prefixed with <code>@</code>.
-      The <code>comptime</code> keyword on a parameter means that the parameter must be known
+      The {#syntax#}comptime{#endsyntax#} keyword on a parameter means that the parameter must be known
       at compile time.
       </p>
       {#header_open|@addWithOverflow#}
-      <pre><code class="zig">@addWithOverflow(comptime T: type, a: T, b: T, result: *T) bool</code></pre>
+      <pre>{#syntax#}@addWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
       <p>
-      Performs <code>result.* = a + b</code>. If overflow or underflow occurs,
-      stores the overflowed bits in <code>result</code> and returns <code>true</code>.
-      If no overflow or underflow occurs, returns <code>false</code>.
+      Performs {#syntax#}result.* = a + b{#endsyntax#}. If overflow or underflow occurs,
+          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
+                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@ArgType#}
-      <pre><code class="zig">@ArgType(comptime T: type, comptime n: usize) type</code></pre>
+      <pre>{#syntax#}@ArgType(comptime T: type, comptime n: usize) type{#endsyntax#}</pre>
       <p>
-      This builtin function takes a function type and returns the type of the parameter at index <code>n</code>.
+      This builtin function takes a function type and returns the type of the parameter at index {#syntax#}n{#endsyntax#}.
       </p>
       <p>
-      <code>T</code> must be a function type.
+      {#syntax#}T{#endsyntax#} must be a function type.
       </p>
       <p>
       Note: This function is deprecated. Use {#link|@typeInfo#} instead.
       </p>
       {#header_close#}
       {#header_open|@atomicLoad#}
-      <pre><code class="zig">@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: builtin.AtomicOrder) T</code></pre>
+      <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      <code>T</code> must be a pointer type, a <code>bool</code>,
+      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#},
       or an integer whose bit count meets these requirements:
       </p>
       <ul>
@@ -5095,12 +5095,12 @@ fn seq(c: u8) void {
       </p>
       {#header_close#}
       {#header_open|@atomicRmw#}
-      <pre><code class="zig">@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T</code></pre>
+      <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
       This builtin function atomically modifies memory and then returns the previous value.
       </p>
       <p>
-      <code>T</code> must be a pointer type, a <code>bool</code>,
+      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#},
       or an integer whose bit count meets these requirements:
       </p>
       <ul>
@@ -5114,29 +5114,29 @@ fn seq(c: u8) void {
       </p>
       {#header_close#}
       {#header_open|@bitCast#}
-      <pre><code class="zig">@bitCast(comptime DestType: type, value: var) DestType</code></pre>
+      <pre>{#syntax#}@bitCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
       <p>
       Converts a value of one type to another type.
       </p>
       <p>
-      Asserts that <code>@sizeOf(@typeOf(value)) == @sizeOf(DestType)</code>.
+      Asserts that {#syntax#}@sizeOf(@typeOf(value)) == @sizeOf(DestType){#endsyntax#}.
       </p>
       <p>
-      Asserts that <code>@typeId(DestType) != @import("builtin").TypeId.Pointer</code>. Use <code>@ptrCast</code> or <code>@intToPtr</code> if you need this.
+      Asserts that {#syntax#}@typeId(DestType) != @import("builtin").TypeId.Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@intToPtr{#endsyntax#} if you need this.
       </p>
       <p>
       Can be used for these things for example:
       </p>
       <ul>
-        <li>Convert <code>f32</code> to <code>u32</code> bits</li>
-        <li>Convert <code>i32</code> to <code>u32</code> preserving twos complement</li>
+          <li>Convert {#syntax#}f32{#endsyntax#} to {#syntax#}u32{#endsyntax#} bits</li>
+          <li>Convert {#syntax#}i32{#endsyntax#} to {#syntax#}u32{#endsyntax#} preserving twos complement</li>
       </ul>
       <p>
-      Works at compile-time if <code>value</code> is known at compile time. It's a compile error to bitcast a struct to a scalar type of the same size since structs have undefined layout. However if the struct is packed then it works.
+      Works at compile-time if {#syntax#}value{#endsyntax#} is known at compile time. It's a compile error to bitcast a struct to a scalar type of the same size since structs have undefined layout. However if the struct is packed then it works.
       </p>
       {#header_close#}
       {#header_open|@breakpoint#}
-      <pre><code class="zig">@breakpoint()</code></pre>
+      <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
       <p>
       This function inserts a platform-specific debug trap instruction which causes
       debuggers to break there.
@@ -5147,10 +5147,10 @@ fn seq(c: u8) void {
 
       {#header_close#}
       {#header_open|@alignCast#}
-      <pre><code class="zig">@alignCast(comptime alignment: u29, ptr: var) var</code></pre>
+      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: var) var{#endsyntax#}</pre>
       <p>
-      <code>ptr</code> can be <code>*T</code>, <code>fn()</code>, <code>?*T</code>,
-      <code>?fn()</code>, or <code>[]T</code>. It returns the same type as <code>ptr</code>
+      {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}fn(){#endsyntax#}, {#syntax#}?*T{#endsyntax#},
+                      {#syntax#}?fn(){#endsyntax#}, or {#syntax#}[]T{#endsyntax#}. It returns the same type as {#syntax#}ptr{#endsyntax#}
       except with the alignment adjusted to the new value.
       </p>
       <p>A {#link|pointer alignment safety check|Incorrect Pointer Alignment#} is added
@@ -5158,16 +5158,16 @@ fn seq(c: u8) void {
 
       {#header_close#}
       {#header_open|@alignOf#}
-      <pre><code class="zig">@alignOf(comptime T: type) comptime_int</code></pre>
+      <pre>{#syntax#}@alignOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the number of bytes that this type should be aligned to
       for the current target to match the C ABI. When the child type of a pointer has
       this alignment, the alignment can be omitted from the type.
       </p>
-      <pre><code class="zig">const assert = @import("std").debug.assert;
+      <pre>{#syntax#}const assert = @import("std").debug.assert;
 comptime {
     assert(*u32 == *align(@alignOf(u32)) u32);
-}</code></pre>
+}{#endsyntax#}</pre>
       <p>
       The result is a target-specific compile time constant. It is guaranteed to be
       less than or equal to {#link|@sizeOf(T)|@sizeOf#}.
@@ -5176,21 +5176,21 @@ comptime {
       {#header_close#}
 
       {#header_open|@boolToInt#}
-      <pre><code class="zig">@boolToInt(value: bool) u1</code></pre>
+      <pre>{#syntax#}@boolToInt(value: bool) u1{#endsyntax#}</pre>
       <p>
-      Converts <code>true</code> to <code>u1(1)</code> and <code>false</code> to
-      <code>u1(0)</code>.
+      Converts {#syntax#}true{#endsyntax#} to {#syntax#}u1(1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
+                  {#syntax#}u1(0){#endsyntax#}.
       </p>
       <p>
-      If the value is known at compile-time, the return type is <code>comptime_int</code>
-      instead of <code>u1</code>.
+      If the value is known at compile-time, the return type is {#syntax#}comptime_int{#endsyntax#}
+          instead of {#syntax#}u1{#endsyntax#}.
       </p>
       {#header_close#}
 
       {#header_open|@bytesToSlice#}
-      <pre><code class="zig">@bytesToSlice(comptime Element: type, bytes: []u8) []Element</code></pre>
+      <pre>{#syntax#}@bytesToSlice(comptime Element: type, bytes: []u8) []Element{#endsyntax#}</pre>
       <p>
-      Converts a slice of bytes or array of bytes into a slice of <code>Element</code>.
+      Converts a slice of bytes or array of bytes into a slice of {#syntax#}Element{#endsyntax#}.
       The resulting slice has the same {#link|pointer|Pointers#} properties as the parameter.
       </p>
       <p>
@@ -5200,12 +5200,12 @@ comptime {
       {#header_close#}
 
       {#header_open|@cDefine#}
-      <pre><code class="zig">@cDefine(comptime name: []u8, value)</code></pre>
+      <pre>{#syntax#}@cDefine(comptime name: []u8, value){#endsyntax#}</pre>
       <p>
-      This function can only occur inside <code>@cImport</code>.
+      This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
       <p>
-      This appends <code>#define $name $value</code> to the <code>@cImport</code>
+      This appends <code>#define $name $value</code> to the {#syntax#}@cImport{#endsyntax#}
       temporary buffer.
       </p>
       <p>
@@ -5215,72 +5215,72 @@ comptime {
       <p>
       Use the void value, like this:
       </p>
-      <pre><code class="zig">@cDefine("_GNU_SOURCE", {})</code></pre>
+      <pre>{#syntax#}@cDefine("_GNU_SOURCE", {}){#endsyntax#}</pre>
       {#see_also|Import from C Header File|@cInclude|@cImport|@cUndef|void#}
       {#header_close#}
       {#header_open|@cImport#}
-      <pre><code class="zig">@cImport(expression) (namespace)</code></pre>
+      <pre>{#syntax#}@cImport(expression) (namespace){#endsyntax#}</pre>
       <p>
       This function parses C code and imports the functions, types, variables, and
       compatible macro definitions into the result namespace.
       </p>
       <p>
-      <code>expression</code> is interpreted at compile time. The builtin functions
-      <code>@cInclude</code>, <code>@cDefine</code>, and <code>@cUndef</code> work
+      {#syntax#}expression{#endsyntax#} is interpreted at compile time. The builtin functions
+          {#syntax#}@cInclude{#endsyntax#}, {#syntax#}@cDefine{#endsyntax#}, and {#syntax#}@cUndef{#endsyntax#} work
       within this expression, appending to a temporary buffer which is then parsed as C code.
       </p>
       <p>
-      Usually you should only have one <code>@cImport</code> in your entire application, because it saves the compiler
+      Usually you should only have one {#syntax#}@cImport{#endsyntax#} in your entire application, because it saves the compiler
       from invoking clang multiple times, and prevents inline functions from being duplicated.
       </p>
       <p>
-      Reasons for having multiple <code>@cImport</code> expressions would be:
+      Reasons for having multiple {#syntax#}@cImport{#endsyntax#} expressions would be:
       </p>
       <ul>
-        <li>To avoid a symbol collision, for example if foo.h and bar.h both <code>#define CONNECTION_COUNT</code></li>
+          <li>To avoid a symbol collision, for example if foo.h and bar.h both <code>#define CONNECTION_COUNT</code></li>
         <li>To analyze the C code with different preprocessor defines</li>
       </ul>
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
-      <pre><code class="zig">@cInclude(comptime path: []u8)</code></pre>
+      <pre>{#syntax#}@cInclude(comptime path: []u8){#endsyntax#}</pre>
       <p>
-      This function can only occur inside <code>@cImport</code>.
+      This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
       <p>
-      This appends <code>#include <$path>\n</code> to the <code>c_import</code>
+      This appends <code>#include <$path>\n</code> to the {#syntax#}c_import{#endsyntax#}
       temporary buffer.
       </p>
       {#see_also|Import from C Header File|@cImport|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cUndef#}
-      <pre><code class="zig">@cUndef(comptime name: []u8)</code></pre>
+      <pre>{#syntax#}@cUndef(comptime name: []u8){#endsyntax#}</pre>
       <p>
-      This function can only occur inside <code>@cImport</code>.
+      This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
       <p>
-      This appends <code>#undef $name</code> to the <code>@cImport</code>
+      This appends <code>#undef $name</code> to the {#syntax#}@cImport{#endsyntax#}
       temporary buffer.
       </p>
       {#see_also|Import from C Header File|@cImport|@cDefine|@cInclude#}
       {#header_close#}
       {#header_open|@clz#}
-      <pre><code class="zig">@clz(x: T) U</code></pre>
+      <pre>{#syntax#}@clz(x: T) U{#endsyntax#}</pre>
       <p>
-      This function counts the number of leading zeroes in <code>x</code> which is an integer
-      type <code>T</code>.
+      This function counts the number of leading zeroes in {#syntax#}x{#endsyntax#} which is an integer
+          type {#syntax#}T{#endsyntax#}.
       </p>
       <p>
-      The return type <code>U</code> is an unsigned integer with the minimum number
-      of bits that can represent the value <code>T.bit_count</code>.
+      The return type {#syntax#}U{#endsyntax#} is an unsigned integer with the minimum number
+          of bits that can represent the value {#syntax#}T.bit_count{#endsyntax#}.
       </p>
       <p>
-      If <code>x</code> is zero, <code>@clz</code> returns <code>T.bit_count</code>.
+      If {#syntax#}x{#endsyntax#} is zero, {#syntax#}@clz{#endsyntax#} returns {#syntax#}T.bit_count{#endsyntax#}.
       </p>
       {#see_also|@ctz|@popCount#}
       {#header_close#}
       {#header_open|@cmpxchgStrong#}
-      <pre><code class="zig">@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T</code></pre>
+      <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
       This function performs a strong atomic compare exchange operation. It's the equivalent of this code,
       except atomic:
@@ -5301,13 +5301,13 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       more efficiently in machine instructions.
       </p>
       <p>
-      <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
+      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
       </p>
-      <p><code>@typeOf(ptr).alignment</code> must be <code>&gt;= @sizeOf(T).</code></p>
+      <p>{#syntax#}@typeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgWeak#}
       {#header_close#}
       {#header_open|@cmpxchgWeak#}
-      <pre><code class="zig">@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T</code></pre>
+      <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
       This function performs a weak atomic compare exchange operation. It's the equivalent of this code,
       except atomic:
@@ -5324,30 +5324,30 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
 }
       {#code_end#}
       <p>
-      If you are using cmpxchg in a loop, the sporadic failure will be no problem, and <code>cmpxchgWeak</code>
+      If you are using cmpxchg in a loop, the sporadic failure will be no problem, and {#syntax#}cmpxchgWeak{#endsyntax#}
       is the better choice, because it can be implemented more efficiently in machine instructions.
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
       <p>
-      <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
+      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
       </p>
-      <p><code>@typeOf(ptr).alignment</code> must be <code>&gt;= @sizeOf(T).</code></p>
+      <p>{#syntax#}@typeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgStrong#}
       {#header_close#}
       {#header_open|@compileError#}
-      <pre><code class="zig">@compileError(comptime msg: []u8)</code></pre>
+      <pre>{#syntax#}@compileError(comptime msg: []u8){#endsyntax#}</pre>
       <p>
       This function, when semantically analyzed, causes a compile error with the
-      message <code>msg</code>.
+      message {#syntax#}msg{#endsyntax#}.
       </p>
       <p>
       There are several ways that code avoids being semantically checked, such as
-      using <code>if</code> or <code>switch</code> with compile time constants,
-      and <code>comptime</code> functions.
+      using {#syntax#}if{#endsyntax#} or {#syntax#}switch{#endsyntax#} with compile time constants,
+              and {#syntax#}comptime{#endsyntax#} functions.
       </p>
       {#header_close#}
       {#header_open|@compileLog#}
-      <pre><code class="zig">@compileLog(args: ...)</code></pre>
+      <pre>{#syntax#}@compileLog(args: ...){#endsyntax#}</pre>
       <p>
       This function prints the arguments passed to it at compile-time.
       </p>
@@ -5382,7 +5382,7 @@ test "main" {
       will ouput:
       </p>
       <p>
-      If all <code>@compileLog</code> calls are removed or 
+      If all {#syntax#}@compileLog{#endsyntax#} calls are removed or 
       not encountered by analysis, the
       program compiles successfully and the generated executable prints:
       </p>  
@@ -5401,88 +5401,88 @@ test "main" {
       {#code_end#}
       {#header_close#}
       {#header_open|@ctz#}
-      <pre><code class="zig">@ctz(x: T) U</code></pre>
+      <pre>{#syntax#}@ctz(x: T) U{#endsyntax#}</pre>
       <p>
-      This function counts the number of trailing zeroes in <code>x</code> which is an integer
-      type <code>T</code>.
+      This function counts the number of trailing zeroes in {#syntax#}x{#endsyntax#} which is an integer
+          type {#syntax#}T{#endsyntax#}.
       </p>
       <p>
-      The return type <code>U</code> is an unsigned integer with the minimum number
-      of bits that can represent the value <code>T.bit_count</code>.
+      The return type {#syntax#}U{#endsyntax#} is an unsigned integer with the minimum number
+          of bits that can represent the value {#syntax#}T.bit_count{#endsyntax#}.
       </p>
       <p>
-      If <code>x</code> is zero, <code>@ctz</code> returns <code>T.bit_count</code>.
+      If {#syntax#}x{#endsyntax#} is zero, {#syntax#}@ctz{#endsyntax#} returns {#syntax#}T.bit_count{#endsyntax#}.
       </p>
       {#see_also|@clz|@popCount#}
       {#header_close#}
       {#header_open|@divExact#}
-      <pre><code class="zig">@divExact(numerator: T, denominator: T) T</code></pre>
+      <pre>{#syntax#}@divExact(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
-      Exact division. Caller guarantees <code>denominator != 0</code> and
-      <code>@divTrunc(numerator, denominator) * denominator == numerator</code>.
+      Exact division. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
+          {#syntax#}@divTrunc(numerator, denominator) * denominator == numerator{#endsyntax#}.
       </p>
       <ul>
-        <li><code>@divExact(6, 3) == 2</code></li>
-        <li><code>@divExact(a, b) * b == a</code></li>
+          <li>{#syntax#}@divExact(6, 3) == 2{#endsyntax#}</li>
+          <li>{#syntax#}@divExact(a, b) * b == a{#endsyntax#}</li>
       </ul>
-      <p>For a function that returns a possible error code, use <code>@import("std").math.divExact</code>.</p>
+      <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divExact{#endsyntax#}.</p>
       {#see_also|@divTrunc|@divFloor#}
       {#header_close#}
       {#header_open|@divFloor#}
-      <pre><code class="zig">@divFloor(numerator: T, denominator: T) T</code></pre>
+      <pre>{#syntax#}@divFloor(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Floored division. Rounds toward negative infinity. For unsigned integers it is
-      the same as <code>numerator / denominator</code>. Caller guarantees <code>denominator != 0</code> and
-      <code>!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)</code>.
+      the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
+              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
-        <li><code>@divFloor(-5, 3) == -2</code></li>
-        <li><code>@divFloor(a, b) + @mod(a, b) == a</code></li>
+          <li>{#syntax#}@divFloor(-5, 3) == -2{#endsyntax#}</li>
+          <li>{#syntax#}@divFloor(a, b) + @mod(a, b) == a{#endsyntax#}</li>
       </ul>
-      <p>For a function that returns a possible error code, use <code>@import("std").math.divFloor</code>.</p>
+      <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divFloor{#endsyntax#}.</p>
       {#see_also|@divTrunc|@divExact#}
       {#header_close#}
       {#header_open|@divTrunc#}
-      <pre><code class="zig">@divTrunc(numerator: T, denominator: T) T</code></pre>
+      <pre>{#syntax#}@divTrunc(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Truncated division. Rounds toward zero. For unsigned integers it is
-      the same as <code>numerator / denominator</code>. Caller guarantees <code>denominator != 0</code> and
-      <code>!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)</code>.
+      the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
+              {#syntax#}!(@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
-        <li><code>@divTrunc(-5, 3) == -1</code></li>
-        <li><code>@divTrunc(a, b) + @rem(a, b) == a</code></li>
+          <li>{#syntax#}@divTrunc(-5, 3) == -1{#endsyntax#}</li>
+          <li>{#syntax#}@divTrunc(a, b) + @rem(a, b) == a{#endsyntax#}</li>
       </ul>
-      <p>For a function that returns a possible error code, use <code>@import("std").math.divTrunc</code>.</p>
+      <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divTrunc{#endsyntax#}.</p>
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
       {#header_open|@embedFile#}
-      <pre><code class="zig">@embedFile(comptime path: []const u8) [X]u8</code></pre>
+      <pre>{#syntax#}@embedFile(comptime path: []const u8) [X]u8{#endsyntax#}</pre>
       <p>
       This function returns a compile time constant fixed-size array with length
-      equal to the byte count of the file given by <code>path</code>. The contents of the array
+      equal to the byte count of the file given by {#syntax#}path{#endsyntax#}. The contents of the array
       are the contents of the file.
       </p>
       <p>
-      <code>path</code> is absolute or relative to the current file, just like <code>@import</code>.
+      {#syntax#}path{#endsyntax#} is absolute or relative to the current file, just like {#syntax#}@import{#endsyntax#}.
       </p>
       {#see_also|@import#}
       {#header_close#}
 
       {#header_open|@enumToInt#}
-      <pre><code class="zig">@enumToInt(enum_value: var) var</code></pre>
+      <pre>{#syntax#}@enumToInt(enum_value: var) var{#endsyntax#}</pre>
       <p>
       Converts an enumeration value into its integer tag type.
       </p>
       <p>
-      If the enum has only 1 possible value, the resut is a <code class="zig">comptime_int</code>
+      If the enum has only 1 possible value, the resut is a {#syntax#}comptime_int{#endsyntax#}
       known at {#link|comptime#}.
       </p>
       {#see_also|@intToEnum#}
       {#header_close#}
 
       {#header_open|@errSetCast#}
-      <pre><code class="zig">@errSetCast(comptime T: DestType, value: var) DestType</code></pre>
+      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: var) DestType{#endsyntax#}</pre>
       <p>
       Converts an error value from one error set to another error set. Attempting to convert an error
       which is not in the destination error set results in safety-protected {#link|Undefined Behavior#}.
@@ -5490,24 +5490,24 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorName#}
-      <pre><code class="zig">@errorName(err: error) []u8</code></pre>
+      <pre>{#syntax#}@errorName(err: error) []u8{#endsyntax#}</pre>
       <p>
       This function returns the string representation of an error. If an error
       declaration is:
       </p>
-      <pre><code class="zig">error OutOfMem</code></pre>
+      <pre>{#syntax#}error OutOfMem{#endsyntax#}</pre>
       <p>
-      Then the string representation is <code>"OutOfMem"</code>.
+      Then the string representation is {#syntax#}"OutOfMem"{#endsyntax#}.
       </p>
       <p>
-      If there are no calls to <code>@errorName</code> in an entire application,
-      or all calls have a compile-time known value for <code>err</code>, then no
+      If there are no calls to {#syntax#}@errorName{#endsyntax#} in an entire application,
+          or all calls have a compile-time known value for {#syntax#}err{#endsyntax#}, then no
       error name table will be generated.
       </p>
       {#header_close#}
 
       {#header_open|@errorReturnTrace#}
-      <pre><code class="zig">@errorReturnTrace() ?*builtin.StackTrace</code></pre>
+      <pre>{#syntax#}@errorReturnTrace() ?*builtin.StackTrace{#endsyntax#}</pre>
       <p>
       If the binary is built with error return tracing, and this function is invoked in a
       function that calls a function with an error or error union return type, returns a
@@ -5516,13 +5516,13 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorToInt#}
-      <pre><code class="zig">@errorToInt(err: var) @IntType(false, @sizeOf(error) * 8)</code></pre>
+      <pre>{#syntax#}@errorToInt(err: var) @IntType(false, @sizeOf(error) * 8){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
       <ul>
           <li>error unions</li>
-          <li><code>E!void</code></li>
+          <li>{#syntax#}E!void{#endsyntax#}</li>
       </ul>
       <p>
       Converts an error to the integer representation of an error.
@@ -5535,38 +5535,41 @@ test "main" {
       {#header_close#}
 
       {#header_open|@export#}
-      <pre><code class="zig">@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) []const u8</code></pre>
+      <pre>{#syntax#}@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) []const u8{#endsyntax#}</pre>
       <p>
       Creates a symbol in the output object file.
       </p>
       {#header_close#}
 
       {#header_open|@fence#}
-      <pre><code class="zig">@fence(order: AtomicOrder)</code></pre>
+      <pre>{#syntax#}@fence(order: AtomicOrder){#endsyntax#}</pre>
       <p>
-      The <code>fence</code> function is used to introduce happens-before edges between operations.
+      The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
       </p>
       <p>
-      <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
+      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
       </p>
       {#see_also|Compile Variables#}
       {#header_close#}
 
       {#header_open|@field#}
-      <pre><code class="zig">@field(lhs: var, comptime field_name: []const u8) (field)</code></pre>
-      <p>Preforms field access equivalent to <code>lhs.-&gtfield_name-&lt</code>.</p>
+      <pre>{#syntax#}@field(lhs: var, comptime field_name: []const u8) (field){#endsyntax#}</pre>
+      <p>Preforms field access equivalent to {#syntax#}lhs.field_name{#endsyntax#}, except instead
+      of the field {#syntax#}"field_name"{#endsyntax#}, it accesses the field named by the string
+      value of {#syntax#}field_name{#endsyntax#}.
+      </p>
       {#header_close#}
 
       {#header_open|@fieldParentPtr#}
-      <pre><code class="zig">@fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8,
-    field_ptr: *T) *ParentType</code></pre>
+      <pre>{#syntax#}@fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8,
+    field_ptr: *T) *ParentType{#endsyntax#}</pre>
       <p>
       Given a pointer to a field, returns the base pointer of a struct.
       </p>
       {#header_close#}
 
       {#header_open|@floatCast#}
-      <pre><code class="zig">@floatCast(comptime DestType: type, value: var) DestType</code></pre>
+      <pre>{#syntax#}@floatCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
       <p>
       Convert from one float type to another. This cast is safe, but may cause the
       numeric value to lose precision.
@@ -5574,7 +5577,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@floatToInt#}
-      <pre><code class="zig">@floatToInt(comptime DestType: type, float: var) DestType</code></pre>
+      <pre>{#syntax#}@floatToInt(comptime DestType: type, float: var) DestType{#endsyntax#}</pre>
       <p>
       Converts the integer part of a floating point number to the destination type.
       </p>
@@ -5586,7 +5589,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@frameAddress#}
-      <pre><code class="zig">@frameAddress()</code></pre>
+      <pre>{#syntax#}@frameAddress(){#endsyntax#}</pre>
       <p>
       This function returns the base pointer of the current stack frame.
       </p>
@@ -5600,9 +5603,9 @@ test "main" {
       </p>
       {#header_close#}
       {#header_open|@handle#}
-      <pre><code class="zig">@handle()</code></pre>
+      <pre>{#syntax#}@handle(){#endsyntax#}</pre>
       <p>
-      This function returns a <code>promise->T</code> type, where <code>T</code>
+      This function returns a {#syntax#}promise->T{#endsyntax#} type, where {#syntax#}T{#endsyntax#}
       is the return type of the async function in scope.
       </p>
       <p>
@@ -5610,27 +5613,27 @@ test "main" {
       </p>
       {#header_close#}
       {#header_open|@import#}
-      <pre><code class="zig">@import(comptime path: []u8) (namespace)</code></pre>
+      <pre>{#syntax#}@import(comptime path: []u8) (namespace){#endsyntax#}</pre>
       <p>
-      This function finds a zig file corresponding to <code>path</code> and imports all the
+      This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and imports all the
       public top level declarations into the resulting namespace.
       </p>
       <p>
-      <code>path</code> can be a relative or absolute path, or it can be the name of a package.
-      If it is a relative path, it is relative to the file that contains the <code>@import</code>
+      {#syntax#}path{#endsyntax#} can be a relative or absolute path, or it can be the name of a package.
+          If it is a relative path, it is relative to the file that contains the {#syntax#}@import{#endsyntax#}
       function call.
       </p>
       <p>
       The following packages are always available:
       </p>
       <ul>
-        <li><code>@import("std")</code> - Zig Standard Library</li>
-        <li><code>@import("builtin")</code> - Compiler-provided types and variables</li>
+          <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Compiler-provided types and variables</li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
       {#header_open|@inlineCall#}
-      <pre><code class="zig">@inlineCall(function: X, args: ...) Y</code></pre>
+      <pre>{#syntax#}@inlineCall(function: X, args: ...) Y{#endsyntax#}</pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does:
       </p>
@@ -5644,14 +5647,14 @@ test "inline function call" {
 fn add(a: i32, b: i32) i32 { return a + b; }
       {#code_end#}
       <p>
-      Unlike a normal function call, however, <code>@inlineCall</code> guarantees that the call
+      Unlike a normal function call, however, {#syntax#}@inlineCall{#endsyntax#} guarantees that the call
       will be inlined. If the call cannot be inlined, a compile error is emitted.
       </p>
       {#see_also|@noInlineCall#}
       {#header_close#}
 
       {#header_open|@intCast#}
-      <pre><code class="zig">@intCast(comptime DestType: type, int: var) DestType</code></pre>
+      <pre>{#syntax#}@intCast(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer to another integer while keeping the same numerical value.
       Attempting to convert a number which is out of range of the destination type results in
@@ -5660,7 +5663,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@intToEnum#}
-      <pre><code class="zig">@intToEnum(comptime DestType: type, int_value: @TagType(DestType)) DestType</code></pre>
+      <pre>{#syntax#}@intToEnum(comptime DestType: type, int_value: @TagType(DestType)) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer into an {#link|enum#} value.
       </p>
@@ -5672,7 +5675,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@intToError#}
-      <pre><code class="zig">@intToError(value: @IntType(false, @sizeOf(error) * 8)) error</code></pre>
+      <pre>{#syntax#}@intToError(value: @IntType(false, @sizeOf(error) * 8)) error{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into the global error set type.
       </p>
@@ -5688,36 +5691,36 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@intToFloat#}
-      <pre><code class="zig">@intToFloat(comptime DestType: type, int: var) DestType</code></pre>
+      <pre>{#syntax#}@intToFloat(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer to the closest floating point representation. To convert the other way, use {#link|@floatToInt#}. This cast is always safe.
       </p>
       {#header_close#}
 
       {#header_open|@intToPtr#}
-      <pre><code class="zig">@intToPtr(comptime DestType: type, int: usize) DestType</code></pre>
+      <pre>{#syntax#}@intToPtr(comptime DestType: type, int: usize) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer to a pointer. To convert the other way, use {#link|@ptrToInt#}.
       </p>
       {#header_close#}
 
       {#header_open|@IntType#}
-      <pre><code class="zig">@IntType(comptime is_signed: bool, comptime bit_count: u32) type</code></pre>
+      <pre>{#syntax#}@IntType(comptime is_signed: bool, comptime bit_count: u32) type{#endsyntax#}</pre>
       <p>
       This function returns an integer type with the given signness and bit count.
       </p>
       {#header_close#}
       {#header_open|@maxValue#}
-      <pre><code class="zig">@maxValue(comptime T: type) comptime_int</code></pre>
+      <pre>{#syntax#}@maxValue(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
-      This function returns the maximum value of the integer type <code>T</code>.
+      This function returns the maximum value of the integer type {#syntax#}T{#endsyntax#}.
       </p>
       <p>
       The result is a compile time constant.
       </p>
       {#header_close#}
       {#header_open|@memberCount#}
-      <pre><code class="zig">@memberCount(comptime T: type) comptime_int</code></pre>
+      <pre>{#syntax#}@memberCount(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the number of members in a struct, enum, or union type.
       </p>
@@ -5729,7 +5732,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       {#header_close#}
       {#header_open|@memberName#}
-      <pre><code class="zig">@memberName(comptime T: type, comptime index: usize) [N]u8</code></pre>
+      <pre>{#syntax#}@memberName(comptime T: type, comptime index: usize) [N]u8{#endsyntax#}</pre>
       <p>Returns the field name of a struct, union, or enum.</p>
       <p>
       The result is a compile time constant.
@@ -5739,46 +5742,46 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       {#header_close#}
       {#header_open|@memberType#}
-      <pre><code class="zig">@memberType(comptime T: type, comptime index: usize) type</code></pre>
+      <pre>{#syntax#}@memberType(comptime T: type, comptime index: usize) type{#endsyntax#}</pre>
       <p>Returns the field type of a struct or union.</p>
       {#header_close#}
       {#header_open|@memcpy#}
-      <pre><code class="zig">@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize)</code></pre>
+      <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize){#endsyntax#}</pre>
       <p>
-      This function copies bytes from one region of memory to another. <code>dest</code> and
-      <code>source</code> are both pointers and must not overlap.
+      This function copies bytes from one region of memory to another. {#syntax#}dest{#endsyntax#} and
+          {#syntax#}source{#endsyntax#} are both pointers and must not overlap.
       </p>
       <p>
       This function is a low level intrinsic with no safety mechanisms. Most code
       should not use this function, instead using something like this:
       </p>
-      <pre><code class="zig">for (source[0...byte_count]) |b, i| dest[i] = b;</code></pre>
+      <pre>{#syntax#}for (source[0...byte_count]) |b, i| dest[i] = b;{#endsyntax#}</pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memcpy.
       </p>
       <p>There is also a standard library function for this:</p>
-      <pre><code class="zig">const mem = @import("std").mem;
-mem.copy(u8, dest[0...byte_count], source[0...byte_count]);</code></pre>
+      <pre>{#syntax#}const mem = @import("std").mem;
+mem.copy(u8, dest[0...byte_count], source[0...byte_count]);{#endsyntax#}</pre>
       {#header_close#}
       {#header_open|@memset#}
-      <pre><code class="zig">@memset(dest: [*]u8, c: u8, byte_count: usize)</code></pre>
+      <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize){#endsyntax#}</pre>
       <p>
-      This function sets a region of memory to <code>c</code>. <code>dest</code> is a pointer.
+      This function sets a region of memory to {#syntax#}c{#endsyntax#}. {#syntax#}dest{#endsyntax#} is a pointer.
       </p>
       <p>
       This function is a low level intrinsic with no safety mechanisms. Most
       code should not use this function, instead using something like this:
       </p>
-      <pre><code class="zig">for (dest[0...byte_count]) |*b| b.* = c;</code></pre>
+      <pre>{#syntax#}for (dest[0...byte_count]) |*b| b.* = c;{#endsyntax#}</pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memset.
       </p>
       <p>There is also a standard library function for this:</p>
-      <pre><code>const mem = @import("std").mem;
-mem.set(u8, dest, c);</code></pre>
+      <pre>{#syntax#}const mem = @import("std").mem;
+mem.set(u8, dest, c);{#endsyntax#}</pre>
       {#header_close#}
       {#header_open|@minValue#}
-      <pre><code class="zig">@minValue(comptime T: type) comptime_int</code></pre>
+      <pre>{#syntax#}@minValue(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the minimum value of the integer type T.
       </p>
@@ -5787,31 +5790,31 @@ mem.set(u8, dest, c);</code></pre>
       </p>
       {#header_close#}
       {#header_open|@mod#}
-      <pre><code class="zig">@mod(numerator: T, denominator: T) T</code></pre>
+      <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Modulus division. For unsigned integers this is the same as
-      <code>numerator % denominator</code>. Caller guarantees <code>denominator &gt; 0</code>.
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator &gt; 0{#endsyntax#}.
       </p>
       <ul>
-        <li><code>@mod(-5, 3) == 1</code></li>
-        <li><code>@divFloor(a, b) + @mod(a, b) == a</code></li>
+          <li>{#syntax#}@mod(-5, 3) == 1{#endsyntax#}</li>
+          <li>{#syntax#}@divFloor(a, b) + @mod(a, b) == a{#endsyntax#}</li>
       </ul>
-      <p>For a function that returns an error code, see <code>@import("std").math.mod</code>.</p>
+      <p>For a function that returns an error code, see {#syntax#}@import("std").math.mod{#endsyntax#}.</p>
       {#see_also|@rem#}
       {#header_close#}
       {#header_open|@mulWithOverflow#}
-      <pre><code class="zig">@mulWithOverflow(comptime T: type, a: T, b: T, result: *T) bool</code></pre>
+      <pre>{#syntax#}@mulWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
       <p>
-      Performs <code>result.* = a * b</code>. If overflow or underflow occurs,
-      stores the overflowed bits in <code>result</code> and returns <code>true</code>.
-      If no overflow or underflow occurs, returns <code>false</code>.
+      Performs {#syntax#}result.* = a * b{#endsyntax#}. If overflow or underflow occurs,
+          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
+                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@newStackCall#}
-      <pre><code class="zig">@newStackCall(new_stack: []u8, function: var, args: ...) var</code></pre>
+      <pre>{#syntax#}@newStackCall(new_stack: []u8, function: var, args: ...) var{#endsyntax#}</pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does. However,
-      instead of using the same stack as the caller, the function uses the stack provided in the <code>new_stack</code>
+      instead of using the same stack as the caller, the function uses the stack provided in the {#syntax#}new_stack{#endsyntax#}
       parameter.
       </p>
       {#code_begin|test#}
@@ -5844,7 +5847,7 @@ fn targetFunction(x: i32) usize {
       {#code_end#}
       {#header_close#}
       {#header_open|@noInlineCall#}
-      <pre><code class="zig">@noInlineCall(function: var, args: ...) var</code></pre>
+      <pre>{#syntax#}@noInlineCall(function: var, args: ...) var{#endsyntax#}</pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does:
       </p>
@@ -5860,19 +5863,19 @@ fn add(a: i32, b: i32) i32 {
 }
       {#code_end#}
       <p>
-      Unlike a normal function call, however, <code>@noInlineCall</code> guarantees that the call
+      Unlike a normal function call, however, {#syntax#}@noInlineCall{#endsyntax#} guarantees that the call
       will not be inlined. If the call must be inlined, a compile error is emitted.
       </p>
       {#see_also|@inlineCall#}
       {#header_close#}
       {#header_open|@offsetOf#}
-      <pre><code class="zig">@offsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int</code></pre>
+      <pre>{#syntax#}@offsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the byte offset of a field relative to its containing struct.
       </p>
       {#header_close#}
       {#header_open|@OpaqueType#}
-      <pre><code class="zig">@OpaqueType() type</code></pre>
+      <pre>{#syntax#}@OpaqueType() type{#endsyntax#}</pre>
       <p>
       Creates a new type with an unknown size and alignment.
       </p>
@@ -5895,14 +5898,14 @@ test "call foo" {
       {#code_end#}
       {#header_close#}
       {#header_open|@panic#}
-      <pre><code class="zig">@panic(message: []const u8) noreturn</code></pre>
+      <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
       <p>
       Invokes the panic handler function. By default the panic handler function
-      calls the public <code>panic</code> function exposed in the root source file, or
-      if there is not one specified, invokes the one provided in <code>std/special/panic.zig</code>.
+      calls the public {#syntax#}panic{#endsyntax#} function exposed in the root source file, or
+          if there is not one specified, invokes the one provided in {#syntax#}std/special/panic.zig{#endsyntax#}.
       </p>
-      <p>Generally it is better to use <code>@import("std").debug.panic</code>.
-      However, <code>@panic</code> can be useful for 2 scenarios:
+      <p>Generally it is better to use {#syntax#}@import("std").debug.panic{#endsyntax#}.
+          However, {#syntax#}@panic{#endsyntax#} can be useful for 2 scenarios:
       </p>
       <ul>
         <li>From library code, calling the programmer's panic function if they exposed one in the root source file.</li>
@@ -5911,50 +5914,50 @@ test "call foo" {
       {#see_also|Root Source File#}
       {#header_close#}
       {#header_open|@popCount#}
-      <pre><code class="zig">@popCount(integer: var) var</code></pre>
+      <pre>{#syntax#}@popCount(integer: var) var{#endsyntax#}</pre>
       <p>Counts the number of bits set in an integer.</p>
       <p>
-      If <code>integer</code> is known at {#link|comptime#}, the return type is <code>comptime_int</code>.
+      If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#}, the return type is {#syntax#}comptime_int{#endsyntax#}.
       Otherwise, the return type is an unsigned integer with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       {#see_also|@ctz|@clz#}
       {#header_close#}
       {#header_open|@ptrCast#}
-      <pre><code class="zig">@ptrCast(comptime DestType: type, value: var) DestType</code></pre>
+      <pre>{#syntax#}@ptrCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
       <p>
       Converts a pointer of one type to a pointer of another type.
       </p>
       {#header_close#}
       {#header_open|@ptrToInt#}
-      <pre><code class="zig">@ptrToInt(value: var) usize</code></pre>
+      <pre>{#syntax#}@ptrToInt(value: var) usize{#endsyntax#}</pre>
       <p>
-      Converts <code>value</code> to a <code>usize</code> which is the address of the pointer. <code>value</code> can be one of these types:
+      Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer. {#syntax#}value{#endsyntax#} can be one of these types:
       </p>
       <ul>
-        <li><code>*T</code></li>
-        <li><code>?*T</code></li>
-        <li><code>fn()</code></li>
-        <li><code>?fn()</code></li>
+          <li>{#syntax#}*T{#endsyntax#}</li>
+          <li>{#syntax#}?*T{#endsyntax#}</li>
+          <li>{#syntax#}fn(){#endsyntax#}</li>
+          <li>{#syntax#}?fn(){#endsyntax#}</li>
       </ul>
       <p>To convert the other way, use {#link|@intToPtr#}</p>
 
       {#header_close#}
       {#header_open|@rem#}
-      <pre><code class="zig">@rem(numerator: T, denominator: T) T</code></pre>
+      <pre>{#syntax#}@rem(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Remainder division. For unsigned integers this is the same as
-      <code>numerator % denominator</code>. Caller guarantees <code>denominator &gt; 0</code>.
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}.
       </p>
       <ul>
-        <li><code>@rem(-5, 3) == -2</code></li>
-        <li><code>@divTrunc(a, b) + @rem(a, b) == a</code></li>
+          <li>{#syntax#}@rem(-5, 3) == -2{#endsyntax#}</li>
+          <li>{#syntax#}@divTrunc(a, b) + @rem(a, b) == a{#endsyntax#}</li>
       </ul>
-      <p>For a function that returns an error code, see <code>@import("std").math.rem</code>.</p>
+      <p>For a function that returns an error code, see {#syntax#}@import("std").math.rem{#endsyntax#}.</p>
       {#see_also|@mod#}
       {#header_close#}
       {#header_open|@returnAddress#}
-      <pre><code class="zig">@returnAddress()</code></pre>
+      <pre>{#syntax#}@returnAddress(){#endsyntax#}</pre>
       <p>
       This function returns a pointer to the return address of the current stack
       frame.
@@ -5968,32 +5971,32 @@ test "call foo" {
       </p>
       {#header_close#}
       {#header_open|@setAlignStack#}
-      <pre><code class="zig">@setAlignStack(comptime alignment: u29)</code></pre>
+      <pre>{#syntax#}@setAlignStack(comptime alignment: u29){#endsyntax#}</pre>
       <p>
-      Ensures that a function will have a stack alignment of at least <code>alignment</code> bytes.
+      Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
       </p>
       {#header_close#}
       {#header_open|@setCold#}
-      <pre><code class="zig">@setCold(is_cold: bool)</code></pre>
+      <pre>{#syntax#}@setCold(is_cold: bool){#endsyntax#}</pre>
       <p>
       Tells the optimizer that a function is rarely called.
       </p>
       {#header_close#}
       {#header_open|@setRuntimeSafety#}
-      <pre><code class="zig">@setRuntimeSafety(safety_on: bool)</code></pre>
+      <pre>{#syntax#}@setRuntimeSafety(safety_on: bool){#endsyntax#}</pre>
       <p>
       Sets whether runtime safety checks are on for the scope that contains the function call.
       </p>
 
       {#header_close#}
       {#header_open|@setEvalBranchQuota#}
-      <pre><code class="zig">@setEvalBranchQuota(new_quota: usize)</code></pre>
+      <pre>{#syntax#}@setEvalBranchQuota(new_quota: usize){#endsyntax#}</pre>
       <p>
       Changes the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
       </p>
       <p>
-      If the <code>new_quota</code> is smaller than the default quota (<code>1000</code>) or
+      If the {#syntax#}new_quota{#endsyntax#} is smaller than the default quota ({#syntax#}1000{#endsyntax#}) or
       a previously explicitly set quota, it is ignored.
       </p>
       <p>
@@ -6007,7 +6010,7 @@ test "foo" {
     }
 }
       {#code_end#}
-      <p>Now we use <code class="zig">@setEvalBranchQuota</code>:</p>
+      <p>Now we use {#syntax#}@setEvalBranchQuota{#endsyntax#}:</p>
       {#code_begin|test#}
 test "foo" {
     comptime {
@@ -6021,7 +6024,7 @@ test "foo" {
       {#see_also|comptime#}
       {#header_close#}
       {#header_open|@setFloatMode#}
-      <pre><code class="zig">@setFloatMode(mode: @import("builtin").FloatMode)</code></pre>
+      <pre>{#syntax#}@setFloatMode(mode: @import("builtin").FloatMode){#endsyntax#}</pre>
       <p>
       Sets the floating point mode of the current scope. Possible values are:
       </p>
@@ -6033,10 +6036,10 @@ pub const FloatMode = enum {
       {#code_end#}
       <ul>
         <li>
-          <code>Strict</code> (default) - Floating point operations follow strict IEEE compliance.
+            {#syntax#}Strict{#endsyntax#} (default) - Floating point operations follow strict IEEE compliance.
         </li>
         <li>
-          <code>Optimized</code> - Floating point operations may do all of the following:
+            {#syntax#}Optimized{#endsyntax#} - Floating point operations may do all of the following:
           <ul>
             <li>Assume the arguments and result are not NaN. Optimizations are required to retain defined behavior over NaNs, but the value of the result is undefined.</li>
             <li>Assume the arguments and result are not +/-Inf. Optimizations are required to retain defined behavior over +/-Inf, but the value of the result is undefined.</li>
@@ -6055,54 +6058,54 @@ pub const FloatMode = enum {
       {#see_also|Floating Point Operations#}
       {#header_close#}
       {#header_open|@setGlobalLinkage#}
-      <pre><code class="zig">@setGlobalLinkage(global_variable_name, comptime linkage: GlobalLinkage)</code></pre>
+      <pre>{#syntax#}@setGlobalLinkage(global_variable_name, comptime linkage: GlobalLinkage){#endsyntax#}</pre>
       <p>
-      <code>GlobalLinkage</code> can be found with <code>@import("builtin").GlobalLinkage</code>.
+      {#syntax#}GlobalLinkage{#endsyntax#} can be found with {#syntax#}@import("builtin").GlobalLinkage{#endsyntax#}.
       </p>
       {#see_also|Compile Variables#}
       {#header_close#}
       {#header_open|@shlExact#}
-      <pre><code class="zig">@shlExact(value: T, shift_amt: Log2T) T</code></pre>
+      <pre>{#syntax#}@shlExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
-      Performs the left shift operation (<code>&lt;&lt;</code>). Caller guarantees
+      Performs the left shift operation ({#syntax#}<<{#endsyntax#}). Caller guarantees
       that the shift will not shift any 1 bits out.
       </p>
       <p>
-      The type of <code>shift_amt</code> is an unsigned integer with <code>log2(T.bit_count)</code> bits.
-      This is because <code>shift_amt &gt;= T.bit_count</code> is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
       {#header_open|@shlWithOverflow#}
-      <pre><code class="zig">@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: *T) bool</code></pre>
+      <pre>{#syntax#}@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: *T) bool{#endsyntax#}</pre>
       <p>
-      Performs <code>result.* = a &lt;&lt; b</code>. If overflow or underflow occurs,
-      stores the overflowed bits in <code>result</code> and returns <code>true</code>.
-      If no overflow or underflow occurs, returns <code>false</code>.
+      Performs {#syntax#}result.* = a << b{#endsyntax#}. If overflow or underflow occurs,
+                 stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
+                         If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       <p>
-      The type of <code>shift_amt</code> is an unsigned integer with <code>log2(T.bit_count)</code> bits.
-      This is because <code>shift_amt &gt;= T.bit_count</code> is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
       {#header_open|@shrExact#}
-      <pre><code class="zig">@shrExact(value: T, shift_amt: Log2T) T</code></pre>
+      <pre>{#syntax#}@shrExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
-      Performs the right shift operation (<code>&gt;&gt;</code>). Caller guarantees
+      Performs the right shift operation ({#syntax#}>>{#endsyntax#}). Caller guarantees
       that the shift will not shift any 1 bits out.
       </p>
       <p>
-      The type of <code>shift_amt</code> is an unsigned integer with <code>log2(T.bit_count)</code> bits.
-      This is because <code>shift_amt &gt;= T.bit_count</code> is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
 
       {#header_open|@sizeOf#}
-      <pre><code class="zig">@sizeOf(comptime T: type) comptime_int</code></pre>
+      <pre>{#syntax#}@sizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
-      This function returns the number of bytes it takes to store <code>T</code> in memory.
+      This function returns the number of bytes it takes to store {#syntax#}T{#endsyntax#} in memory.
       </p>
       <p>
       The result is a target-specific compile time constant.
@@ -6110,39 +6113,39 @@ pub const FloatMode = enum {
       {#header_close#}
 
       {#header_open|@sliceToBytes#}
-      <pre><code class="zig">@sliceToBytes(value: var) []u8</code></pre>
+      <pre>{#syntax#}@sliceToBytes(value: var) []u8{#endsyntax#}</pre>
       <p>
-      Converts a slice or array to a slice of <code>u8</code>. The resulting slice has the same
+      Converts a slice or array to a slice of {#syntax#}u8{#endsyntax#}. The resulting slice has the same
       {#link|pointer|Pointers#} properties as the parameter.
       </p>
       {#header_close#}
 
       {#header_open|@sqrt#}
-      <pre><code class="zig">@sqrt(comptime T: type, value: T) T</code></pre>
+      <pre>{#syntax#}@sqrt(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Performs the square root of a floating point number. Uses a dedicated hardware instruction
       when available. Currently only supports f32 and f64 at runtime. f128 at runtime is TODO.
       </p>
       <p>
-      This is a low-level intrinsic. Most code can use <code>std.math.sqrt</code> instead.
+      This is a low-level intrinsic. Most code can use {#syntax#}std.math.sqrt{#endsyntax#} instead.
       </p>
       {#header_close#}
       {#header_open|@subWithOverflow#}
-      <pre><code class="zig">@subWithOverflow(comptime T: type, a: T, b: T, result: *T) bool</code></pre>
+      <pre>{#syntax#}@subWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
       <p>
-      Performs <code>result.* = a - b</code>. If overflow or underflow occurs,
-      stores the overflowed bits in <code>result</code> and returns <code>true</code>.
-      If no overflow or underflow occurs, returns <code>false</code>.
+      Performs {#syntax#}result.* = a - b{#endsyntax#}. If overflow or underflow occurs,
+          stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
+                  If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@tagName#}
-      <pre><code class="zig">@tagName(value: var) []const u8</code></pre>
+      <pre>{#syntax#}@tagName(value: var) []const u8{#endsyntax#}</pre>
       <p>
       Converts an enum value or union value to a slice of bytes representing the name.
       </p>
       {#header_close#}
       {#header_open|@TagType#}
-      <pre><code class="zig">@TagType(T: type) type</code></pre>
+      <pre>{#syntax#}@TagType(T: type) type{#endsyntax#}</pre>
       <p>
       For an enum, returns the integer type that is used to store the enumeration value.
       </p>
@@ -6151,7 +6154,7 @@ pub const FloatMode = enum {
       </p>
       {#header_close#}
       {#header_open|@truncate#}
-      <pre><code class="zig">@truncate(comptime T: type, integer) T</code></pre>
+      <pre>{#syntax#}@truncate(comptime T: type, integer) T{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
       integer type.
@@ -6160,14 +6163,14 @@ pub const FloatMode = enum {
       The following produces a crash in debug mode and undefined behavior in
       release mode:
       </p>
-      <pre><code class="zig">const a: u16 = 0xabcd;
-const b: u8 = u8(a);</code></pre>
+      <pre>{#syntax#}const a: u16 = 0xabcd;
+const b: u8 = u8(a);{#endsyntax#}</pre>
       <p>
       However this is well defined and working code:
       </p>
-      <pre><code class="zig">const a: u16 = 0xabcd;
+      <pre>{#syntax#}const a: u16 = 0xabcd;
 const b: u8 = @truncate(u8, a);
-// b is now 0xcd</code></pre>
+// b is now 0xcd{#endsyntax#}</pre>
       <p>
       This function always truncates the significant bits of the integer, regardless
       of endianness on the target platform.
@@ -6175,7 +6178,7 @@ const b: u8 = @truncate(u8, a);
 
       {#header_close#}
       {#header_open|@typeId#}
-      <pre><code class="zig">@typeId(comptime T: type) @import("builtin").TypeId</code></pre>
+      <pre>{#syntax#}@typeId(comptime T: type) @import("builtin").TypeId{#endsyntax#}</pre>
       <p>
       Returns which kind of type something is. Possible values:
       </p>
@@ -6209,7 +6212,7 @@ pub const TypeId = enum {
       {#code_end#}
       {#header_close#}
       {#header_open|@typeInfo#}
-      <pre><code class="zig">@typeInfo(comptime T: type) @import("builtin").TypeInfo</code></pre>
+      <pre>{#syntax#}@typeInfo(comptime T: type) @import("builtin").TypeInfo{#endsyntax#}</pre>
       <p>
       Returns information on the type. Returns a value of the following union:
       </p>
@@ -6392,14 +6395,14 @@ pub const TypeInfo = union(TypeId) {
       {#code_end#}
       {#header_close#}
       {#header_open|@typeName#}
-      <pre><code class="zig">@typeName(T: type) []u8</code></pre>
+      <pre>{#syntax#}@typeName(T: type) []u8{#endsyntax#}</pre>
       <p>
       This function returns the string representation of a type.
       </p>
 
       {#header_close#}
       {#header_open|@typeOf#}
-      <pre><code class="zig">@typeOf(expression) type</code></pre>
+      <pre>{#syntax#}@typeOf(expression) type{#endsyntax#}</pre>
       <p>
       This function returns a compile-time constant, which is the type of the
       expression passed as an argument. The expression is evaluated.
@@ -6576,11 +6579,11 @@ pub fn main() void {
       {#header_open|Default Operations#}
       <p>The following operators can cause integer overflow:</p>
       <ul>
-        <li><code>+</code> (addition)</li>
-        <li><code>-</code> (subtraction)</li>
-        <li><code>-</code> (negation)</li>
-        <li><code>*</code> (multiplication)</li>
-        <li><code>/</code> (division)</li>
+          <li>{#syntax#}+{#endsyntax#} (addition)</li>
+          <li>{#syntax#}-{#endsyntax#} (subtraction)</li>
+          <li>{#syntax#}-{#endsyntax#} (negation)</li>
+          <li>{#syntax#}*{#endsyntax#} (multiplication)</li>
+          <li>{#syntax#}/{#endsyntax#} (division)</li>
         <li>{#link|@divTrunc#} (division)</li>
         <li>{#link|@divFloor#} (division)</li>
         <li>{#link|@divExact#} (division)</li>
@@ -6606,13 +6609,13 @@ pub fn main() void {
       {#header_open|Standard Library Math Functions#}
       <p>These functions provided by the standard library return possible errors.</p>
       <ul>
-        <li><code>@import("std").math.add</code></li>
-        <li><code>@import("std").math.sub</code></li>
-        <li><code>@import("std").math.mul</code></li>
-        <li><code>@import("std").math.divTrunc</code></li>
-        <li><code>@import("std").math.divFloor</code></li>
-        <li><code>@import("std").math.divExact</code></li>
-        <li><code>@import("std").math.shl</code></li>
+          <li>{#syntax#}@import("std").math.add{#endsyntax#}</li>
+          <li>{#syntax#}@import("std").math.sub{#endsyntax#}</li>
+          <li>{#syntax#}@import("std").math.mul{#endsyntax#}</li>
+          <li>{#syntax#}@import("std").math.divTrunc{#endsyntax#}</li>
+          <li>{#syntax#}@import("std").math.divFloor{#endsyntax#}</li>
+          <li>{#syntax#}@import("std").math.divExact{#endsyntax#}</li>
+          <li>{#syntax#}@import("std").math.shl{#endsyntax#}</li>
       </ul>
       <p>Example of catching an overflow for addition:</p>
       {#code_begin|exe_err#}
@@ -6632,7 +6635,7 @@ pub fn main() !void {
       {#header_close#}
       {#header_open|Builtin Overflow Functions#}
       <p>
-      These builtins return a <code>bool</code> of whether or not overflow
+      These builtins return a {#syntax#}bool{#endsyntax#} of whether or not overflow
       occurred, as well as returning the overflowed bits:
       </p>
       <ul>
@@ -6663,10 +6666,10 @@ pub fn main() void {
       These operations have guaranteed wraparound semantics.
       </p>
       <ul>
-        <li><code>+%</code> (wraparound addition)</li>
-        <li><code>-%</code> (wraparound subtraction)</li>
-        <li><code>-%</code> (wraparound negation)</li>
-        <li><code>*%</code> (wraparound multiplication)</li>
+          <li>{#syntax#}+%{#endsyntax#} (wraparound addition)</li>
+          <li>{#syntax#}-%{#endsyntax#} (wraparound subtraction)</li>
+          <li>{#syntax#}-%{#endsyntax#} (wraparound negation)</li>
+          <li>{#syntax#}*%{#endsyntax#} (wraparound multiplication)</li>
       </ul>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
@@ -6818,7 +6821,7 @@ pub fn main() void {
 }
       {#code_end#}
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
-      the <code>if</code> expression:</p>
+      the {#syntax#}if{#endsyntax#} expression:</p>
       {#code_begin|exe|test#}
 const warn = @import("std").debug.warn;
 pub fn main() void {
@@ -6858,7 +6861,7 @@ fn getNumberOrFail() !i32 {
 }
       {#code_end#}
       <p>One way to avoid this crash is to test for an error instead of assuming a successful result, with
-      the <code>if</code> expression:</p>
+      the {#syntax#}if{#endsyntax#} expression:</p>
       {#code_begin|exe#}
 const warn = @import("std").debug.warn;
 
@@ -7022,7 +7025,7 @@ fn bar(f: *Foo) void {
 }
       {#code_end#}
       <p>
-      This safety is not available for <code>extern</code> or <code>packed</code> unions.
+      This safety is not available for {#syntax#}extern{#endsyntax#} or {#syntax#}packed{#endsyntax#} unions.
       </p>
       <p>
       To change the active field of a union, assign the entire union, like this:
@@ -7087,7 +7090,7 @@ fn bar(f: *Foo) void {
       {#header_close#}
       {#header_open|Compile Variables#}
       <p>
-      Compile variables are accessible by importing the <code>"builtin"</code> package,
+      Compile variables are accessible by importing the {#syntax#}"builtin"{#endsyntax#} package,
       which the compiler makes available to every Zig source file. It contains
       compile-time constants such as the current target, endianness, and release mode.
       </p>
@@ -7096,7 +7099,7 @@ const builtin = @import("builtin");
 const separator = if (builtin.os == builtin.Os.windows) '\\' else '/';
       {#code_end#}
       <p>
-      Example of what is imported with <code>@import("builtin")</code>:
+      Example of what is imported with {#syntax#}@import("builtin"){#endsyntax#}:
       </p>
       {#builtin#}
       {#see_also|Build Mode#}
@@ -7135,16 +7138,16 @@ const separator = if (builtin.os == builtin.Os.windows) '\\' else '/';
       These have guaranteed C ABI compatibility and can be used like any other type.
       </p>
       <ul>
-        <li><code>c_short</code></li>
-        <li><code>c_ushort</code></li>
-        <li><code>c_int</code></li>
-        <li><code>c_uint</code></li>
-        <li><code>c_long</code></li>
-        <li><code>c_ulong</code></li>
-        <li><code>c_longlong</code></li>
-        <li><code>c_ulonglong</code></li>
-        <li><code>c_longdouble</code></li>
-        <li><code>c_void</code></li>
+          <li>{#syntax#}c_short{#endsyntax#}</li>
+          <li>{#syntax#}c_ushort{#endsyntax#}</li>
+          <li>{#syntax#}c_int{#endsyntax#}</li>
+          <li>{#syntax#}c_uint{#endsyntax#}</li>
+          <li>{#syntax#}c_long{#endsyntax#}</li>
+          <li>{#syntax#}c_ulong{#endsyntax#}</li>
+          <li>{#syntax#}c_longlong{#endsyntax#}</li>
+          <li>{#syntax#}c_ulonglong{#endsyntax#}</li>
+          <li>{#syntax#}c_longdouble{#endsyntax#}</li>
+          <li>{#syntax#}c_void{#endsyntax#}</li>
       </ul>
       {#see_also|Primitive Types#}
       {#header_close#}
@@ -7166,7 +7169,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Import from C Header File#}
       <p>
-      The <code>@cImport</code> builtin function can be used
+      The {#syntax#}@cImport{#endsyntax#} builtin function can be used
       to directly import symbols from .h files:
       </p>
       {#code_begin|exe#}
@@ -7181,7 +7184,7 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-      The <code>@cImport</code> function takes an expression as a parameter.
+      The {#syntax#}@cImport{#endsyntax#} function takes an expression as a parameter.
       This expression is evaluated at compile-time and is used to control
       preprocessor directives and include multiple .h files:
       </p>
@@ -7205,7 +7208,7 @@ const c = @cImport({
       {#header_open|Exporting a C Library#}
       <p>
       One of the primary use cases for Zig is exporting a library with the C ABI for other programming languages
-      to call into. The <code>export</code> keyword in front of functions, variables, and types causes them to
+      to call into. The {#syntax#}export{#endsyntax#} keyword in front of functions, variables, and types causes them to
       be part of the library API:
       </p>
       <p class="file">mathtest.zig</p>
@@ -7454,7 +7457,7 @@ Environments:
   coreclr
   opencl</code></pre>
       <p>
-      The Zig Standard Library (<code>@import("std")</code>) has architecture, environment, and operating sytsem
+      The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating sytsem
       abstractions, and thus takes additional work to support more platforms.
       Not all standard library code requires operating system abstractions, however,
       so things such as generic data structures work an all above platforms.
@@ -7491,25 +7494,25 @@ coding style.
       {#header_close#}
       {#header_open|Names#}
       <p>
-      Roughly speaking: <code>camelCaseFunctionName</code>, <code>TitleCaseTypeName</code>,
-      <code>snake_case_variable_name</code>. More precisely:
+      Roughly speaking: {#syntax#}camelCaseFunctionName{#endsyntax#}, {#syntax#}TitleCaseTypeName{#endsyntax#},
+              {#syntax#}snake_case_variable_name{#endsyntax#}. More precisely:
       </p>
       <ul>
         <li>
-          If <code>x</code> is a <code>struct</code> (or an alias of a <code>struct</code>),
-          then <code>x</code> should be <code>TitleCase</code>.
+            If {#syntax#}x{#endsyntax#} is a {#syntax#}struct{#endsyntax#} (or an alias of a {#syntax#}struct{#endsyntax#}),
+                        then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
         </li>
         <li>
-          If <code>x</code> otherwise identifies a type, <code>x</code> should have <code>snake_case</code>.
+            If {#syntax#}x{#endsyntax#} otherwise identifies a type, {#syntax#}x{#endsyntax#} should have {#syntax#}snake_case{#endsyntax#}.
         </li>
         <li>
-          If <code>x</code> is callable, and <code>x</code>'s return type is <code>type</code>, then <code>x</code> should be <code>TitleCase</code>.
+            If {#syntax#}x{#endsyntax#} is callable, and {#syntax#}x{#endsyntax#}'s return type is {#syntax#}type{#endsyntax#}, then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
         </li>
         <li>
-          If <code>x</code> is otherwise callable, then <code>x</code> should be <code>camelCase</code>.
+            If {#syntax#}x{#endsyntax#} is otherwise callable, then {#syntax#}x{#endsyntax#} should be {#syntax#}camelCase{#endsyntax#}.
         </li>
         <li>
-          Otherwise, <code>x</code> should be <code>snake_case</code>.
+            Otherwise, {#syntax#}x{#endsyntax#} should be {#syntax#}snake_case{#endsyntax#}.
         </li>
       </ul>
       <p>
@@ -7521,7 +7524,7 @@ coding style.
       <p>
       These are general rules of thumb; if it makes sense to do something different,
       do what makes sense. For example, if there is an established convention such as
-      <code>ENOENT</code>, follow the established convention.
+      {#syntax#}ENOENT{#endsyntax#}, follow the established convention.
       </p>
       {#header_close#}
       {#header_open|Examples#}

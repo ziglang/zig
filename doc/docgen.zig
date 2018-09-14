@@ -300,6 +300,7 @@ const Node = union(enum) {
     SeeAlso: []const SeeAlsoItem,
     Code: Code,
     Link: Link,
+    Syntax: Token,
 };
 
 const Toc = struct {
@@ -530,6 +531,17 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         },
                     });
                     tokenizer.code_node_count += 1;
+                } else if (mem.eql(u8, tag_name, "syntax")) {
+                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    const content_tok = try eatToken(tokenizer, Token.Id.Content);
+                    _ = try eatToken(tokenizer, Token.Id.BracketOpen);
+                    const end_syntax_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                    const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
+                    if (!mem.eql(u8, end_tag_name, "endsyntax")) {
+                        return parseError(tokenizer, end_syntax_tag, "invalid token inside syntax: {}", end_tag_name);
+                    }
+                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    try nodes.append(Node{ .Syntax = content_tok });
                 } else {
                     return parseError(tokenizer, tag_token, "unrecognized tag name: {}", tag_name);
                 }
@@ -706,8 +718,10 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-fn tokenizeAndPrint(allocator: *mem.Allocator, out: var, src: []const u8) !void {
-    try out.write("<pre><code class=\"zig\">");
+fn tokenizeAndPrint(allocator: *mem.Allocator, docgen_tokenizer: *Tokenizer, out: var, source_token: Token) !void {
+    const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
+    const src = mem.trim(u8, raw_src, " \n");
+    try out.write("<code class=\"zig\">");
     var tokenizer = std.zig.Tokenizer.init(src);
     var index: usize = 0;
     var next_tok_is_fn = false;
@@ -900,12 +914,17 @@ fn tokenizeAndPrint(allocator: *mem.Allocator, out: var, src: []const u8) !void 
             std.zig.Token.Id.AngleBracketAngleBracketRightEqual,
             std.zig.Token.Id.Tilde,
             std.zig.Token.Id.BracketStarBracket,
-            std.zig.Token.Id.Invalid,
             => try writeEscaped(out, src[token.start..token.end]),
+
+            std.zig.Token.Id.Invalid => return parseError(
+                docgen_tokenizer,
+                source_token,
+                "syntax error",
+            ),
         }
         index = token.end;
     }
-    try out.write("</code></pre>");
+    try out.write("</code>");
 }
 
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
@@ -947,6 +966,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 }
                 try out.write("</ul>\n");
             },
+            Node.Syntax => |content_tok| {
+                try tokenizeAndPrint(allocator, tokenizer, out, content_tok);
+            },
             Node.Code => |code| {
                 code_progress_index += 1;
                 warn("docgen example code {}/{}...", code_progress_index, tokenizer.code_node_count);
@@ -956,7 +978,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 if (!code.is_inline) {
                     try out.print("<p class=\"file\">{}.zig</p>", code.name);
                 }
-                try tokenizeAndPrint(allocator, out, trimmed_raw_source);
+                try out.write("<pre>");
+                try tokenizeAndPrint(allocator, tokenizer, out, code.source_token);
+                try out.write("</pre>");
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
                 const tmp_source_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_ext);
                 try io.writeFile(tmp_source_file_name, trimmed_raw_source);
