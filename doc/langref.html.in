@@ -6153,6 +6153,41 @@ pub const FloatMode = enum {
       For a union, returns the enum type that is used to store the tag value.
       </p>
       {#header_close#}
+      {#header_open|@This#}
+      <pre>{#syntax#}@This() type{#endsyntax#}</pre>
+      <p>
+      Returns the innermost struct or union that this function call is inside.
+      This can be useful for an anonymous struct that needs to refer to itself:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "@This()" {
+    var items = []i32{ 1, 2, 3, 4 };
+    const list = List(i32){ .items = items[0..] };
+    assert(list.length() == 4);
+}
+
+fn List(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        items: []T,
+
+        fn length(self: Self) usize {
+            return self.items.len;
+        }
+    };
+}
+      {#code_end#}
+      <p>
+      When {#syntax#}@This(){#endsyntax#} is used at global scope, it returns a reference to the
+      current import. There is a proposal to remove the import type and use an empty struct
+      type instead. See 
+      <a href="https://github.com/ziglang/zig/issues/1047">#1047</a> for details.
+      </p>
+      {#header_close#}
       {#header_open|@truncate#}
       <pre>{#syntax#}@truncate(comptime T: type, integer) T{#endsyntax#}</pre>
       <p>
