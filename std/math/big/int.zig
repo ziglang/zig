@@ -1253,12 +1253,7 @@ test "big.int bitcount/to" {
 test "big.int fits" {
     var a = try Int.init(al);
 
-    try a.set(0);
-    debug.assert(a.fits(u0));
-    debug.assert(a.fits(i0));
-
     try a.set(255);
-    debug.assert(!a.fits(u0));
     debug.assert(!a.fits(u1));
     debug.assert(!a.fits(i8));
     debug.assert(a.fits(u8));
