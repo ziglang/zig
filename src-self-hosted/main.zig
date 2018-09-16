@@ -737,7 +737,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
         file_path,
         max_src_size,
     )) catch |err| switch (err) {
-        error.IsDir => {
+        error.IsDir, error.AccessDenied => {
             // TODO make event based (and dir.next())
             var dir = try std.os.Dir.open(fmt.loop.allocator, file_path);
             defer dir.close();

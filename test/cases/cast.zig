@@ -64,7 +64,7 @@ test "implicitly cast a container to a const pointer of it" {
 
 fn Struct(comptime T: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         x: T,
 
         fn pointer(self: *const Self) Self {
@@ -106,7 +106,7 @@ const Enum = enum {
 
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
     const S = struct {
-        const Self = this;
+        const Self = @This();
         x: u8,
         fn constConst(p: *const *const Self) u8 {
             return p.*.x;
@@ -525,4 +525,15 @@ test "*usize to *void" {
     var i = usize(0);
     var v = @ptrCast(*void, &i);
     v.* = {};
+}
+
+test "compile time int to ptr of function" {
+    foobar(FUNCTION_CONSTANT);
+}
+
+pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, @maxValue(usize));
+pub const PFN_void = extern fn (*c_void) void;
+
+fn foobar(func: PFN_void) void {
+    std.debug.assert(@ptrToInt(func) == @maxValue(usize));
 }

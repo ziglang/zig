@@ -25,7 +25,7 @@ pub fn Channel(comptime T: type) type {
         buffer_index: usize,
         buffer_len: usize,
 
-        const SelfChannel = this;
+        const SelfChannel = @This();
         const GetNode = struct {
             tick_node: *Loop.NextTickNode,
             data: Data,

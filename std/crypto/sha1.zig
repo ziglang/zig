@@ -25,7 +25,7 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
 }
 
 pub const Sha1 = struct {
-    const Self = this;
+    const Self = @This();
     const block_length = 64;
     const digest_length = 20;
 

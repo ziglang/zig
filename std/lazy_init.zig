@@ -18,7 +18,7 @@ fn LazyInit(comptime T: type) type {
         state: u8, // TODO make this an enum
         data: Data,
 
-        const Self = this;
+        const Self = @This();
 
         // TODO this isn't working for void, investigate and then remove this special case
         const Data = if (@sizeOf(T) == 0) u8 else T;

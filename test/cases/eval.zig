@@ -275,7 +275,7 @@ test "eval @setFloatMode at compile-time" {
 }
 
 fn fnWithFloatMode() f32 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
+    @setFloatMode(builtin.FloatMode.Strict);
     return 1234.0;
 }
 
@@ -628,7 +628,7 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     const S = struct {
         a: u8,
 
-        fn b(comptime s: this) u8 {
+        fn b(comptime s: @This()) u8 {
             return s.a;
         }
     };

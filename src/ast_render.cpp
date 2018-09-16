@@ -193,8 +193,6 @@ static const char *node_type_str(NodeType node_type) {
             return "NullLiteral";
         case NodeTypeUndefinedLiteral:
             return "UndefinedLiteral";
-        case NodeTypeThisLiteral:
-            return "ThisLiteral";
         case NodeTypeIfBoolExpr:
             return "IfBoolExpr";
         case NodeTypeWhileExpr:
@@ -895,11 +893,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     }
                     render_node_grouped(ar, node->data.while_expr.else_node);
                 }
-                break;
-            }
-        case NodeTypeThisLiteral:
-            {
-                fprintf(ar->f, "this");
                 break;
             }
         case NodeTypeBoolLiteral:

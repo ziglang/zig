@@ -812,6 +812,22 @@ const char *target_exe_file_ext(ZigTarget *target) {
     }
 }
 
+const char *target_lib_file_ext(ZigTarget *target, bool is_static, size_t version_major, size_t version_minor, size_t version_patch) {
+    if (target->os == OsWindows) {
+        if (is_static) {
+            return ".lib";
+        } else {
+            return ".dll";
+        }
+    } else {
+        if (is_static) {
+            return ".a";
+        } else {
+            return buf_ptr(buf_sprintf(".so.%zu", version_major));
+        }
+    }
+}
+
 enum FloatAbi {
     FloatAbiHard,
     FloatAbiSoft,

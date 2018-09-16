@@ -1354,7 +1354,7 @@ test "zig fmt: indexing" {
 test "zig fmt: struct declaration" {
     try testCanonical(
         \\const S = struct {
-        \\    const Self = this;
+        \\    const Self = @This();
         \\    f1: u8,
         \\    pub f3: u8,
         \\

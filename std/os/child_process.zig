@@ -658,8 +658,16 @@ fn windowsCreateProcess(app_name: [*]u16, cmd_line: [*]u16, envp_ptr: ?[*]u16, c
     // environment variables to programs that were not, which seems unlikely.
     // More investigation is needed.
     if (windows.CreateProcessW(
-        app_name, cmd_line, null, null, windows.TRUE, windows.CREATE_UNICODE_ENVIRONMENT,
-        @ptrCast(?*c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation,
+        app_name,
+        cmd_line,
+        null,
+        null,
+        windows.TRUE,
+        windows.CREATE_UNICODE_ENVIRONMENT,
+        @ptrCast(?*c_void, envp_ptr),
+        cwd_ptr,
+        lpStartupInfo,
+        lpProcessInformation,
     ) == 0) {
         const err = windows.GetLastError();
         switch (err) {

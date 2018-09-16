@@ -9,7 +9,7 @@ pub fn Stack(comptime T: type) type {
         root: ?*Node,
         lock: u8,
 
-        pub const Self = this;
+        pub const Self = @This();
 
         pub const Node = struct {
             next: ?*Node,

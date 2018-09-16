@@ -27,6 +27,11 @@ const char *err_str(int err) {
         case ErrorNegativeDenominator: return "negative denominator";
         case ErrorShiftedOutOneBits: return "exact shift shifted out one bits";
         case ErrorCCompileErrors: return "C compile errors";
+        case ErrorEndOfFile: return "end of file";
+        case ErrorIsDir: return "is directory";
+        case ErrorUnsupportedOperatingSystem: return "unsupported operating system";
+        case ErrorSharingViolation: return "sharing violation";
+        case ErrorPipeBusy: return "pipe busy";
     }
     return "(invalid error)";
 }

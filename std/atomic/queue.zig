@@ -12,7 +12,7 @@ pub fn Queue(comptime T: type) type {
         tail: ?*Node,
         mutex: std.Mutex,
 
-        pub const Self = this;
+        pub const Self = @This();
         pub const Node = std.LinkedList(T).Node;
 
         pub fn init() Self {
@@ -114,7 +114,7 @@ pub fn Queue(comptime T: type) type {
 
         fn dumpRecursive(optional_node: ?*Node, indent: usize) void {
             var stderr_file = std.io.getStdErr() catch return;
-            const stderr = &std.io.FileOutStream.init(&stderr_file).stream;
+            const stderr = &std.io.FileOutStream.init(stderr_file).stream;
             stderr.writeByteNTimes(' ', indent) catch return;
             if (optional_node) |node| {
                 std.debug.warn("0x{x}={}\n", @ptrToInt(node), node.data);

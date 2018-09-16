@@ -3,7 +3,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
 const builtin = @import("builtin");
-const mem = this;
+const mem = @This();
 
 pub const Allocator = struct {
     pub const Error = error{OutOfMemory};

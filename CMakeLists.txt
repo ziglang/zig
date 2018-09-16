@@ -393,7 +393,7 @@ if(MSVC)
     )
 else()
     set_target_properties(embedded_softfloat PROPERTIES
-        COMPILE_FLAGS "-std=c99"
+        COMPILE_FLAGS "-std=c99 -O3"
     )
 endif()
 target_include_directories(embedded_softfloat PUBLIC
@@ -412,7 +412,9 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/c_tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/cache_hash.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
+    "${CMAKE_SOURCE_DIR}/src/compiler.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
@@ -426,6 +428,9 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
+)
+set(BLAKE_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/blake2b.c"
 )
 set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
@@ -793,6 +798,7 @@ else()
   set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
 endif()
 
+set(BLAKE_CFLAGS "-std=c99")
 
 set(EXE_LDFLAGS " ")
 if(MINGW)
@@ -814,6 +820,11 @@ set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
 
+add_library(embedded_blake STATIC ${BLAKE_SOURCES})
+set_target_properties(embedded_blake PROPERTIES
+    COMPILE_FLAGS "${BLAKE_CFLAGS} -O3"
+)
+
 add_executable(zig ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
@@ -822,6 +833,7 @@ set_target_properties(zig PROPERTIES
 
 target_link_libraries(zig LINK_PUBLIC
     zig_cpp
+    embedded_blake
     ${SOFTFLOAT_LIBRARIES}
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}

@@ -30,6 +30,7 @@
 #include <llvm/PassRegistry.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetParser.h>
+#include <llvm/Support/Timer.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Coroutines.h>
@@ -82,8 +83,11 @@ static const bool assertions_on = false;
 #endif
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug, bool is_small)
+        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
+        bool is_small, bool time_report)
 {
+    TimePassesIsEnabled = time_report;
+
     std::error_code EC;
     raw_fd_ostream dest(filename, EC, sys::fs::F_None);
     if (EC) {
@@ -183,6 +187,9 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         }
     }
 
+    if (time_report) {
+        TimerGroup::printAll(errs());
+    }
     return false;
 }
 

@@ -11,6 +11,7 @@ const max_doc_file_size = 10 * 1024 * 1024;
 const exe_ext = std.build.Target(std.build.Target.Native).exeFileExt();
 const obj_ext = std.build.Target(std.build.Target.Native).oFileExt();
 const tmp_dir_name = "docgen_tmp";
+const test_out_path = tmp_dir_name ++ os.path.sep_str ++ "test" ++ exe_ext;
 
 pub fn main() !void {
     var direct_allocator = std.heap.DirectAllocator.init();
@@ -299,6 +300,7 @@ const Node = union(enum) {
     SeeAlso: []const SeeAlsoItem,
     Code: Code,
     Link: Link,
+    Syntax: Token,
 };
 
 const Toc = struct {
@@ -529,6 +531,17 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         },
                     });
                     tokenizer.code_node_count += 1;
+                } else if (mem.eql(u8, tag_name, "syntax")) {
+                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    const content_tok = try eatToken(tokenizer, Token.Id.Content);
+                    _ = try eatToken(tokenizer, Token.Id.BracketOpen);
+                    const end_syntax_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                    const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
+                    if (!mem.eql(u8, end_tag_name, "endsyntax")) {
+                        return parseError(tokenizer, end_syntax_tag, "invalid token inside syntax: {}", end_tag_name);
+                    }
+                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    try nodes.append(Node{ .Syntax = content_tok });
                 } else {
                     return parseError(tokenizer, tag_token, "unrecognized tag name: {}", tag_name);
                 }
@@ -570,6 +583,11 @@ fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
 
     var buf_adapter = io.BufferOutStream.init(&buf);
     var out = &buf_adapter.stream;
+    try writeEscaped(out, input);
+    return buf.toOwnedSlice();
+}
+
+fn writeEscaped(out: var, input: []const u8) !void {
     for (input) |c| {
         try switch (c) {
             '&' => out.write("&amp;"),
@@ -579,7 +597,6 @@ fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
             else => out.writeByte(c),
         };
     }
-    return buf.toOwnedSlice();
 }
 
 //#define VT_RED "\x1b[31;1m"
@@ -686,6 +703,230 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     return buf.toOwnedSlice();
 }
 
+const builtin_types = [][]const u8{
+    "f16", "f32", "f64", "f128", "c_longdouble", "c_short",
+    "c_ushort", "c_int", "c_uint", "c_long", "c_ulong", "c_longlong",
+    "c_ulonglong", "c_char", "c_void", "void", "bool", "isize",
+    "usize", "noreturn", "type", "error", "comptime_int", "comptime_float",
+};
+
+fn isType(name: []const u8) bool {
+    for (builtin_types) |t| {
+        if (mem.eql(u8, t, name))
+            return true;
+    }
+    return false;
+}
+
+fn tokenizeAndPrint(allocator: *mem.Allocator, docgen_tokenizer: *Tokenizer, out: var, source_token: Token) !void {
+    const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
+    const src = mem.trim(u8, raw_src, " \n");
+    try out.write("<code class=\"zig\">");
+    var tokenizer = std.zig.Tokenizer.init(src);
+    var index: usize = 0;
+    var next_tok_is_fn = false;
+    while (true) {
+        const prev_tok_was_fn = next_tok_is_fn;
+        next_tok_is_fn = false;
+
+        const token = tokenizer.next();
+        try writeEscaped(out, src[index..token.start]);
+        switch (token.id) {
+            std.zig.Token.Id.Eof => break,
+
+            std.zig.Token.Id.Keyword_align,
+            std.zig.Token.Id.Keyword_and,
+            std.zig.Token.Id.Keyword_asm,
+            std.zig.Token.Id.Keyword_async,
+            std.zig.Token.Id.Keyword_await,
+            std.zig.Token.Id.Keyword_break,
+            std.zig.Token.Id.Keyword_cancel,
+            std.zig.Token.Id.Keyword_catch,
+            std.zig.Token.Id.Keyword_comptime,
+            std.zig.Token.Id.Keyword_const,
+            std.zig.Token.Id.Keyword_continue,
+            std.zig.Token.Id.Keyword_defer,
+            std.zig.Token.Id.Keyword_else,
+            std.zig.Token.Id.Keyword_enum,
+            std.zig.Token.Id.Keyword_errdefer,
+            std.zig.Token.Id.Keyword_error,
+            std.zig.Token.Id.Keyword_export,
+            std.zig.Token.Id.Keyword_extern,
+            std.zig.Token.Id.Keyword_for,
+            std.zig.Token.Id.Keyword_if,
+            std.zig.Token.Id.Keyword_inline,
+            std.zig.Token.Id.Keyword_nakedcc,
+            std.zig.Token.Id.Keyword_noalias,
+            std.zig.Token.Id.Keyword_or,
+            std.zig.Token.Id.Keyword_orelse,
+            std.zig.Token.Id.Keyword_packed,
+            std.zig.Token.Id.Keyword_promise,
+            std.zig.Token.Id.Keyword_pub,
+            std.zig.Token.Id.Keyword_resume,
+            std.zig.Token.Id.Keyword_return,
+            std.zig.Token.Id.Keyword_section,
+            std.zig.Token.Id.Keyword_stdcallcc,
+            std.zig.Token.Id.Keyword_struct,
+            std.zig.Token.Id.Keyword_suspend,
+            std.zig.Token.Id.Keyword_switch,
+            std.zig.Token.Id.Keyword_test,
+            std.zig.Token.Id.Keyword_try,
+            std.zig.Token.Id.Keyword_union,
+            std.zig.Token.Id.Keyword_unreachable,
+            std.zig.Token.Id.Keyword_use,
+            std.zig.Token.Id.Keyword_var,
+            std.zig.Token.Id.Keyword_volatile,
+            std.zig.Token.Id.Keyword_while,
+            => {
+                try out.write("<span class=\"tok-kw\">");
+                try writeEscaped(out, src[token.start..token.end]);
+                try out.write("</span>");
+            },
+
+            std.zig.Token.Id.Keyword_fn => {
+                try out.write("<span class=\"tok-kw\">");
+                try writeEscaped(out, src[token.start..token.end]);
+                try out.write("</span>");
+                next_tok_is_fn = true;
+            },
+
+            std.zig.Token.Id.Keyword_undefined,
+            std.zig.Token.Id.Keyword_null,
+            std.zig.Token.Id.Keyword_true,
+            std.zig.Token.Id.Keyword_false,
+            std.zig.Token.Id.Keyword_this,
+            => {
+                try out.write("<span class=\"tok-null\">");
+                try writeEscaped(out, src[token.start..token.end]);
+                try out.write("</span>");
+            },
+
+            std.zig.Token.Id.StringLiteral,
+            std.zig.Token.Id.MultilineStringLiteralLine,
+            std.zig.Token.Id.CharLiteral,
+            => {
+                try out.write("<span class=\"tok-str\">");
+                try writeEscaped(out, src[token.start..token.end]);
+                try out.write("</span>");
+            },
+
+            std.zig.Token.Id.Builtin => {
+                try out.write("<span class=\"tok-builtin\">");
+                try writeEscaped(out, src[token.start..token.end]);
+                try out.write("</span>");
+            },
+
+            std.zig.Token.Id.LineComment,
+            std.zig.Token.Id.DocComment,
+            => {
+                try out.write("<span class=\"tok-comment\">");
+                try writeEscaped(out, src[token.start..token.end]);
+                try out.write("</span>");
+            },
+
+            std.zig.Token.Id.Identifier => {
+                if (prev_tok_was_fn) {
+                    try out.write("<span class=\"tok-fn\">");
+                    try writeEscaped(out, src[token.start..token.end]);
+                    try out.write("</span>");
+                } else {
+                    const is_int = blk: {
+                        if (src[token.start] != 'i' and src[token.start] != 'u')
+                            break :blk false;
+                        var i = token.start + 1;
+                        if (i == token.end)
+                            break :blk false;
+                        while (i != token.end) : (i += 1) {
+                            if (src[i] < '0' or src[i] > '9')
+                                break :blk false;
+                        }
+                        break :blk true;
+                    };
+                    if (is_int or isType(src[token.start..token.end])) {
+                        try out.write("<span class=\"tok-type\">");
+                        try writeEscaped(out, src[token.start..token.end]);
+                        try out.write("</span>");
+                    } else {
+                        try writeEscaped(out, src[token.start..token.end]);
+                    }
+                }
+            },
+
+            std.zig.Token.Id.IntegerLiteral,
+            std.zig.Token.Id.FloatLiteral,
+            => {
+                try out.write("<span class=\"tok-number\">");
+                try writeEscaped(out, src[token.start..token.end]);
+                try out.write("</span>");
+            },
+
+            std.zig.Token.Id.Bang,
+            std.zig.Token.Id.Pipe,
+            std.zig.Token.Id.PipePipe,
+            std.zig.Token.Id.PipeEqual,
+            std.zig.Token.Id.Equal,
+            std.zig.Token.Id.EqualEqual,
+            std.zig.Token.Id.EqualAngleBracketRight,
+            std.zig.Token.Id.BangEqual,
+            std.zig.Token.Id.LParen,
+            std.zig.Token.Id.RParen,
+            std.zig.Token.Id.Semicolon,
+            std.zig.Token.Id.Percent,
+            std.zig.Token.Id.PercentEqual,
+            std.zig.Token.Id.LBrace,
+            std.zig.Token.Id.RBrace,
+            std.zig.Token.Id.LBracket,
+            std.zig.Token.Id.RBracket,
+            std.zig.Token.Id.Period,
+            std.zig.Token.Id.Ellipsis2,
+            std.zig.Token.Id.Ellipsis3,
+            std.zig.Token.Id.Caret,
+            std.zig.Token.Id.CaretEqual,
+            std.zig.Token.Id.Plus,
+            std.zig.Token.Id.PlusPlus,
+            std.zig.Token.Id.PlusEqual,
+            std.zig.Token.Id.PlusPercent,
+            std.zig.Token.Id.PlusPercentEqual,
+            std.zig.Token.Id.Minus,
+            std.zig.Token.Id.MinusEqual,
+            std.zig.Token.Id.MinusPercent,
+            std.zig.Token.Id.MinusPercentEqual,
+            std.zig.Token.Id.Asterisk,
+            std.zig.Token.Id.AsteriskEqual,
+            std.zig.Token.Id.AsteriskAsterisk,
+            std.zig.Token.Id.AsteriskPercent,
+            std.zig.Token.Id.AsteriskPercentEqual,
+            std.zig.Token.Id.Arrow,
+            std.zig.Token.Id.Colon,
+            std.zig.Token.Id.Slash,
+            std.zig.Token.Id.SlashEqual,
+            std.zig.Token.Id.Comma,
+            std.zig.Token.Id.Ampersand,
+            std.zig.Token.Id.AmpersandEqual,
+            std.zig.Token.Id.QuestionMark,
+            std.zig.Token.Id.AngleBracketLeft,
+            std.zig.Token.Id.AngleBracketLeftEqual,
+            std.zig.Token.Id.AngleBracketAngleBracketLeft,
+            std.zig.Token.Id.AngleBracketAngleBracketLeftEqual,
+            std.zig.Token.Id.AngleBracketRight,
+            std.zig.Token.Id.AngleBracketRightEqual,
+            std.zig.Token.Id.AngleBracketAngleBracketRight,
+            std.zig.Token.Id.AngleBracketAngleBracketRightEqual,
+            std.zig.Token.Id.Tilde,
+            std.zig.Token.Id.BracketStarBracket,
+            => try writeEscaped(out, src[token.start..token.end]),
+
+            std.zig.Token.Id.Invalid => return parseError(
+                docgen_tokenizer,
+                source_token,
+                "syntax error",
+            ),
+        }
+        index = token.end;
+    }
+    try out.write("</code>");
+}
+
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
 
@@ -725,17 +966,21 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 }
                 try out.write("</ul>\n");
             },
+            Node.Syntax => |content_tok| {
+                try tokenizeAndPrint(allocator, tokenizer, out, content_tok);
+            },
             Node.Code => |code| {
                 code_progress_index += 1;
                 warn("docgen example code {}/{}...", code_progress_index, tokenizer.code_node_count);
 
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
-                const escaped_source = try escapeHtml(allocator, trimmed_raw_source);
                 if (!code.is_inline) {
                     try out.print("<p class=\"file\">{}.zig</p>", code.name);
                 }
-                try out.print("<pre><code class=\"zig\">{}</code></pre>", escaped_source);
+                try out.write("<pre>");
+                try tokenizeAndPrint(allocator, tokenizer, out, code.source_token);
+                try out.write("</pre>");
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
                 const tmp_source_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_ext);
                 try io.writeFile(tmp_source_file_name, trimmed_raw_source);
@@ -821,6 +1066,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "test",
                             tmp_source_file_name,
+                            "--output",
+                            test_out_path,
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -863,6 +1110,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "--color",
                             "on",
                             tmp_source_file_name,
+                            "--output",
+                            test_out_path,
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -918,6 +1167,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "test",
                             tmp_source_file_name,
+                            "--output",
+                            test_out_path,
                         });
                         switch (code.mode) {
                             builtin.Mode.Debug => {},

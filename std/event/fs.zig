@@ -109,30 +109,28 @@ pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, off
         .base = Loop.ResumeNode{
             .id = Loop.ResumeNode.Id.Basic,
             .handle = @handle(),
+            .overlapped = windows.OVERLAPPED{
+                .Internal = 0,
+                .InternalHigh = 0,
+                .Offset = @truncate(u32, offset),
+                .OffsetHigh = @truncate(u32, offset >> 32),
+                .hEvent = null,
+            },
         },
     };
-    const completion_key = @ptrToInt(&resume_node.base);
-    // TODO support concurrent async ops on the file handle
-    // we can do this by ignoring completion key and using @fieldParentPtr with the *Overlapped
-    _ = try os.windowsCreateIoCompletionPort(fd, loop.os_data.io_port, completion_key, undefined);
-    var overlapped = windows.OVERLAPPED{
-        .Internal = 0,
-        .InternalHigh = 0,
-        .Offset = @truncate(u32, offset),
-        .OffsetHigh = @truncate(u32, offset >> 32),
-        .hEvent = null,
-    };
+    // TODO only call create io completion port once per fd
+    _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
     loop.beginOneEvent();
     errdefer loop.finishOneEvent();
 
     errdefer {
-        _ = windows.CancelIoEx(fd, &overlapped);
+        _ = windows.CancelIoEx(fd, &resume_node.base.overlapped);
     }
     suspend {
-        _ = windows.WriteFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &overlapped);
+        _ = windows.WriteFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
     }
     var bytes_transferred: windows.DWORD = undefined;
-    if (windows.GetOverlappedResult(fd, &overlapped, &bytes_transferred, windows.FALSE) == 0) {
+    if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.IO_PENDING => unreachable,
@@ -243,37 +241,36 @@ pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u6
         .base = Loop.ResumeNode{
             .id = Loop.ResumeNode.Id.Basic,
             .handle = @handle(),
+            .overlapped = windows.OVERLAPPED{
+                .Internal = 0,
+                .InternalHigh = 0,
+                .Offset = @truncate(u32, offset),
+                .OffsetHigh = @truncate(u32, offset >> 32),
+                .hEvent = null,
+            },
         },
     };
-    const completion_key = @ptrToInt(&resume_node.base);
-    // TODO support concurrent async ops on the file handle
-    // we can do this by ignoring completion key and using @fieldParentPtr with the *Overlapped
-    _ = try os.windowsCreateIoCompletionPort(fd, loop.os_data.io_port, completion_key, undefined);
-    var overlapped = windows.OVERLAPPED{
-        .Internal = 0,
-        .InternalHigh = 0,
-        .Offset = @truncate(u32, offset),
-        .OffsetHigh = @truncate(u32, offset >> 32),
-        .hEvent = null,
-    };
+    // TODO only call create io completion port once per fd
+    _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
     loop.beginOneEvent();
     errdefer loop.finishOneEvent();
 
     errdefer {
-        _ = windows.CancelIoEx(fd, &overlapped);
+        _ = windows.CancelIoEx(fd, &resume_node.base.overlapped);
     }
     suspend {
-        _ = windows.ReadFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &overlapped);
+        _ = windows.ReadFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
     }
     var bytes_transferred: windows.DWORD = undefined;
-    if (windows.GetOverlappedResult(fd, &overlapped, &bytes_transferred, windows.FALSE) == 0) {
+    if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
         const err = windows.GetLastError();
-        return switch (err) {
+        switch (err) {
             windows.ERROR.IO_PENDING => unreachable,
-            windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
-            windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
-            else => os.unexpectedErrorWindows(err),
-        };
+            windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
+            windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
+            windows.ERROR.HANDLE_EOF => return usize(bytes_transferred),
+            else => return os.unexpectedErrorWindows(err),
+        }
     }
     return usize(bytes_transferred);
 }
@@ -727,7 +724,7 @@ pub fn Watch(comptime V: type) type {
 
         const FileToHandle = std.AutoHashMap([]const u8, promise);
 
-        const Self = this;
+        const Self = @This();
 
         pub const Event = struct {
             id: Id,
@@ -1074,15 +1071,14 @@ pub fn Watch(comptime V: type) type {
                 .base = Loop.ResumeNode{
                     .id = Loop.ResumeNode.Id.Basic,
                     .handle = @handle(),
+                    .overlapped = windows.OVERLAPPED{
+                        .Internal = 0,
+                        .InternalHigh = 0,
+                        .Offset = 0,
+                        .OffsetHigh = 0,
+                        .hEvent = null,
+                    },
                 },
-            };
-            const completion_key = @ptrToInt(&resume_node.base);
-            var overlapped = windows.OVERLAPPED{
-                .Internal = 0,
-                .InternalHigh = 0,
-                .Offset = 0,
-                .OffsetHigh = 0,
-                .hEvent = null,
             };
             var event_buf: [4096]u8 align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) = undefined;
 
@@ -1090,7 +1086,7 @@ pub fn Watch(comptime V: type) type {
             _ = os.windowsCreateIoCompletionPort(
                 dir_handle,
                 self.channel.loop.os_data.io_port,
-                completion_key,
+                undefined,
                 undefined,
             ) catch |err| {
                 await (async self.channel.put(err) catch unreachable);
@@ -1103,7 +1099,7 @@ pub fn Watch(comptime V: type) type {
                     self.channel.loop.beginOneEvent();
                     errdefer self.channel.loop.finishOneEvent();
                     errdefer {
-                        _ = windows.CancelIoEx(dir_handle, &overlapped);
+                        _ = windows.CancelIoEx(dir_handle, &resume_node.base.overlapped);
                     }
                     suspend {
                         _ = windows.ReadDirectoryChangesW(
@@ -1116,13 +1112,13 @@ pub fn Watch(comptime V: type) type {
                                 windows.FILE_NOTIFY_CHANGE_LAST_WRITE | windows.FILE_NOTIFY_CHANGE_LAST_ACCESS |
                                 windows.FILE_NOTIFY_CHANGE_CREATION | windows.FILE_NOTIFY_CHANGE_SECURITY,
                             null, // number of bytes transferred (unused for async)
-                            &overlapped,
+                            &resume_node.base.overlapped,
                             null, // completion routine - unused because we use IOCP
                         );
                     }
                 }
                 var bytes_transferred: windows.DWORD = undefined;
-                if (windows.GetOverlappedResult(dir_handle, &overlapped, &bytes_transferred, windows.FALSE) == 0) {
+                if (windows.GetOverlappedResult(dir_handle, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
                     const errno = windows.GetLastError();
                     const err = switch (errno) {
                         else => os.unexpectedErrorWindows(errno),

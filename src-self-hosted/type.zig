@@ -40,7 +40,6 @@ pub const Type = struct {
             Id.Enum => @fieldParentPtr(Enum, "base", base).destroy(comp),
             Id.Union => @fieldParentPtr(Union, "base", base).destroy(comp),
             Id.Namespace => @fieldParentPtr(Namespace, "base", base).destroy(comp),
-            Id.Block => @fieldParentPtr(Block, "base", base).destroy(comp),
             Id.BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(comp),
             Id.ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(comp),
             Id.Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
@@ -74,7 +73,6 @@ pub const Type = struct {
             Id.Enum => return @fieldParentPtr(Enum, "base", base).getLlvmType(allocator, llvm_context),
             Id.Union => return @fieldParentPtr(Union, "base", base).getLlvmType(allocator, llvm_context),
             Id.Namespace => unreachable,
-            Id.Block => unreachable,
             Id.BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(allocator, llvm_context),
             Id.ArgTuple => unreachable,
             Id.Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(allocator, llvm_context),
@@ -90,7 +88,6 @@ pub const Type = struct {
             Id.Undefined,
             Id.Null,
             Id.Namespace,
-            Id.Block,
             Id.BoundFn,
             Id.ArgTuple,
             Id.Opaque,
@@ -124,7 +121,6 @@ pub const Type = struct {
             Id.Undefined,
             Id.Null,
             Id.Namespace,
-            Id.Block,
             Id.BoundFn,
             Id.ArgTuple,
             Id.Opaque,
@@ -1008,14 +1004,6 @@ pub const Type = struct {
         base: Type,
 
         pub fn destroy(self: *Namespace, comp: *Compilation) void {
-            comp.gpa().destroy(self);
-        }
-    };
-
-    pub const Block = struct {
-        base: Type,
-
-        pub fn destroy(self: *Block, comp: *Compilation) void {
             comp.gpa().destroy(self);
         }
     };

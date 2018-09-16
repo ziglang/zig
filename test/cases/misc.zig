@@ -510,9 +510,6 @@ test "@typeId" {
         assert(@typeId(AUnion) == Tid.Union);
         assert(@typeId(fn () void) == Tid.Fn);
         assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
-        assert(@typeId(@typeOf(x: {
-            break :x this;
-        })) == Tid.Block);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque

@@ -21,7 +21,7 @@ pub fn Future(comptime T: type) type {
         /// 2 - finished
         available: u8,
 
-        const Self = this;
+        const Self = @This();
         const Queue = std.atomic.Queue(promise);
 
         pub fn init(loop: *Loop) Self {

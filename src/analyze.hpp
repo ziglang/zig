@@ -54,14 +54,14 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *so
 bool type_is_codegen_pointer(ZigType *type);
 
 ZigType *get_codegen_ptr_type(ZigType *type);
-uint32_t get_ptr_align(ZigType *type);
+uint32_t get_ptr_align(CodeGen *g, ZigType *type);
 bool get_ptr_const(ZigType *type);
 ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry);
 ZigType *container_ref_type(ZigType *type_entry);
 bool type_is_complete(ZigType *type_entry);
+bool type_is_resolved(ZigType *type_entry, ResolveStatus status);
 bool type_is_invalid(ZigType *type_entry);
 bool type_is_global_error_set(ZigType *err_set_type);
-bool type_has_zero_bits_known(ZigType *type_entry);
 void resolve_container_type(CodeGen *g, ZigType *type_entry);
 ScopeDecls *get_container_scope(ZigType *type_entry);
 TypeStructField *find_struct_type_field(ZigType *type_entry, Buf *name);
@@ -87,10 +87,9 @@ ZigFn *create_fn(AstNode *proto_node);
 ZigFn *create_fn_raw(FnInline inline_value, GlobalLinkageId linkage);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
 AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
-ZigFn *scope_get_fn_if_root(Scope *scope);
 bool type_requires_comptime(ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE ensure_complete_type(CodeGen *g, ZigType *type_entry);
-Error ATTRIBUTE_MUST_USE type_ensure_zero_bits_known(CodeGen *g, ZigType *type_entry);
+Error ATTRIBUTE_MUST_USE type_resolve(CodeGen *g, ZigType *type_entry, ResolveStatus status);
 void complete_enum(CodeGen *g, ZigType *enum_type);
 bool ir_get_var_is_comptime(ZigVar *var);
 bool const_values_equal(ConstExprValue *a, ConstExprValue *b);
@@ -208,6 +207,8 @@ ZigType *get_primitive_type(CodeGen *g, Buf *name);
 
 bool calling_convention_allows_zig_types(CallingConvention cc);
 const char *calling_convention_name(CallingConvention cc);
+
+Error ATTRIBUTE_MUST_USE file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents);
 
 void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty);

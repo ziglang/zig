@@ -385,7 +385,7 @@ pub fn stackFallback(comptime size: usize, fallback_allocator: *Allocator) Stack
 
 pub fn StackFallbackAllocator(comptime size: usize) type {
     return struct {
-        const Self = this;
+        const Self = @This();
 
         buffer: [size]u8,
         allocator: Allocator,

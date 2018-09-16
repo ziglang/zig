@@ -13,7 +13,7 @@ pub fn Group(comptime ReturnType: type) type {
         alloc_stack: Stack,
         lock: Lock,
 
-        const Self = this;
+        const Self = @This();
 
         const Error = switch (@typeInfo(ReturnType)) {
             builtin.TypeId.ErrorUnion => |payload| payload.error_set,

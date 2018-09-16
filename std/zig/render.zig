@@ -20,7 +20,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(
 
     // make a passthrough stream that checks whether something changed
     const MyStream = struct {
-        const MyStream = this;
+        const MyStream = @This();
         const StreamError = @typeOf(stream).Child.Error;
         const Stream = std.io.OutStream(StreamError);
 

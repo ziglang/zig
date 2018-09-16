@@ -32,6 +32,7 @@ pub const Server = struct {
             .listen_resume_node = event.Loop.ResumeNode{
                 .id = event.Loop.ResumeNode.Id.Basic,
                 .handle = undefined,
+                .overlapped = event.Loop.ResumeNode.overlapped_init,
             },
         };
     }
@@ -131,7 +132,7 @@ test "listen on a port, send bytes, receive bytes" {
     const MyServer = struct {
         tcp_server: Server,
 
-        const Self = this;
+        const Self = @This();
         async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: *const std.os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733

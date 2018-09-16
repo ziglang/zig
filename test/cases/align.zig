@@ -212,3 +212,10 @@ fn fnWithAlignedStack() i32 {
     @setAlignStack(256);
     return 1234;
 }
+
+test "alignment of structs" {
+    assert(@alignOf(struct {
+        a: i32,
+        b: *i32,
+    }) == @alignOf(usize));
+}

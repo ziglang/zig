@@ -33,7 +33,7 @@ pub const Blake2s256 = Blake2s(256);
 
 fn Blake2s(comptime out_len: usize) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const block_length = 64;
         const digest_length = out_len / 8;
 
@@ -266,7 +266,7 @@ pub const Blake2b512 = Blake2b(512);
 
 fn Blake2b(comptime out_len: usize) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const block_length = 128;
         const digest_length = out_len / 8;
 

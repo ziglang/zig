@@ -7,7 +7,7 @@ const Allocator = mem.Allocator;
 /// Generic doubly linked list.
 pub fn LinkedList(comptime T: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
 
         /// Node inside the linked list wrapping the actual data.
         pub const Node = struct {

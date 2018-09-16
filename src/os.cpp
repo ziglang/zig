@@ -24,6 +24,7 @@
 #endif
 
 #include <windows.h>
+#include <shlobj.h>
 #include <io.h>
 #include <fcntl.h>
 
@@ -38,6 +39,10 @@ typedef SSIZE_T ssize_t;
 #include <fcntl.h>
 #include <limits.h>
 
+#endif
+
+#if defined(ZIG_OS_LINUX)
+#include <link.h>
 #endif
 
 
@@ -56,54 +61,6 @@ static clock_serv_t cclock;
 #include <stdlib.h>
 #include <errno.h>
 #include <time.h>
-
-// Ported from std/mem.zig.
-// Coordinate struct fields with memSplit function
-struct SplitIterator {
-    size_t index;
-    Slice<uint8_t> buffer;
-    Slice<uint8_t> split_bytes;
-};
-
-// Ported from std/mem.zig.
-static bool SplitIterator_isSplitByte(SplitIterator *self, uint8_t byte) {
-    for (size_t i = 0; i < self->split_bytes.len; i += 1) {
-        if (byte == self->split_bytes.ptr[i]) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// Ported from std/mem.zig.
-static Optional<Slice<uint8_t>> SplitIterator_next(SplitIterator *self) {
-    // move to beginning of token
-    while (self->index < self->buffer.len &&
-        SplitIterator_isSplitByte(self, self->buffer.ptr[self->index]))
-    {
-        self->index += 1;
-    }
-    size_t start = self->index;
-    if (start == self->buffer.len) {
-        return {};
-    }
-
-    // move to end of token
-    while (self->index < self->buffer.len &&
-        !SplitIterator_isSplitByte(self, self->buffer.ptr[self->index]))
-    {
-        self->index += 1;
-    }
-    size_t end = self->index;
-
-    return Optional<Slice<uint8_t>>::some(self->buffer.slice(start, end));
-}
-
-// Ported from std/mem.zig
-static SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes) {
-    return SplitIterator{0, buffer, split_bytes};
-}
-
 
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
@@ -765,7 +722,7 @@ Buf os_path_resolve(Buf **paths_ptr, size_t paths_len) {
 #endif
 }
 
-int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
+Error os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
     static const ssize_t buf_size = 0x2000;
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
@@ -801,7 +758,7 @@ int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
         if (amt_read != buf_size) {
             if (feof(f)) {
                 buf_resize(out_buf, actual_buf_len);
-                return 0;
+                return ErrorNone;
             } else {
                 return ErrorFileSystem;
             }
@@ -813,13 +770,13 @@ int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
     zig_unreachable();
 }
 
-int os_file_exists(Buf *full_path, bool *result) {
+Error os_file_exists(Buf *full_path, bool *result) {
 #if defined(ZIG_OS_WINDOWS)
     *result = GetFileAttributes(buf_ptr(full_path)) != INVALID_FILE_ATTRIBUTES;
-    return 0;
+    return ErrorNone;
 #else
     *result = access(buf_ptr(full_path), F_OK) != -1;
-    return 0;
+    return ErrorNone;
 #endif
 }
 
@@ -878,13 +835,15 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
         FILE *stdout_f = fdopen(stdout_pipe[0], "rb");
         FILE *stderr_f = fdopen(stderr_pipe[0], "rb");
-        os_fetch_file(stdout_f, out_stdout, false);
-        os_fetch_file(stderr_f, out_stderr, false);
+        Error err1 = os_fetch_file(stdout_f, out_stdout, false);
+        Error err2 = os_fetch_file(stderr_f, out_stderr, false);
 
         fclose(stdout_f);
         fclose(stderr_f);
 
-        return 0;
+        if (err1) return err1;
+        if (err2) return err2;
+        return ErrorNone;
     }
 }
 #endif
@@ -1016,6 +975,22 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
 }
 #endif
 
+Error os_execv(const char *exe, const char **argv) {
+#if defined(ZIG_OS_WINDOWS)
+    return ErrorUnsupportedOperatingSystem;
+#else
+    execv(exe, (char *const *)argv);
+    switch (errno) {
+        case ENOMEM:
+            return ErrorSystemResources;
+        case EIO:
+            return ErrorFileSystem;
+        default:
+            return ErrorUnexpected;
+    }
+#endif
+}
+
 int os_exec_process(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
@@ -1092,7 +1067,7 @@ int os_copy_file(Buf *src_path, Buf *dest_path) {
     }
 }
 
-int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
+Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
     FILE *f = fopen(buf_ptr(full_path), "rb");
     if (!f) {
         switch (errno) {
@@ -1111,7 +1086,7 @@ int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
                 return ErrorFileSystem;
         }
     }
-    int result = os_fetch_file(f, out_contents, skip_shebang);
+    Error result = os_fetch_file(f, out_contents, skip_shebang);
     fclose(f);
     return result;
 }
@@ -1282,44 +1257,6 @@ int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
 #endif
 }
 
-#if defined(ZIG_OS_POSIX)
-int os_get_global_cache_directory(Buf *out_tmp_path) {
-    const char *tmp_dir = getenv("TMPDIR");
-    if (!tmp_dir) {
-        tmp_dir = P_tmpdir;
-    }
-
-    Buf *tmp_dir_buf = buf_create_from_str(tmp_dir);
-    Buf *cache_dirname_buf = buf_create_from_str("zig-cache");
-
-    buf_resize(out_tmp_path, 0);
-    os_path_join(tmp_dir_buf, cache_dirname_buf, out_tmp_path);
-
-    buf_deinit(tmp_dir_buf);
-    buf_deinit(cache_dirname_buf);
-    return 0;
-}
-#endif
-
-#if defined(ZIG_OS_WINDOWS)
-int os_get_global_cache_directory(Buf *out_tmp_path) {
-    char tmp_dir[MAX_PATH + 1];
-    if (GetTempPath(MAX_PATH, tmp_dir) == 0) {
-        zig_panic("GetTempPath failed");
-    }
-
-    Buf *tmp_dir_buf = buf_create_from_str(tmp_dir);
-    Buf *cache_dirname_buf = buf_create_from_str("zig-cache");
-
-    buf_resize(out_tmp_path, 0);
-    os_path_join(tmp_dir_buf, cache_dirname_buf, out_tmp_path);
-
-    buf_deinit(tmp_dir_buf);
-    buf_deinit(cache_dirname_buf);
-    return 0;
-}
-#endif
-
 int os_delete_file(Buf *path) {
     if (remove(buf_ptr(path))) {
         return ErrorFileSystem;
@@ -1368,16 +1305,16 @@ double os_get_time(void) {
 #endif
 }
 
-int os_make_path(Buf *path) {
+Error os_make_path(Buf *path) {
     Buf resolved_path = os_path_resolve(&path, 1);
 
     size_t end_index = buf_len(&resolved_path);
-    int err;
+    Error err;
     while (true) {
         if ((err = os_make_dir(buf_slice(&resolved_path, 0, end_index)))) {
             if (err == ErrorPathAlreadyExists) {
                 if (end_index == buf_len(&resolved_path))
-                    return 0;
+                    return ErrorNone;
             } else if (err == ErrorFileNotFound) {
                 // march end_index backward until next path component
                 while (true) {
@@ -1391,7 +1328,7 @@ int os_make_path(Buf *path) {
             }
         }
         if (end_index == buf_len(&resolved_path))
-            return 0;
+            return ErrorNone;
         // march end_index forward until next path component
         while (true) {
             end_index += 1;
@@ -1399,10 +1336,10 @@ int os_make_path(Buf *path) {
                 break;
         }
     }
-    return 0;
+    return ErrorNone;
 }
 
-int os_make_dir(Buf *path) {
+Error os_make_dir(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
     if (!CreateDirectory(buf_ptr(path), NULL)) {
         if (GetLastError() == ERROR_ALREADY_EXISTS)
@@ -1413,7 +1350,7 @@ int os_make_dir(Buf *path) {
             return ErrorAccess;
         return ErrorUnexpected;
     }
-    return 0;
+    return ErrorNone;
 #else
     if (mkdir(buf_ptr(path), 0755) == -1) {
         if (errno == EEXIST)
@@ -1424,7 +1361,7 @@ int os_make_dir(Buf *path) {
             return ErrorAccess;
         return ErrorUnexpected;
     }
-    return 0;
+    return ErrorNone;
 #endif
 }
 
@@ -1447,7 +1384,7 @@ int os_init(void) {
     return 0;
 }
 
-int os_self_exe_path(Buf *out_path) {
+Error os_self_exe_path(Buf *out_path) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(out_path, 256);
     for (;;) {
@@ -1457,7 +1394,7 @@ int os_self_exe_path(Buf *out_path) {
         }
         if (copied_amt < buf_len(out_path)) {
             buf_resize(out_path, copied_amt);
-            return 0;
+            return ErrorNone;
         }
         buf_resize(out_path, buf_len(out_path) * 2);
     }
@@ -1480,27 +1417,21 @@ int os_self_exe_path(Buf *out_path) {
     char *real_path = realpath(buf_ptr(tmp), buf_ptr(out_path));
     if (!real_path) {
         buf_init_from_buf(out_path, tmp);
-        return 0;
+        return ErrorNone;
     }
 
     // Resize out_path for the correct length.
     buf_resize(out_path, strlen(buf_ptr(out_path)));
 
-    return 0;
+    return ErrorNone;
 #elif defined(ZIG_OS_LINUX)
-    buf_resize(out_path, 256);
-    for (;;) {
-        ssize_t amt = readlink("/proc/self/exe", buf_ptr(out_path), buf_len(out_path));
-        if (amt == -1) {
-            return ErrorUnexpected;
-        }
-        if (amt == (ssize_t)buf_len(out_path)) {
-            buf_resize(out_path, buf_len(out_path) * 2);
-            continue;
-        }
-        buf_resize(out_path, amt);
-        return 0;
+    buf_resize(out_path, PATH_MAX);
+    ssize_t amt = readlink("/proc/self/exe", buf_ptr(out_path), buf_len(out_path));
+    if (amt == -1) {
+        return ErrorUnexpected;
     }
+    buf_resize(out_path, amt);
+    return ErrorNone;
 #endif
     return ErrorFileNotFound;
 }
@@ -1683,5 +1614,433 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
     return ErrorFileNotFound;
 #else
     return ErrorFileNotFound;
+#endif
+}
+
+#if defined(ZIG_OS_WINDOWS)
+// Ported from std/unicode.zig
+struct Utf16LeIterator {
+    uint8_t *bytes;
+    size_t i;
+};
+
+// Ported from std/unicode.zig
+static Utf16LeIterator Utf16LeIterator_init(WCHAR *ptr) {
+    return {(uint8_t*)ptr, 0};
+}
+
+// Ported from std/unicode.zig
+static Optional<uint32_t> Utf16LeIterator_nextCodepoint(Utf16LeIterator *it) {
+    if (it->bytes[it->i] == 0 && it->bytes[it->i + 1] == 0)
+        return {};
+    uint32_t c0 = ((uint32_t)it->bytes[it->i]) | (((uint32_t)it->bytes[it->i + 1]) << 8);
+    if (c0 & ~((uint32_t)0x03ff) == 0xd800) {
+        // surrogate pair
+        it->i += 2;
+        assert(it->bytes[it->i] != 0 || it->bytes[it->i + 1] != 0);
+        uint32_t c1 = ((uint32_t)it->bytes[it->i]) | (((uint32_t)it->bytes[it->i + 1]) << 8);
+        assert(c1 & ~((uint32_t)0x03ff) == 0xdc00);
+        it->i += 2;
+        return Optional<uint32_t>::some(0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff)));
+    } else {
+        assert(c0 & ~((uint32_t)0x03ff) != 0xdc00);
+        it->i += 2;
+        return Optional<uint32_t>::some(c0);
+    }
+}
+
+// Ported from std/unicode.zig
+static uint8_t utf8CodepointSequenceLength(uint32_t c) {
+    if (c < 0x80) return 1;
+    if (c < 0x800) return 2;
+    if (c < 0x10000) return 3;
+    if (c < 0x110000) return 4;
+    zig_unreachable();
+}
+
+// Ported from std/unicode.zig
+static size_t utf8Encode(uint32_t c, Slice<uint8_t> out) {
+    size_t length = utf8CodepointSequenceLength(c);
+    assert(out.len >= length);
+    switch (length) {
+        // The pattern for each is the same
+        // - Increasing the initial shift by 6 each time
+        // - Each time after the first shorten the shifted
+        //   value to a max of 0b111111 (63)
+        case 1:
+            out.ptr[0] = c; // Can just do 0 + codepoint for initial range
+            break;
+        case 2:
+            out.ptr[0] = 0b11000000 | (c >> 6);
+            out.ptr[1] = 0b10000000 | (c & 0b111111);
+            break;
+        case 3:
+            assert(!(0xd800 <= c && c <= 0xdfff));
+            out.ptr[0] = 0b11100000 | (c >> 12);
+            out.ptr[1] = 0b10000000 | ((c >> 6) & 0b111111);
+            out.ptr[2] = 0b10000000 | (c & 0b111111);
+            break;
+        case 4:
+            out.ptr[0] = 0b11110000 | (c >> 18);
+            out.ptr[1] = 0b10000000 | ((c >> 12) & 0b111111);
+            out.ptr[2] = 0b10000000 | ((c >> 6) & 0b111111);
+            out.ptr[3] = 0b10000000 | (c & 0b111111);
+            break;
+        default:
+            zig_unreachable();
+    }
+    return length;
+}
+
+// Ported from std.unicode.utf16leToUtf8Alloc
+static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
+    // optimistically guess that it will all be ascii.
+    buf_resize(out, 0);
+    size_t out_index = 0;
+    Utf16LeIterator it = Utf16LeIterator_init(utf16le);
+    for (;;) {
+        Optional<uint32_t> opt_codepoint = Utf16LeIterator_nextCodepoint(&it);
+        if (!opt_codepoint.is_some) break;
+        uint32_t codepoint = opt_codepoint.value;
+
+        size_t utf8_len = utf8CodepointSequenceLength(codepoint);
+        buf_resize(out, buf_len(out) + utf8_len);
+        utf8Encode(codepoint, {(uint8_t*)buf_ptr(out)+out_index, buf_len(out)-out_index});
+        out_index += utf8_len;
+    }
+}
+#endif
+
+// Ported from std.os.getAppDataDir
+Error os_get_app_data_dir(Buf *out_path, const char *appname) {
+#if defined(ZIG_OS_WINDOWS)
+    Error err;
+    WCHAR *dir_path_ptr;
+    switch (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &dir_path_ptr)) {
+        case S_OK:
+            // defer os.windows.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
+            utf16le_ptr_to_utf8(out_path, dir_path_ptr);
+            CoTaskMemFree(dir_path_ptr);
+            buf_appendf(out_path, "\\%s", appname);
+            return ErrorNone;
+        case E_OUTOFMEMORY:
+            return ErrorNoMem;
+        default:
+            return ErrorUnexpected;
+    }
+    zig_unreachable();
+#elif defined(ZIG_OS_DARWIN)
+    const char *home_dir = getenv("HOME");
+    if (home_dir == nullptr) {
+        // TODO use /etc/passwd
+        return ErrorFileNotFound;
+    }
+    buf_resize(out_path, 0);
+    buf_appendf(out_path, "%s/Library/Application Support/%s", home_dir, appname);
+    return ErrorNone;
+#elif defined(ZIG_OS_LINUX)
+    const char *home_dir = getenv("HOME");
+    if (home_dir == nullptr) {
+        // TODO use /etc/passwd
+        return ErrorFileNotFound;
+    }
+    buf_resize(out_path, 0);
+    buf_appendf(out_path, "%s/.local/share/%s", home_dir, appname);
+    return ErrorNone;
+#endif
+}
+
+
+#if defined(ZIG_OS_LINUX)
+static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size, void *data) {
+    ZigList<Buf *> *libs = reinterpret_cast< ZigList<Buf *> *>(data);
+    if (info->dlpi_name[0] == '/') {
+        libs->append(buf_create_from_str(info->dlpi_name));
+    }
+    return 0;
+}
+#endif
+
+Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
+#if defined(ZIG_OS_LINUX)
+    paths.resize(0);
+    dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
+    return ErrorNone;
+#elif defined(ZIG_OS_DARWIN)
+    paths.resize(0);
+    uint32_t img_count = _dyld_image_count();
+    for (uint32_t i = 0; i != img_count; i += 1) {
+        const char *name = _dyld_get_image_name(i);
+        paths.append(buf_create_from_str(name));
+    }
+    return ErrorNone;
+#elif defined(ZIG_OS_WINDOWS)
+    // zig is built statically on windows, so we can return an empty list
+    paths.resize(0);
+    return ErrorNone;
+#else
+#error unimplemented
+#endif
+}
+
+Error os_file_open_r(Buf *full_path, OsFile *out_file) {
+#if defined(ZIG_OS_WINDOWS)
+    // TODO use CreateFileW
+    HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+    if (result == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        switch (err) {
+            case ERROR_SHARING_VIOLATION:
+                return ErrorSharingViolation;
+            case ERROR_ALREADY_EXISTS:
+                return ErrorPathAlreadyExists;
+            case ERROR_FILE_EXISTS:
+                return ErrorPathAlreadyExists;
+            case ERROR_FILE_NOT_FOUND:
+                return ErrorFileNotFound;
+            case ERROR_PATH_NOT_FOUND:
+                return ErrorFileNotFound;
+            case ERROR_ACCESS_DENIED:
+                return ErrorAccess;
+            case ERROR_PIPE_BUSY:
+                return ErrorPipeBusy;
+            default:
+                return ErrorUnexpected;
+        }
+    }
+
+    *out_file = result;
+    return ErrorNone;
+#else
+    for (;;) {
+        int fd = open(buf_ptr(full_path), O_RDONLY|O_CLOEXEC);
+        if (fd == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EINVAL:
+                    zig_unreachable();
+                case EFAULT:
+                    zig_unreachable();
+                case EACCES:
+                    return ErrorAccess;
+                case EISDIR:
+                    return ErrorIsDir;
+                case ENOENT:
+                    return ErrorFileNotFound;
+                default:
+                    return ErrorFileSystem;
+            }
+        }
+        *out_file = fd;
+        return ErrorNone;
+    }
+#endif
+}
+
+Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
+#if defined(ZIG_OS_WINDOWS)
+    for (;;) {
+        HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ | GENERIC_WRITE,
+            0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+        if (result == INVALID_HANDLE_VALUE) {
+            DWORD err = GetLastError();
+            switch (err) {
+                case ERROR_SHARING_VIOLATION:
+                    // TODO wait for the lock instead of sleeping
+                    Sleep(10);
+                    continue;
+                case ERROR_ALREADY_EXISTS:
+                    return ErrorPathAlreadyExists;
+                case ERROR_FILE_EXISTS:
+                    return ErrorPathAlreadyExists;
+                case ERROR_FILE_NOT_FOUND:
+                    return ErrorFileNotFound;
+                case ERROR_PATH_NOT_FOUND:
+                    return ErrorFileNotFound;
+                case ERROR_ACCESS_DENIED:
+                    return ErrorAccess;
+                case ERROR_PIPE_BUSY:
+                    return ErrorPipeBusy;
+                default:
+                    return ErrorUnexpected;
+            }
+        }
+        *out_file = result;
+        return ErrorNone;
+    }
+#else
+    int fd;
+    for (;;) {
+        fd = open(buf_ptr(full_path), O_RDWR|O_CLOEXEC|O_CREAT, 0666);
+        if (fd == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EINVAL:
+                    zig_unreachable();
+                case EFAULT:
+                    zig_unreachable();
+                case EACCES:
+                    return ErrorAccess;
+                case EISDIR:
+                    return ErrorIsDir;
+                case ENOENT:
+                    return ErrorFileNotFound;
+                default:
+                    return ErrorFileSystem;
+            }
+        }
+        break;
+    }
+    for (;;) {
+        struct flock lock;
+        lock.l_type = F_WRLCK;
+        lock.l_whence = SEEK_SET;
+        lock.l_start = 0;
+        lock.l_len = 0;
+        if (fcntl(fd, F_SETLKW, &lock) == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EBADF:
+                    zig_unreachable();
+                case EFAULT:
+                    zig_unreachable();
+                case EINVAL:
+                    zig_unreachable();
+                default:
+                    close(fd);
+                    return ErrorFileSystem;
+            }
+        }
+        break;
+    }
+    *out_file = fd;
+    return ErrorNone;
+#endif
+}
+
+Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
+#if defined(ZIG_OS_WINDOWS)
+    FILETIME last_write_time;
+    if (!GetFileTime(file, nullptr, nullptr, &last_write_time))
+        return ErrorUnexpected;
+    mtime->sec = last_write_time.dwLowDateTime | (last_write_time.dwHighDateTime << 32);
+    mtime->nsec = 0;
+    return ErrorNone;
+#elif defined(ZIG_OS_LINUX)
+    struct stat statbuf;
+    if (fstat(file, &statbuf) == -1)
+        return ErrorFileSystem;
+
+    mtime->sec = statbuf.st_mtim.tv_sec;
+    mtime->nsec = statbuf.st_mtim.tv_nsec;
+    return ErrorNone;
+#elif defined(ZIG_OS_DARWIN)
+    struct stat statbuf;
+    if (fstat(file, &statbuf) == -1)
+        return ErrorFileSystem;
+
+    mtime->sec = statbuf.st_mtimespec.tv_sec;
+    mtime->nsec = statbuf.st_mtimespec.tv_nsec;
+    return ErrorNone;
+#else
+#error unimplemented
+#endif
+}
+
+Error os_file_read(OsFile file, void *ptr, size_t *len) {
+#if defined(ZIG_OS_WINDOWS)
+    DWORD amt_read;
+    if (ReadFile(file, ptr, *len, &amt_read, nullptr) == 0)
+        return ErrorUnexpected;
+    *len = amt_read;
+    return ErrorNone;
+#else
+    for (;;) {
+        ssize_t rc = read(file, ptr, *len);
+        if (rc == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EBADF:
+                    zig_unreachable();
+                case EFAULT:
+                    zig_unreachable();
+                case EISDIR:
+                    zig_unreachable();
+                default:
+                    return ErrorFileSystem;
+            }
+        }
+        *len = rc;
+        return ErrorNone;
+    }
+#endif
+}
+
+Error os_file_read_all(OsFile file, Buf *contents) {
+    Error err;
+    size_t index = 0;
+    for (;;) {
+        size_t amt = buf_len(contents) - index;
+
+        if (amt < 4096) {
+            buf_resize(contents, buf_len(contents) + (4096 - amt));
+            amt = buf_len(contents) - index;
+        }
+
+        if ((err = os_file_read(file, buf_ptr(contents) + index, &amt)))
+            return err;
+
+        if (amt == 0) {
+            buf_resize(contents, index);
+            return ErrorNone;
+        }
+
+        index += amt;
+    }
+}
+
+Error os_file_overwrite(OsFile file, Buf *contents) {
+#if defined(ZIG_OS_WINDOWS)
+    if (SetFilePointer(file, 0, nullptr, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
+        return ErrorFileSystem;
+    if (!SetEndOfFile(file))
+        return ErrorFileSystem;
+    if (!WriteFile(file, buf_ptr(contents), buf_len(contents), nullptr, nullptr))
+        return ErrorFileSystem;
+    return ErrorNone;
+#else
+    if (lseek(file, 0, SEEK_SET) == -1)
+        return ErrorFileSystem;
+    if (ftruncate(file, 0) == -1)
+        return ErrorFileSystem;
+    for (;;) {
+        if (write(file, buf_ptr(contents), buf_len(contents)) == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EINVAL:
+                    zig_unreachable();
+                case EBADF:
+                    zig_unreachable();
+                default:
+                    return ErrorFileSystem;
+            }
+        }
+        return ErrorNone;
+    }
+#endif
+}
+
+void os_file_close(OsFile file) {
+#if defined(ZIG_OS_WINDOWS)
+    CloseHandle(file);
+#else
+    close(file);
 #endif
 }

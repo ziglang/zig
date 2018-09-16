@@ -52,7 +52,8 @@ pub const WriteError = error{
 };
 
 pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) WriteError!void {
-    if (windows.WriteFile(handle, bytes.ptr, @intCast(u32, bytes.len), null, null) == 0) {
+    var bytes_written: windows.DWORD = undefined;
+    if (windows.WriteFile(handle, bytes.ptr, @intCast(u32, bytes.len), &bytes_written, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.INVALID_USER_BUFFER => WriteError.SystemResources,
@@ -222,7 +223,7 @@ pub fn windowsFindFirstFile(
     dir_path: []const u8,
     find_file_data: *windows.WIN32_FIND_DATAW,
 ) !windows.HANDLE {
-    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, []u16{'\\', '*', 0});
+    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, []u16{ '\\', '*', 0 });
     const handle = windows.FindFirstFileW(&dir_path_w, find_file_data);
 
     if (handle == windows.INVALID_HANDLE_VALUE) {
@@ -277,6 +278,7 @@ pub const WindowsWaitResult = enum {
     Normal,
     Aborted,
     Cancelled,
+    EOF,
 };
 
 pub fn windowsGetQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_transferred_count: *windows.DWORD, lpCompletionKey: *usize, lpOverlapped: *?*windows.OVERLAPPED, dwMilliseconds: windows.DWORD) WindowsWaitResult {
@@ -285,6 +287,7 @@ pub fn windowsGetQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_t
         switch (err) {
             windows.ERROR.ABANDONED_WAIT_0 => return WindowsWaitResult.Aborted,
             windows.ERROR.OPERATION_ABORTED => return WindowsWaitResult.Cancelled,
+            windows.ERROR.HANDLE_EOF => return WindowsWaitResult.EOF,
             else => {
                 if (std.debug.runtime_safety) {
                     std.debug.panic("unexpected error: {}\n", err);

@@ -75,7 +75,7 @@ const Allocator = std.mem.Allocator;
 /// size is small. `prealloc_item_count` must be 0, or a power of 2.
 pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const prealloc_exp = blk: {
             // we don't use the prealloc_exp constant when prealloc_item_count is 0.
             assert(prealloc_item_count != 0);

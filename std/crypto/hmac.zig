@@ -9,7 +9,7 @@ pub const HmacSha256 = Hmac(crypto.Sha256);
 
 pub fn Hmac(comptime Hash: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         pub const mac_length = Hash.digest_length;
         pub const minimum_key_length = 0;
 

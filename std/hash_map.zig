@@ -22,7 +22,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         // this is used to detect bugs where a hashtable is edited while an iterator is running.
         modification_count: debug_u32,
 
-        const Self = this;
+        const Self = @This();
 
         pub const KV = struct {
             key: K,
@@ -472,7 +472,6 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         builtin.TypeId.Promise, builtin.TypeId.Fn => return autoHash(@ptrToInt(key), rng),
 
         builtin.TypeId.Namespace,
-        builtin.TypeId.Block,
         builtin.TypeId.BoundFn,
         builtin.TypeId.ComptimeFloat,
         builtin.TypeId.ComptimeInt,
@@ -517,7 +516,6 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.ComptimeFloat,
         builtin.TypeId.ComptimeInt,
         builtin.TypeId.Namespace,
-        builtin.TypeId.Block,
         builtin.TypeId.Promise,
         builtin.TypeId.Enum,
         builtin.TypeId.BoundFn,

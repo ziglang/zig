@@ -242,9 +242,12 @@ pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color
     }
 }
 
-pub fn writeCurrentStackTraceWindows(out_stream: var, debug_info: *DebugInfo,
-    tty_color: bool, start_addr: ?usize) !void
-{
+pub fn writeCurrentStackTraceWindows(
+    out_stream: var,
+    debug_info: *DebugInfo,
+    tty_color: bool,
+    start_addr: ?usize,
+) !void {
     var addr_buf: [1024]usize = undefined;
     const casted_len = @intCast(u32, addr_buf.len); // TODO shouldn't need this cast
     const n = windows.RtlCaptureStackBackTrace(0, casted_len, @ptrCast(**c_void, &addr_buf), null);
@@ -391,7 +394,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
             break :subsections null;
         }
     };
-    
+
     if (tty_color) {
         setTtyColor(TtyColor.White);
         if (opt_line_info) |li| {
@@ -438,7 +441,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
     }
 }
 
-const TtyColor = enum{
+const TtyColor = enum {
     Red,
     Green,
     Cyan,
@@ -465,18 +468,16 @@ fn setTtyColor(tty_color: TtyColor) void {
     // TODO handle errors
     switch (tty_color) {
         TtyColor.Red => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED|windows.FOREGROUND_INTENSITY);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
         },
         TtyColor.Green => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN|windows.FOREGROUND_INTENSITY);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
         },
         TtyColor.Cyan => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle,
-                windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE|windows.FOREGROUND_INTENSITY);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
         },
         TtyColor.White, TtyColor.Bold => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle,
-                windows.FOREGROUND_RED|windows.FOREGROUND_GREEN|windows.FOREGROUND_BLUE|windows.FOREGROUND_INTENSITY);
+            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
         },
         TtyColor.Dim => {
             _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
@@ -915,7 +916,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     } else {
         return error.MissingDebugInfo;
     };
-    const syms = @ptrCast([*]macho.nlist_64, hdr_base + symtab.symoff)[0..symtab.nsyms];
+    const syms = @ptrCast([*]macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
     const strings = @ptrCast([*]u8, hdr_base + symtab.stroff)[0..symtab.strsize];
 
     const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
@@ -1496,14 +1497,14 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         const segcmd = while (ncmd != 0) : (ncmd -= 1) {
             const lc = @ptrCast(*const std.macho.load_command, ptr);
             switch (lc.cmd) {
-                std.macho.LC_SEGMENT_64 => break @ptrCast(*const std.macho.segment_command_64, ptr),
+                std.macho.LC_SEGMENT_64 => break @ptrCast(*const std.macho.segment_command_64, @alignCast(@alignOf(std.macho.segment_command_64), ptr)),
                 else => {},
             }
             ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
         } else {
             return error.MissingDebugInfo;
         };
-        const sections = @alignCast(@alignOf(macho.section_64), @ptrCast([*]const macho.section_64, ptr + @sizeOf(std.macho.segment_command_64)))[0..segcmd.nsects];
+        const sections = @ptrCast([*]const macho.section_64, @alignCast(@alignOf(macho.section_64), ptr + @sizeOf(std.macho.segment_command_64)))[0..segcmd.nsects];
         for (sections) |*sect| {
             if (sect.flags & macho.SECTION_TYPE == macho.S_REGULAR and
                 (sect.flags & macho.SECTION_ATTRIBUTES) & macho.S_ATTR_DEBUG == macho.S_ATTR_DEBUG)

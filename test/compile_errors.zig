@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "non error sets used in merge error sets operator",
+        \\export fn foo() void {
+        \\    const Errors = u8 || u16;
+        \\}
+        \\export fn bar() void {
+        \\    const Errors = error{} || u16;
+        \\}
+    ,
+        ".tmp_source.zig:2:20: error: expected error set type, found 'u8'",
+        ".tmp_source.zig:5:31: error: expected error set type, found 'u16'",
+    );
+
+    cases.add(
         "variable initialization compile error then referenced",
         \\fn Undeclared() type {
         \\    return T;
@@ -3431,7 +3444,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(1:3:6) const u3'",
+        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(:3:6) const u3'",
     );
 
     cases.add(
@@ -3800,11 +3813,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return struct {
         \\        b: B(),
         \\
-        \\        const Self = this;
+        \\        const Self = @This();
         \\
         \\        fn B() type {
         \\            return struct {
-        \\                const Self = this;
+        \\                const Self = @This();
         \\            };
         \\        }
         \\    };
@@ -3983,8 +3996,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@setFloatMode twice for same scope",
         \\export fn foo() void {
-        \\    @setFloatMode(this, @import("builtin").FloatMode.Optimized);
-        \\    @setFloatMode(this, @import("builtin").FloatMode.Optimized);
+        \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
+        \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
         \\}
     ,
         ".tmp_source.zig:3:5: error: float mode set twice for same scope",
@@ -4301,12 +4314,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\   var a = undefined;
         \\   var b = 1;
         \\   var c = 1.0;
-        \\   var d = this;
-        \\   var e = null;
-        \\   var f = opaque.*;
-        \\   var g = i32;
-        \\   var h = @import("std",);
-        \\   var i = (Foo {}).bar;
+        \\   var d = null;
+        \\   var e = opaque.*;
+        \\   var f = i32;
+        \\   var g = @import("std",);
+        \\   var h = (Foo {}).bar;
         \\
         \\   var z: noreturn = return;
         \\}
@@ -4319,13 +4331,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
         ".tmp_source.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
         ".tmp_source.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
-        ".tmp_source.zig:10:4: error: variable of type '(block)' must be const or comptime",
-        ".tmp_source.zig:11:4: error: variable of type '(null)' must be const or comptime",
-        ".tmp_source.zig:12:4: error: variable of type 'Opaque' not allowed",
-        ".tmp_source.zig:13:4: error: variable of type 'type' must be const or comptime",
-        ".tmp_source.zig:14:4: error: variable of type '(namespace)' must be const or comptime",
-        ".tmp_source.zig:15:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
-        ".tmp_source.zig:17:4: error: unreachable code",
+        ".tmp_source.zig:10:4: error: variable of type '(null)' must be const or comptime",
+        ".tmp_source.zig:11:4: error: variable of type 'Opaque' not allowed",
+        ".tmp_source.zig:12:4: error: variable of type 'type' must be const or comptime",
+        ".tmp_source.zig:13:4: error: variable of type '(namespace)' must be const or comptime",
+        ".tmp_source.zig:14:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
+        ".tmp_source.zig:16:4: error: unreachable code",
     );
 
     cases.add(

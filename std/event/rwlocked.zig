@@ -10,7 +10,7 @@ pub fn RwLocked(comptime T: type) type {
         lock: RwLock,
         locked_data: T,
 
-        const Self = this;
+        const Self = @This();
 
         pub const HeldReadLock = struct {
             value: *const T,
