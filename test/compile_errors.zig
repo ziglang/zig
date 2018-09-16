@@ -133,6 +133,30 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "integer type with bitwidth larger than 16777215",
+        \\export fn entry() void {
+        \\    var i: i16777216 = undefined;
+        \\    var u: u16777216 = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: use of undeclared identifier 'i16777216'",
+        ".tmp_source.zig:3:12: error: use of undeclared identifier 'u16777216'",
+    );
+
+    cases.add(
+        "@IntType for bit_count > 16777215",
+        \\export fn entry() void {
+        \\    var i: @IntType(true, 16777216) = undefined;
+        \\    var u: @IntType(false, 16777216) = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:27: error: integer type of 16777216 bits is not allowed",
+        ".tmp_source.zig:2:27: note: integer types must be from 0 to 16777215 bits",
+        ".tmp_source.zig:3:28: error: integer type of 16777216 bits is not allowed",
+        ".tmp_source.zig:3:28: note: integer types must be from 0 to 16777215 bits",
+    );
+
+    cases.add(
         "variable initialization compile error then referenced",
         \\fn Undeclared() type {
         \\    return T;
