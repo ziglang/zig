@@ -18505,7 +18505,23 @@ static IrInstruction *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstruct
     if (!ir_resolve_unsigned(ira, bit_count_value, ira->codegen->builtin_types.entry_u32, &bit_count))
         return ira->codegen->invalid_instruction;
 
-    return ir_const_type(ira, &instruction->base, get_int_type(ira->codegen, is_signed, (uint32_t)bit_count));
+    IrInstruction *return_val = ir_const_type( ira
+                                             , &instruction->base
+                                             , get_int_type(ira->codegen, is_signed, (uint32_t)bit_count)
+                                             );
+    if (return_val->value.data.x_type == nullptr) {
+        ErrorMsg *msg = ir_add_error( ira
+                                    , bit_count_value
+                                    , buf_sprintf("integer type of %llu bits is not allowed", bit_count));
+        add_error_note( ira->codegen
+                      , msg
+                      , bit_count_value->source_node
+                      , buf_sprintf( "integer types must be from %llu to %llu bits"
+                                   , (uint64_t)ZigLLVM_MIN_INT_BITS
+                                   , (uint64_t)ZigLLVM_MAX_INT_BITS));
+        return ira->codegen->invalid_instruction;
+    }
+    return return_val;
 }
 
 static IrInstruction *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstructionBoolNot *instruction) {

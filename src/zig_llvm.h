@@ -413,4 +413,9 @@ ZIG_EXTERN_C void ZigLLVMGetNativeTarget(enum ZigLLVM_ArchType *arch_type, enum 
         enum ZigLLVM_VendorType *vendor_type, enum ZigLLVM_OSType *os_type, enum ZigLLVM_EnvironmentType *environ_type,
         enum ZigLLVM_ObjectFormatType *oformat);
 
+enum ZigLLVM_BitWidth {
+    ZigLLVM_MIN_INT_BITS = 0, // llvm::IntegerType::MIN_INT_BITS is 1, but zig currently supports u0
+    ZigLLVM_MAX_INT_BITS = (1<<24)-1, // llvm::IntegerType::MAX_INT_BITS
+};
+
 #endif

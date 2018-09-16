@@ -4430,6 +4430,11 @@ void semantic_analyze(CodeGen *g) {
 }
 
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
+    if ( (ZigLLVM_MIN_INT_BITS > 0 && size_in_bits < ZigLLVM_MIN_INT_BITS)
+      || size_in_bits > ZigLLVM_MAX_INT_BITS) {
+        return nullptr;
+    }
+
     TypeId type_id = {};
     type_id.id = ZigTypeIdInt;
     type_id.data.integer.is_signed = is_signed;
@@ -4442,7 +4447,9 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     }
 
     ZigType *new_entry = make_int_type(g, is_signed, size_in_bits);
-    g->type_table.put(type_id, new_entry);
+    if (new_entry) {
+        g->type_table.put(type_id, new_entry);
+    }
     return new_entry;
 }
 
