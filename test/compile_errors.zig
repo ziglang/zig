@@ -15,6 +15,28 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "assigning variables of type u0 and i0",
+        \\export fn entry() void {
+        \\    var i: u0 = undefined;
+        \\    var k: i0 = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: use of undeclared identifier 'u0'",
+        ".tmp_source.zig:3:12: error: use of undeclared identifier 'i0'",
+    );
+
+    cases.add(
+        "@IntType for bit_count < 1 and bit_count > 16777216",
+        \\export fn entry() void {
+        \\    var i: @IntType(false, 0) = undefined;
+        \\    var k: @IntType(false, 16777216) = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:28: error: integer type of 0 bits is not allowed",
+        ".tmp_source.zig:3:28: error: integer type of 16777216 bits is not allowed",
+    );
+
+    cases.add(
         "variable initialization compile error then referenced",
         \\fn Undeclared() type {
         \\    return T;
