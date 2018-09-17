@@ -114,7 +114,7 @@ int os_copy_file(Buf *src_path, Buf *dest_path);
 Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents, bool skip_shebang);
 Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang);
 
-int os_get_cwd(Buf *out_cwd);
+Error ATTRIBUTE_MUST_USE os_get_cwd(Buf *out_cwd);
 
 bool os_stderr_tty(void);
 void os_stderr_set_color(TermColor color);

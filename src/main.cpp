@@ -25,6 +25,8 @@ static int usage(const char *arg0) {
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of that @import(\"builtin\")\n"
         "  id                           print the base64-encoded compiler id\n"
+        "  init-exe                     initialize a `zig build` application in the cwd\n"
+        "  init-lib                     initialize a `zig build` library in the cwd\n"
         "  run [source]                 create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
@@ -34,7 +36,7 @@ static int usage(const char *arg0) {
         "Compile Options:\n"
         "  --assembly [source]          add assembly file to build\n"
         "  --cache-dir [path]           override the cache directory\n"
-        "  --cache [auto|off|on]        build to the global cache and print output path to stdout\n"
+        "  --cache [auto|off|on]        build in global cache, print out paths to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  -ftime-report                print timing diagnostics\n"
@@ -42,7 +44,7 @@ static int usage(const char *arg0) {
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
         "  --output-h [file]            override generated header file path\n"
-        "  --pkg-begin [name] [path]    make package available to import and push current pkg\n"
+        "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
         "  --release-safe               build with optimizations on and safety on\n"
@@ -52,17 +54,16 @@ static int usage(const char *arg0) {
         "  --target-arch [name]         specify target architecture\n"
         "  --target-environ [name]      specify target environment\n"
         "  --target-os [name]           specify target operating system\n"
-        "  --verbose-tokenize           turn on compiler debug output for tokenization\n"
-        "  --verbose-ast                turn on compiler debug output for parsing into an AST\n"
-        "  --verbose-link               turn on compiler debug output for linking\n"
-        "  --verbose-ir                 turn on compiler debug output for Zig IR\n"
-        "  --verbose-llvm-ir            turn on compiler debug output for LLVM IR\n"
-        "  --verbose-cimport            turn on compiler debug output for C imports\n"
+        "  --verbose-tokenize           enable compiler debug output for tokenization\n"
+        "  --verbose-ast                enable compiler debug output for AST parsing\n"
+        "  --verbose-link               enable compiler debug output for linking\n"
+        "  --verbose-ir                 enable compiler debug output for Zig IR\n"
+        "  --verbose-llvm-ir            enable compiler debug output for LLVM IR\n"
+        "  --verbose-cimport            enable compiler debug output for C imports\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
-        "  -mllvm [arg]                 additional arguments to forward to LLVM's option processing\n"
+        "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
         "Link Options:\n"
-        "  --ar-path [path]             set the path to ar\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
         "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
@@ -142,78 +143,6 @@ static int print_target_list(FILE *f) {
     return EXIT_SUCCESS;
 }
 
-static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
-    Buf lib_buf = BUF_INIT;
-    buf_init_from_str(&lib_buf, "lib");
-
-    Buf zig_buf = BUF_INIT;
-    buf_init_from_str(&zig_buf, "zig");
-
-    Buf std_buf = BUF_INIT;
-    buf_init_from_str(&std_buf, "std");
-
-    Buf index_zig_buf = BUF_INIT;
-    buf_init_from_str(&index_zig_buf, "index.zig");
-
-    Buf test_lib_dir = BUF_INIT;
-    Buf test_zig_dir = BUF_INIT;
-    Buf test_std_dir = BUF_INIT;
-    Buf test_index_file = BUF_INIT;
-
-    os_path_join(test_path, &lib_buf, &test_lib_dir);
-    os_path_join(&test_lib_dir, &zig_buf, &test_zig_dir);
-    os_path_join(&test_zig_dir, &std_buf, &test_std_dir);
-    os_path_join(&test_std_dir, &index_zig_buf, &test_index_file);
-
-    int err;
-    bool exists;
-    if ((err = os_file_exists(&test_index_file, &exists))) {
-        exists = false;
-    }
-    if (exists) {
-        buf_init_from_buf(out_zig_lib_dir, &test_zig_dir);
-        return true;
-    }
-    return false;
-}
-
-static int find_zig_lib_dir(Buf *out_path) {
-    int err;
-
-    Buf self_exe_path = BUF_INIT;
-    buf_resize(&self_exe_path, 0);
-    if (!(err = os_self_exe_path(&self_exe_path))) {
-        Buf *cur_path = &self_exe_path;
-
-        for (;;) {
-            Buf *test_dir = buf_alloc();
-            os_path_dirname(cur_path, test_dir);
-
-            if (buf_eql_buf(test_dir, cur_path)) {
-                break;
-            }
-
-            if (test_zig_install_prefix(test_dir, out_path)) {
-                return 0;
-            }
-
-            cur_path = test_dir;
-        }
-    }
-
-    return ErrorFileNotFound;
-}
-
-static Buf *resolve_zig_lib_dir(void) {
-    int err;
-    Buf *result = buf_alloc();
-    if ((err = find_zig_lib_dir(result))) {
-        fprintf(stderr, "Unable to find zig lib directory\n");
-        exit(EXIT_FAILURE);
-    }
-    return result;
-}
-
 enum Cmd {
     CmdInvalid,
     CmdBuild,
@@ -277,6 +206,9 @@ static bool get_cache_opt(CacheOpt opt, bool default_value) {
 }
 
 int main(int argc, char **argv) {
+    char *arg0 = argv[0];
+    Error err;
+
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
         printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
                 ZIG_CMAKE_BINARY_DIR,
@@ -290,8 +222,10 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    // Must be before all os.hpp function calls.
+    os_init();
+
     if (argc == 2 && strcmp(argv[1], "id") == 0) {
-        Error err;
         Buf *compiler_id;
         if ((err = get_compiler_id(&compiler_id))) {
             fprintf(stderr, "Unable to determine compiler id: %s\n", err_str(err));
@@ -301,9 +235,97 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
 
-    os_init();
+    enum InitKind {
+        InitKindNone,
+        InitKindExe,
+        InitKindLib,
+    };
+    InitKind init_kind = InitKindNone;
+    if (argc >= 2) {
+        const char *init_cmd = argv[1];
+        if (strcmp(init_cmd, "init-exe") == 0) {
+            init_kind = InitKindExe;
+        } else if (strcmp(init_cmd, "init-lib") == 0) {
+            init_kind = InitKindLib;
+        }
+        if (init_kind != InitKindNone) {
+            if (argc >= 3) {
+                fprintf(stderr, "Unexpected extra argument: %s\n", argv[2]);
+                return usage(arg0);
+            }
+            Buf *cmd_template_path = buf_alloc();
+            os_path_join(get_zig_special_dir(), buf_create_from_str(init_cmd), cmd_template_path);
+            Buf *build_zig_path = buf_alloc();
+            os_path_join(cmd_template_path, buf_create_from_str("build.zig"), build_zig_path);
+            Buf *src_dir_path = buf_alloc();
+            os_path_join(cmd_template_path, buf_create_from_str("src"), src_dir_path);
+            Buf *main_zig_path = buf_alloc();
+            os_path_join(src_dir_path, buf_create_from_str("main.zig"), main_zig_path);
 
-    char *arg0 = argv[0];
+            Buf *cwd = buf_alloc();
+            if ((err = os_get_cwd(cwd))) {
+                fprintf(stderr, "Unable to get cwd: %s\n", err_str(err));
+                return EXIT_FAILURE;
+            }
+            Buf *cwd_basename = buf_alloc();
+            os_path_split(cwd, nullptr, cwd_basename);
+
+            Buf *build_zig_contents = buf_alloc();
+            if ((err = os_fetch_file_path(build_zig_path, build_zig_contents, false))) {
+                fprintf(stderr, "Unable to read %s: %s\n", buf_ptr(build_zig_path), err_str(err));
+                return EXIT_FAILURE;
+            }
+            Buf *modified_build_zig_contents = buf_alloc();
+            for (size_t i = 0; i < buf_len(build_zig_contents); i += 1) {
+                char c = buf_ptr(build_zig_contents)[i];
+                if (c == '$') {
+                    buf_append_buf(modified_build_zig_contents, cwd_basename);
+                } else {
+                    buf_append_char(modified_build_zig_contents, c);
+                }
+            }
+
+            Buf *main_zig_contents = buf_alloc();
+            if ((err = os_fetch_file_path(main_zig_path, main_zig_contents, false))) {
+                fprintf(stderr, "Unable to read %s: %s\n", buf_ptr(main_zig_path), err_str(err));
+                return EXIT_FAILURE;
+            }
+
+            Buf *out_build_zig_path = buf_create_from_str("build.zig");
+            Buf *out_src_dir_path = buf_create_from_str("src");
+            Buf *out_main_zig_path = buf_alloc();
+            os_path_join(out_src_dir_path, buf_create_from_str("main.zig"), out_main_zig_path);
+
+            bool already_exists;
+            if ((err = os_file_exists(out_build_zig_path, &already_exists))) {
+                fprintf(stderr, "Unable test existence of %s: %s\n", buf_ptr(out_build_zig_path), err_str(err));
+                return EXIT_FAILURE;
+            }
+            if (already_exists) {
+                fprintf(stderr, "This file would be overwritten: %s\n", buf_ptr(out_build_zig_path));
+                return EXIT_FAILURE;
+            }
+
+            if ((err = os_make_dir(out_src_dir_path))) {
+                fprintf(stderr, "Unable to make directory: %s: %s\n", buf_ptr(out_src_dir_path), err_str(err));
+                return EXIT_FAILURE;
+            }
+            os_write_file(out_build_zig_path, modified_build_zig_contents);
+            os_write_file(out_main_zig_path, main_zig_contents);
+            fprintf(stderr, "Created %s\n", buf_ptr(out_build_zig_path));
+            fprintf(stderr, "Created %s\n", buf_ptr(out_main_zig_path));
+            if (init_kind == InitKindExe) {
+                fprintf(stderr, "\nNext, try `zig build --help` or `zig build run`\n");
+            } else if (init_kind == InitKindLib) {
+                fprintf(stderr, "\nNext, try `zig build --help` or `zig build test`\n");
+            } else {
+                zig_unreachable();
+            }
+
+            return EXIT_SUCCESS;
+        }
+    }
+
     Cmd cmd = CmdInvalid;
     EmitFileType emit_file_type = EmitFileTypeBinary;
     const char *in_file = nullptr;
@@ -333,7 +355,6 @@ int main(int argc, char **argv) {
     ZigList<const char *> link_libs = {0};
     ZigList<const char *> forbidden_link_libs = {0};
     ZigList<const char *> frameworks = {0};
-    int err;
     const char *target_arch = nullptr;
     const char *target_os = nullptr;
     const char *target_environ = nullptr;
@@ -364,7 +385,6 @@ int main(int argc, char **argv) {
         const char *zig_exe_path = arg0;
         const char *build_file = "build.zig";
         bool asked_for_help = false;
-        bool asked_to_init = false;
 
         init_all_targets();
 
@@ -375,9 +395,6 @@ int main(int argc, char **argv) {
         for (int i = 2; i < argc; i += 1) {
             if (strcmp(argv[i], "--help") == 0) {
                 asked_for_help = true;
-                args.append(argv[i]);
-            } else if (strcmp(argv[i], "--init") == 0) {
-                asked_to_init = true;
                 args.append(argv[i]);
             } else if (i + 1 < argc && strcmp(argv[i], "--build-file") == 0) {
                 build_file = argv[i + 1];
@@ -390,18 +407,10 @@ int main(int argc, char **argv) {
             }
         }
 
-        Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
-
-        Buf *zig_std_dir = buf_alloc();
-        os_path_join(zig_lib_dir_buf, buf_create_from_str("std"), zig_std_dir);
-
-        Buf *special_dir = buf_alloc();
-        os_path_join(zig_std_dir, buf_sprintf("special"), special_dir);
-
         Buf *build_runner_path = buf_alloc();
-        os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
+        os_path_join(get_zig_special_dir(), buf_create_from_str("build_runner.zig"), build_runner_path);
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir());
         g->enable_time_report = timing_info;
         buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
         codegen_set_out_name(g, buf_create_from_str("build"));
@@ -437,7 +446,6 @@ int main(int argc, char **argv) {
                         "\n"
                         "General Options:\n"
                         "  --help                 Print this help and exit\n"
-                        "  --init                 Generate a build.zig template\n"
                         "  --build-file [file]    Override path to build.zig\n"
                         "  --cache-dir [path]     Override path to cache directory\n"
                         "  --verbose              Print commands before executing them\n"
@@ -463,22 +471,11 @@ int main(int argc, char **argv) {
                         "\n"
                 , zig_exe_path);
                 return EXIT_SUCCESS;
-            } else if (asked_to_init) {
-                Buf *build_template_path = buf_alloc();
-                os_path_join(special_dir, buf_create_from_str("build_file_template.zig"), build_template_path);
-
-                if ((err = os_copy_file(build_template_path, &build_file_abs))) {
-                    fprintf(stderr, "Unable to write build.zig template: %s\n", err_str(err));
-                    return EXIT_FAILURE;
-                } else {
-                    fprintf(stderr, "Wrote build.zig template\n");
-                    return EXIT_SUCCESS;
-                }
             }
 
             fprintf(stderr,
                     "No 'build.zig' file found.\n"
-                    "Initialize a 'build.zig' template file with `zig build --init`,\n"
+                    "Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,\n"
                     "or build an executable directly with `zig build-exe $FILENAME.zig`.\n"
                     "See: `zig build --help` or `zig help` for more options.\n"
                    );
@@ -773,8 +770,7 @@ int main(int argc, char **argv) {
 
     switch (cmd) {
     case CmdBuiltin: {
-        Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
-        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, zig_lib_dir_buf);
+        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, get_zig_lib_dir());
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
@@ -832,9 +828,7 @@ int main(int argc, char **argv) {
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
             }
-            Buf *zig_lib_dir_buf = resolve_zig_lib_dir();
-
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf);
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir());
             g->enable_time_report = timing_info;
             buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
             codegen_set_out_name(g, buf_out_name);
