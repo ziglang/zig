@@ -2016,11 +2016,12 @@ Error os_file_read_all(OsFile file, Buf *contents) {
 
 Error os_file_overwrite(OsFile file, Buf *contents) {
 #if defined(ZIG_OS_WINDOWS)
+    DWORD bytes_written;
     if (SetFilePointer(file, 0, nullptr, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
         return ErrorFileSystem;
     if (!SetEndOfFile(file))
         return ErrorFileSystem;
-    if (!WriteFile(file, buf_ptr(contents), buf_len(contents), nullptr, nullptr))
+    if (!WriteFile(file, buf_ptr(contents), buf_len(contents), &bytes_written, nullptr))
         return ErrorFileSystem;
     return ErrorNone;
 #else
