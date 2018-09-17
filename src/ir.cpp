@@ -11187,6 +11187,13 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
                 }
             }
         }
+        // dereferencing a *u0 is comptime known to be 0
+        if (child_type->id == ZigTypeIdInt && child_type->data.integral.bit_count == 0) {
+            IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
+                source_instruction->source_node, child_type);
+            init_const_unsigned_negative(&result->value, child_type, 0, false);
+            return result;
+        }
         // TODO if the instruction is a const ref instruction we can skip it
         IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope,
                 source_instruction->source_node, ptr);
@@ -12063,6 +12070,12 @@ static ZigType *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *bin_op_
         ir_add_error(ira, &bin_op_instruction->base,
                 buf_sprintf("LHS of shift must be an integer type, or RHS must be compile-time known"));
         return ira->codegen->builtin_types.entry_invalid;
+    } else if (instr_is_comptime(casted_op2) && bigint_cmp_zero(&casted_op2->value.data.x_bigint) == CmpEQ) {
+        IrInstruction *result = ir_build_cast(&ira->new_irb, bin_op_instruction->base.scope,
+                bin_op_instruction->base.source_node, op1->value.type, op1, CastOpNoop);
+        result->value.type = op1->value.type;
+        ir_link_new_instruction(result, &bin_op_instruction->base);
+        return result->value.type;
     }
 
     ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id,
