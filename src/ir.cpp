@@ -11571,6 +11571,9 @@ static ZigType *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op
             ir_link_new_instruction(is_non_null, &bin_op_instruction->base);
         }
         return ira->codegen->builtin_types.entry_bool;
+    } else if (op1->value.type->id == ZigTypeIdNull || op2->value.type->id == ZigTypeIdNull) {
+        ir_add_error_node(ira, source_node, buf_sprintf("comparison against null can only be done with optionals"));
+        return ira->codegen->builtin_types.entry_invalid;
     }
 
     if (op1->value.type->id == ZigTypeIdErrorSet && op2->value.type->id == ZigTypeIdErrorSet) {
