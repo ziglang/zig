@@ -23,6 +23,14 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#if !defined(_WIN32_WINNT)
+#define _WIN32_WINNT 0x600
+#endif
+
+#if !defined(NTDDI_VERSION)
+#define NTDDI_VERSION 0x06000000
+#endif
+
 #include <windows.h>
 #include <shlobj.h>
 #include <io.h>
@@ -1634,16 +1642,16 @@ static Optional<uint32_t> Utf16LeIterator_nextCodepoint(Utf16LeIterator *it) {
     if (it->bytes[it->i] == 0 && it->bytes[it->i + 1] == 0)
         return {};
     uint32_t c0 = ((uint32_t)it->bytes[it->i]) | (((uint32_t)it->bytes[it->i + 1]) << 8);
-    if (c0 & ~((uint32_t)0x03ff) == 0xd800) {
+    if ((c0 & ~((uint32_t)0x03ff)) == 0xd800) {
         // surrogate pair
         it->i += 2;
         assert(it->bytes[it->i] != 0 || it->bytes[it->i + 1] != 0);
         uint32_t c1 = ((uint32_t)it->bytes[it->i]) | (((uint32_t)it->bytes[it->i + 1]) << 8);
-        assert(c1 & ~((uint32_t)0x03ff) == 0xdc00);
+        assert((c1 & ~((uint32_t)0x03ff)) == 0xdc00);
         it->i += 2;
         return Optional<uint32_t>::some(0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff)));
     } else {
-        assert(c0 & ~((uint32_t)0x03ff) != 0xdc00);
+        assert((c0 & ~((uint32_t)0x03ff)) != 0xdc00);
         it->i += 2;
         return Optional<uint32_t>::some(c0);
     }
@@ -1714,7 +1722,7 @@ static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
 // Ported from std.os.getAppDataDir
 Error os_get_app_data_dir(Buf *out_path, const char *appname) {
 #if defined(ZIG_OS_WINDOWS)
-    Error err;
+    // Error err;
     WCHAR *dir_path_ptr;
     switch (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &dir_path_ptr)) {
         case S_OK:
@@ -1928,7 +1936,8 @@ Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
     FILETIME last_write_time;
     if (!GetFileTime(file, nullptr, nullptr, &last_write_time))
         return ErrorUnexpected;
-    mtime->sec = last_write_time.dwLowDateTime | (last_write_time.dwHighDateTime << 32);
+    // mtime->sec = last_write_time.dwLowDateTime | (last_write_time.dwHighDateTime << 32);
+    mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
     mtime->nsec = 0;
     return ErrorNone;
 #elif defined(ZIG_OS_LINUX)
