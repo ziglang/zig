@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "comparing a non-optional pointer against null",
+        \\export fn entry() void {
+        \\    var x: i32 = 1;
+        \\    _ = &x == null;
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: comparison against null can only be done with optionals",
+    );
+
+    cases.add(
         "non error sets used in merge error sets operator",
         \\export fn foo() void {
         \\    const Errors = u8 || u16;
