@@ -688,3 +688,8 @@ test "zero extend from u0 to u1" {
     var zero_u1: u1 = zero_u0;
     assert(zero_u1 == 0);
 }
+
+test "bit shift a u1" {
+    var x: u1 = 1;
+    var y = x << 0;
+}
