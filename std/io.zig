@@ -155,11 +155,15 @@ pub fn InStream(comptime ReadError: type) type {
         }
 
         pub fn readIntLe(self: *Self, comptime T: type) !T {
-            return self.readInt(builtin.Endian.Little, T);
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntLE(T, bytes);
         }
 
         pub fn readIntBe(self: *Self, comptime T: type) !T {
-            return self.readInt(builtin.Endian.Big, T);
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntBE(T, bytes);
         }
 
         pub fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
@@ -226,11 +230,15 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         pub fn writeIntLe(self: *Self, comptime T: type, value: T) !void {
-            return self.writeInt(builtin.Endian.Little, T, value);
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeIntLE(T, &bytes, value);
+            return self.writeFn(self, bytes);
         }
 
         pub fn writeIntBe(self: *Self, comptime T: type, value: T) !void {
-            return self.writeInt(builtin.Endian.Big, T, value);
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeIntBE(T, &bytes, value);
+            return self.writeFn(self, bytes);
         }
 
         pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) !void {
