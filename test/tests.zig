@@ -103,6 +103,21 @@ pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8, modes: 
     return cases.step;
 }
 
+pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+    const step = b.step("test-cli", "Test the command line interface");
+
+    const exe = b.addExecutable("test-cli", "test/cli.zig");
+    const run_cmd = b.addCommand(null, b.env_map, [][]const u8{
+        b.pathFromRoot(exe.getOutputPath()),
+        os.path.realAlloc(b.allocator, b.zig_exe) catch unreachable,
+        b.pathFromRoot(b.cache_root),
+    });
+    run_cmd.step.dependOn(&exe.step);
+
+    step.dependOn(&run_cmd.step);
+    return step;
+}
+
 pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext{
         .b = b,

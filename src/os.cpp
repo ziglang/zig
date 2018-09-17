@@ -1099,14 +1099,14 @@ Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
     return result;
 }
 
-int os_get_cwd(Buf *out_cwd) {
+Error os_get_cwd(Buf *out_cwd) {
 #if defined(ZIG_OS_WINDOWS)
     char buf[4096];
     if (GetCurrentDirectory(4096, buf) == 0) {
         zig_panic("GetCurrentDirectory failed");
     }
     buf_init_from_str(out_cwd, buf);
-    return 0;
+    return ErrorNone;
 #elif defined(ZIG_OS_POSIX)
     char buf[PATH_MAX];
     char *res = getcwd(buf, PATH_MAX);
@@ -1114,7 +1114,7 @@ int os_get_cwd(Buf *out_cwd) {
         zig_panic("unable to get cwd: %s", strerror(errno));
     }
     buf_init_from_str(out_cwd, res);
-    return 0;
+    return ErrorNone;
 #else
 #error "missing os_get_cwd implementation"
 #endif
