@@ -18697,6 +18697,18 @@ static ZigType *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstructionInt
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->data.x_type = get_int_type(ira->codegen, is_signed, (uint32_t)bit_count);
+    if (out_val->data.x_type == nullptr) {
+        ErrorMsg *msg = ir_add_error( ira
+                                    , bit_count_value
+                                    , buf_sprintf("integer type of %llu bits is not allowed", bit_count));
+        add_error_note( ira->codegen
+                      , msg
+                      , bit_count_value->source_node
+                      , buf_sprintf( "integer types must be from %llu to %llu bits"
+                                   , (uint64_t)ZigLLVM_MIN_INT_BITS
+                                   , (uint64_t)ZigLLVM_MAX_INT_BITS));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
     return ira->codegen->builtin_types.entry_type;
 }
 

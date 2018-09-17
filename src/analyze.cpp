@@ -4393,6 +4393,10 @@ void semantic_analyze(CodeGen *g) {
 }
 
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
+    if (size_in_bits < ZigLLVM_MIN_INT_BITS || size_in_bits > ZigLLVM_MAX_INT_BITS) {
+        return nullptr;
+    }
+
     TypeId type_id = {};
     type_id.id = ZigTypeIdInt;
     type_id.data.integer.is_signed = is_signed;
@@ -4405,7 +4409,9 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     }
 
     ZigType *new_entry = make_int_type(g, is_signed, size_in_bits);
-    g->type_table.put(type_id, new_entry);
+    if (new_entry) {
+        g->type_table.put(type_id, new_entry);
+    }
     return new_entry;
 }
 
@@ -5928,8 +5934,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
 ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     ZigType *entry = new_type_table_entry(ZigTypeIdInt);
     entry->is_copyable = true;
-    entry->type_ref = (size_in_bits == 0) ? LLVMVoidType() : LLVMIntType(size_in_bits);
-    entry->zero_bits = (size_in_bits == 0);
+    entry->type_ref = LLVMIntType(size_in_bits);
+    entry->zero_bits = false;
 
     const char u_or_i = is_signed ? 'i' : 'u';
     buf_resize(&entry->name, 0);
