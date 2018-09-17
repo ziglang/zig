@@ -1470,7 +1470,8 @@ static bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdArray:
             return type_allowed_in_extern(g, type_entry->data.array.child_type);
         case ZigTypeIdFn:
-            return type_entry->data.fn.fn_type_id.cc == CallingConventionC;
+            return type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
+                 type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall;
         case ZigTypeIdPointer:
             if (type_size(g, type_entry) == 0)
                 return false;
