@@ -11187,6 +11187,13 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
                 }
             }
         }
+        // dereferencing a *u0 is comptime known to be 0
+        if (child_type->id == ZigTypeIdInt && child_type->data.integral.bit_count == 0) {
+            IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
+                source_instruction->source_node, child_type);
+            init_const_unsigned_negative(&result->value, child_type, 0, false);
+            return result;
+        }
         // TODO if the instruction is a const ref instruction we can skip it
         IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope,
                 source_instruction->source_node, ptr);

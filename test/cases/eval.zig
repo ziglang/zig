@@ -682,3 +682,9 @@ test "refer to the type of a generic function" {
 }
 
 fn doNothingWithType(comptime T: type) void {}
+
+test "zero extend from u0 to u1" {
+    var zero_u0: u0 = 0;
+    var zero_u1: u1 = zero_u0;
+    assert(zero_u1 == 0);
+}
