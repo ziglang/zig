@@ -11528,7 +11528,13 @@ static bool optional_value_is_null(ConstExprValue *val) {
 static ZigType *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
     Error err;
     IrInstruction *op1 = bin_op_instruction->op1->other;
+    if (type_is_invalid(op1->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
     IrInstruction *op2 = bin_op_instruction->op2->other;
+    if (type_is_invalid(op2->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
     AstNode *source_node = bin_op_instruction->base.source_node;
 
     IrBinOp op_id = bin_op_instruction->op_id;
@@ -20190,11 +20196,19 @@ static ZigType *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtr
             instruction->base.source_node, nullptr, ptr);
     casted_ptr->value.type = dest_type;
 
+    if (type_has_bits(dest_type) && !type_has_bits(src_type)) {
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+            buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
+                buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
+        add_error_note(ira->codegen, msg, ptr->source_node,
+                buf_sprintf("'%s' has no in-memory bits", buf_ptr(&src_type->name)));
+        add_error_note(ira->codegen, msg, dest_type_value->source_node,
+                buf_sprintf("'%s' has in-memory bits", buf_ptr(&dest_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     // Keep the bigger alignment, it can only help-
     // unless the target is zero bits.
-    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusZeroBitsKnown)))
-        return ira->codegen->builtin_types.entry_invalid;
-
     IrInstruction *result;
     if (src_align_bytes > dest_align_bytes && type_has_bits(dest_type)) {
         result = ir_align_cast(ira, casted_ptr, src_align_bytes, false);
