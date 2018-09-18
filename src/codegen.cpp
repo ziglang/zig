@@ -1689,6 +1689,22 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
         if (actual_type->id == ZigTypeIdFloat) {
             return LLVMBuildFPTrunc(g->builder, expr_val, wanted_type->type_ref, "");
         } else if (actual_type->id == ZigTypeIdInt) {
+            if (wanted_bits == 0) {
+                if (!want_runtime_safety)
+                    return nullptr;
+
+                LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
+                LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, expr_val, zero, "");
+                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenOk");
+                LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenFail");
+                LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+                LLVMPositionBuilderAtEnd(g->builder, fail_block);
+                gen_safety_crash(g, PanicMsgIdCastTruncatedData);
+
+                LLVMPositionBuilderAtEnd(g->builder, ok_block);
+                return nullptr;
+            }
             LLVMValueRef trunc_val = LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
             if (!want_runtime_safety) {
                 return trunc_val;

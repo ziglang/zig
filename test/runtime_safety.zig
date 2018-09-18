@@ -249,6 +249,19 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("value does not fit in shortening cast - u0",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() !void {
+        \\    const x = shorten_cast(1);
+        \\    if (x == 0) return error.Whatever;
+        \\}
+        \\fn shorten_cast(x: u8) u0 {
+        \\    return @intCast(u0, x);
+        \\}
+    );
+
     cases.addRuntimeSafety("signed integer not fitting in cast to unsigned integer",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

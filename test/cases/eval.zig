@@ -692,4 +692,11 @@ test "zero extend from u0 to u1" {
 test "bit shift a u1" {
     var x: u1 = 1;
     var y = x << 0;
+    assert(y == 1);
+}
+
+test "@intCast to a u0" {
+    var x: u8 = 0;
+    var y: u0 = @intCast(u0, x);
+    assert(y == 0);
 }
