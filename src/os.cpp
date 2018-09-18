@@ -1722,7 +1722,6 @@ static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
 // Ported from std.os.getAppDataDir
 Error os_get_app_data_dir(Buf *out_path, const char *appname) {
 #if defined(ZIG_OS_WINDOWS)
-    // Error err;
     WCHAR *dir_path_ptr;
     switch (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &dir_path_ptr)) {
         case S_OK:
@@ -1936,7 +1935,6 @@ Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
     FILETIME last_write_time;
     if (!GetFileTime(file, nullptr, nullptr, &last_write_time))
         return ErrorUnexpected;
-    // mtime->sec = last_write_time.dwLowDateTime | (last_write_time.dwHighDateTime << 32);
     mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
     mtime->nsec = 0;
     return ErrorNone;
@@ -2016,11 +2014,11 @@ Error os_file_read_all(OsFile file, Buf *contents) {
 
 Error os_file_overwrite(OsFile file, Buf *contents) {
 #if defined(ZIG_OS_WINDOWS)
-    DWORD bytes_written;
     if (SetFilePointer(file, 0, nullptr, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
         return ErrorFileSystem;
     if (!SetEndOfFile(file))
         return ErrorFileSystem;
+    DWORD bytes_written;
     if (!WriteFile(file, buf_ptr(contents), buf_len(contents), &bytes_written, nullptr))
         return ErrorFileSystem;
     return ErrorNone;
