@@ -818,6 +818,7 @@ fn tokenizeAndPrint(allocator: *mem.Allocator, docgen_tokenizer: *Tokenizer, out
 
             std.zig.Token.Id.LineComment,
             std.zig.Token.Id.DocComment,
+            std.zig.Token.Id.ShebangLine,
             => {
                 try out.write("<span class=\"tok-comment\">");
                 try writeEscaped(out, src[token.start..token.end]);

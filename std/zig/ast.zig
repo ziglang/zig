@@ -2208,6 +2208,7 @@ test "iterate" {
         .doc_comments = null,
         .decls = Node.Root.DeclList.init(std.debug.global_allocator),
         .eof_token = 0,
+        .shebang = null,
     };
     var base = &root.base;
     assert(base.iterate(0) == null);
