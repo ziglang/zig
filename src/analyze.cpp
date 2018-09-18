@@ -3971,7 +3971,7 @@ void resolve_container_type(CodeGen *g, ZigType *type_entry) {
     }
 }
 
-ZigType *get_codegen_ptr_type(ZigType *type) {
+ZigType *get_src_ptr_type(ZigType *type) {
     if (type->id == ZigTypeIdPointer) return type;
     if (type->id == ZigTypeIdFn) return type;
     if (type->id == ZigTypeIdPromise) return type;
@@ -3983,12 +3983,19 @@ ZigType *get_codegen_ptr_type(ZigType *type) {
     return nullptr;
 }
 
+ZigType *get_codegen_ptr_type(ZigType *type) {
+    ZigType *ty = get_src_ptr_type(type);
+    if (ty == nullptr || !type_has_bits(ty))
+        return nullptr;
+    return ty;
+}
+
 bool type_is_codegen_pointer(ZigType *type) {
     return get_codegen_ptr_type(type) == type;
 }
 
 uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
-    ZigType *ptr_type = get_codegen_ptr_type(type);
+    ZigType *ptr_type = get_src_ptr_type(type);
     if (ptr_type->id == ZigTypeIdPointer) {
         return (ptr_type->data.pointer.explicit_alignment == 0) ?
             get_abi_alignment(g, ptr_type->data.pointer.child_type) : ptr_type->data.pointer.explicit_alignment;
@@ -3996,6 +4003,7 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
         // I tried making this use LLVMABIAlignmentOfType but it trips this assertion in LLVM:
         // "Cannot getTypeInfo() on a type that is unsized!"
         // when getting the alignment of `?extern fn() void`.
+        // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdPromise) {
         return get_coro_frame_align_bytes(g);
@@ -4005,7 +4013,7 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
 }
 
 bool get_ptr_const(ZigType *type) {
-    ZigType *ptr_type = get_codegen_ptr_type(type);
+    ZigType *ptr_type = get_src_ptr_type(type);
     if (ptr_type->id == ZigTypeIdPointer) {
         return ptr_type->data.pointer.is_const;
     } else if (ptr_type->id == ZigTypeIdFn) {

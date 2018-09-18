@@ -53,6 +53,7 @@ Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
 void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *source_node);
 bool type_is_codegen_pointer(ZigType *type);
 
+ZigType *get_src_ptr_type(ZigType *type);
 ZigType *get_codegen_ptr_type(ZigType *type);
 uint32_t get_ptr_align(CodeGen *g, ZigType *type);
 bool get_ptr_const(ZigType *type);

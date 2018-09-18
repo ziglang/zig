@@ -155,7 +155,7 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
 static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
-    assert(get_codegen_ptr_type(const_val->type) != nullptr);
+    assert(get_src_ptr_type(const_val->type) != nullptr);
     assert(const_val->special == ConstValSpecialStatic);
     ConstExprValue *result;
     switch (const_val->data.x_ptr.special) {
@@ -20161,12 +20161,15 @@ static ZigType *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtr
     if (type_is_invalid(src_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (get_codegen_ptr_type(src_type) == nullptr) {
+    // We have a check for zero bits later so we use get_src_ptr_type to
+    // validate src_type and dest_type.
+
+    if (get_src_ptr_type(src_type) == nullptr) {
         ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (get_codegen_ptr_type(dest_type) == nullptr) {
+    if (get_src_ptr_type(dest_type) == nullptr) {
         ir_add_error(ira, dest_type_value,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
@@ -20465,7 +20468,8 @@ static ZigType *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstructionI
     if (type_is_invalid(dest_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (get_codegen_ptr_type(dest_type) == nullptr) {
+    // We explicitly check for the size, so we can use get_src_ptr_type
+    if (get_src_ptr_type(dest_type) == nullptr) {
         ir_add_error(ira, dest_type_value, buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -20571,7 +20575,8 @@ static ZigType *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstructionP
 
     ZigType *usize = ira->codegen->builtin_types.entry_usize;
 
-    if (get_codegen_ptr_type(target->value.type) == nullptr) {
+    // We check size explicitly so we can use get_src_ptr_type here.
+    if (get_src_ptr_type(target->value.type) == nullptr) {
         ir_add_error(ira, target,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&target->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
