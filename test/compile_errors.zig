@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "deref slice and get len field",
+        \\export fn entry() void {
+        \\    var a: []u8 = undefined;
+        \\    _ = a.*.len;
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: attempt to dereference non-pointer type '[]u8'",
+    );
+
+    cases.add(
         "@ptrCast a 0 bit type to a non- 0 bit type",
         \\export fn entry() bool {
         \\    var x: u0 = 0;

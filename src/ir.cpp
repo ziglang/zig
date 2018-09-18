@@ -14874,8 +14874,13 @@ static ZigType *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstructionFi
     if (type_is_invalid(container_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    if (container_ptr->value.type->id != ZigTypeIdPointer) {
+        ir_add_error_node(ira, field_ptr_instruction->base.source_node,
+            buf_sprintf("attempt to dereference non-pointer type '%s'",
+                buf_ptr(&container_ptr->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
     ZigType *container_type = container_ptr->value.type->data.pointer.child_type;
-    assert(container_ptr->value.type->id == ZigTypeIdPointer);
 
     Buf *field_name = field_ptr_instruction->field_name_buffer;
     if (!field_name) {
