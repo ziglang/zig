@@ -18187,17 +18187,18 @@ static ZigType *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstructionE
         &source_dir_path,
         rel_file_path,
     };
-    Buf file_path = os_path_resolve(resolve_paths, 2);
+    Buf *file_path = buf_alloc();
+    *file_path = os_path_resolve(resolve_paths, 2);
 
     // load from file system into const expr
     Buf *file_contents = buf_alloc();
     int err;
-    if ((err = file_fetch(ira->codegen, &file_path, file_contents))) {
+    if ((err = file_fetch(ira->codegen, file_path, file_contents))) {
         if (err == ErrorFileNotFound) {
-            ir_add_error(ira, instruction->name, buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
+            ir_add_error(ira, instruction->name, buf_sprintf("unable to find '%s'", buf_ptr(file_path)));
             return ira->codegen->builtin_types.entry_invalid;
         } else {
-            ir_add_error(ira, instruction->name, buf_sprintf("unable to open '%s': %s", buf_ptr(&file_path), err_str(err)));
+            ir_add_error(ira, instruction->name, buf_sprintf("unable to open '%s': %s", buf_ptr(file_path), err_str(err)));
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
