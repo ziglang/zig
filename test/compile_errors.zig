@@ -120,7 +120,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @floatToInt(i8, 200);
         \\}
     ,
-        ".tmp_source.zig:2:31: error: integer value 200 cannot be implicitly casted to type 'i8'",
+        ".tmp_source.zig:2:31: error: cannot cast number literal '200' of 8 bits into 8 bit type 'i8'",
     );
 
     cases.add(
@@ -455,7 +455,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @IntType(false, @maxValue(u32) + 1);
         \\}
     ,
-        ".tmp_source.zig:2:40: error: integer value 4294967296 cannot be implicitly casted to type 'u32'",
+        ".tmp_source.zig:2:40: error: cannot cast number literal '4294967296' of 33 bits into 32 bit type 'u32'",
     );
 
     cases.add(
@@ -588,15 +588,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @floatToInt(i8, f32(-129.1));
         \\}
         \\comptime {
-        \\    _ = @floatToInt(u8, f32(-1.1));
-        \\}
-        \\comptime {
         \\    _ = @floatToInt(u8, f32(256.1));
         \\}
     ,
         ".tmp_source.zig:2:9: error: integer value '-129' cannot be stored in type 'i8'",
-        ".tmp_source.zig:5:9: error: integer value '-1' cannot be stored in type 'u8'",
-        ".tmp_source.zig:8:9: error: integer value '256' cannot be stored in type 'u8'",
+        ".tmp_source.zig:5:9: error: integer value '256' cannot be stored in type 'u8'",
     );
 
     cases.add(
@@ -1124,15 +1120,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:3:5: error: duplicate error: 'Bar'",
         ".tmp_source.zig:2:5: note: other error here",
-    );
-
-    cases.add(
-        "cast negative integer literal to usize",
-        \\export fn entry() void {
-        \\    const x = usize(-10);
-        \\}
-    ,
-        ".tmp_source.zig:2:21: error: cannot cast negative value -10 to unsigned integer type 'usize'",
     );
 
     cases.add(
@@ -2248,7 +2235,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const x : u8 = 300;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:1:16: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        ".tmp_source.zig:1:16: error: cannot cast number literal '300' of 9 bits into 8 bit type 'u8'",
     );
 
     cases.add(
@@ -3048,7 +3035,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:3:14: error: operation caused overflow",
+        ".tmp_source.zig:3:14: error: cannot cast negative number literal '-10' to unsigned integer type 'u16'",
         ".tmp_source.zig:1:14: note: called from here",
     );
 
@@ -3305,17 +3292,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:23:5: error: expected type '*Allocator', found '*List'",
     );
 
-    cases.add(
-        "binary not on number literal",
-        \\const TINY_QUANTUM_SHIFT = 4;
-        \\const TINY_QUANTUM_SIZE = 1 << TINY_QUANTUM_SHIFT;
-        \\var block_aligned_stuff: usize = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE - 1);
-        \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(block_aligned_stuff)); }
-    ,
-        ".tmp_source.zig:3:60: error: unable to perform binary not operation on type 'comptime_int'",
-    );
-
     cases.addCase(x: {
         const tc = cases.create(
             "multiple files with private function error",
@@ -3421,7 +3397,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var vga_mem: u16 = 0xB8000;
         \\}
     ,
-        ".tmp_source.zig:2:24: error: integer value 753664 cannot be implicitly casted to type 'u16'",
+        ".tmp_source.zig:2:24: error: cannot cast number literal '753664' of 20 bits into 16 bit type 'u16'",
     );
 
     cases.add(

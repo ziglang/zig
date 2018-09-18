@@ -495,3 +495,88 @@ test "comptime_int param and return" {
 fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int {
     return a + b;
 }
+
+test "binary operations on number literal" {
+    const TINY_QUANTUM_SHIFT = 4;
+    const TINY_QUANTUM_SIZE = 1 << TINY_QUANTUM_SHIFT;
+    const RESULT = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE - 1);
+    assert( RESULT == 16 );
+}
+
+test "binary operations on number literal -- repetitive" {
+    const TINY_QUANTUM_SHIFT = 4;
+    assert( ~(~(~(~(~(~TINY_QUANTUM_SHIFT) - 1) - 1) + 16)) == 20 );
+}
+
+test "binary operations on number literal -- flags" {
+  const LEVEL_ONE = 1 << 0;
+  const LEVEL_TWO = 1 << 1;
+  const LEVEL_THREE = 1 << 2;
+
+  var flags: u32 = 0;
+
+  flags |= LEVEL_ONE;
+  flags |= LEVEL_TWO;
+  flags |= LEVEL_THREE;
+
+  assert(flags == (LEVEL_ONE + LEVEL_TWO + LEVEL_THREE));
+
+  // remove LEVEL_TWO from flags via unary operation
+  flags &= ~LEVEL_TWO;
+
+  assert(flags == (LEVEL_ONE + LEVEL_THREE));
+
+  // remove LEVEL_* from flags via unary operation
+  flags &= ~LEVEL_ONE;
+  flags &= ~LEVEL_TWO;
+  flags &= ~LEVEL_THREE;
+
+  assert(flags == 0);
+
+}
+
+test "cast of bitwise negated number literal to u8 through u64" {
+    const CONST_NUMBER = 4;
+    var const_to_u8: u8 = ~CONST_NUMBER;
+    var const_to_u16: u16 = ~CONST_NUMBER;
+    var const_to_u32: u32 = ~CONST_NUMBER;
+    var const_to_u64: u64 = ~CONST_NUMBER;
+
+    assert( const_to_u8 == 0xfb );
+    assert( const_to_u16 == 0xfffb );
+    assert( const_to_u32 == 0xfffffffb );
+    assert( const_to_u64 == 0xfffffffffffffffb );
+}
+
+test "cast of bitwise negated number literal to i16 through i64" {
+    const CONST_NUMBER = 4;
+    var const_to_i16: i16 = ~CONST_NUMBER;
+    var const_to_i32: i32 = ~CONST_NUMBER;
+    var const_to_i64: i64 = ~CONST_NUMBER;
+
+    assert( const_to_i16 == -5 );
+    assert( const_to_i32 == -5 );
+    assert( const_to_i64 == -5 );
+}
+
+test "cast of bitwise negated number literal to f16 through f64" {
+    const CONST_NUMBER = 4;
+    var const_to_f16: f16 = ~CONST_NUMBER;
+    var const_to_f32: f32 = ~CONST_NUMBER;
+    var const_to_f64: f64 = ~CONST_NUMBER;
+
+    assert( const_to_f16 == -5.0 );
+    assert( const_to_f32 == -5.0 );
+    assert( const_to_f64 == -5.0 );
+}
+
+test "binary operations" {
+  // ref https://github.com/ziglang/zig/issues/1387
+  assert( i64(3 & -1) == 3 );
+  assert( i64(3 & 1) == 1 );
+  assert( i64(-3 & -1) == -3 );
+  assert( u64(18446744073709551615 & 18446744073709551611) == 18446744073709551611 );
+  assert( i128(-18446744073709551615 & -18446744073709551611) == -18446744073709551615 );
+  assert( i64(3 | -1) == -1);
+  assert( i64(3 ^ -1) == -4);
+}
