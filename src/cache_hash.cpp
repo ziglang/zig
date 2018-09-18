@@ -441,18 +441,13 @@ static Error write_manifest_file(CacheHash *ch) {
 }
 
 Error cache_final(CacheHash *ch, Buf *out_digest) {
-    Error err;
-
     assert(ch->manifest_file_path != nullptr);
 
-    if (ch->manifest_dirty) {
-        if ((err = write_manifest_file(ch))) {
-            fprintf(stderr, "Warning: Unable to write cache file '%s': %s\n",
-                    buf_ptr(ch->manifest_file_path), err_str(err));
-        }
-    }
     // We don't close the manifest file yet, because we want to
     // keep it locked until the API user is done using it.
+    // We also don't write out the manifest yet, because until
+    // cache_release is called we still might be working on creating
+    // the artifacts to cache.
 
     uint8_t bin_digest[48];
     int rc = blake2b_final(&ch->blake, bin_digest, 48);
@@ -465,5 +460,15 @@ Error cache_final(CacheHash *ch, Buf *out_digest) {
 
 void cache_release(CacheHash *ch) {
     assert(ch->manifest_file_path != nullptr);
+
+    Error err;
+
+    if (ch->manifest_dirty) {
+        if ((err = write_manifest_file(ch))) {
+            fprintf(stderr, "Warning: Unable to write cache file '%s': %s\n",
+                    buf_ptr(ch->manifest_file_path), err_str(err));
+        }
+    }
+
     os_file_close(ch->manifest_file);
 }
