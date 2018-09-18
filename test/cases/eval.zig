@@ -700,3 +700,13 @@ test "@intCast to a u0" {
     var y: u0 = @intCast(u0, x);
     assert(y == 0);
 }
+
+test "@bytesToslice on a packed struct" {
+    const F = packed struct {
+        a: u8,
+    };
+
+    var b = [1]u8{9};
+    var f = @bytesToSlice(F, b);
+    assert(f[0].a == 9);
+}

@@ -18516,6 +18516,9 @@ static ZigType *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstructionF
         src_ptr_align = get_abi_alignment(ira->codegen, target->value.type);
     }
 
+    if ((err = type_resolve(ira->codegen, dest_child_type, ResolveStatusSizeKnown)))
+        return ira->codegen->builtin_types.entry_invalid;
+
     ZigType *dest_ptr_type = get_pointer_to_type_extra(ira->codegen, dest_child_type,
             src_ptr_const, src_ptr_volatile, PtrLenUnknown,
             src_ptr_align, 0, 0);
