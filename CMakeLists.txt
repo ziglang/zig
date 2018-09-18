@@ -636,6 +636,7 @@ set(ZIG_STD_FILES
     "special/init-lib/src/main.zig"
     "special/panic.zig"
     "special/test_runner.zig"
+    "tai64.zig"
     "unicode.zig"
     "zig/ast.zig"
     "zig/index.zig"
