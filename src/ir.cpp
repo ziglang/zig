@@ -20254,6 +20254,11 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
             bigint_write_twos_complement(&val->data.x_bigint, buf, val->type->data.integral.bit_count,
                     codegen->is_big_endian);
             return;
+        case ZigTypeIdEnum:
+            bigint_write_twos_complement(&val->data.x_enum_tag, buf,
+                    val->type->data.enumeration.tag_int_type->data.integral.bit_count,
+                    codegen->is_big_endian);
+            return;
         case ZigTypeIdFloat:
             float_write_ieee597(val, buf, codegen->is_big_endian);
             return;
@@ -20285,8 +20290,6 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
             zig_panic("TODO buf_write_value_bytes error union");
         case ZigTypeIdErrorSet:
             zig_panic("TODO buf_write_value_bytes pure error type");
-        case ZigTypeIdEnum:
-            zig_panic("TODO buf_write_value_bytes enum type");
         case ZigTypeIdFn:
             zig_panic("TODO buf_write_value_bytes fn type");
         case ZigTypeIdUnion:
