@@ -71,4 +71,5 @@ comptime {
     _ = @import("cases/void.zig");
     _ = @import("cases/while.zig");
     _ = @import("cases/widening.zig");
+    _ = @import("cases/bit_shifting.zig");
 }

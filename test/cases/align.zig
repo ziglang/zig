@@ -219,3 +219,12 @@ test "alignment of structs" {
         b: *i32,
     }) == @alignOf(usize));
 }
+
+test "alignment of extern() void" {
+    var runtime_nothing = nothing;
+    const casted1 = @ptrCast(*const u8, runtime_nothing);
+    const casted2 = @ptrCast(extern fn () void, casted1);
+    casted2();
+}
+
+extern fn nothing() void {}

@@ -5877,7 +5877,7 @@ fn add(a: i32, b: i32) i32 {
       {#header_open|@OpaqueType#}
       <pre>{#syntax#}@OpaqueType() type{#endsyntax#}</pre>
       <p>
-      Creates a new type with an unknown size and alignment.
+      Creates a new type with an unknown (but non-zero) size and alignment.
       </p>
       <p>
       This is typically used for type safety when interacting with C code that does not expose struct details.

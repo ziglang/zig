@@ -14,4 +14,8 @@
 Buf *get_stage1_cache_path();
 Error get_compiler_id(Buf **result);
 
+Buf *get_zig_lib_dir();
+Buf *get_zig_special_dir();
+Buf *get_zig_std_dir();
+
 #endif

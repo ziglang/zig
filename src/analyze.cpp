@@ -1470,7 +1470,8 @@ static bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdArray:
             return type_allowed_in_extern(g, type_entry->data.array.child_type);
         case ZigTypeIdFn:
-            return type_entry->data.fn.fn_type_id.cc == CallingConventionC;
+            return type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
+                 type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall;
         case ZigTypeIdPointer:
             if (type_size(g, type_entry) == 0)
                 return false;
@@ -3992,9 +3993,10 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
         return (ptr_type->data.pointer.explicit_alignment == 0) ?
             get_abi_alignment(g, ptr_type->data.pointer.child_type) : ptr_type->data.pointer.explicit_alignment;
     } else if (ptr_type->id == ZigTypeIdFn) {
-        return (ptr_type->data.fn.fn_type_id.alignment == 0) ?
-            LLVMABIAlignmentOfType(g->target_data_ref, ptr_type->data.fn.raw_type_ref) :
-            ptr_type->data.fn.fn_type_id.alignment;
+        // I tried making this use LLVMABIAlignmentOfType but it trips this assertion in LLVM:
+        // "Cannot getTypeInfo() on a type that is unsized!"
+        // when getting the alignment of `?extern fn() void`.
+        return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdPromise) {
         return get_coro_frame_align_bytes(g);
     } else {

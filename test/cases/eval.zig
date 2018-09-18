@@ -682,3 +682,31 @@ test "refer to the type of a generic function" {
 }
 
 fn doNothingWithType(comptime T: type) void {}
+
+test "zero extend from u0 to u1" {
+    var zero_u0: u0 = 0;
+    var zero_u1: u1 = zero_u0;
+    assert(zero_u1 == 0);
+}
+
+test "bit shift a u1" {
+    var x: u1 = 1;
+    var y = x << 0;
+    assert(y == 1);
+}
+
+test "@intCast to a u0" {
+    var x: u8 = 0;
+    var y: u0 = @intCast(u0, x);
+    assert(y == 0);
+}
+
+test "@bytesToslice on a packed struct" {
+    const F = packed struct {
+        a: u8,
+    };
+
+    var b = [1]u8{9};
+    var f = @bytesToSlice(F, b);
+    assert(f[0].a == 9);
+}

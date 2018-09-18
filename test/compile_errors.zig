@@ -2,6 +2,29 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@ptrCast a 0 bit type to a non- 0 bit type",
+        \\export fn entry() bool {
+        \\    var x: u0 = 0;
+        \\    const p = @ptrCast(?*u0, &x);
+        \\    return p == null;
+        \\}
+    ,
+        ".tmp_source.zig:3:15: error: '*u0' and '?*u0' do not have the same in-memory representation",
+        ".tmp_source.zig:3:31: note: '*u0' has no in-memory bits",
+        ".tmp_source.zig:3:24: note: '?*u0' has in-memory bits",
+    );
+
+    cases.add(
+        "comparing a non-optional pointer against null",
+        \\export fn entry() void {
+        \\    var x: i32 = 1;
+        \\    _ = &x == null;
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: comparison against null can only be done with optionals",
+    );
+
+    cases.add(
         "non error sets used in merge error sets operator",
         \\export fn foo() void {
         \\    const Errors = u8 || u16;

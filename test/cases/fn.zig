@@ -191,3 +191,17 @@ test "return inner function which references comptime variable of outer function
     var func = outer(10);
     assert(func(3) == 7);
 }
+
+test "extern struct with stdcallcc fn pointer" {
+    const S = extern struct {
+        ptr: stdcallcc fn () i32,
+
+        stdcallcc fn foo() i32 {
+            return 1234;
+        }
+    };
+
+    var s: S = undefined;
+    s.ptr = S.foo;
+    assert(s.ptr() == 1234);
+}

@@ -11,18 +11,6 @@ pub const HKEY__ = extern struct {
 };
 pub const LSTATUS = LONG;
 
-pub extern "advapi32" stdcallcc fn CryptAcquireContextA(
-    phProv: *HCRYPTPROV,
-    pszContainer: ?LPCSTR,
-    pszProvider: ?LPCSTR,
-    dwProvType: DWORD,
-    dwFlags: DWORD,
-) BOOL;
-
-pub extern "advapi32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlags: DWORD) BOOL;
-
-pub extern "advapi32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: [*]BYTE) BOOL;
-
 pub extern "advapi32" stdcallcc fn RegOpenKeyExW(
     hKey: HKEY,
     lpSubKey: LPCWSTR,

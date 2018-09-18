@@ -600,7 +600,6 @@ set(ZIG_STD_FILES
     "sort.zig"
     "special/bootstrap.zig"
     "special/bootstrap_lib.zig"
-    "special/build_file_template.zig"
     "special/build_runner.zig"
     "special/builtin.zig"
     "special/compiler_rt/aulldiv.zig"
@@ -618,22 +617,26 @@ set(ZIG_STD_FILES
     "special/compiler_rt/fixunstfdi.zig"
     "special/compiler_rt/fixunstfsi.zig"
     "special/compiler_rt/fixunstfti.zig"
+    "special/compiler_rt/floattidf.zig"
+    "special/compiler_rt/floattisf.zig"
+    "special/compiler_rt/floattitf.zig"
     "special/compiler_rt/floatunditf.zig"
     "special/compiler_rt/floatunsitf.zig"
     "special/compiler_rt/floatuntidf.zig"
     "special/compiler_rt/floatuntisf.zig"
     "special/compiler_rt/floatuntitf.zig"
-    "special/compiler_rt/floattidf.zig"
-    "special/compiler_rt/floattisf.zig"
-    "special/compiler_rt/floattitf.zig"
-    "special/compiler_rt/muloti4.zig"
     "special/compiler_rt/index.zig"
+    "special/compiler_rt/muloti4.zig"
     "special/compiler_rt/truncXfYf2.zig"
     "special/compiler_rt/udivmod.zig"
     "special/compiler_rt/udivmoddi4.zig"
     "special/compiler_rt/udivmodti4.zig"
     "special/compiler_rt/udivti3.zig"
     "special/compiler_rt/umodti3.zig"
+    "special/init-exe/build.zig"
+    "special/init-exe/src/main.zig"
+    "special/init-lib/build.zig"
+    "special/init-lib/src/main.zig"
     "special/panic.zig"
     "special/test_runner.zig"
     "unicode.zig"
@@ -796,6 +799,9 @@ if(MSVC)
   set(EXE_CFLAGS "${EXE_CFLAGS}")
 else()
   set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+  if(MINGW)
+      set(EXE_CFLAGS "${EXE_CFLAGS} -D__USE_MINGW_ANSI_STDIO -Wno-pedantic-ms-format")
+  endif()
 endif()
 
 set(BLAKE_CFLAGS "-std=c99")

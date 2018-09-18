@@ -437,3 +437,19 @@ test "call method with mutable reference to struct with no fields" {
     assert(S.do(&s));
     assert(s.do());
 }
+
+test "implicit cast packed struct field to const ptr" {
+    const LevelUpMove = packed struct {
+        move_id: u9,
+        level: u7,
+
+        fn toInt(value: *const u7) u7 {
+            return value.*;
+        }
+    };
+
+    var lup: LevelUpMove = undefined;
+    lup.level = 12;
+    const res = LevelUpMove.toInt(lup.level);
+    assert(res == 12);
+}
