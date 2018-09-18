@@ -10015,21 +10015,25 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
 
     if (value->id == IrInstructionIdLoadPtr) {
         IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *)value;
-        return load_ptr_inst->ptr;
-    } else {
-        IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instr->scope,
-                source_instr->source_node, value, true, false);
-        new_instruction->value.type = wanted_type;
-
-        ZigType *child_type = wanted_type->data.pointer.child_type;
-        if (type_has_bits(child_type)) {
-            ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-            assert(fn_entry);
-            fn_entry->alloca_list.append(new_instruction);
-        }
-        ir_add_alloca(ira, new_instruction, child_type);
-        return new_instruction;
+        ConstCastOnly const_cast_result = types_match_const_cast_only(ira, wanted_type,
+                load_ptr_inst->ptr->value.type, source_instr->source_node, false);
+        if (const_cast_result.id == ConstCastResultIdInvalid)
+            return ira->codegen->invalid_instruction;
+        if (const_cast_result.id == ConstCastResultIdOk)
+            return load_ptr_inst->ptr;
     }
+    IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, value, true, false);
+    new_instruction->value.type = wanted_type;
+
+    ZigType *child_type = wanted_type->data.pointer.child_type;
+    if (type_has_bits(child_type)) {
+        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+        assert(fn_entry);
+        fn_entry->alloca_list.append(new_instruction);
+    }
+    ir_add_alloca(ira, new_instruction, child_type);
+    return new_instruction;
 }
 
 static IrInstruction *ir_analyze_null_to_maybe(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, ZigType *wanted_type) {
@@ -11057,7 +11061,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // enum to &const union which has the enum as the tag type
+    // enum to *const union which has the enum as the tag type
     if (actual_type->id == ZigTypeIdEnum && wanted_type->id == ZigTypeIdPointer) {
         ZigType *union_type = wanted_type->data.pointer.child_type;
         if (union_type->data.unionation.decl_node->data.container_decl.auto_enum ||
