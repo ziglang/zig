@@ -19,8 +19,6 @@ pub fn acosh(x: var) @typeOf(x) {
 
 // acosh(x) = log(x + sqrt(x * x - 1))
 fn acosh32(x: f32) f32 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
-
     const u = @bitCast(u32, x);
     const i = u & 0x7FFFFFFF;
 
@@ -39,8 +37,6 @@ fn acosh32(x: f32) f32 {
 }
 
 fn acosh64(x: f64) f64 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
-
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
 

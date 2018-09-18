@@ -225,8 +225,6 @@ fn isNan(comptime T: type, bits: T) bool {
 // behaviour. Most intermediate i32 values are changed to u32 where appropriate but there are
 // potentially some edge cases remaining that are not handled in the same way.
 export fn sqrt(x: f64) f64 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
-
     const tiny: f64 = 1.0e-300;
     const sign: u32 = 0x80000000;
     const u = @bitCast(u64, x);

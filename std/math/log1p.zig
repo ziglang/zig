@@ -21,8 +21,6 @@ pub fn log1p(x: var) @typeOf(x) {
 }
 
 fn log1p_32(x: f32) f32 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
-
     const ln2_hi = 6.9313812256e-01;
     const ln2_lo = 9.0580006145e-06;
     const Lg1: f32 = 0xaaaaaa.0p-24;
@@ -99,8 +97,6 @@ fn log1p_32(x: f32) f32 {
 }
 
 fn log1p_64(x: f64) f64 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
-
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
     const Lg1: f64 = 6.666666666666735130e-01;
