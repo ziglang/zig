@@ -67,8 +67,14 @@ fn renderRoot(
     stream: var,
     tree: *ast.Tree,
 ) (@typeOf(stream).Child.Error || Error)!void {
-    // render all the line comments at the beginning of the file
     var tok_it = tree.tokens.iterator(0);
+
+    // render the shebang line
+    if (tree.root_node.shebang) |shebang| {
+        try stream.write(tree.tokenSlice(shebang));
+    }
+
+    // render all the line comments at the beginning of the file
     while (tok_it.next()) |token| {
         if (token.id != Token.Id.LineComment) break;
         try stream.print("{}\n", mem.trimRight(u8, tree.tokenSlicePtr(token), " "));

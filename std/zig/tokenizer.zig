@@ -145,6 +145,7 @@ pub const Token = struct {
         LineComment,
         DocComment,
         BracketStarBracket,
+        ShebangLine,
         Keyword_align,
         Keyword_and,
         Keyword_asm,
@@ -208,11 +209,24 @@ pub const Tokenizer = struct {
     }
 
     pub fn init(buffer: []const u8) Tokenizer {
-        return Tokenizer{
-            .buffer = buffer,
-            .index = 0,
-            .pending_invalid_token = null,
-        };
+        if (mem.startsWith(u8, buffer, "#!")) {
+            const src_start = if (mem.indexOfScalar(u8, buffer, '\n')) |i| i + 1 else buffer.len;
+            return Tokenizer{
+                .buffer = buffer,
+                .index = src_start,
+                .pending_invalid_token = Token{
+                    .id = Token.Id.ShebangLine,
+                    .start = 0,
+                    .end = src_start,
+                },
+            };
+        } else {
+            return Tokenizer{
+                .buffer = buffer,
+                .index = 0,
+                .pending_invalid_token = null,
+            };
+        }
     }
 
     const State = enum {

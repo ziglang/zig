@@ -21,6 +21,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
         .base = ast.Node{ .id = ast.Node.Id.Root },
         .decls = ast.Node.Root.DeclList.init(arena),
         .doc_comments = null,
+        .shebang = null,
         // initialized when we get the eof token
         .eof_token = undefined,
     });
@@ -40,6 +41,15 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
         if (token_ptr.id == Token.Id.Eof) break;
     }
     var tok_it = tree.tokens.iterator(0);
+
+    // skip over shebang line
+    shebang: {
+        const shebang_tok_index = tok_it.index;
+        const shebang_tok_ptr = tok_it.peek() orelse break :shebang;
+        if (shebang_tok_ptr.id != Token.Id.ShebangLine) break :shebang;
+        root_node.shebang = shebang_tok_index;
+        _ = tok_it.next();
+    }
 
     // skip over line comments at the top of the file
     while (true) {

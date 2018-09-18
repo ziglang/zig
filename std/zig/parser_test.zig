@@ -1,3 +1,11 @@
+test "zig fmt: shebang line" {
+    try testCanonical(
+        \\#!/usr/bin/env zig
+        \\pub fn main() void {}
+        \\
+    );
+}
+
 test "zig fmt: correctly move doc comments on struct fields" {
     try testTransform(
         \\pub const section_64 = extern struct {

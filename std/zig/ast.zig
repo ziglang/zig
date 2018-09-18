@@ -469,6 +469,7 @@ pub const Node = struct {
         doc_comments: ?*DocComment,
         decls: DeclList,
         eof_token: TokenIndex,
+        shebang: ?TokenIndex,
 
         pub const DeclList = SegmentedList(*Node, 4);
 
@@ -480,6 +481,7 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const Root) TokenIndex {
+            if (self.shebang) |shebang| return shebang;
             return if (self.decls.len == 0) self.eof_token else (self.decls.at(0).*).firstToken();
         }
 
