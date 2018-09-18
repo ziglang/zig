@@ -15,13 +15,15 @@ fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, compt
         }
 
         fn getShardKey(key: Key) ShardKey {
+            // https://github.com/ziglang/zig/issues/1544
             // this special case is needed because you can't u32 >> 32.
             if (ShardKey == u0) return 0;
 
             // this can be u1 >> u0
             const shard_key = key >> shift_amount;
 
-            // TODO: this cast could be implicit if we teach the compiler that
+            // TODO: https://github.com/ziglang/zig/issues/1544
+            // This cast could be implicit if we teach the compiler that
             // u32 >> 30 -> u2
             return @intCast(ShardKey, shard_key);
         }
