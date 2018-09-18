@@ -16,11 +16,11 @@ SET "ZIGBUILDDIR=%APPVEYOR_BUILD_FOLDER%\build-msvc-release"
 SET "ZIGPREFIXPATH=%APPVEYOR_BUILD_FOLDER%\llvm+clang-7.0.0-win64-msvc-release"
 
 call "C:\Program Files\Microsoft SDKs\Windows\v7.1\Bin\SetEnv.cmd" /x64
-call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86_amd64
+call "C:\Program Files (x86)\Microsoft Visual Studio 15.0\VC\vcvarsall.bat" x86_amd64
 
 mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%
-cmake.exe .. -Thost=x64 -G"Visual Studio 14 2015 Win64" "-DCMAKE_INSTALL_PREFIX=%ZIGBUILDDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
+cmake.exe .. -Thost=x64 -G"Visual Studio 15 2017 Win64" "-DCMAKE_INSTALL_PREFIX=%ZIGBUILDDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
 msbuild /p:Configuration=Release INSTALL.vcxproj || exit /b
 
 bin\zig.exe build --build-file ..\build.zig test -Dskip-release || exit /b
