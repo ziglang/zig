@@ -8,12 +8,12 @@
 # LLVM_LIBDIRS
 
 find_program(LLVM_CONFIG_EXE
-    NAMES llvm-config llvm-config-7 llvm-config-7.0
+    NAMES llvm-config llvm-config-8 llvm-config-8.0
     PATHS
         "/mingw64/bin"
         "/c/msys64/mingw64/bin"
         "c:/msys64/mingw64/bin"
-        "C:/Libraries/llvm-7.0.0/bin")
+        "C:/Libraries/llvm-8.0.0/bin")
 
 if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug") OR ZIG_STATIC)
   execute_process(
@@ -62,7 +62,7 @@ execute_process(
 set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
 if(NOT LLVM_LIBRARIES)
-  find_library(LLVM_LIBRARIES NAMES LLVM LLVM-7 LLVM-7.0)
+  find_library(LLVM_LIBRARIES NAMES LLVM LLVM-8 LLVM-8.0)
 endif()
 
 link_directories("${CMAKE_PREFIX_PATH}/lib")

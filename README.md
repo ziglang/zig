@@ -87,14 +87,14 @@ that counts as "freestanding" for the purposes of this table.
 
  * cmake >= 2.8.5
  * gcc >= 5.0.0 or clang >= 3.6.0
- * LLVM, Clang, LLD development libraries == 7.x, compiled with the same gcc or clang version above
+ * LLVM, Clang, LLD development libraries == 8.x, compiled with the same gcc or clang version above
    - These depend on zlib and libxml2.
 
 ##### Windows
 
  * cmake >= 2.8.5
- * Microsoft Visual Studio 2015
- * LLVM, Clang, LLD development libraries == 7.x, compiled with the same MSVC version above
+ * Microsoft Visual Studio 2017 (version 15.8)
+ * LLVM, Clang, LLD development libraries == 8.x, compiled with the same MSVC version above
 
 #### Instructions
 
@@ -112,11 +112,11 @@ bin/zig build --build-file ../build.zig test
 ##### MacOS
 
 ```
-brew install cmake llvm@7
-brew outdated llvm@7 || brew upgrade llvm@7
+brew install cmake llvm@8
+brew outdated llvm@8 || brew upgrade llvm@8
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@7/
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@8/
 make install
 bin/zig build --build-file ../build.zig test
 ```

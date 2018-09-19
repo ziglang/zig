@@ -14,7 +14,7 @@ make -j2 install
 
 if [ "${TRAVIS_PULL_REQUEST}" = "false" ]; then
   mkdir $TRAVIS_BUILD_DIR/artifacts
-  docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR/artifacts",target=/z ziglang/static-base:llvm7-1 -j2 $TRAVIS_COMMIT
+  docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR/artifacts",target=/z ziglang/static-base:llvm8-1 -j2 $TRAVIS_COMMIT
   echo "access_key = $AWS_ACCESS_KEY_ID" >> ~/.s3cfg
   echo "secret_key = $AWS_SECRET_ACCESS_KEY" >> ~/.s3cfg
   s3cmd put -P $TRAVIS_BUILD_DIR/artifacts/* s3://ziglang.org/builds/

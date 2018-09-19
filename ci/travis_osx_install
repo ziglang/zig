@@ -2,6 +2,6 @@
 
 set -x
 
-brew install llvm@7
-brew outdated llvm@7 || brew upgrade llvm@7
+brew install llvm@8
+brew outdated llvm@8 || brew upgrade llvm@8
 
