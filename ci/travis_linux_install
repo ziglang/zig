@@ -4,4 +4,4 @@ set -x
 
 sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
-sudo apt-get install -y clang-7.0 libclang-7.0 libclang-7.0-dev llvm-7.0 llvm-7.0-dev liblld-7.0 liblld-7.0-dev cmake s3cmd
+sudo apt-get install -y clang-7 libclang-7 libclang-7-dev llvm-7 llvm-7-dev liblld-7 liblld-7-dev cmake s3cmd
