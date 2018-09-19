@@ -525,6 +525,7 @@ const usage_fmt =
 
 const args_fmt_spec = []Flag{
     Flag.Bool("--help"),
+    Flag.Bool("--check-formatted"),
     Flag.Option("--color", []const []const u8{
         "auto",
         "off",
@@ -698,7 +699,7 @@ const FmtError = error{
 
 async fn asyncFmtMain(
     loop: *event.Loop,
-    flags: *const Args,
+    flags: *Args,
     color: errmsg.Color,
 ) FmtError!void {
     suspend {
@@ -711,9 +712,10 @@ async fn asyncFmtMain(
         .loop = loop,
     };
 
+    var check_formatted = flags.present("check-formatted");
     var group = event.Group(FmtError!void).init(loop);
     for (flags.positionals.toSliceConst()) |file_path| {
-        try group.call(fmtPath, &fmt, file_path);
+        try group.call(fmtPath, &fmt, file_path, check_formatted);
     }
     try await (async group.wait() catch unreachable);
     if (fmt.any_error) {
@@ -721,7 +723,7 @@ async fn asyncFmtMain(
     }
 }
 
-async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
+async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_formatted: bool) FmtError!void {
     const file_path = try std.mem.dupe(fmt.loop.allocator, u8, file_path_ref);
     defer fmt.loop.allocator.free(file_path);
 
@@ -746,7 +748,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
             while (try dir.next()) |entry| {
                 if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
                     const full_path = try os.path.join(fmt.loop.allocator, file_path, entry.name);
-                    try group.call(fmtPath, fmt, full_path);
+                    try group.call(fmtPath, fmt, full_path, check_formatted);
                 }
             }
             return await (async group.wait() catch unreachable);
@@ -783,10 +785,23 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
     const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
     defer baf.destroy();
 
-    const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), &tree);
+    const StreamError = @typeOf(baf.stream()).Child.Error;
+    const Stream = io.OutStream(StreamError);
+
+    const NoOpStream = struct {
+        fn write(iface_stream: *Stream, bytes: []const u8) StreamError!void {}
+    };
+
+    var noOpStream = Stream{ .writeFn = NoOpStream.write };
+    var stream = if (check_formatted) &noOpStream else baf.stream();
+
+    const anything_changed = try std.zig.render(fmt.loop.allocator, stream, &tree);
     if (anything_changed) {
-        try stderr.print("{}\n", file_path);
-        try baf.finish();
+        if (check_formatted) {
+            try stderr.print("{}\n", file_path);
+        } else {
+            try baf.finish();
+        }
     }
 }
 
