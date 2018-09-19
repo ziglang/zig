@@ -357,8 +357,9 @@ enum ZigLLVM_OSType {
     ZigLLVM_Mesa3D,
     ZigLLVM_Contiki,
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
+    ZigLLVM_HermitCore, // HermitCore Unikernel/Multikernel
 
-    ZigLLVM_LastOSType = ZigLLVM_AMDPAL
+    ZigLLVM_LastOSType = ZigLLVM_HermitCore
 };
 
 // Synchronize with target.cpp::environ_list

@@ -50,6 +50,7 @@ enum Os {
     OsMesa3D,
     OsContiki,
     OsAMDPAL,
+    OsHermitCore,
     OsZen,
 };
 
