@@ -12,7 +12,7 @@
 // CHECK-NEXT: ]
 // CHECK-NEXT: Address: 0x200120
 // CHECK-NEXT: Offset:
-// CHECK-NEXT: Size: 48
+// CHECK-NEXT: Size: 52
 // CHECK-NOT: .eh_frame
 
 // 0x200120 = 2097440

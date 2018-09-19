@@ -15,4 +15,4 @@ foo = 0x123
 
 // DUP:      duplicate symbol: foo
 // DUP-NEXT: >>> defined in {{.*}}.o
-// DUP-NEXT: >>> defined in <internal>
+// DUP-NEXT: >>> defined in {{.*}}2.o

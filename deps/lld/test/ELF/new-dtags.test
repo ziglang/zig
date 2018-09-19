@@ -1,8 +1,12 @@
 # REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -rpath=/somepath -shared --disable-new-dtags -o %t
-// RUN: ld.lld %t.o -rpath=/somepath -shared --enable-new-dtags -o %t2
 // RUN: llvm-readobj --dynamic-table %t | FileCheck --check-prefix=DISABLE %s
+
+// RUN: ld.lld %t.o -rpath=/somepath -shared --enable-new-dtags -o %t2
+// RUN: llvm-readobj --dynamic-table %t2 | FileCheck --check-prefix=ENABLE %s
+
+// RUN: ld.lld %t.o -rpath=/somepath -shared --disable-new-dtags --enable-new-dtags -o %t2
 // RUN: llvm-readobj --dynamic-table %t2 | FileCheck --check-prefix=ENABLE %s
 
 // DISABLE: DynamicSection [

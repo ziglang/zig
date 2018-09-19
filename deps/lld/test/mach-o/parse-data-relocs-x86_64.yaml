@@ -1,6 +1,6 @@
 
-# RUN: lld -flavor darwin -arch x86_64 -r %s -o %t -print_atoms | FileCheck %s \
-# RUN: && lld -flavor darwin -arch x86_64 %t -r -print_atoms -o %t2  | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -r %s -o %t -print_atoms | FileCheck %s \
+# RUN: && ld64.lld -arch x86_64 %t -r -print_atoms -o %t2  | FileCheck %s
 #
 # Test parsing and writing of x86_64 data relocations.
 #

@@ -1,8 +1,8 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 // RUN: llvm-objdump -section-headers %t | FileCheck %s --check-prefix=OBJ
 // RUN: ld.lld %t -o %t.exe
 // RUN: llvm-objdump -s %t.exe | FileCheck %s
-// REQUIRES: x86
 
 // OBJ:       3 .init_array
 // OBJ-NEXT:  4 .init_array.100

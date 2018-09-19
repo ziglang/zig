@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 -dylib \
+# RUN: not ld64.lld -arch x86_64 -macosx_version_min 10.8 -dylib \
 # RUN:      %s %p/Inputs/x86_64/libSystem.yaml -o %t -exported_symbol _foobar 2> %t2
 #
 # Test -exported_symbol fails if exported symbol not found.

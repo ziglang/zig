@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
 ; RUN: llvm-as %p/Inputs/internalize-exportdyn.ll -o %t2.o
-; RUN: ld.lld -m elf_x86_64 %t.o %t2.o -o %t2 --export-dynamic -save-temps
+; RUN: ld.lld %t.o %t2.o -o %t2 --export-dynamic -save-temps
 ; RUN: llvm-dis < %t2.0.2.internalize.bc | FileCheck %s
 
 target triple = "x86_64-unknown-linux-gnu"
@@ -38,10 +38,10 @@ define linkonce_odr void @baz() {
 @use_baz = global void ()* @baz
 
 ; Check what gets internalized.
-; CHECK: define void @_start()
-; CHECK: define void @foo()
+; CHECK: define dso_local void @_start()
+; CHECK: define dso_local void @foo()
 ; CHECK: define internal void @bar()
 ; CHECK: define internal void @zed()
 ; CHECK: define internal void @zed2()
-; CHECK: define weak_odr void @bah()
-; CHECK: define weak_odr void @baz()
+; CHECK: define weak_odr dso_local void @bah()
+; CHECK: define weak_odr dso_local void @baz()

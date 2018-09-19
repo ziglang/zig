@@ -1,8 +1,8 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %S/Inputs/abs256.s -o %t256.o
 // RUN: ld.lld %t %t256.o -o %t2
 // RUN: llvm-objdump -d %t2 | FileCheck %s
-// REQUIRES: arm
  .syntax unified
  .globl _start
 _start:

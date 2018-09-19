@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -test_file_usage -v \
+# RUN: not ld64.lld -test_file_usage -v \
 # RUN:        -path_exists /usr/lib \
 # RUN:        -path_exists /Applications/MySDK/usr/local/lib \
 # RUN:        -path_exists /Applications/MySDK/usr/lib \

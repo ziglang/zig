@@ -3,7 +3,8 @@
 // RUN: echo "SECTIONS { \
 // RUN:          .text1 0x10000 : { *(.text.01) *(.text.02) *(.text.03) } \
 // RUN:          .text2 0x8010000 : { *(.text.04) } } " > %t.script
-// RUN: ld.lld --script %t.script -fix-cortex-a53-843419 -verbose %t.o -o %t2 | FileCheck -check-prefix=CHECK-PRINT %s
+// RUN: ld.lld --script %t.script -fix-cortex-a53-843419 -verbose %t.o -o %t2 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHECK-PRINT %s
 // RUN: llvm-objdump -triple=aarch64-linux-gnu -d %t2 | FileCheck %s
 
 // %t2 is 128 Megabytes, so delete it early.

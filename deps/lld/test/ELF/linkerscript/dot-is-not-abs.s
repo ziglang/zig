@@ -1,9 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 
-# RUN: echo "SECTIONS { .text : { *(.text) } \
-# RUN:                  foo = .; \
-# RUN:                  .bar : { *(.bar) } }" > %t1.script
+# RUN: echo "SECTIONS { .text : { *(.text) } foo = .; .bar : { *(.bar) } }" > %t1.script
 # RUN: ld.lld -o %t1 --script %t1.script %t.o -shared
 # RUN: llvm-readobj -t -s -section-data %t1 | FileCheck %s
 

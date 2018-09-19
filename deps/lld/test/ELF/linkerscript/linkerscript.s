@@ -17,32 +17,32 @@
 # RUN: llvm-readobj %t.out > /dev/null
 
 # RUN: echo "SEARCH_DIR(/lib/foo/blah)" > %t.script
-# RUN: ld.lld %t.script %t
+# RUN: ld.lld %t.script %t -o %t.out
 # RUN: llvm-readobj %t.out > /dev/null
 
 # RUN: echo ";SEARCH_DIR(x);SEARCH_DIR(y);" > %t.script
-# RUN: ld.lld %t.script %t
+# RUN: ld.lld %t.script %t -o %t.out
 # RUN: llvm-readobj %t.out > /dev/null
 
 # RUN: echo ";" > %t.script
-# RUN: ld.lld %t.script %t
+# RUN: ld.lld %t.script %t -o %t.out
 # RUN: llvm-readobj %t.out > /dev/null
 
 # RUN: echo "INCLUDE \"%t.script2\" OUTPUT(\"%t.out\")" > %t.script1
 # RUN: echo "GROUP(\"%t\")" > %t.script2
-# RUN: ld.lld %t.script1
+# RUN: ld.lld %t.script1 -o %t.out
 # RUN: llvm-readobj %t2 > /dev/null
 
 # RUN: echo "INCLUDE \"foo.script\"" > %t.script
 # RUN: echo "OUTPUT(\"%t.out\")" > %T/foo.script
-# RUN: not ld.lld %t.script > %t.log 2>&1
+# RUN: not ld.lld %t.script -o %t.out > %t.log 2>&1
 # RUN: FileCheck -check-prefix=INCLUDE_ERR %s < %t.log
 # INCLUDE_ERR: error: {{.+}}.script:1: cannot find linker script foo.script
 # INCLUDE_ERR-NEXT: INCLUDE "foo.script"
 # RUN: ld.lld -L %T %t.script %t
 
 # RUN: echo "FOO(BAR)" > %t.script
-# RUN: not ld.lld -o foo %t.script > %t.log 2>&1
+# RUN: not ld.lld -o %t.out %t.script > %t.log 2>&1
 # RUN: FileCheck -check-prefix=ERR1 %s < %t.log
 
 # ERR1: unknown directive: FOO

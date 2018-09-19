@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc %p/Inputs/shared.s -o %t.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: llvm-mc %s -o %t2.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: ld.lld %t.o -o %t.so -shared

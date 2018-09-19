@@ -1,8 +1,8 @@
+// REQUIRES: x86
 // Test that relocation of local symbols is working.
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 // RUN: ld.lld %t -o %t2
 // RUN: llvm-objdump -s -d %t2 | FileCheck %s
-// REQUIRES: x86
 
 
 .global _start

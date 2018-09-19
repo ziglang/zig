@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check R_MIPS_CALL16 relocation calculation.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
@@ -5,8 +6,6 @@
 # RUN: llvm-objdump -d %t.exe | FileCheck %s
 # RUN: llvm-readobj -mips-plt-got -symbols %t.exe \
 # RUN:   | FileCheck -check-prefix=GOT %s
-
-# REQUIRES: mips
 
   .text
   .globl  __start

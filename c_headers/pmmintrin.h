@@ -28,9 +28,9 @@
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS \
-  __attribute__((__always_inline__, __nodebug__, __target__("sse3")))
+  __attribute__((__always_inline__, __nodebug__, __target__("sse3"), __min_vector_width__(128)))
 
-/// \brief Loads data from an unaligned memory location to elements in a 128-bit
+/// Loads data from an unaligned memory location to elements in a 128-bit
 ///    vector.
 ///
 ///    If the address of the data is not 16-byte aligned, the instruction may
@@ -50,7 +50,7 @@ _mm_lddqu_si128(__m128i const *__p)
   return (__m128i)__builtin_ia32_lddqu((char const *)__p);
 }
 
-/// \brief Adds the even-indexed values and subtracts the odd-indexed values of
+/// Adds the even-indexed values and subtracts the odd-indexed values of
 ///    two 128-bit vectors of [4 x float].
 ///
 /// \headerfile <x86intrin.h>
@@ -69,7 +69,7 @@ _mm_addsub_ps(__m128 __a, __m128 __b)
   return __builtin_ia32_addsubps((__v4sf)__a, (__v4sf)__b);
 }
 
-/// \brief Horizontally adds the adjacent pairs of values contained in two
+/// Horizontally adds the adjacent pairs of values contained in two
 ///    128-bit vectors of [4 x float].
 ///
 /// \headerfile <x86intrin.h>
@@ -92,7 +92,7 @@ _mm_hadd_ps(__m128 __a, __m128 __b)
   return __builtin_ia32_haddps((__v4sf)__a, (__v4sf)__b);
 }
 
-/// \brief Horizontally subtracts the adjacent pairs of values contained in two
+/// Horizontally subtracts the adjacent pairs of values contained in two
 ///    128-bit vectors of [4 x float].
 ///
 /// \headerfile <x86intrin.h>
@@ -115,7 +115,7 @@ _mm_hsub_ps(__m128 __a, __m128 __b)
   return __builtin_ia32_hsubps((__v4sf)__a, (__v4sf)__b);
 }
 
-/// \brief Moves and duplicates odd-indexed values from a 128-bit vector
+/// Moves and duplicates odd-indexed values from a 128-bit vector
 ///    of [4 x float] to float values stored in a 128-bit vector of
 ///    [4 x float].
 ///
@@ -137,7 +137,7 @@ _mm_movehdup_ps(__m128 __a)
   return __builtin_shufflevector((__v4sf)__a, (__v4sf)__a, 1, 1, 3, 3);
 }
 
-/// \brief Duplicates even-indexed values from a 128-bit vector of
+/// Duplicates even-indexed values from a 128-bit vector of
 ///    [4 x float] to float values stored in a 128-bit vector of [4 x float].
 ///
 /// \headerfile <x86intrin.h>
@@ -158,7 +158,7 @@ _mm_moveldup_ps(__m128 __a)
   return __builtin_shufflevector((__v4sf)__a, (__v4sf)__a, 0, 0, 2, 2);
 }
 
-/// \brief Adds the even-indexed values and subtracts the odd-indexed values of
+/// Adds the even-indexed values and subtracts the odd-indexed values of
 ///    two 128-bit vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
@@ -177,7 +177,7 @@ _mm_addsub_pd(__m128d __a, __m128d __b)
   return __builtin_ia32_addsubpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Horizontally adds the pairs of values contained in two 128-bit
+/// Horizontally adds the pairs of values contained in two 128-bit
 ///    vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
@@ -200,7 +200,7 @@ _mm_hadd_pd(__m128d __a, __m128d __b)
   return __builtin_ia32_haddpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Horizontally subtracts the pairs of values contained in two 128-bit
+/// Horizontally subtracts the pairs of values contained in two 128-bit
 ///    vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
@@ -223,13 +223,13 @@ _mm_hsub_pd(__m128d __a, __m128d __b)
   return __builtin_ia32_hsubpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Moves and duplicates one double-precision value to double-precision
+/// Moves and duplicates one double-precision value to double-precision
 ///    values stored in a 128-bit vector of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
 ///
 /// \code
-/// __m128d _mm_loaddup_pd(double const * dp);
+/// __m128d _mm_loaddup_pd(double const *dp);
 /// \endcode
 ///
 /// This intrinsic corresponds to the <c> VMOVDDUP </c> instruction.
@@ -240,7 +240,7 @@ _mm_hsub_pd(__m128d __a, __m128d __b)
 ///    duplicated values.
 #define        _mm_loaddup_pd(dp)        _mm_load1_pd(dp)
 
-/// \brief Moves and duplicates the double-precision value in the lower bits of
+/// Moves and duplicates the double-precision value in the lower bits of
 ///    a 128-bit vector of [2 x double] to double-precision values stored in a
 ///    128-bit vector of [2 x double].
 ///
@@ -259,7 +259,7 @@ _mm_movedup_pd(__m128d __a)
   return __builtin_shufflevector((__v2df)__a, (__v2df)__a, 0, 0);
 }
 
-/// \brief Establishes a linear address memory range to be monitored and puts
+/// Establishes a linear address memory range to be monitored and puts
 ///    the processor in the monitor event pending state. Data stored in the
 ///    monitored address range causes the processor to exit the pending state.
 ///
@@ -280,7 +280,7 @@ _mm_monitor(void const *__p, unsigned __extensions, unsigned __hints)
   __builtin_ia32_monitor((void *)__p, __extensions, __hints);
 }
 
-/// \brief Used with the MONITOR instruction to wait while the processor is in
+/// Used with the MONITOR instruction to wait while the processor is in
 ///    the monitor event pending state. Data stored in the monitored address
 ///    range causes the processor to exit the pending state.
 ///

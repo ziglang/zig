@@ -53,7 +53,7 @@ sections:
             RegRelativeSym:
               Offset:          64
               Type:            116
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         x
           - Kind:            S_BLOCK32
             BlockSym:
@@ -64,7 +64,7 @@ sections:
             RegRelativeSym:
               Offset:          32
               Type:            116
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         y
           - Kind:            S_END
             ScopeEndSym:
@@ -77,7 +77,7 @@ sections:
             RegRelativeSym:
               Offset:          36
               Type:            116
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         w
           - Kind:            S_END
             ScopeEndSym:

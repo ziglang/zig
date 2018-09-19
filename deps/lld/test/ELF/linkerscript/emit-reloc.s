@@ -9,9 +9,9 @@
 
 # CHECK:      Relocations [
 # CHECK-NEXT:   Section ({{.*}}) .rela.dyn {
-# CHECK-NEXT:     0x66 R_X86_64_64 .foo 0x0
+# CHECK-NEXT:     0x68 R_X86_64_64 .foo 0x0
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section ({{.*}}) .rela.data {
-# CHECK-NEXT:     0x66 R_X86_64_64 .foo 0x0
+# CHECK-NEXT:     0x68 R_X86_64_64 .foo 0x0
 # CHECK-NEXT:   }
 # CHECK-NEXT: ]

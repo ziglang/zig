@@ -14,6 +14,7 @@
 
 namespace lld {
 namespace elf {
+class Defined;
 class Symbol;
 class ThunkSection;
 // Class to describe an instance of a Thunk.
@@ -30,12 +31,17 @@ public:
   Thunk(Symbol &Destination);
   virtual ~Thunk();
 
-  virtual uint32_t size() const { return 0; }
-  virtual void writeTo(uint8_t *Buf, ThunkSection &IS) const {}
+  virtual uint32_t size() = 0;
+  virtual void writeTo(uint8_t *Buf) = 0;
 
-  // All Thunks must define at least one symbol ThunkSym so that we can
-  // redirect relocations to it.
-  virtual void addSymbols(ThunkSection &IS) {}
+  // All Thunks must define at least one symbol, known as the thunk target
+  // symbol, so that we can redirect relocations to it. The thunk may define
+  // additional symbols, but these are never targets for relocations.
+  virtual void addSymbols(ThunkSection &IS) = 0;
+
+  void setOffset(uint64_t Offset);
+  Defined *addSymbol(StringRef Name, uint8_t Type, uint64_t Value,
+                     InputSectionBase &Section);
 
   // Some Thunks must be placed immediately before their Target as they elide
   // a branch and fall through to the first Symbol in the Target.
@@ -45,10 +51,12 @@ public:
   // compatible with it.
   virtual bool isCompatibleWith(RelType Type) const { return true; }
 
+  Defined *getThunkTargetSym() const { return Syms[0]; }
+
   // The alignment requirement for this Thunk, defaults to the size of the
   // typical code section alignment.
   Symbol &Destination;
-  Symbol *ThunkSym;
+  llvm::SmallVector<Defined *, 3> Syms;
   uint64_t Offset = 0;
   uint32_t Alignment = 4;
 };

@@ -154,8 +154,12 @@ struct _Unwind_Control_Block {
 struct _Unwind_Exception {
   _Unwind_Exception_Class exception_class;
   _Unwind_Exception_Cleanup_Fn exception_cleanup;
+#if !defined (__USING_SJLJ_EXCEPTIONS__) && defined (__SEH__)
+  _Unwind_Word private_[6];
+#else
   _Unwind_Word private_1;
   _Unwind_Word private_2;
+#endif
   /* The Itanium ABI requires that _Unwind_Exception objects are "double-word
    * aligned".  GCC has interpreted this to mean "use the maximum useful
    * alignment for the target"; so do we. */

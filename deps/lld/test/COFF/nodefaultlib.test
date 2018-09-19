@@ -21,7 +21,8 @@
 
 CHECK1: error: could not open hello64.obj: {{[Nn]}}o such file or directory
 CHECK2: error: could not open hello64: {{[Nn]}}o such file or directory
-CHECK3: error: {{.*}}hello64.obj: undefined symbol: MessageBoxA
+CHECK3: error: undefined symbol: MessageBoxA
+CHECK3-NEXT: >>> referenced by {{.*}}hello64.obj:(main)
 
 # RUN: lld-link /libpath:%T /out:%t.exe /entry:main \
 # RUN:   /subsystem:console hello64.obj /defaultlib:std64.lib

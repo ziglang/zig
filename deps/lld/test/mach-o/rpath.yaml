@@ -1,5 +1,5 @@
 # Check we handle -rpath correctly:
-# RUN: lld -flavor darwin -arch x86_64 -rpath @loader_path/../Frameworks \
+# RUN: ld64.lld -arch x86_64 -rpath @loader_path/../Frameworks \
 # RUN:     %p/Inputs/x86_64/libSystem.yaml %s -o %t
 # RUN: llvm-objdump -private-headers %t | FileCheck %s --check-prefix=CHECK-BINARY-WRITE
 

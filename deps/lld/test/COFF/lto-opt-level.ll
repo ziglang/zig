@@ -1,3 +1,4 @@
+; REQUIRES: x86
 ; RUN: llvm-as -o %t.obj %s
 ; RUN: lld-link /out:%t0.exe /entry:main /subsystem:console /opt:lldlto=0 /lldmap:%t0.map %t.obj
 ; RUN: FileCheck --check-prefix=CHECK-O0 %s < %t0.map

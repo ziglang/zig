@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -arch x86_64 -r %s 2> %t.err
+# RUN: not ld64.lld -arch x86_64 -r %s 2> %t.err
 # RUN: FileCheck %s < %t.err
 
 --- !mach-o

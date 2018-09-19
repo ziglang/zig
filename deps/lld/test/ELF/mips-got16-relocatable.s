@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check writing updated addend for R_MIPS_GOT16 relocation,
 # when produce a relocatable output.
 
@@ -6,8 +7,6 @@
 # RUN: llvm-objdump -d -r %t | FileCheck -check-prefix=OBJ %s
 # RUN: ld.lld -shared -o %t.so %t
 # RUN: llvm-objdump -d %t.so | FileCheck -check-prefix=SO %s
-
-# REQUIRES: mips
 
 # OBJ:      Disassembly of section .text:
 # OBJ-NEXT: .text:

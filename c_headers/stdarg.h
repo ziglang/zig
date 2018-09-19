@@ -26,13 +26,9 @@
 #ifndef __STDARG_H
 #define __STDARG_H
 
-/* zig: added because macos _va_list.h was duplicately defining va_list
- */
 #ifndef _VA_LIST
-#ifndef _VA_LIST_T
 typedef __builtin_va_list va_list;
 #define _VA_LIST
-#endif
 #endif
 #define va_start(ap, param) __builtin_va_start(ap, param)
 #define va_end(ap)          __builtin_va_end(ap)
@@ -50,9 +46,6 @@ typedef __builtin_va_list va_list;
 #ifndef __GNUC_VA_LIST
 #define __GNUC_VA_LIST 1
 typedef __builtin_va_list __gnuc_va_list;
-/* zig: added because glibc stdio.h was duplicately defining va_list
- */
-#define _VA_LIST_DEFINED
 #endif
 
 #endif /* __STDARG_H */

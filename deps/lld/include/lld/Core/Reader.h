@@ -32,7 +32,7 @@ class File;
 class LinkingContext;
 class MachOLinkingContext;
 
-/// \brief An abstract class for reading object files, library files, and
+/// An abstract class for reading object files, library files, and
 /// executable files.
 ///
 /// Each file format (e.g. mach-o, etc) has a concrete subclass of Reader.
@@ -46,14 +46,14 @@ public:
   /// 2) the whole file content buffer if the above is not enough.
   virtual bool canParse(llvm::file_magic magic, MemoryBufferRef mb) const = 0;
 
-  /// \brief Parse a supplied buffer (already filled with the contents of a
+  /// Parse a supplied buffer (already filled with the contents of a
   /// file) and create a File object.
   /// The resulting File object takes ownership of the MemoryBuffer.
   virtual ErrorOr<std::unique_ptr<File>>
   loadFile(std::unique_ptr<MemoryBuffer> mb, const class Registry &) const = 0;
 };
 
-/// \brief An abstract class for handling alternate yaml representations
+/// An abstract class for handling alternate yaml representations
 /// of object files.
 ///
 /// The YAML syntax allows "tags" which are used to specify the type of

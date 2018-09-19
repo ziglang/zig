@@ -26,6 +26,7 @@ add_lld_library(lldMachO
     Support
 
   LINK_LIBS
+    lldCommon
     lldCore
     lldYAML
     ${LLVM_PTHREAD_LIB}

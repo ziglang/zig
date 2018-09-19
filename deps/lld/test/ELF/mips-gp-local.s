@@ -1,10 +1,9 @@
+# REQUIRES: mips
 # Check handling of relocations against __gnu_local_gp symbol.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld -o %t.exe %t.o
 # RUN: llvm-objdump -d -t %t.exe | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Disassembly of section .text:
 # CHECK-NEXT: __start:

@@ -15,5 +15,5 @@
 .section .foo,"a"
 .quad 0
 
-# CHECK: removing unused section from '.foo'
-# QUIET-NOT: removing unused section from '.foo'
+# CHECK: removing unused section {{.*}}:(.foo)
+# QUIET-NOT: removing unused section {{.*}}:(.foo)

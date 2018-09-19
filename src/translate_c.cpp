@@ -773,6 +773,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::Char_U:
                     case BuiltinType::UChar:
                     case BuiltinType::Char_S:
+                    case BuiltinType::Char8:
                         return trans_create_node_symbol_str(c, "u8");
                     case BuiltinType::SChar:
                         return trans_create_node_symbol_str(c, "i8");
@@ -823,6 +824,12 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::UnknownAny:
                     case BuiltinType::BuiltinFn:
                     case BuiltinType::ARCUnbridgedCast:
+                    case BuiltinType::ShortAccum:
+                    case BuiltinType::Accum:
+                    case BuiltinType::LongAccum:
+                    case BuiltinType::UShortAccum:
+                    case BuiltinType::UAccum:
+                    case BuiltinType::ULongAccum:
 
                     case BuiltinType::OCLImage1dRO:
                     case BuiltinType::OCLImage1dArrayRO:
@@ -865,6 +872,24 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::OCLClkEvent:
                     case BuiltinType::OCLQueue:
                     case BuiltinType::OCLReserveID:
+                    case BuiltinType::ShortFract:
+                    case BuiltinType::Fract:
+                    case BuiltinType::LongFract:
+                    case BuiltinType::UShortFract:
+                    case BuiltinType::UFract:
+                    case BuiltinType::ULongFract:
+                    case BuiltinType::SatShortAccum:
+                    case BuiltinType::SatAccum:
+                    case BuiltinType::SatLongAccum:
+                    case BuiltinType::SatUShortAccum:
+                    case BuiltinType::SatUAccum:
+                    case BuiltinType::SatULongAccum:
+                    case BuiltinType::SatShortFract:
+                    case BuiltinType::SatFract:
+                    case BuiltinType::SatLongFract:
+                    case BuiltinType::SatUShortFract:
+                    case BuiltinType::SatUFract:
+                    case BuiltinType::SatULongFract:
                         emit_warning(c, source_loc, "unsupported builtin type");
                         return nullptr;
                 }
@@ -1109,6 +1134,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
         case Type::DependentAddressSpace:
+        case Type::DependentVector:
             emit_warning(c, source_loc, "unsupported type: '%s'", ty->getTypeClassName());
             return nullptr;
     }
@@ -2376,6 +2402,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::Float128:
                 case BuiltinType::LongDouble:
                 case BuiltinType::WChar_U:
+                case BuiltinType::Char8:
                 case BuiltinType::Char16:
                 case BuiltinType::Char32:
                 case BuiltinType::WChar_S:
@@ -2438,6 +2465,30 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::OCLClkEvent:
                 case BuiltinType::OCLQueue:
                 case BuiltinType::OCLReserveID:
+                case BuiltinType::ShortAccum:
+                case BuiltinType::Accum:
+                case BuiltinType::LongAccum:
+                case BuiltinType::UShortAccum:
+                case BuiltinType::UAccum:
+                case BuiltinType::ULongAccum:
+                case BuiltinType::ShortFract:
+                case BuiltinType::Fract:
+                case BuiltinType::LongFract:
+                case BuiltinType::UShortFract:
+                case BuiltinType::UFract:
+                case BuiltinType::ULongFract:
+                case BuiltinType::SatShortAccum:
+                case BuiltinType::SatAccum:
+                case BuiltinType::SatLongAccum:
+                case BuiltinType::SatUShortAccum:
+                case BuiltinType::SatUAccum:
+                case BuiltinType::SatULongAccum:
+                case BuiltinType::SatShortFract:
+                case BuiltinType::SatFract:
+                case BuiltinType::SatLongFract:
+                case BuiltinType::SatUShortFract:
+                case BuiltinType::SatUFract:
+                case BuiltinType::SatULongFract:
                     return res;
             }
             break;
@@ -2523,6 +2574,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
         case Type::DependentAddressSpace:
+        case Type::DependentVector:
             return res;
     }
     zig_unreachable();
@@ -3586,6 +3638,9 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
             return ErrorUnexpected;
         case Stmt::SEHTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHTryStmtClass");
+            return ErrorUnexpected;
+        case Stmt::FixedPointLiteralClass:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C FixedPointLiteralClass");
             return ErrorUnexpected;
     }
     zig_unreachable();
@@ -4712,7 +4767,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     std::shared_ptr<PCHContainerOperations> pch_container_ops = std::make_shared<PCHContainerOperations>();
 
-    bool skip_function_bodies = false;
     bool only_local_decls = true;
     bool capture_diagnostics = true;
     bool user_files_are_volatile = true;
@@ -4725,7 +4779,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             &clang_argv.at(0), &clang_argv.last(),
             pch_container_ops, diags, resources_path,
             only_local_decls, capture_diagnostics, None, true, 0, TU_Complete,
-            false, false, allow_pch_with_compiler_errors, skip_function_bodies,
+            false, false, allow_pch_with_compiler_errors, SkipFunctionBodiesScope::None,
             single_file_parse, user_files_are_volatile, for_serialization, None, &err_unit,
             nullptr));
 

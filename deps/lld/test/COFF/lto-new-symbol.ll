@@ -1,3 +1,4 @@
+; REQUIRES: x86
 ; RUN: llvm-as -o %t.obj %s
 ; RUN: lld-link /out:%t.exe /entry:foo /subsystem:console %t.obj
 

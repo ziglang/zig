@@ -1,8 +1,8 @@
+// REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-linux %s -o %t.o
 // RUN: ld.lld --hash-style=sysv -shared %t.o -o %t.so
 // RUN: llvm-readobj -s -r %t.so | FileCheck %s
 // RUN: llvm-objdump -d %t.so | FileCheck --check-prefix=DISASM %s
-// REQUIRES: aarch64
 
 // CHECK:      Name: .got
 // CHECK-NEXT: Type: SHT_PROGBITS

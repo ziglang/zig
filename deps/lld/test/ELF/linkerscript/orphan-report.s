@@ -36,6 +36,7 @@
 # REPORT-NEXT: <internal>:(.plt) is being placed in '.plt'
 # REPORT-NEXT: <internal>:(.eh_frame) is being placed in '.eh_frame'
 # REPORT-NEXT: <internal>:(.symtab) is being placed in '.symtab'
+# REPORT-NEXT: <internal>:(.symtab_shndxr) is being placed in '.symtab_shndxr'
 # REPORT-NEXT: <internal>:(.shstrtab) is being placed in '.shstrtab'
 # REPORT-NEXT: <internal>:(.strtab) is being placed in '.strtab'
 

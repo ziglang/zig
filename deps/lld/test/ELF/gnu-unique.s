@@ -3,6 +3,8 @@
 //
 // RUN: ld.lld %t -shared -o %tout.so
 // RUN: llvm-readobj -dyn-symbols %tout.so | FileCheck -check-prefix=GNU %s
+// RUN: ld.lld %t -shared -o %tout.so --gnu-unique
+// RUN: llvm-readobj -dyn-symbols %tout.so | FileCheck -check-prefix=GNU %s
 //
 // RUN: ld.lld %t -shared -o %tout.so --no-gnu-unique
 // RUN: llvm-readobj -dyn-symbols %tout.so | FileCheck -check-prefix=NO %s

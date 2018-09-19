@@ -1,7 +1,7 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 // RUN: ld.lld %t -o %tout
 // RUN: llvm-objdump -t -d %tout | FileCheck %s
-// REQUIRES: x86
 
 .global _start
 _start:

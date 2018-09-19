@@ -1,8 +1,8 @@
-# RUN: lld -flavor darwin -arch x86_64  %s %p/Inputs/hello-world-x86_64.yaml \
+# RUN: ld64.lld -arch x86_64  %s %p/Inputs/hello-world-x86_64.yaml \
 # RUN: -o %t
 # RUN: llvm-nm -m -n %t | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64  %s %p/Inputs/hello-world-x86_64.yaml \
+# RUN: ld64.lld -arch x86_64  %s %p/Inputs/hello-world-x86_64.yaml \
 # RUN: -dead_strip -o %t2
 # RUN: llvm-nm -m -n %t2 | FileCheck %s
 #

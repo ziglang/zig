@@ -1,0 +1,29 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/insert-after.s -o %t1.o
+
+## Main linker script contains .text and .data sections. Here
+## we check that can use INSERT AFTER to insert sections .foo.data
+## and .foo.text at the right places.
+
+SECTIONS {
+  .foo.data : { *(.foo.data) }
+} INSERT AFTER .data;
+
+SECTIONS {
+  .foo.text : { *(.foo.text) }
+} INSERT AFTER .text;
+
+# RUN: ld.lld %t1.o -o %t1 --script %p/Inputs/insert-after.script --script %s
+# RUN: llvm-objdump -section-headers %t1 | FileCheck %s
+# CHECK:      Sections:
+# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT:   0               00000000 0000000000000000
+# CHECK-NEXT:   1 .text         00000008 0000000000000000 TEXT
+# CHECK-NEXT:   2 .foo.text     00000008 0000000000000008 TEXT
+# CHECK-NEXT:   3 .data         00000008 0000000000000010 DATA
+# CHECK-NEXT:   4 .foo.data     00000008 0000000000000018 DATA
+
+# RUN: not ld.lld %t1.o -o %t1 --script %s 2>&1 \
+# RUN:   | FileCheck %s --check-prefix=ERR
+# ERR-DAG: error: unable to INSERT AFTER/BEFORE .text: section not defined
+# ERR-DAG: error: unable to INSERT AFTER/BEFORE .data: section not defined

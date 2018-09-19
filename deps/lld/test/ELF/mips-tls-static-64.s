@@ -1,11 +1,10 @@
+# REQUIRES: mips
 # Check handling TLS related relocations and symbols when linking
 # a 64-bit static executable.
 
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-linux %s -o %t
 # RUN: ld.lld -static %t -o %t.exe
 # RUN: llvm-objdump -s -t %t.exe | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Contents of section .data:
 # CHECK-NEXT:  30000 00020004 ffffffff ffff8004 ffffffff

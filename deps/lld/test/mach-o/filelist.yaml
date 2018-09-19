@@ -1,11 +1,11 @@
-# RUN: lld -flavor darwin -test_file_usage  \
+# RUN: ld64.lld -test_file_usage  \
 # RUN:    -filelist %p/Inputs/full.filelist \
 # RUN:        -path_exists /foo/bar/a.o \
 # RUN:        -path_exists /foo/bar/b.o \
 # RUN:        -path_exists /foo/x.a \
 # RUN: 2>&1 | FileCheck %s
 #
-# RUN: lld -flavor darwin -test_file_usage -t \
+# RUN: ld64.lld -test_file_usage -t \
 # RUN:    -filelist %p/Inputs/partial.filelist,/foo \
 # RUN:        -path_exists /foo/bar/a.o \
 # RUN:        -path_exists /foo/bar/b.o \

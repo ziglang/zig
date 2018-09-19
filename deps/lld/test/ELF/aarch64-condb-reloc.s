@@ -1,3 +1,4 @@
+# REQUIRES: aarch64
 # RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-freebsd %p/Inputs/aarch64-condb-reloc.s -o %t1
 # RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-freebsd %s -o %t2
 # RUN: ld.lld %t1 %t2 -o %t
@@ -5,7 +6,6 @@
 # RUN: ld.lld -shared %t1 %t2 -o %t3
 # RUN: llvm-objdump -d %t3 | FileCheck -check-prefix=DSO %s
 # RUN: llvm-readobj -s -r %t3 | FileCheck -check-prefix=DSOREL %s
-# REQUIRES: aarch64
 
 # 0x11024 - 36 = 0x11000
 # 0x11028 - 24 = 0x11010

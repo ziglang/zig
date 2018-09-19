@@ -906,7 +906,7 @@ readCompUnit(const NormalizedFile &normalizedFile,
   abbrevData.getU8(&abbrevOffset);
   uint32_t name;
   llvm::dwarf::Form form;
-  llvm::DWARFFormParams formParams = {version, addrSize, Format};
+  llvm::dwarf::FormParams formParams = {version, addrSize, Format};
   TranslationUnitSource tu;
   while ((name = abbrevData.getULEB128(&abbrevOffset)) |
          (form = static_cast<llvm::dwarf::Form>(
@@ -1431,8 +1431,8 @@ llvm::Error
 normalizedObjectToAtoms(MachOFile *file,
                         const NormalizedFile &normalizedFile,
                         bool copyRefs) {
-  DEBUG(llvm::dbgs() << "******** Normalizing file to atoms: "
-                    << file->path() << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "******** Normalizing file to atoms: "
+                          << file->path() << "\n");
   bool scatterable = ((normalizedFile.flags & MH_SUBSECTIONS_VIA_SYMBOLS) != 0);
 
   // Create atoms from each section.

@@ -1,5 +1,6 @@
+// REQUIRES: x86
 // RUN: llvm-mc %s -o %t.o -triple x86_64-pc-linux -filetype=obj
-// RUN: ld.lld %t.o -o %t
+// RUN: ld.lld %t.o -o /dev/null
 
 // Don't error if __tls_get_addr is defined.
 

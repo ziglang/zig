@@ -11,7 +11,6 @@
 #define LLD_ELF_AARCH64ERRATAFIX_H
 
 #include "lld/Common/LLVM.h"
-
 #include <map>
 #include <vector>
 

@@ -1,4 +1,4 @@
-# REQEUIRES: x86
+# REQUIRES: x86
 
 # RUN: llvm-mc -triple=i686-windows-gnu %s -filetype=obj -o %t.obj
 

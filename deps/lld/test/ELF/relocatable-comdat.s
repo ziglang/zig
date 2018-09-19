@@ -30,6 +30,8 @@
 # CHECK-NEXT:    Group {
 # CHECK-NEXT:      Name: .group
 # CHECK-NEXT:      Index: 2
+# CHECK-NEXT:      Link: 5
+# CHECK-NEXT:      Info: 1 
 # CHECK-NEXT:      Type: COMDAT
 # CHECK-NEXT:      Signature: abc
 # CHECK-NEXT:      Section(s) in group [

@@ -1,10 +1,9 @@
+# REQUIRES: mips
 # Check that LLD shows an error when N32 ABI emulation argument
 # is combined with non-N32 ABI object files.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
-# RUN: not ld.lld -m elf32btsmipn32 %t.o -o %t.exe 2>&1 | FileCheck %s
-
-# REQUIRES: mips
+# RUN: not ld.lld -m elf32btsmipn32 %t.o -o /dev/null 2>&1 | FileCheck %s
 
   .text
   .global  __start

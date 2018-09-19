@@ -1,7 +1,7 @@
+// REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-none-linux %s -o %t
 // RUN: ld.lld %t -o %t2 2>&1
 // RUN: llvm-objdump -triple=aarch64-none-linux -d %t2 | FileCheck %s
-// REQUIRES: aarch64
 
 // Check that the ARM 64-bit ABI rules for undefined weak symbols are applied.
 // Branch instructions are resolved to the next instruction. Undefined

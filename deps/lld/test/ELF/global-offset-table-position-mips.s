@@ -1,8 +1,7 @@
+// REQUIRES: mips
 // RUN: llvm-mc -filetype=obj -triple=mips64-unknown-linux %s -o %t
 // RUN: ld.lld -shared %t -o %t2
 // RUN: llvm-readobj -t %t2 | FileCheck %s
-
-// REQUIRES: mips
 
 // The Mips _GLOBAL_OFFSET_TABLE_ should be defined at the start of the .got
 

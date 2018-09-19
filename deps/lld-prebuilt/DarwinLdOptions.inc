@@ -13,6 +13,7 @@
 #define COMMA ,
 PREFIX(prefix_0, {nullptr})
 PREFIX(prefix_1, {"-" COMMA nullptr})
+PREFIX(prefix_2, {"-" COMMA "--" COMMA nullptr})
 #undef COMMA
 #endif // PREFIX
 
@@ -67,6 +68,8 @@ OPTION(prefix_1, "dylib", dylib, Flag, grp_kind, INVALID, nullptr, 0, 0,
        "Create dynamic library", nullptr, nullptr)
 OPTION(prefix_1, "dynamic", dynamic, Flag, grp_kind, INVALID, nullptr, 0, 0,
        "Create dynamic executable (default)", nullptr, nullptr)
+OPTION(prefix_2, "error-limit", error_limit, Separate, INVALID, INVALID, nullptr, 0, 0,
+       "Maximum number of errors to emit before stopping (0 = no limit)", "<number>", nullptr)
 OPTION(prefix_1, "execute", execute, Flag, grp_kind, INVALID, nullptr, 0, 0,
        "Create main executable (default)", nullptr, nullptr)
 OPTION(prefix_1, "export_dynamic", export_dynamic, Flag, grp_main, INVALID, nullptr, 0, 0,
@@ -99,6 +102,8 @@ OPTION(prefix_1, "ios_version_min", ios_version_min, Separate, grp_opts, INVALID
 OPTION(prefix_1, "iphoneos_version_min", iphoneos_version_min, Separate, INVALID, ios_version_min, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "keep_private_externs", keep_private_externs, Flag, grp_opts, INVALID, nullptr, 0, 0,
        "Private extern (hidden) symbols should not be transformed into local symbols", nullptr, nullptr)
+OPTION(prefix_1, "lto_library", lto_library, Separate, INVALID, INVALID, nullptr, 0, 0,
+       "Ignored for compatibility with other linkers", "<path>", nullptr)
 OPTION(prefix_1, "L", L, JoinedOrSeparate, grp_libs, INVALID, nullptr, 0, 0,
        "Add directory to library search path", "<dir>", nullptr)
 OPTION(prefix_1, "l", l, Joined, INVALID, INVALID, nullptr, 0, 0,

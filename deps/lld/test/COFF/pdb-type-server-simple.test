@@ -72,7 +72,7 @@ CHECK: ============================================================
 CHECK-LABEL:   Mod 0000 | `{{.*}}a.obj`:
 CHECK:        4 | S_OBJNAME [size = 40] sig=0, `C:\src\llvm-project\build\a.obj`
 CHECK:      104 | S_GPROC32 [size = 44] `main`
-CHECK:            parent = 0, end = 196, addr = 0002:0000, code size = 27
+CHECK:            parent = 0, end = 196, addr = 0001:0000, code size = 27
 CHECK:            type = {{.*}}, debug start = 4, debug end = 22, flags = none
 CHECK:      200 | S_BUILDINFO [size = 8] BuildId = `[[A_BUILD]]`
 CHECK-LABEL:   Mod 0001 | `{{.*}}b.obj`:
@@ -82,14 +82,14 @@ CHECK:            machine = intel x86-x64, Ver = Microsoft (R) Optimizing Compil
 CHECK:            frontend = 19.0.24215.1, backend = 19.0.24215.1
 CHECK:            flags = security checks | hot patchable
 CHECK:      104 | S_GPROC32 [size = 44] `g`
-CHECK:            parent = 0, end = 196, addr = 0002:0032, code size = 13
+CHECK:            parent = 0, end = 196, addr = 0001:0032, code size = 13
 CHECK:            type = {{.*}}, debug start = 5, debug end = 12, flags = none
 CHECK:      148 | S_FRAMEPROC [size = 32]
 CHECK:            size = 0, padding size = 0, offset to padding = 0
 CHECK:            bytes of callee saved registers = 0, exception handler addr = 0000:0000
 CHECK:            flags = has async eh | opt speed
 CHECK:      180 | S_REGREL32 [size = 16] `p`
-CHECK:            type = [[FOO_PTR]] (Foo*), register = RSP, offset = 8
+CHECK:            type = [[FOO_PTR]] (Foo*), register = CVRegRSP, offset = 8
 CHECK:      196 | S_END [size = 4]
 CHECK:      200 | S_BUILDINFO [size = 8] BuildId = `[[B_BUILD]]`
 CHECK-LABEL:   Mod 0002 | `* Linker *`:

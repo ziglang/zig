@@ -1,7 +1,7 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %S/Inputs/x86-64-reloc-error.s -o %tabs
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
-// RUN: not ld.lld -shared %tabs %t -o %t2 2>&1 | FileCheck %s
-// REQUIRES: x86
+// RUN: not ld.lld -shared %tabs %t -o /dev/null 2>&1 | FileCheck %s
 
   movl $big, %edx
   movq $foo - 0x1000000000000, %rdx

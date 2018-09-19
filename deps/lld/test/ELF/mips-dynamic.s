@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check MIPS specific .dynamic section entries.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
@@ -6,7 +7,11 @@
 
 # RUN: ld.lld %t.o %td.so -o %t.exe
 # RUN: llvm-readobj -sections -dynamic-table %t.exe \
-# RUN:   | FileCheck -check-prefix=EXE %s
+# RUN:   | FileCheck -check-prefixes=EXE,NOPIE %s
+
+# RUN: ld.lld -pie %t.o %td.so -o %t.so
+# RUN: llvm-readobj -sections -dyn-symbols -dynamic-table %t.so \
+# RUN:   | FileCheck -check-prefixes=EXE,PIE %s
 
 # RUN: ld.lld %t.o --image-base=0x123000 %td.so -o %t.exe
 # RUN: llvm-readobj -sections -dynamic-table %t.exe \
@@ -15,8 +20,6 @@
 # RUN: ld.lld -shared %t.o %td.so -o %t.so
 # RUN: llvm-readobj -sections -dyn-symbols -dynamic-table %t.so \
 # RUN:   | FileCheck -check-prefix=DSO %s
-
-# REQUIRES: mips
 
 # EXE:      Sections [
 # EXE:          Name: .dynamic
@@ -44,17 +47,35 @@
 # EXE-NEXT:     Offset:
 # EXE-NEXT:     Size: 8
 # EXE:      ]
-# EXE:      DynamicSection [
-# EXE-NEXT:   Tag        Type                 Name/Value
-# EXE-DAG:    0x00000003 PLTGOT               [[GOTADDR]]
-# EXE-DAG:    0x70000001 MIPS_RLD_VERSION     1
-# EXE-DAG:    0x70000005 MIPS_FLAGS           NOTPOT
-# EXE-DAG:    0x70000006 MIPS_BASE_ADDRESS    0x10000
-# EXE-DAG:    0x7000000A MIPS_LOCAL_GOTNO     2
-# EXE-DAG:    0x70000011 MIPS_SYMTABNO        2
-# EXE-DAG:    0x70000013 MIPS_GOTSYM          0x2
-# EXE-DAG:    0x70000016 MIPS_RLD_MAP         [[RLDMAPADDR]]
-# EXE:      ]
+
+# PIE:      DynamicSection [
+# PIE-NEXT:   Tag        Type                 Name/Value
+# PIE:        0x00000004 HASH                 0x{{[0-9A-F]+}}
+# PIE-NEXT:   0x70000001 MIPS_RLD_VERSION     1
+# PIE-NEXT:   0x70000005 MIPS_FLAGS           NOTPOT
+# PIE-NEXT:   0x70000006 MIPS_BASE_ADDRESS    0x0
+# PIE-NEXT:   0x70000011 MIPS_SYMTABNO        2
+# PIE-NEXT:   0x7000000A MIPS_LOCAL_GOTNO     2
+# PIE-NEXT:   0x70000013 MIPS_GOTSYM          0x2
+# PIE-NEXT:   0x00000003 PLTGOT               [[GOTADDR]]
+# PIE-NEXT:   0x70000035 MIPS_RLD_MAP_REL     0x{{[0-9A-F]+}}
+# PIE-NEXT:   0x00000000 NULL                 0x0
+# PIE-NEXT: ]
+
+# NOPIE:      DynamicSection [
+# NOPIE-NEXT:   Tag        Type                 Name/Value
+# NOPIE:        0x00000004 HASH                 0x{{[0-9A-F]+}}
+# NOPIE-NEXT:   0x70000001 MIPS_RLD_VERSION     1
+# NOPIE-NEXT:   0x70000005 MIPS_FLAGS           NOTPOT
+# NOPIE-NEXT:   0x70000006 MIPS_BASE_ADDRESS    0x10000
+# NOPIE-NEXT:   0x70000011 MIPS_SYMTABNO        2
+# NOPIE-NEXT:   0x7000000A MIPS_LOCAL_GOTNO     2
+# NOPIE-NEXT:   0x70000013 MIPS_GOTSYM          0x2
+# NOPIE-NEXT:   0x00000003 PLTGOT               [[GOTADDR]]
+# NOPIE-NEXT:   0x70000016 MIPS_RLD_MAP         [[RLDMAPADDR]]
+# NOPIE-NEXT:   0x70000035 MIPS_RLD_MAP_REL     0x{{[0-9A-F]+}}
+# NOPIE-NEXT:   0x00000000 NULL                 0x0
+# NOPIE-NEXT: ]
 
 # IMAGE_BASE: 0x70000006 MIPS_BASE_ADDRESS    0x123000
 

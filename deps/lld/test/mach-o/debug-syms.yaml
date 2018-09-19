@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -o %t %s -dylib %p/Inputs/x86_64/libSystem.yaml && \
+# RUN: ld64.lld -arch x86_64 -o %t %s -dylib %p/Inputs/x86_64/libSystem.yaml && \
 # RUN:   llvm-nm -no-sort -debug-syms %t | FileCheck %s
 
 # CHECK:      0000000000000000 - 00 0000    SO /Users/lhames/Projects/lld/lld-svn-tot/scratch/

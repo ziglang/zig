@@ -8,16 +8,17 @@
 # RUN: echo "pat " >> %t_order_lto.txt
 
 # RUN: ld.lld --symbol-ordering-file %t_order_lto.txt %t.o %t.bc -o %t2.out
-# RUN: llvm-readobj -elf-output-style=GNU -t %t2.out| FileCheck %s
+# RUN: llvm-readelf -t %t2.out| FileCheck %s
 
 # Check that the order is tin -> _start -> pat.
 
-# CHECK: Symbol table '.symtab' contains 4 entries:
+# CHECK: Symbol table '.symtab' contains 5 entries:
 # CHECK-NEXT:   Num:    Value          Size Type    Bind   Vis      Ndx Name
 # CHECK-NEXT:     0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT  UND
-# CHECK-NEXT:     1: 0000000000201008     0 NOTYPE  GLOBAL DEFAULT    1 _start
-# CHECK-NEXT:     2: 0000000000201020     6 FUNC    GLOBAL DEFAULT    1 pat
-# CHECK-NEXT:     3: 0000000000201000     6 FUNC    GLOBAL DEFAULT    1 tin
+# CHECK-NEXT:     1: 0000000000000000     0 FILE    LOCAL  DEFAULT  ABS {{.*}}.o
+# CHECK-NEXT:     2: 0000000000201008     0 NOTYPE  GLOBAL DEFAULT    1 _start
+# CHECK-NEXT:     3: 0000000000201020     6 FUNC    GLOBAL DEFAULT    1 pat
+# CHECK-NEXT:     4: 0000000000201000     6 FUNC    GLOBAL DEFAULT    1 tin
 
 .globl _start
 _start:

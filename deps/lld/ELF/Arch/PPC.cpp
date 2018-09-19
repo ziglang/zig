@@ -21,12 +21,17 @@ using namespace lld::elf;
 namespace {
 class PPC final : public TargetInfo {
 public:
-  PPC() { GotBaseSymOff = 0x8000; }
+  PPC();
   void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
   RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
 };
 } // namespace
+
+PPC::PPC() {
+  GotBaseSymOff = 0x8000;
+  GotBaseSymInGotPlt = false;
+}
 
 RelExpr PPC::getRelExpr(RelType Type, const Symbol &S,
                         const uint8_t *Loc) const {

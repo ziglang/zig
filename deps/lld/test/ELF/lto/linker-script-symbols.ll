@@ -2,7 +2,7 @@
 ; RUN: llvm-as %s -o %t.o
 ; RUN: echo "foo = bar;" > %t.script
 
-; RUN: ld.lld -m elf_x86_64 %t.o -o %t2 --script %t.script -save-temps
+; RUN: ld.lld %t.o -o %t2 --script %t.script -save-temps
 ; RUN: llvm-readobj -symbols %t2.lto.o | FileCheck %s
 
 ; CHECK-NOT:  zed

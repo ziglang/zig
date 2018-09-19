@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check MIPS .reginfo section generation.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t1.o
@@ -5,8 +6,6 @@
 # RUN:         %S/Inputs/mips-dynamic.s -o %t2.o
 # RUN: ld.lld %t1.o %t2.o --gc-sections -shared -o %t.so
 # RUN: llvm-readobj -symbols -mips-reginfo %t.so | FileCheck %s
-
-# REQUIRES: mips
 
   .text
   .globl  __start

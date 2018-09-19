@@ -7,7 +7,7 @@
 # CHECK:      Sections:
 # CHECK-NEXT:  Idx Name          Size      Address          Type
 # CHECK-NEXT:    0               00000000 0000000000000000
-# CHECK-NEXT:    1 .text         00000001 0000000000000010 TEXT DATA
+# CHECK-NEXT:    1 .text         00000001 0000000000000010 TEXT
 # CHECK-NEXT:    2 .data         00000004 0000000000000020 DATA
 # CHECK-NEXT:    3 .bss          00000004 0000000000000030 BSS
 

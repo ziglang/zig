@@ -31,8 +31,7 @@ namespace coff {
 
 SectionChunk::SectionChunk(ObjFile *F, const coff_section *H)
     : Chunk(SectionKind), Repl(this), Header(H), File(F),
-      Relocs(File->getCOFFObj()->getRelocations(Header)),
-      NumRelocs(std::distance(Relocs.begin(), Relocs.end())) {
+      Relocs(File->getCOFFObj()->getRelocations(Header)) {
   // Initialize SectionName.
   File->getCOFFObj()->getSectionName(Header, SectionName);
 
@@ -51,13 +50,21 @@ static void add64(uint8_t *P, int64_t V) { write64le(P, read64le(P) + V); }
 static void or16(uint8_t *P, uint16_t V) { write16le(P, read16le(P) | V); }
 static void or32(uint8_t *P, uint32_t V) { write32le(P, read32le(P) | V); }
 
+// Verify that given sections are appropriate targets for SECREL
+// relocations. This check is relaxed because unfortunately debug
+// sections have section-relative relocations against absolute symbols.
+static bool checkSecRel(const SectionChunk *Sec, OutputSection *OS) {
+  if (OS)
+    return true;
+  if (Sec->isCodeView())
+    return false;
+  fatal("SECREL relocation cannot be applied to absolute symbols");
+}
+
 static void applySecRel(const SectionChunk *Sec, uint8_t *Off,
                         OutputSection *OS, uint64_t S) {
-  if (!OS) {
-    if (Sec->isCodeView())
-      return;
-    fatal("SECREL relocation cannot be applied to absolute symbols");
-  }
+  if (!checkSecRel(Sec, OS))
+    return;
   uint64_t SecRel = S - OS->getRVA();
   if (SecRel > UINT32_MAX) {
     error("overflow in SECREL relocation in section: " + Sec->getSectionName());
@@ -67,10 +74,13 @@ static void applySecRel(const SectionChunk *Sec, uint8_t *Off,
 }
 
 static void applySecIdx(uint8_t *Off, OutputSection *OS) {
-  // If we have no output section, this must be an absolute symbol. Use the
-  // sentinel absolute symbol section index.
-  uint16_t SecIdx = OS ? OS->SectionIndex : DefinedAbsolute::OutputSectionIndex;
-  add16(Off, SecIdx);
+  // Absolute symbol doesn't have section index, but section index relocation
+  // against absolute symbol should be resolved to one plus the last output
+  // section index. This is required for compatibility with MSVC.
+  if (OS)
+    add16(Off, OS->SectionIndex);
+  else
+    add16(Off, DefinedAbsolute::NumOutputSections + 1);
 }
 
 void SectionChunk::applyRelX64(uint8_t *Off, uint16_t Type, OutputSection *OS,
@@ -88,7 +98,8 @@ void SectionChunk::applyRelX64(uint8_t *Off, uint16_t Type, OutputSection *OS,
   case IMAGE_REL_AMD64_SECTION:  applySecIdx(Off, OS); break;
   case IMAGE_REL_AMD64_SECREL:   applySecRel(this, Off, OS, S); break;
   default:
-    fatal("unsupported relocation type 0x" + Twine::utohexstr(Type));
+    fatal("unsupported relocation type 0x" + Twine::utohexstr(Type) + " in " +
+          toString(File));
   }
 }
 
@@ -102,7 +113,8 @@ void SectionChunk::applyRelX86(uint8_t *Off, uint16_t Type, OutputSection *OS,
   case IMAGE_REL_I386_SECTION:  applySecIdx(Off, OS); break;
   case IMAGE_REL_I386_SECREL:   applySecRel(this, Off, OS, S); break;
   default:
-    fatal("unsupported relocation type 0x" + Twine::utohexstr(Type));
+    fatal("unsupported relocation type 0x" + Twine::utohexstr(Type) + " in " +
+          toString(File));
   }
 }
 
@@ -112,11 +124,10 @@ static void applyMOV(uint8_t *Off, uint16_t V) {
 }
 
 static uint16_t readMOV(uint8_t *Off) {
-  uint16_t Opcode1 = read16le(Off);
-  uint16_t Opcode2 = read16le(Off + 2);
-  uint16_t Imm = (Opcode2 & 0x00ff) | ((Opcode2 >> 4) & 0x0700);
-  Imm |= ((Opcode1 << 1) & 0x0800) | ((Opcode1 & 0x000f) << 12);
-  return Imm;
+  uint16_t Op1 = read16le(Off);
+  uint16_t Op2 = read16le(Off + 2);
+  return (Op2 & 0x00ff) | ((Op2 >> 4) & 0x0700) | ((Op1 << 1) & 0x0800) |
+         ((Op1 & 0x000f) << 12);
 }
 
 void applyMOV32T(uint8_t *Off, uint32_t V) {
@@ -153,7 +164,7 @@ void SectionChunk::applyRelARM(uint8_t *Off, uint16_t Type, OutputSection *OS,
                                uint64_t S, uint64_t P) const {
   // Pointer to thumb code must have the LSB set.
   uint64_t SX = S;
-  if (OS && (OS->getPermissions() & IMAGE_SCN_MEM_EXECUTE))
+  if (OS && (OS->Header.Characteristics & IMAGE_SCN_MEM_EXECUTE))
     SX |= 1;
   switch (Type) {
   case IMAGE_REL_ARM_ADDR32:    add32(Off, SX + Config->ImageBase); break;
@@ -165,18 +176,19 @@ void SectionChunk::applyRelARM(uint8_t *Off, uint16_t Type, OutputSection *OS,
   case IMAGE_REL_ARM_SECTION:   applySecIdx(Off, OS); break;
   case IMAGE_REL_ARM_SECREL:    applySecRel(this, Off, OS, S); break;
   default:
-    fatal("unsupported relocation type 0x" + Twine::utohexstr(Type));
+    fatal("unsupported relocation type 0x" + Twine::utohexstr(Type) + " in " +
+          toString(File));
   }
 }
 
 // Interpret the existing immediate value as a byte offset to the
 // target symbol, then update the instruction with the immediate as
 // the page offset from the current instruction to the target.
-static void applyArm64Addr(uint8_t *Off, uint64_t S, uint64_t P) {
+static void applyArm64Addr(uint8_t *Off, uint64_t S, uint64_t P, int Shift) {
   uint32_t Orig = read32le(Off);
   uint64_t Imm = ((Orig >> 29) & 0x3) | ((Orig >> 3) & 0x1FFFFC);
   S += Imm;
-  Imm = (S >> 12) - (P >> 12);
+  Imm = (S >> Shift) - (P >> Shift);
   uint32_t ImmLo = (Imm & 0x3) << 29;
   uint32_t ImmHi = (Imm & 0x1FFFFC) << 3;
   uint64_t Mask = (0x3 << 29) | (0x1FFFFC << 3);
@@ -213,19 +225,70 @@ static void applyArm64Ldr(uint8_t *Off, uint64_t Imm) {
   applyArm64Imm(Off, Imm >> Size, Size);
 }
 
+static void applySecRelLow12A(const SectionChunk *Sec, uint8_t *Off,
+                              OutputSection *OS, uint64_t S) {
+  if (checkSecRel(Sec, OS))
+    applyArm64Imm(Off, (S - OS->getRVA()) & 0xfff, 0);
+}
+
+static void applySecRelHigh12A(const SectionChunk *Sec, uint8_t *Off,
+                               OutputSection *OS, uint64_t S) {
+  if (!checkSecRel(Sec, OS))
+    return;
+  uint64_t SecRel = (S - OS->getRVA()) >> 12;
+  if (0xfff < SecRel) {
+    error("overflow in SECREL_HIGH12A relocation in section: " +
+          Sec->getSectionName());
+    return;
+  }
+  applyArm64Imm(Off, SecRel & 0xfff, 0);
+}
+
+static void applySecRelLdr(const SectionChunk *Sec, uint8_t *Off,
+                           OutputSection *OS, uint64_t S) {
+  if (checkSecRel(Sec, OS))
+    applyArm64Ldr(Off, (S - OS->getRVA()) & 0xfff);
+}
+
+static void applyArm64Branch26(uint8_t *Off, int64_t V) {
+  if (!isInt<28>(V))
+    fatal("relocation out of range");
+  or32(Off, (V & 0x0FFFFFFC) >> 2);
+}
+
+static void applyArm64Branch19(uint8_t *Off, int64_t V) {
+  if (!isInt<21>(V))
+    fatal("relocation out of range");
+  or32(Off, (V & 0x001FFFFC) << 3);
+}
+
+static void applyArm64Branch14(uint8_t *Off, int64_t V) {
+  if (!isInt<16>(V))
+    fatal("relocation out of range");
+  or32(Off, (V & 0x0000FFFC) << 3);
+}
+
 void SectionChunk::applyRelARM64(uint8_t *Off, uint16_t Type, OutputSection *OS,
                                  uint64_t S, uint64_t P) const {
   switch (Type) {
-  case IMAGE_REL_ARM64_PAGEBASE_REL21: applyArm64Addr(Off, S, P); break;
+  case IMAGE_REL_ARM64_PAGEBASE_REL21: applyArm64Addr(Off, S, P, 12); break;
+  case IMAGE_REL_ARM64_REL21:          applyArm64Addr(Off, S, P, 0); break;
   case IMAGE_REL_ARM64_PAGEOFFSET_12A: applyArm64Imm(Off, S & 0xfff, 0); break;
   case IMAGE_REL_ARM64_PAGEOFFSET_12L: applyArm64Ldr(Off, S & 0xfff); break;
-  case IMAGE_REL_ARM64_BRANCH26:       or32(Off, ((S - P) & 0x0FFFFFFC) >> 2); break;
+  case IMAGE_REL_ARM64_BRANCH26:       applyArm64Branch26(Off, S - P); break;
+  case IMAGE_REL_ARM64_BRANCH19:       applyArm64Branch19(Off, S - P); break;
+  case IMAGE_REL_ARM64_BRANCH14:       applyArm64Branch14(Off, S - P); break;
   case IMAGE_REL_ARM64_ADDR32:         add32(Off, S + Config->ImageBase); break;
   case IMAGE_REL_ARM64_ADDR32NB:       add32(Off, S); break;
   case IMAGE_REL_ARM64_ADDR64:         add64(Off, S + Config->ImageBase); break;
   case IMAGE_REL_ARM64_SECREL:         applySecRel(this, Off, OS, S); break;
+  case IMAGE_REL_ARM64_SECREL_LOW12A:  applySecRelLow12A(this, Off, OS, S); break;
+  case IMAGE_REL_ARM64_SECREL_HIGH12A: applySecRelHigh12A(this, Off, OS, S); break;
+  case IMAGE_REL_ARM64_SECREL_LOW12L:  applySecRelLdr(this, Off, OS, S); break;
+  case IMAGE_REL_ARM64_SECTION:        applySecIdx(Off, OS); break;
   default:
-    fatal("unsupported relocation type 0x" + Twine::utohexstr(Type));
+    fatal("unsupported relocation type 0x" + Twine::utohexstr(Type) + " in " +
+          toString(File));
   }
 }
 
@@ -234,7 +297,8 @@ void SectionChunk::writeTo(uint8_t *Buf) const {
     return;
   // Copy section contents from source object file to output file.
   ArrayRef<uint8_t> A = getContents();
-  memcpy(Buf + OutputSectionOff, A.data(), A.size());
+  if (!A.empty())
+    memcpy(Buf + OutputSectionOff, A.data(), A.size());
 
   // Apply relocations.
   size_t InputSize = getSize();
@@ -350,8 +414,8 @@ bool SectionChunk::hasData() const {
   return !(Header->Characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA);
 }
 
-uint32_t SectionChunk::getPermissions() const {
-  return Header->Characteristics & PermMask;
+uint32_t SectionChunk::getOutputCharacteristics() const {
+  return Header->Characteristics & (PermMask | TypeMask);
 }
 
 bool SectionChunk::isCOMDAT() const {
@@ -378,6 +442,7 @@ ArrayRef<uint8_t> SectionChunk::getContents() const {
 }
 
 void SectionChunk::replace(SectionChunk *Other) {
+  Alignment = std::max(Alignment, Other->Alignment);
   Other->Repl = Repl;
   Other->Live = false;
 }
@@ -388,7 +453,7 @@ CommonChunk::CommonChunk(const COFFSymbolRef S) : Sym(S) {
   Alignment = std::min(uint64_t(32), PowerOf2Ceil(Sym.getValue()));
 }
 
-uint32_t CommonChunk::getPermissions() const {
+uint32_t CommonChunk::getOutputCharacteristics() const {
   return IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ |
          IMAGE_SCN_MEM_WRITE;
 }
@@ -433,7 +498,7 @@ void ImportThunkChunkARM::writeTo(uint8_t *Buf) const {
 void ImportThunkChunkARM64::writeTo(uint8_t *Buf) const {
   int64_t Off = ImpSymbol->getRVA() & 0xfff;
   memcpy(Buf + OutputSectionOff, ImportThunkARM64, sizeof(ImportThunkARM64));
-  applyArm64Addr(Buf + OutputSectionOff, ImpSymbol->getRVA(), RVA);
+  applyArm64Addr(Buf + OutputSectionOff, ImpSymbol->getRVA(), RVA, 12);
   applyArm64Ldr(Buf + OutputSectionOff + 4, Off);
 }
 
@@ -453,12 +518,14 @@ void LocalImportChunk::writeTo(uint8_t *Buf) const {
   }
 }
 
-void SEHTableChunk::writeTo(uint8_t *Buf) const {
+void RVATableChunk::writeTo(uint8_t *Buf) const {
   ulittle32_t *Begin = reinterpret_cast<ulittle32_t *>(Buf + OutputSectionOff);
   size_t Cnt = 0;
-  for (Defined *D : Syms)
-    Begin[Cnt++] = D->getRVA();
+  for (const ChunkAndOffset &CO : Syms)
+    Begin[Cnt++] = CO.InputChunk->getRVA() + CO.Offset;
   std::sort(Begin, Begin + Cnt);
+  assert(std::unique(Begin, Begin + Cnt) == Begin + Cnt &&
+         "RVA tables should be de-duplicated");
 }
 
 // Windows-specific. This class represents a block in .reloc section.
@@ -529,6 +596,48 @@ uint8_t Baserel::getDefaultType() {
   default:
     llvm_unreachable("unknown machine type");
   }
+}
+
+std::map<uint32_t, MergeChunk *> MergeChunk::Instances;
+
+MergeChunk::MergeChunk(uint32_t Alignment)
+    : Builder(StringTableBuilder::RAW, Alignment) {
+  this->Alignment = Alignment;
+}
+
+void MergeChunk::addSection(SectionChunk *C) {
+  auto *&MC = Instances[C->Alignment];
+  if (!MC)
+    MC = make<MergeChunk>(C->Alignment);
+  MC->Sections.push_back(C);
+}
+
+void MergeChunk::finalizeContents() {
+  for (SectionChunk *C : Sections)
+    if (C->isLive())
+      Builder.add(toStringRef(C->getContents()));
+  Builder.finalize();
+
+  for (SectionChunk *C : Sections) {
+    if (!C->isLive())
+      continue;
+    size_t Off = Builder.getOffset(toStringRef(C->getContents()));
+    C->setOutputSection(Out);
+    C->setRVA(RVA + Off);
+    C->OutputSectionOff = OutputSectionOff + Off;
+  }
+}
+
+uint32_t MergeChunk::getOutputCharacteristics() const {
+  return IMAGE_SCN_MEM_READ | IMAGE_SCN_CNT_INITIALIZED_DATA;
+}
+
+size_t MergeChunk::getSize() const {
+  return Builder.getSize();
+}
+
+void MergeChunk::writeTo(uint8_t *Buf) const {
+  Builder.write(Buf + OutputSectionOff);
 }
 
 } // namespace coff

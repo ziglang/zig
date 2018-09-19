@@ -1,10 +1,10 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-unknown-linux-gnueabi %s -o %t
 // RUN: ld.lld %t -o %t2
 // RUN: llvm-objdump -d %t2 -triple=armv7a-unknown-linux-gnueabi | FileCheck %s
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-unknown-linux-gnueabi %s -o %t3
 // RUN: ld.lld %t3 -o %t4
 // RUN: llvm-objdump -d %t4 -triple=thumbv7a-unknown-linux-gnueabi | FileCheck %s
-// REQUIRES: arm
 
 // Test the R_ARM_MOVW_ABS_NC and R_ARM_MOVT_ABS relocations as well as
 // the R_ARM_THM_MOVW_ABS_NC and R_ARM_THM_MOVT_ABS relocations.

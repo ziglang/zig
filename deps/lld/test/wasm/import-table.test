@@ -1,0 +1,18 @@
+# RUN: llc -filetype=obj %p/Inputs/start.ll -o %t.start.o
+# RUN: wasm-ld --import-table -o %t.wasm %t.start.o
+# RUN: obj2yaml %t.wasm | FileCheck %s
+
+# Verify the --import-table flag creates a table import
+
+# CHECK:       - Type:            IMPORT
+# CHECK-NEXT:    Imports:
+# CHECK-NEXT:      - Module:          env
+# CHECK-NEXT:        Field:           __indirect_function_table
+# CHECK-NEXT:        Kind:            TABLE
+# CHECK-NEXT:        Table:
+# CHECK-NEXT:          ElemType:        ANYFUNC
+# CHECK-NEXT:          Limits:
+# CHECK-NEXT:            Flags:           [ HAS_MAX ]
+# CHECK-NEXT:            Initial:         0x00000001
+# CHECK-NEXT:            Maximum:         0x00000001
+

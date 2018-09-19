@@ -1,8 +1,8 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t --no-merge-exidx-entries -o %t2 --gc-sections 2>&1
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t2 | FileCheck %s
 // RUN: llvm-objdump -s -triple=armv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-EXIDX %s
-// REQUIRES: arm
 
 // Test the behavior of .ARM.exidx sections under garbage collection
 // A .ARM.exidx section is live if it has a relocation to a live executable

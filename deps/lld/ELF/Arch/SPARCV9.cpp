@@ -77,23 +77,23 @@ void SPARCV9::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   case R_SPARC_32:
   case R_SPARC_UA32:
     // V-word32
-    checkUInt<32>(Loc, Val, Type);
+    checkUInt(Loc, Val, 32, Type);
     write32be(Loc, Val);
     break;
   case R_SPARC_DISP32:
     // V-disp32
-    checkInt<32>(Loc, Val, Type);
+    checkInt(Loc, Val, 32, Type);
     write32be(Loc, Val);
     break;
   case R_SPARC_WDISP30:
   case R_SPARC_WPLT30:
     // V-disp30
-    checkInt<32>(Loc, Val, Type);
+    checkInt(Loc, Val, 32, Type);
     write32be(Loc, (read32be(Loc) & ~0x3fffffff) | ((Val >> 2) & 0x3fffffff));
     break;
   case R_SPARC_22:
     // V-imm22
-    checkUInt<22>(Loc, Val, Type);
+    checkUInt(Loc, Val, 22, Type);
     write32be(Loc, (read32be(Loc) & ~0x003fffff) | (Val & 0x003fffff));
     break;
   case R_SPARC_GOT22:
@@ -103,7 +103,7 @@ void SPARCV9::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     break;
   case R_SPARC_WDISP19:
     // V-disp19
-    checkInt<21>(Loc, Val, Type);
+    checkInt(Loc, Val, 21, Type);
     write32be(Loc, (read32be(Loc) & ~0x0007ffff) | ((Val >> 2) & 0x0007ffff));
     break;
   case R_SPARC_GOT10:
@@ -137,7 +137,7 @@ void SPARCV9::writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
   };
   memcpy(Buf, PltData, sizeof(PltData));
 
-  uint64_t Off = PltHeaderSize + Index * PltEntrySize;
+  uint64_t Off = getPltEntryOffset(Index);
   relocateOne(Buf, R_SPARC_22, Off);
   relocateOne(Buf + 4, R_SPARC_WDISP19, -(Off + 4 - PltEntrySize));
 }

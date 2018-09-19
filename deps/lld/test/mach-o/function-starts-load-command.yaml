@@ -1,8 +1,8 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml && llvm-objdump -private-headers %t | FileCheck %s
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -function_starts && llvm-objdump -private-headers %t | FileCheck %s
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -no_function_starts && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_FUNCTION_STARTS
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -function_starts -no_function_starts && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_FUNCTION_STARTS
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_FUNCTION_STARTS
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml && llvm-objdump -private-headers %t | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -function_starts && llvm-objdump -private-headers %t | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -no_function_starts && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_FUNCTION_STARTS
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -function_starts -no_function_starts && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_FUNCTION_STARTS
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_FUNCTION_STARTS
 
 --- !mach-o
 arch:            x86_64

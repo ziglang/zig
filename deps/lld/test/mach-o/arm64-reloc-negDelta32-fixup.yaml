@@ -1,5 +1,5 @@
-# RUN: lld -flavor darwin -arch arm64 -r %s -o %t
-# RUN: lld -flavor darwin -arch arm64 -r %t -o %t2
+# RUN: ld64.lld -arch arm64 -r %s -o %t
+# RUN: ld64.lld -arch arm64 -r %t -o %t2
 # RUN: llvm-objdump -s -section="__eh_frame" %t | FileCheck %s
 # RUN: llvm-objdump -s -section="__eh_frame" %t2 | FileCheck %s
 

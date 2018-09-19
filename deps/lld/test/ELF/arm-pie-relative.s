@@ -1,8 +1,8 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld --hash-style=sysv %t --pie -o %t2
 // RUN: llvm-readobj -r %t2 | FileCheck %s
 // RUN: llvm-objdump -s %t2 | FileCheck %s --check-prefix=GOT
-// REQUIRES: arm
 
 // Test that a R_ARM_GOT_BREL relocation with PIE results in a R_ARM_RELATIVE
 // dynamic relocation

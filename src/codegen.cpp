@@ -933,25 +933,6 @@ static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
 }
 
-static LLVMValueRef get_memcpy_fn_val(CodeGen *g) {
-    if (g->memcpy_fn_val)
-        return g->memcpy_fn_val;
-
-    LLVMTypeRef param_types[] = {
-        LLVMPointerType(LLVMInt8Type(), 0),
-        LLVMPointerType(LLVMInt8Type(), 0),
-        LLVMIntType(g->pointer_size_bytes * 8),
-        LLVMInt32Type(),
-        LLVMInt1Type(),
-    };
-    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
-    Buf *name = buf_sprintf("llvm.memcpy.p0i8.p0i8.i%d", g->pointer_size_bytes * 8);
-    g->memcpy_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
-    assert(LLVMGetIntrinsicID(g->memcpy_fn_val));
-
-    return g->memcpy_fn_val;
-}
-
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
     if (g->stacksave_fn_val)
         return g->stacksave_fn_val;
@@ -1537,15 +1518,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, err_name_val, slice_len_index, "");
     LLVMValueRef err_name_len = gen_load_untyped(g, len_field_ptr, 0, false, "");
 
-    LLVMValueRef params[] = {
-        offset_buf_ptr, // dest pointer
-        err_name_ptr, // source pointer
-        err_name_len, // size bytes
-        LLVMConstInt(LLVMInt32Type(), u8_align_bytes, false), // align bytes
-        LLVMConstNull(LLVMInt1Type()), // is volatile
-    };
-
-    LLVMBuildCall(g->builder, get_memcpy_fn_val(g), params, 5, "");
+    ZigLLVMBuildMemCpy(g->builder, offset_buf_ptr, u8_align_bytes, err_name_ptr, u8_align_bytes, err_name_len, false);
 
     LLVMValueRef const_prefix_len = LLVMConstInt(LLVMTypeOf(err_name_len), strlen(unwrap_err_msg_text), false);
     LLVMValueRef full_buf_len = LLVMBuildNUWAdd(g->builder, const_prefix_len, err_name_len, "");
@@ -1817,18 +1790,8 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
         assert(size_bytes > 0);
         assert(align_bytes > 0);
 
-        LLVMValueRef volatile_bit = ptr_type->data.pointer.is_volatile ?
-            LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
-
-        LLVMValueRef params[] = {
-            dest_ptr, // dest pointer
-            src_ptr, // source pointer
-            LLVMConstInt(usize->type_ref, size_bytes, false),
-            LLVMConstInt(LLVMInt32Type(), align_bytes, false),
-            volatile_bit,
-        };
-
-        LLVMBuildCall(g->builder, get_memcpy_fn_val(g), params, 5, "");
+        ZigLLVMBuildMemCpy(g->builder, dest_ptr, align_bytes, src_ptr, align_bytes, LLVMConstInt(usize->type_ref, size_bytes, false),
+                ptr_type->data.pointer.is_volatile);
         return nullptr;
     }
 
@@ -3190,25 +3153,6 @@ static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildICmp(g->builder, LLVMIntEQ, value, zero, "");
 }
 
-static LLVMValueRef get_memset_fn_val(CodeGen *g) {
-    if (g->memset_fn_val)
-        return g->memset_fn_val;
-
-    LLVMTypeRef param_types[] = {
-        LLVMPointerType(LLVMInt8Type(), 0),
-        LLVMInt8Type(),
-        LLVMIntType(g->pointer_size_bytes * 8),
-        LLVMInt32Type(),
-        LLVMInt1Type(),
-    };
-    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
-    Buf *name = buf_sprintf("llvm.memset.p0i8.i%d", g->pointer_size_bytes * 8);
-    g->memset_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
-    assert(LLVMGetIntrinsicID(g->memset_fn_val));
-
-    return g->memset_fn_val;
-}
-
 static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         IrInstructionDeclVar *decl_var_instruction)
 {
@@ -3248,16 +3192,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
             LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
             LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, var->value_ref, ptr_u8, "");
             LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
-            LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(), var->align_bytes, false);
-            LLVMValueRef params[] = {
-                dest_ptr,
-                fill_char,
-                byte_count,
-                align_in_bytes,
-                LLVMConstNull(LLVMInt1Type()), // is volatile
-            };
-
-            LLVMBuildCall(g->builder, get_memset_fn_val(g), params, 5, "");
+            ZigLLVMBuildMemSet(g->builder, dest_ptr, fill_char, byte_count, var->align_bytes, false);
         }
     }
 
@@ -4275,21 +4210,7 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
     ZigType *ptr_type = instruction->dest_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
 
-    LLVMValueRef is_volatile = ptr_type->data.pointer.is_volatile ?
-        LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
-
-    uint32_t alignment = get_ptr_align(g, ptr_type);
-    LLVMValueRef align_val = LLVMConstInt(LLVMInt32Type(), alignment, false);
-
-    LLVMValueRef params[] = {
-        dest_ptr_casted,
-        char_val,
-        len_val,
-        align_val,
-        is_volatile,
-    };
-
-    LLVMBuildCall(g->builder, get_memset_fn_val(g), params, 5, "");
+    ZigLLVMBuildMemSet(g->builder, dest_ptr_casted, char_val, len_val, get_ptr_align(g, ptr_type), ptr_type->data.pointer.is_volatile);
     return nullptr;
 }
 
@@ -4309,21 +4230,9 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
     assert(dest_ptr_type->id == ZigTypeIdPointer);
     assert(src_ptr_type->id == ZigTypeIdPointer);
 
-    LLVMValueRef is_volatile = (dest_ptr_type->data.pointer.is_volatile || src_ptr_type->data.pointer.is_volatile) ?
-        LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
-
-    uint32_t min_align_bytes = min(get_ptr_align(g, src_ptr_type), get_ptr_align(g, dest_ptr_type));
-    LLVMValueRef align_val = LLVMConstInt(LLVMInt32Type(), min_align_bytes, false);
-
-    LLVMValueRef params[] = {
-        dest_ptr_casted,
-        src_ptr_casted,
-        len_val,
-        align_val,
-        is_volatile,
-    };
-
-    LLVMBuildCall(g->builder, get_memcpy_fn_val(g), params, 5, "");
+    bool is_volatile = (dest_ptr_type->data.pointer.is_volatile || src_ptr_type->data.pointer.is_volatile);
+    ZigLLVMBuildMemCpy(g->builder, dest_ptr_casted, get_ptr_align(g, dest_ptr_type),
+            src_ptr_casted, get_ptr_align(g, src_ptr_type), len_val, is_volatile);
     return nullptr;
 }
 

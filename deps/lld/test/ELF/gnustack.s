@@ -1,8 +1,13 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1
+
 # RUN: ld.lld %t1 -z execstack -o %t
 # RUN: llvm-readobj --program-headers -s %t | FileCheck --check-prefix=RWX %s
+
 # RUN: ld.lld %t1 -o %t
+# RUN: llvm-readobj --program-headers -s %t | FileCheck --check-prefix=RW %s
+
+# RUN: ld.lld %t1 -o %t -z noexecstack
 # RUN: llvm-readobj --program-headers -s %t | FileCheck --check-prefix=RW %s
 
 # RW:      Type: PT_GNU_STACK

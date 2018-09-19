@@ -83,7 +83,7 @@ CHECK-NEXT: ============================================================
 CHECK-NEXT:   Showing 6 records
 CHECK-NEXT:   0x1000 | LF_FUNC_ID [size = 20]
 CHECK-NEXT:            name = main, type = 0x1002, parent scope = <no type>
-CHECK-NEXT:   0x1001 | LF_STRING_ID [size = 48] ID: <no type>, String: D:\src\llvmbuild\clang\Debug\x86\obj.h
+CHECK-NEXT:   0x1001 | LF_STRING_ID [size = {{.*}}] ID: <no type>, String: {{.*}}obj.h
 CHECK-NEXT:   0x1002 | LF_UDT_SRC_LINE [size = 16]
 CHECK-NEXT:            udt = 0x1008, file = 4097, line = 2
 CHECK-NEXT:   0x1003 | LF_MFUNC_ID [size = 16]

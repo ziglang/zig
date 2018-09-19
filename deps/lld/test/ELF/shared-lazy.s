@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t1.o
 // RUN: rm -f %t1.a
 // RUN: llvm-ar rc %t1.a %t1.o

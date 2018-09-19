@@ -5,6 +5,8 @@
 
 # BEFORE:      Contents of section .foo:
 # BEFORE-NEXT:  201000 11223344 5566
+# BEFORE:      Contents of section .init:
+# BEFORE-NEXT:  201006 1122
 
 # RUN: echo "_foo4  " > %t_order.txt
 # RUN: echo "  _foo3" >> %t_order.txt
@@ -14,12 +16,18 @@
 # RUN: echo "_foo4" >> %t_order.txt
 # RUN: echo "_bar1" >> %t_order.txt
 # RUN: echo "_foo1" >> %t_order.txt
+# RUN: echo "_init2" >> %t_order.txt
+# RUN: echo "_init1" >> %t_order.txt
 
 # RUN: ld.lld --symbol-ordering-file %t_order.txt %t.o -o %t2.out
+# RUN: llvm-objdump -s %t2.out| FileCheck %s --check-prefix=AFTER
+# RUN: ld.lld --symbol-ordering-file=%t_order.txt %t.o -o %t2.out
 # RUN: llvm-objdump -s %t2.out| FileCheck %s --check-prefix=AFTER
 
 # AFTER:      Contents of section .foo:
 # AFTER-NEXT:  201000 44335566 2211
+# AFTER:      Contents of section .init:
+# AFTER-NEXT:  201006 1122
 
 .section .foo,"ax",@progbits,unique,1
 _foo1:
@@ -42,3 +50,11 @@ _foo5:
  .byte 0x55
 _bar1:
  .byte 0x66
+
+.section .init,"ax",@progbits,unique,1
+_init1:
+ .byte 0x11
+
+.section .init,"ax",@progbits,unique,2
+_init2:
+ .byte 0x22

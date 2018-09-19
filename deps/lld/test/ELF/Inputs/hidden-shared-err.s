@@ -1,0 +1,2 @@
+.global foo
+foo:

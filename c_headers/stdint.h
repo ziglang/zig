@@ -88,7 +88,7 @@
  *
  * To accommodate targets that are missing types that are exactly 8, 16, 32, or
  * 64 bits wide, this implementation takes an approach of cascading
- * redefintions, redefining __int_leastN_t to successively smaller exact-width
+ * redefinitions, redefining __int_leastN_t to successively smaller exact-width
  * types. It is therefore important that the types are defined in order of
  * descending widths.
  *
@@ -461,7 +461,7 @@ typedef __UINTMAX_TYPE__ uintmax_t;
  * As in the type definitions, this section takes an approach of
  * successive-shrinking to determine which limits to use for the standard (8,
  * 16, 32, 64) bit widths when they don't have exact representations. It is
- * therefore important that the defintions be kept in order of decending
+ * therefore important that the definitions be kept in order of decending
  * widths.
  *
  * Note that C++ should not check __STDC_LIMIT_MACROS here, contrary to the

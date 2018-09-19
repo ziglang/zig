@@ -1,10 +1,9 @@
+# REQUIRES: mips
 # Check number of redundant entries in the local part of MIPS GOT.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -o %t.so
 # RUN: llvm-readobj -mips-plt-got %t.so | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Local entries [
 # CHECK-NEXT:   Entry {

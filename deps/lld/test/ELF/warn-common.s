@@ -7,9 +7,7 @@
 # RUN: ld.lld --warn-common %t1.o %t2.o -o %t.out 2>&1 | FileCheck %s --check-prefix=WARN
 # WARN: multiple common of arr
 
-## no-warn-common is ignored
-# RUN: ld.lld --no-warn-common %t1.o %t2.o -o %t.out
-# RUN: llvm-readobj %t.out > /dev/null
+# RUN: ld.lld --fatal-warnings --warn-common --no-warn-common %t1.o %t2.o -o %t.out
 
 ## Report if common is overridden
 # RUN: ld.lld --warn-common %t1.o %t3.o -o %t.out 2>&1 | FileCheck %s --check-prefix=OVER

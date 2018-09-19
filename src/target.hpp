@@ -17,6 +17,7 @@ struct ArchType {
     ZigLLVM_SubArchType sub_arch;
 };
 
+// Synchronize with target.cpp::os_list
 enum Os {
     OsFreestanding,
     OsAnanas,
@@ -38,7 +39,6 @@ enum Os {
     OsRTEMS,
     OsNaCl,       // Native Client
     OsCNK,        // BG/P Compute-Node Kernel
-    OsBitrig,
     OsAIX,
     OsCUDA,       // NVIDIA CUDA
     OsNVCL,       // NVIDIA OpenCL
@@ -49,6 +49,7 @@ enum Os {
     OsWatchOS,    // Apple watchOS
     OsMesa3D,
     OsContiki,
+    OsAMDPAL,
     OsZen,
 };
 

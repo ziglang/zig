@@ -49,7 +49,6 @@ public:
     return LineSection;
   }
   StringRef getFileName() const override { return ""; }
-  StringRef getCUIndexSection() const override { return ""; }
   StringRef getAbbrevSection() const override { return AbbrevSection; }
   StringRef getStringSection() const override { return StrSection; }
   StringRef getGnuPubNamesSection() const override {

@@ -1,7 +1,7 @@
+# REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld %t -o %tout
 # RUN: llvm-readobj -sections %tout | FileCheck %s
-# REQUIRES: x86
 
 # Check that sections are laid out in the correct order.
 
@@ -26,9 +26,10 @@ _start:
 .section e,"awT"
 .section d,"ax",@nobits
 .section c,"ax"
-.section b,"a",@nobits
-.section a,"a"
+.section a,"a",@nobits
+.section b,"a"
 
+// For non-executable and non-writable sections, PROGBITS appear after others.
 // CHECK: Name: a
 // CHECK: Name: b
 // CHECK: Name: c

@@ -1,18 +1,24 @@
 # RUN: yaml2obj < %s > %t.obj
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj \
-# RUN:   /verbose >& %t.log
-### FileCheck doesn't like empty input, so write something.
-# RUN: echo dummy >> %t.log
-# RUN: FileCheck -check-prefix=CHECK1 %s < %t.log
+# RUN:   /verbose 2>&1 | FileCheck -check-prefix=REF %s
+
+# /debug disables the /opt:ref default...
+# RUN: lld-link /out:%t.exe /debug /entry:main %t.obj \
+# RUN:   /verbose 2>&1 | FileCheck -check-prefix=NOREF %s
+
+# ...unless /profile is passed as well.
+# RUN: lld-link /out:%t.exe /profile /debug /entry:main %t.obj \
+# RUN:   /verbose 2>&1 | FileCheck -check-prefix=REF %s
+
+# RUN: lld-link /out:%t.exe /opt:ref /debug /entry:main %t.obj \
+# RUN:   /verbose 2>&1 | FileCheck -check-prefix=REF %s
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj \
-# RUN:   /verbose /opt:noref >& %t.log
-# RUN: echo dummy >> %t.log
-# RUN: FileCheck -check-prefix=CHECK2 %s < %t.log
+# RUN:   /verbose /opt:noref /profile 2>&1 | FileCheck -check-prefix=NOREF %s
 
-# CHECK1:     Discarded unused
-# CHECK2-NOT: Discarded unused
+# REF:       Discarded unused
+# NOREF-NOT: Discarded unused
 
 --- !COFF
 header:

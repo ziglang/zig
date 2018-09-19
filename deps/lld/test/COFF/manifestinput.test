@@ -8,8 +8,8 @@
 # RUN: llvm-readobj -coff-resources -file-headers %t.exe | FileCheck %s \
 # RUN:   -check-prefix TEST_EMBED
 
-TEST_EMBED:          ResourceTableRVA: 0x1000
-TEST_EMBED-NEXT:     ResourceTableSize: 0x298
+TEST_EMBED:          ResourceTableRVA: 0x2000
+TEST_EMBED-NEXT:     ResourceTableSize: 0x2A0
 TEST_EMBED-DAG:      Resources [
 TEST_EMBED-NEXT:       Total Number of Resources: 1
 TEST_EMBED-DAG:        Number of String Entries: 0

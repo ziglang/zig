@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -dylib %s -o %t \
+# RUN: ld64.lld -arch x86_64 -dylib %s -o %t \
 # RUN:     -exported_symbol .objc_class_name_Foo %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-nm -m %t | FileCheck %s
 #

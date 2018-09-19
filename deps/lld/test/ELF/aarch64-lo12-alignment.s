@@ -1,6 +1,6 @@
 // REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-none-linux %s -o %t
-// RUN: not ld.lld %t -o %t2 2>&1 | FileCheck %s
+// RUN: not ld.lld %t -o /dev/null 2>&1 | FileCheck %s
 
 // Test derived from a typical ODR violation where a global is declared
 // extern int but defined as a half or byte sized type.

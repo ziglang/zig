@@ -4,8 +4,8 @@
 # RUN: llvm-objdump -d %t.exe | FileCheck %s
 
 # Operands of B8 (MOV EAX) are common symbols
-# CHECK: 3000: b8 00 10 00 40
-# CHECK: 3005: b8 10 10 00 40
+# CHECK: 1000: b8 00 20 00 40
+# CHECK: 1005: b8 10 20 00 40
 
 --- !COFF
 header:
@@ -23,10 +23,6 @@ sections:
       - VirtualAddress:  6
         SymbolName:      bssdata4_align16
         Type:            IMAGE_REL_AMD64_ADDR32
-  - Name:            .data
-    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
-    Alignment:       4
-    SectionData:     03000000
   - Name:            .drectve
     Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
     Alignment:       1
@@ -42,18 +38,6 @@ symbols:
     SectionDefinition:
       Length:          0
       NumberOfRelocations: 5
-      NumberOfLinenumbers: 0
-      CheckSum:        0
-      Number:          0
-  - Name:            .data
-    Value:           0
-    SectionNumber:   2
-    SimpleType:      IMAGE_SYM_TYPE_NULL
-    ComplexType:     IMAGE_SYM_DTYPE_NULL
-    StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
-      Length:          4
-      NumberOfRelocations: 0
       NumberOfLinenumbers: 0
       CheckSum:        0
       Number:          0

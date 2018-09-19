@@ -1,13 +1,13 @@
 --- !COFF
-header:
+header:          
   Machine:         IMAGE_FILE_MACHINE_I386
   Characteristics: [  ]
-sections:
+sections:        
   - Name:            .text
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       16
-    SectionData:     5589E55683EC188B450C8B4D088D55F4C745F8000000008B7508894DF089D18934248945ECE80000000083EC048D4DF4890C248945E8E80000000083C4185E5DC3
-    Relocations:
+    SectionData:     5589E55683EC188B450C8B4D08C745F8000000008B55088D75F4894DF089F18914248945ECE80000000083EC048D4DF4890C248945E8E80000000083C4185E5DC3
+    Relocations:     
       - VirtualAddress:  38
         SymbolName:      '??0Foo@NS@@QAE@H@Z'
         Type:            IMAGE_REL_I386_REL32
@@ -33,25 +33,25 @@ sections:
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
-    SectionData:     04000000F10000002F0000002D003C1101000000070006000000000000007017000000000000636C616E672076657273696F6E20362E302E30200000F50000008400000000000000000000004100000000000000080000000000000052000000070000000400000001000000400000000000000008000000000000007F0000000600040000000000030000003E000000000000000800000000000000BD0000000400040000000000040000003D000000000000000800000000000000FA0000000300080000000000F1000000960000002A00471100000000000000000000000041000000000000000000000003100000000000000000006D61696E000D003E1174000000010061726763001200451116000000080000001700000000002A000D003E11001000000100617267760012004511160000000C0000001700000000002A000A003E1109100000000066001200451116000000F4FFFFFF1700000000002A0002004F110000F200000030000000000000000000000041000000000000000300000024000000000000000300000017000000040000003000000005000000F1000000100000000E000811091000004E533A3A466F6F00F40000003000000001000000100165C9E387F88362A8EB2B49539DD5A65500002B00000010019303CF100D518DAF59C31DA01FEF4AFC0000F30000004801000000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A312E63707000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A2E6800245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2000245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200024543020246562702034202B203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200024543020246562702034202B203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D2024657369202454302038202D205E203D2000
-    Subsections:
+    SectionData:     04000000F10000002F0000002D003C110100000007000700000000000000581B000000000000636C616E672076657273696F6E20372E302E30200000F50000008400000000000000000000004100000000000000080000000000000052000000070000000400000001000000400000000000000008000000000000007F0000000600040000000000030000003E000000000000000800000000000000BD0000000400040000000000040000003D000000000000000800000000000000FA0000000300080000000000F1000000960000002A00471100000000000000000000000041000000000000000000000003100000000000000000006D61696E000D003E1174000000010061726763001200451116000000080000001400000000002D000D003E11001000000100617267760012004511160000000C0000001400000000002D000A003E1109100000000066001200451116000000F4FFFFFF1400000000002D0002004F110000F200000030000000000000000000000041000000000000000300000024000000000000000300000014000000040000002D00000005000000F1000000100000000E000811091000004E533A3A466F6F00F40000003000000001000000100165C9E387F88362A8EB2B49539DD5A65500002B0000001001D3AE9D06B0C1F06ABE75A0557053ED6B0000F30000004801000000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A312E63707000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A2E6800245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2000245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200024543020246562702034202B203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200024543020246562702034202B203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D2024657369202454302038202D205E203D2000
+    Subsections:     
       - !Symbols
-        Records:
+        Records:         
           - Kind:            S_COMPILE3
-            Compile3Sym:
+            Compile3Sym:     
               Flags:           [  ]
               Machine:         Pentium3
-              FrontendMajor:   6
+              FrontendMajor:   7
               FrontendMinor:   0
               FrontendBuild:   0
               FrontendQFE:     0
-              BackendMajor:    6000
+              BackendMajor:    7000
               BackendMinor:    0
               BackendBuild:    0
               BackendQFE:      0
-              Version:         'clang version 6.0.0 '
+              Version:         'clang version 7.0.0 '
       - !FrameData
-        Frames:
+        Frames:          
           - CodeSize:        65
             FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
             LocalSize:       0
@@ -85,9 +85,9 @@ sections:
             RvaStart:        4
             SavedRegsSize:   8
       - !Symbols
-        Records:
+        Records:         
           - Kind:            S_GPROC32_ID
-            ProcSym:
+            ProcSym:         
               CodeSize:        65
               DbgStart:        0
               DbgEnd:          0
@@ -95,72 +95,96 @@ sections:
               Flags:           [  ]
               DisplayName:     main
           - Kind:            S_LOCAL
-            LocalSym:
+            LocalSym:        
               Type:            116
               Flags:           [ IsParameter ]
               VarName:         argc
           - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
+            DefRangeRegisterRelSym: 
+              Register:        22
+              Flags:           0
+              BasePointerOffset: 8
+              Range:           
+                OffsetStart:     20
+                ISectStart:      0
+                Range:           45
+              Gaps:            
           - Kind:            S_LOCAL
-            LocalSym:
+            LocalSym:        
               Type:            4096
               Flags:           [ IsParameter ]
               VarName:         argv
           - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
+            DefRangeRegisterRelSym: 
+              Register:        22
+              Flags:           0
+              BasePointerOffset: 12
+              Range:           
+                OffsetStart:     20
+                ISectStart:      0
+                Range:           45
+              Gaps:            
           - Kind:            S_LOCAL
-            LocalSym:
+            LocalSym:        
               Type:            4105
               Flags:           [  ]
               VarName:         f
           - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
+            DefRangeRegisterRelSym: 
+              Register:        22
+              Flags:           0
+              BasePointerOffset: -12
+              Range:           
+                OffsetStart:     20
+                ISectStart:      0
+                Range:           45
+              Gaps:            
           - Kind:            S_PROC_ID_END
-            ScopeEndSym:
+            ScopeEndSym:     
       - !Lines
         CodeSize:        65
         Flags:           [  ]
         RelocOffset:     0
         RelocSegment:    0
-        Blocks:
+        Blocks:          
           - FileName:        'D:\src\llvmbuild\clang\Debug\x86\obj1.cpp'
-            Lines:
+            Lines:           
               - Offset:          0
                 LineStart:       3
                 IsStatement:     false
                 EndDelta:        0
-              - Offset:          23
+              - Offset:          20
                 LineStart:       4
                 IsStatement:     false
                 EndDelta:        0
-              - Offset:          48
+              - Offset:          45
                 LineStart:       5
                 IsStatement:     false
                 EndDelta:        0
-            Columns:
+            Columns:         
       - !Symbols
-        Records:
+        Records:         
           - Kind:            S_UDT
-            UDTSym:
+            UDTSym:          
               Type:            4105
               UDTName:         'NS::Foo'
       - !FileChecksums
-        Checksums:
+        Checksums:       
           - FileName:        'D:\src\llvmbuild\clang\Debug\x86\obj1.cpp'
             Kind:            MD5
             Checksum:        65C9E387F88362A8EB2B49539DD5A655
           - FileName:        'D:\src\llvmbuild\clang\Debug\x86\obj.h'
             Kind:            MD5
-            Checksum:        9303CF100D518DAF59C31DA01FEF4AFC
+            Checksum:        D3AE9D06B0C1F06ABE75A0557053ED6B
       - !StringTable
-        Strings:
+        Strings:         
           - 'D:\src\llvmbuild\clang\Debug\x86\obj1.cpp'
           - 'D:\src\llvmbuild\clang\Debug\x86\obj.h'
           - '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
           - '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
           - '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
           - '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = $esi $T0 8 - ^ = '
-    Relocations:
+    Relocations:     
       - VirtualAddress:  68
         SymbolName:      _main
         Type:            IMAGE_REL_I386_DIR32NB
@@ -198,28 +222,28 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
     SectionData:     040000000A000210700400000A8000000E0001120200000074000000001000000E0008107400000000000200011000001200011600000000021000006D61696E00F3F2F12A0005150000800200000000000000000000000000004E533A3A466F6F002E3F4155466F6F404E53404000F10A000210041000000A8000000A00011201000000740000001A0009100300000004100000051000000B00010006100000000000001A0003120D15030074000000000058001115030007100000466F6F002A0005150200000208100000000000000000000004004E533A3A466F6F002E3F4155466F6F404E53404000F12E00051600000000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A2E6800F10E000616091000000A100000020000000E0002160410000007100000466F6F00
-    Types:
+    Types:           
       - Kind:            LF_POINTER
-        Pointer:
+        Pointer:         
           ReferentType:    1136
           Attrs:           32778
       - Kind:            LF_ARGLIST
-        ArgList:
+        ArgList:         
           ArgIndices:      [ 116, 4096 ]
       - Kind:            LF_PROCEDURE
-        Procedure:
+        Procedure:       
           ReturnType:      116
           CallConv:        NearC
           Options:         [ None ]
           ParameterCount:  2
           ArgumentList:    4097
       - Kind:            LF_FUNC_ID
-        FuncId:
+        FuncId:          
           ParentScope:     0
           FunctionType:    4098
           Name:            main
       - Kind:            LF_STRUCTURE
-        Class:
+        Class:           
           MemberCount:     0
           Options:         [ None, ForwardReference, HasUniqueName ]
           FieldList:       0
@@ -229,14 +253,14 @@ sections:
           VTableShape:     0
           Size:            0
       - Kind:            LF_POINTER
-        Pointer:
+        Pointer:         
           ReferentType:    4100
           Attrs:           32778
       - Kind:            LF_ARGLIST
-        ArgList:
+        ArgList:         
           ArgIndices:      [ 116 ]
       - Kind:            LF_MFUNCTION
-        MemberFunction:
+        MemberFunction:  
           ReturnType:      3
           ClassType:       4100
           ThisType:        4101
@@ -246,21 +270,21 @@ sections:
           ArgumentList:    4102
           ThisPointerAdjustment: 0
       - Kind:            LF_FIELDLIST
-        FieldList:
+        FieldList:       
           - Kind:            LF_MEMBER
-            DataMember:
+            DataMember:      
               Attrs:           3
               Type:            116
               FieldOffset:     0
               Name:            X
           - Kind:            LF_ONEMETHOD
-            OneMethod:
+            OneMethod:       
               Type:            4103
               Attrs:           3
               VFTableOffset:   -1
               Name:            Foo
       - Kind:            LF_STRUCTURE
-        Class:
+        Class:           
           MemberCount:     2
           Options:         [ None, HasUniqueName ]
           FieldList:       4104
@@ -270,47 +294,47 @@ sections:
           VTableShape:     0
           Size:            4
       - Kind:            LF_STRING_ID
-        StringId:
+        StringId:        
           Id:              0
           String:          'D:\src\llvmbuild\clang\Debug\x86\obj.h'
       - Kind:            LF_UDT_SRC_LINE
-        UdtSourceLine:
+        UdtSourceLine:   
           UDT:             4105
           SourceFile:      4106
           LineNumber:      2
       - Kind:            LF_MFUNC_ID
-        MemberFuncId:
+        MemberFuncId:    
           ClassType:       4100
           FunctionType:    4103
           Name:            Foo
   - Name:            '.debug$H'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
-    SectionData:     C5C93301000000009E56666824DC4B12E25261D4E09E6E9DA0F4EE31FDEC3D2D96287486127C66070B248ED52E421F55074AE5CC2D68AF9F0A3BEF23993968F7FD82CA84BF0439C1A64C9070C6A6ADB0A34D21DAD0FFC3E99E616EF06A14EA74A2420F9062A1FB04917E5975E3A50EABE5E8FE3945468547C19DC681D0BFB3B797DD91CA4D7F1953C314442D5549419E78044E38A0BF16BFFAA5EE9C0103E7DBFE9941E63379C0B0C0A9021B711ACC4F67008974EBF441031BDD653F6935DFF3112C6A5346EF2AC94B9B7EB56EF55CFA0AF6C1846743F43D846BB19517E12E8873BBA90CC41DD1BEAC89CBA8897AC1BA46762E2557A82D894CEAE81AEF8680D723D403D9A4481F0E28683A98
-    GlobalHashes:
+    SectionData:     C5C9330100000100800309EE1ED8BB5B5397319F1CC14E2CDF04AA3125BBC50E95CEBA304A2C449323ADA4E788EB7A90B5DECADF1A832BA46632585CDC7606E4B97B86241E5F45B0BCD2406E22465E11A528BEF0A7F589C76079F1186C40C2165091EFEBD5B5446B26FFBFD620CFB362
+    GlobalHashes:    
       Version:         0
-      HashAlgorithm:   0
-      HashValues:
-        - 9E56666824DC4B12E25261D4E09E6E9DA0F4EE31
-        - FDEC3D2D96287486127C66070B248ED52E421F55
-        - 074AE5CC2D68AF9F0A3BEF23993968F7FD82CA84
-        - BF0439C1A64C9070C6A6ADB0A34D21DAD0FFC3E9
-        - 9E616EF06A14EA74A2420F9062A1FB04917E5975
-        - E3A50EABE5E8FE3945468547C19DC681D0BFB3B7
-        - 97DD91CA4D7F1953C314442D5549419E78044E38
-        - A0BF16BFFAA5EE9C0103E7DBFE9941E63379C0B0
-        - C0A9021B711ACC4F67008974EBF441031BDD653F
-        - 6935DFF3112C6A5346EF2AC94B9B7EB56EF55CFA
-        - 0AF6C1846743F43D846BB19517E12E8873BBA90C
-        - C41DD1BEAC89CBA8897AC1BA46762E2557A82D89
-        - 4CEAE81AEF8680D723D403D9A4481F0E28683A98
+      HashAlgorithm:   1
+      HashValues:      
+        - 800309EE1ED8BB5B
+        - 5397319F1CC14E2C
+        - DF04AA3125BBC50E
+        - 95CEBA304A2C4493
+        - 23ADA4E788EB7A90
+        - B5DECADF1A832BA4
+        - 6632585CDC7606E4
+        - B97B86241E5F45B0
+        - BCD2406E22465E11
+        - A528BEF0A7F589C7
+        - 6079F1186C40C216
+        - 5091EFEBD5B5446B
+        - 26FFBFD620CFB362
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
     SectionData:     04000000F500000064000000000000000000000020000000000000000400000000000000520000000600000004000000010000001F0000000000000004000000000000007F0000000500040000000000030000001D000000000000000400000000000000BD0000000300040000000000F10000007B000000320047110000000000000000000000002000000000000000000000000C100000000000000000004E533A3A466F6F3A3A466F6F000D003E1105100000010074686973001200451116000000FCFFFFFF0F000000000011000A003E1174000000010078001200451116000000080000000F0000000000110002004F1100F2000000200000000000000000000000200000001800000001000000140000000000000003000000
-    Subsections:
+    Subsections:     
       - !FrameData
-        Frames:
+        Frames:          
           - CodeSize:        32
             FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
             LocalSize:       0
@@ -336,9 +360,9 @@ sections:
             RvaStart:        3
             SavedRegsSize:   4
       - !Symbols
-        Records:
+        Records:         
           - Kind:            S_GPROC32_ID
-            ProcSym:
+            ProcSym:         
               CodeSize:        32
               DbgStart:        0
               DbgEnd:          0
@@ -346,35 +370,51 @@ sections:
               Flags:           [  ]
               DisplayName:     'NS::Foo::Foo'
           - Kind:            S_LOCAL
-            LocalSym:
+            LocalSym:        
               Type:            4101
               Flags:           [ IsParameter ]
               VarName:         this
           - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
+            DefRangeRegisterRelSym: 
+              Register:        22
+              Flags:           0
+              BasePointerOffset: -4
+              Range:           
+                OffsetStart:     15
+                ISectStart:      0
+                Range:           17
+              Gaps:            
           - Kind:            S_LOCAL
-            LocalSym:
+            LocalSym:        
               Type:            116
               Flags:           [ IsParameter ]
               VarName:         x
           - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
+            DefRangeRegisterRelSym: 
+              Register:        22
+              Flags:           0
+              BasePointerOffset: 8
+              Range:           
+                OffsetStart:     15
+                ISectStart:      0
+                Range:           17
+              Gaps:            
           - Kind:            S_PROC_ID_END
-            ScopeEndSym:
+            ScopeEndSym:     
       - !Lines
         CodeSize:        32
         Flags:           [  ]
         RelocOffset:     0
         RelocSegment:    0
-        Blocks:
+        Blocks:          
           - FileName:        'D:\src\llvmbuild\clang\Debug\x86\obj.h'
-            Lines:
+            Lines:           
               - Offset:          0
                 LineStart:       3
                 IsStatement:     false
                 EndDelta:        0
-            Columns:
-    Relocations:
+            Columns:         
+    Relocations:     
       - VirtualAddress:  12
         SymbolName:      '??0Foo@NS@@QAE@H@Z'
         Type:            IMAGE_REL_I386_DIR32NB
@@ -402,18 +442,18 @@ sections:
       - VirtualAddress:  256
         SymbolName:      '??0Foo@NS@@QAE@H@Z'
         Type:            IMAGE_REL_I386_SECTION
-symbols:
+symbols:         
   - Name:            .text
     Value:           0
     SectionNumber:   1
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          65
       NumberOfRelocations: 2
       NumberOfLinenumbers: 0
-      CheckSum:        4176946275
+      CheckSum:        1827148029
       Number:          1
   - Name:            .data
     Value:           0
@@ -421,7 +461,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          0
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -433,7 +473,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          0
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -445,7 +485,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          32
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -464,7 +504,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          48
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -476,11 +516,11 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          832
       NumberOfRelocations: 11
       NumberOfLinenumbers: 0
-      CheckSum:        4106171226
+      CheckSum:        372945565
       Number:          6
   - Name:            '.debug$S'
     Value:           0
@@ -488,7 +528,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          284
       NumberOfRelocations: 9
       NumberOfLinenumbers: 0
@@ -501,7 +541,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
+    SectionDefinition: 
       Length:          316
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -513,11 +553,11 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
-      Length:          268
+    SectionDefinition: 
+      Length:          112
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
-      CheckSum:        3965031229
+      CheckSum:        1535721080
       Number:          8
   - Name:            '@feat.00'
     Value:           1

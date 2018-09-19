@@ -23,7 +23,6 @@ class InputSectionBase;
 template <class ELFT> class ObjFile;
 class SymbolTable;
 template <class ELFT> void writeResult();
-template <class ELFT> void markLive();
 
 // This describes a program header entry.
 // Each contains type, access flags and range of output sections that will be
@@ -45,16 +44,11 @@ struct PhdrEntry {
   OutputSection *LastSec = nullptr;
   bool HasLMA = false;
 
-  // True if one of the sections in this program header has a LMA specified via
-  // linker script: AT(addr). We never allow 2 or more sections with LMA in the
-  // same program header.
-  bool ASectionHasLMA = false;
-
   uint64_t LMAOffset = 0;
 };
 
 void addReservedSymbols();
-llvm::StringRef getOutputSectionName(InputSectionBase *S);
+llvm::StringRef getOutputSectionName(const InputSectionBase *S);
 
 template <class ELFT> uint32_t calcMipsEFlags();
 

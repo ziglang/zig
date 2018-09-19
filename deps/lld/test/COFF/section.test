@@ -16,18 +16,22 @@
 # RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=S %s
 
 # R:      Characteristics [
+# R-NEXT:   IMAGE_SCN_CNT_INITIALIZED_DATA
 # R-NEXT:   IMAGE_SCN_MEM_READ
 # R-NEXT: ]
 
 # W:      Characteristics [
+# W-NEXT:   IMAGE_SCN_CNT_INITIALIZED_DATA
 # W-NEXT:   IMAGE_SCN_MEM_WRITE
 # W-NEXT: ]
 
 # E:      Characteristics [
+# E-NEXT:   IMAGE_SCN_CNT_INITIALIZED_DATA
 # E-NEXT:   IMAGE_SCN_MEM_EXECUTE
 # E-NEXT: ]
 
 # S:      Characteristics [
+# S-NEXT:   IMAGE_SCN_CNT_INITIALIZED_DATA
 # S-NEXT:   IMAGE_SCN_MEM_SHARED
 # S-NEXT: ]
 

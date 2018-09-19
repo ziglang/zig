@@ -1,0 +1,14 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/synthetic-symbols.s -o %t.o
+# RUN: ld.lld -o %t --eh-frame-hdr --script %s %t.o
+# RUN: llvm-objdump -t %t | FileCheck %s
+
+SECTIONS {
+  . = 0x201000;
+  .text : { *(.text) }
+  PROVIDE_HIDDEN(_begin_sec = ADDR(.text));
+  PROVIDE_HIDDEN(_end_sec = ADDR(.text) + SIZEOF(.text));
+}
+
+# CHECK:       0000000000201054         .text     00000000 .hidden _begin_sec
+# CHECK-NEXT:  0000000000201055         .text     00000000 .hidden _end_sec

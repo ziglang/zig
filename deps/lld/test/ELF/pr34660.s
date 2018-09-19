@@ -3,7 +3,7 @@
 # RUN: llvm-mc -filetype=obj -triple=aarch64-linux-none %s -o %t.o
 # RUN: ld.lld --hash-style=sysv -shared %t.o -o %t
 # RUN: llvm-objdump %t -d | FileCheck %s --check-prefix=DISASM
-# RUN: llvm-readobj -elf-output-style=GNU %t -t | FileCheck %s --check-prefix=SYM
+# RUN: llvm-readelf %t -t | FileCheck %s --check-prefix=SYM
 
 # It would be much easier to understand/read this test if llvm-objdump would print
 # the immediates in hex.

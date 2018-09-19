@@ -35,7 +35,7 @@
 // CHECK: Name: bar
 
 // But now we can successfully find bar.
-// RUN: ld.lld %t.o %p/Inputs/version-undef-sym.so -o %t.exe
+// RUN: ld.lld %t.o %p/Inputs/version-undef-sym.so -o /dev/null
 
         .global _start
 _start:

@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -arch x86_64 -r %s \
+# RUN: not ld64.lld -arch x86_64 -r %s \
 # RUN: %p/Inputs/wrong-arch-error.yaml 2> %t.err
 # RUN: FileCheck %s < %t.err
 

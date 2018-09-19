@@ -1,0 +1,44 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/align.s -o %t.o
+# RUN: ld.lld -o %t --script %s %t.o
+# RUN: llvm-objdump -section-headers %t | FileCheck %s
+
+SECTIONS {
+  . = 0x10000;
+  .aaa : { *(.aaa) }
+  . = ALIGN(4096);
+  .bbb : { *(.bbb) }
+  . = ALIGN(4096 * 4);
+  .ccc : { *(.ccc) }
+}
+
+# CHECK:      Sections:
+# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT:   0               00000000 0000000000000000
+# CHECK-NEXT:   1 .aaa          00000008 0000000000010000 DATA
+# CHECK-NEXT:   2 .bbb          00000008 0000000000011000 DATA
+# CHECK-NEXT:   3 .ccc          00000008 0000000000014000 DATA
+
+## Check that ALIGN zero do nothing and does not crash #1.
+# RUN: echo "SECTIONS { . = ALIGN(0x123, 0); .aaa : { *(.aaa) } }" > %t.script
+# RUN: ld.lld -o %t4 --script %t.script %t.o
+# RUN: llvm-objdump -section-headers %t4 | FileCheck %s -check-prefix=ZERO
+
+# ZERO:      Sections:
+# ZERO-NEXT: Idx Name          Size      Address         Type
+# ZERO-NEXT:   0               00000000 0000000000000000
+# ZERO-NEXT:   1 .aaa          00000008 0000000000000123 DATA
+
+## Check that ALIGN zero do nothing and does not crash #2.
+# RUN: echo "SECTIONS { . = 0x123; . = ALIGN(0); .aaa : { *(.aaa) } }" > %t.script
+# RUN: ld.lld -o %t5 --script %t.script %t.o
+# RUN: llvm-objdump -section-headers %t5 | FileCheck %s -check-prefix=ZERO
+
+## Test we fail gracefuly when alignment value is not a power of 2 (#1).
+# RUN: echo "SECTIONS { . = 0x123; . = ALIGN(0x123, 3); .aaa : { *(.aaa) } }" > %t.script
+# RUN: not ld.lld -o %t6 --script %t.script %t.o 2>&1 | FileCheck -check-prefix=ERR %s
+
+# RUN: echo "SECTIONS { . = 0x123; . = ALIGN(3); .aaa : { *(.aaa) } }" > %t.script
+# RUN: not ld.lld -o %t7 --script %t.script %t.o 2>&1 | FileCheck -check-prefix=ERR %s
+
+# ERR: {{.*}}.script:1: alignment must be power of 2

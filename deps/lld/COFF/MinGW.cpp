@@ -138,7 +138,7 @@ void coff::writeDefFile(StringRef Name) {
        << "@" << E.Ordinal;
     if (auto *Def = dyn_cast_or_null<Defined>(E.Sym)) {
       if (Def && Def->getChunk() &&
-          !(Def->getChunk()->getPermissions() & IMAGE_SCN_MEM_EXECUTE))
+          !(Def->getChunk()->getOutputCharacteristics() & IMAGE_SCN_MEM_EXECUTE))
         OS << " DATA";
     }
     OS << "\n";

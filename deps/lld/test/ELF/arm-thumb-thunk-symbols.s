@@ -1,9 +1,9 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t -o %t2 2>&1
 // RUN: llvm-readobj --symbols %t2 | FileCheck %s
 // RUN: ld.lld --shared %t -o %t3 2>&1
 // RUN: llvm-readobj --symbols %t3 | FileCheck -check-prefix=CHECK-PI %s
-// REQUIRES: arm
 
 // Check that the symbols generated for Thunks have the correct symbol type
 // of STT_FUNC and the correct value of bit 0 (0 for ARM 1 for Thumb)

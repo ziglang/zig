@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t \
 # RUN:    -L %p/Inputs -lfoo %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-nm -m -n %t | FileCheck %s
 #

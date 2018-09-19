@@ -8,6 +8,8 @@
 # CHECK-NEXT:   Group {
 # CHECK-NEXT:     Name: .group
 # CHECK-NEXT:     Index: 2
+# CHECK-NEXT:     Link: 8
+# CHECK-NEXT:     Info: 1
 # CHECK-NEXT:     Type: COMDAT
 # CHECK-NEXT:     Signature: aaa
 # CHECK-NEXT:     Section(s) in group [
@@ -18,6 +20,8 @@
 # CHECK-NEXT:   Group {
 # CHECK-NEXT:     Name: .group
 # CHECK-NEXT:     Index: 5
+# CHECK-NEXT:     Link: 8
+# CHECK-NEXT:     Info: 6
 # CHECK-NEXT:     Type: COMDAT
 # CHECK-NEXT:     Signature: bbb
 # CHECK-NEXT:     Section(s) in group [

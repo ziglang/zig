@@ -10,49 +10,32 @@
 #ifndef LLD_WASM_WRITERUTILS_H
 #define LLD_WASM_WRITERUTILS_H
 
+#include "lld/Common/LLVM.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Object/Wasm.h"
 #include "llvm/Support/raw_ostream.h"
 
 using llvm::raw_ostream;
 
-// Needed for WasmSignatureDenseMapInfo
-inline bool operator==(const llvm::wasm::WasmSignature &LHS,
-                       const llvm::wasm::WasmSignature &RHS) {
-  return LHS.ReturnType == RHS.ReturnType && LHS.ParamTypes == RHS.ParamTypes;
-}
-
-inline bool operator!=(const llvm::wasm::WasmSignature &LHS,
-                       const llvm::wasm::WasmSignature &RHS) {
-  return !(LHS == RHS);
-}
-
 namespace lld {
 namespace wasm {
 
-struct OutputRelocation {
-  llvm::wasm::WasmRelocation Reloc;
-  uint32_t NewIndex;
-  uint32_t Value;
-};
+void debugWrite(uint64_t Offset, const Twine &Msg);
 
-void debugWrite(uint64_t offset, llvm::Twine msg);
+void writeUleb128(raw_ostream &OS, uint32_t Number, const Twine &Msg);
 
-void writeUleb128(raw_ostream &OS, uint32_t Number, const char *msg);
+void writeSleb128(raw_ostream &OS, int32_t Number, const Twine &Msg);
 
-void writeSleb128(raw_ostream &OS, int32_t Number, const char *msg);
+void writeBytes(raw_ostream &OS, const char *Bytes, size_t count,
+                const Twine &Msg);
 
-void writeBytes(raw_ostream &OS, const char *bytes, size_t count,
-                const char *msg = nullptr);
+void writeStr(raw_ostream &OS, StringRef String, const Twine &Msg);
 
-void writeStr(raw_ostream &OS, const llvm::StringRef String,
-              const char *msg = nullptr);
+void writeU8(raw_ostream &OS, uint8_t byte, const Twine &Msg);
 
-void writeU8(raw_ostream &OS, uint8_t byte, const char *msg);
+void writeU32(raw_ostream &OS, uint32_t Number, const Twine &Msg);
 
-void writeU32(raw_ostream &OS, uint32_t Number, const char *msg);
-
-void writeValueType(raw_ostream &OS, int32_t Type, const char *msg);
+void writeValueType(raw_ostream &OS, uint8_t Type, const Twine &Msg);
 
 void writeSig(raw_ostream &OS, const llvm::wasm::WasmSignature &Sig);
 
@@ -60,18 +43,21 @@ void writeInitExpr(raw_ostream &OS, const llvm::wasm::WasmInitExpr &InitExpr);
 
 void writeLimits(raw_ostream &OS, const llvm::wasm::WasmLimits &Limits);
 
+void writeGlobalType(raw_ostream &OS, const llvm::wasm::WasmGlobalType &Type);
+
 void writeGlobal(raw_ostream &OS, const llvm::wasm::WasmGlobal &Global);
+
+void writeTableType(raw_ostream &OS, const llvm::wasm::WasmTable &Type);
 
 void writeImport(raw_ostream &OS, const llvm::wasm::WasmImport &Import);
 
 void writeExport(raw_ostream &OS, const llvm::wasm::WasmExport &Export);
 
-void writeReloc(raw_ostream &OS, const OutputRelocation &Reloc);
-
 } // namespace wasm
 
-std::string toString(const llvm::wasm::ValType Type);
+std::string toString(llvm::wasm::ValType Type);
 std::string toString(const llvm::wasm::WasmSignature &Sig);
+std::string toString(const llvm::wasm::WasmGlobalType &Sig);
 
 } // namespace lld
 

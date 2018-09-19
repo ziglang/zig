@@ -1,0 +1,51 @@
+# RUN: yaml2obj %S/Inputs/pdb-file-statics-a.yaml > %t.a.obj
+# RUN: yaml2obj %S/Inputs/pdb-file-statics-b.yaml > %t.b.obj
+# RUN: lld-link %t.a.obj %t.b.obj /nodefaultlib /entry:main /debug /pdb:%t.pdb
+# RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck %s
+
+# S_FILESTATIC records are unique in that they refer to the string table, but
+# they do *not* go through the file checksums table.  They refer directly to
+# the string table.  This makes for special handling in the linker, so it
+# deserves a custom test.
+
+# Clang doesn't currently generate these records, but MSVC does, so we have to
+# be able to correctly link them.  These records are only generated when
+# optimizations are turned on.
+
+# // a.cpp
+# // cl.exe /Z7 /O1 /c a.cpp
+# static int x = 0;
+#
+# void b(int);
+#
+# void a(int) {
+#   if (x)
+#     b(x);
+# }
+#
+# int main(int argc, char **argv) {
+#   a(argc);
+#   return x;
+# }
+#
+# // b.cpp
+# // cl.exe /Z7 /O1 /c a.cpp
+# void a(int);
+#
+# static int y = 0;
+#
+# void b(int) {
+#   if (y)
+#     a(y);
+# }
+
+# CHECK:                           Symbols
+# CHECK: ============================================================
+# CHECK-LABEL:   Mod 0000 | `{{.*}}a.obj`:
+# CHECK:              232 | S_FILESTATIC [size = 16] `x`
+# CHECK-NEXT:               type = 0x0074 (int), file name = 2 (D:\src\llvmbuild\cl\Debug\x64\a.obj), flags = enreg global | enreg static
+# CHECK:         Mod 0001 | `{{.*}}b.obj`:
+# CHECK:              232 | S_FILESTATIC [size = 16] `y`
+# CHECK-NEXT:               type = 0x0074 (int), file name = 74 (D:\src\llvmbuild\cl\Debug\x64\b.obj), flags = enreg global | enreg static
+# CHECK-LABEL:   Mod 0002 | `* Linker *`:
+

@@ -38,43 +38,57 @@
 # BEFORE:       74:       00 00 00 00     <unknown>
 # BEFORE:       78:       01 00 00 00     <unknown>
 # BEFORE:       7c:       01 00 00 00     <unknown>
+# BEFORE:       80:       00 00 00 91     add     x0, x0, #0
+# BEFORE:       84:       00 00 40 91     add     x0, x0, #0, lsl #12
+# BEFORE:       88:       00 00 40 f9     ldr     x0, [x0]
+# BEFORE:       8c:       01 00 00 00     <unknown>
+# BEFORE:       90:       20 1a 09 30     adr x0, #74565
+# BEFORE:       94:       01 00 00 54     b.ne    #0
+# BEFORE:       98:       00 00 00 36     tbz     w0, #0, #0
 
 # AFTER: Disassembly of section .text:
-# AFTER:  140002000:      fe 0f 1f f8     str     x30, [sp, #-16]!
-# AFTER:  140002004:      e0 ff ff f0     adrp    x0, #-4096
-# AFTER:  140002008:      00 18 00 91     add     x0, x0, #6
-# AFTER:  14000200c:      1d 00 00 94     bl      #116
-# AFTER:  140002010:      00 21 40 39     ldrb    w0, [x8, #8]
-# AFTER:  140002014:      00 11 40 79     ldrh    w0, [x8, #8]
-# AFTER:  140002018:      00 09 40 b9     ldr     w0, [x8, #8]
-# AFTER:  14000201c:      00 05 40 f9     ldr     x0, [x8, #8]
-# AFTER:  140002020:      00 21 00 39     strb    w0, [x8, #8]
-# AFTER:  140002024:      00 11 00 79     strh    w0, [x8, #8]
-# AFTER:  140002028:      00 09 00 b9     str     w0, [x8, #8]
-# AFTER:  14000202c:      00 05 00 f9     str     x0, [x8, #8]
-# AFTER:  140002030:      00 41 40 3d     ldr     b0, [x8, #16]
-# AFTER:  140002034:      00 21 40 7d     ldr     h0, [x8, #16]
-# AFTER:  140002038:      00 11 40 bd     ldr     s0, [x8, #16]
-# AFTER:  14000203c:      00 09 40 fd     ldr     d0, [x8, #16]
-# AFTER:  140002040:      00 05 c0 3d     ldr     q0, [x8, #16]
-# AFTER:  140002044:      00 41 00 3d     str     b0, [x8, #16]
-# AFTER:  140002048:      00 21 00 7d     str     h0, [x8, #16]
-# AFTER:  14000204c:      00 11 00 bd     str     s0, [x8, #16]
-# AFTER:  140002050:      00 09 00 fd     str     d0, [x8, #16]
-# AFTER:  140002054:      00 05 80 3d     str     q0, [x8, #16]
-# AFTER:  140002058:      00 09 40 f9     ldr     x0, [x8, #16]
-# AFTER:  14000205c:      00 00 00 b0     adrp    x0, #4096
-# AFTER:  140002060:      00 fc 47 f9     ldr     x0, [x0, #4088]
-# AFTER:  140002064:      e0 03 1f 2a     mov      w0, wzr
-# AFTER:  140002068:      fe 07 41 f8     ldr     x30, [sp], #16
-# AFTER:  14000206c:      c0 03 5f d6     ret
-# AFTER:  140002070:      10 10 00 40     <unknown>
-# AFTER:  140002074:      01 00 00 00     <unknown>
-# AFTER:  140002078:      09 10 00 00     <unknown>
-# AFTER:  14000207c:      09 00 00 00     <unknown>
-# AFTER:  140002080:      10 00 00 b0     adrp    x16, #4096
-# AFTER:  140002084:      10 1e 40 f9     ldr     x16, [x16, #56]
-# AFTER:  140002088:      00 02 1f d6     br      x16
+# AFTER:  140001000:      fe 0f 1f f8     str     x30, [sp, #-16]!
+# AFTER:  140001004:      00 00 00 b0     adrp    x0, #4096
+# AFTER:  140001008:      00 18 00 91     add     x0, x0, #6
+# AFTER:  14000100c:      24 00 00 94     bl      #144
+# AFTER:  140001010:      00 21 40 39     ldrb    w0, [x8, #8]
+# AFTER:  140001014:      00 11 40 79     ldrh    w0, [x8, #8]
+# AFTER:  140001018:      00 09 40 b9     ldr     w0, [x8, #8]
+# AFTER:  14000101c:      00 05 40 f9     ldr     x0, [x8, #8]
+# AFTER:  140001020:      00 21 00 39     strb    w0, [x8, #8]
+# AFTER:  140001024:      00 11 00 79     strh    w0, [x8, #8]
+# AFTER:  140001028:      00 09 00 b9     str     w0, [x8, #8]
+# AFTER:  14000102c:      00 05 00 f9     str     x0, [x8, #8]
+# AFTER:  140001030:      00 41 40 3d     ldr     b0, [x8, #16]
+# AFTER:  140001034:      00 21 40 7d     ldr     h0, [x8, #16]
+# AFTER:  140001038:      00 11 40 bd     ldr     s0, [x8, #16]
+# AFTER:  14000103c:      00 09 40 fd     ldr     d0, [x8, #16]
+# AFTER:  140001040:      00 05 c0 3d     ldr     q0, [x8, #16]
+# AFTER:  140001044:      00 41 00 3d     str     b0, [x8, #16]
+# AFTER:  140001048:      00 21 00 7d     str     h0, [x8, #16]
+# AFTER:  14000104c:      00 11 00 bd     str     s0, [x8, #16]
+# AFTER:  140001050:      00 09 00 fd     str     d0, [x8, #16]
+# AFTER:  140001054:      00 05 80 3d     str     q0, [x8, #16]
+# AFTER:  140001058:      00 09 40 f9     ldr     x0, [x8, #16]
+# AFTER:  14000105c:      00 00 00 f0     adrp    x0, #12288
+# AFTER:  140001060:      00 fc 47 f9     ldr     x0, [x0, #4088]
+# AFTER:  140001064:      e0 03 1f 2a     mov      w0, wzr
+# AFTER:  140001068:      fe 07 41 f8     ldr     x30, [sp], #16
+# AFTER:  14000106c:      c0 03 5f d6     ret
+# AFTER:  140001070:      10 20 00 40     <unknown>
+# AFTER:  140001074:      01 00 00 00     <unknown>
+# AFTER:  140001078:      09 20 00 00     <unknown>
+# AFTER:  14000107c:      09 00 00 00     <unknown>
+# AFTER:  140001080:      00 20 0e 91     add     x0, x0, #904
+# AFTER:  140001084:      00 04 40 91     add     x0, x0, #1, lsl #12
+# AFTER:  140001088:      00 c4 41 f9     ldr     x0, [x0, #904]
+# AFTER:  14000108c:      03 00 00 00     <unknown>
+# AFTER:  140001090:      e0 95 09 30     adr     x0, #78525
+# AFTER:  140001094:      41 00 00 54     b.ne    #8
+# AFTER:  140001098:      20 00 00 36     tbz     w0, #0, #4
+# AFTER:  14000109c:      10 00 00 b0     adrp    x16, #4096
+# AFTER:  1400010a0:      10 2a 40 f9     ldr     x16, [x16, #80]
+# AFTER:  1400010a4:      00 02 1f d6     br      x16
 
 --- !COFF
 header:
@@ -84,7 +98,7 @@ sections:
   - Name:            .text
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
-    SectionData:     FE0F1FF80000009000080091000000940001403900014079000140B9000140F90001003900010079000100B9000100F90001403D0001407D000140BD000140FD0001C03D0001003D0001007D000100BD000100FD0001803D000540F9201A01B000FC4FF9E0031F2AFE0741F8C0035FD608000000000000000100000001000000
+    SectionData:     FE0F1FF80000009000080091000000940001403900014079000140B9000140F90001003900010079000100B9000100F90001403D0001407D000140BD000140FD0001C03D0001003D0001007D000100BD000100FD0001803D000540F9201A01B000FC4FF9E0031F2AFE0741F8C0035FD6080000000000000001000000010000000000009100004091000040f901000000201a09300100005400000036
     Relocations:
       - VirtualAddress:  4
         SymbolName:      .Lstr
@@ -167,6 +181,27 @@ sections:
       - VirtualAddress:  124
         SymbolName:      .Lglobal
         Type:            IMAGE_REL_ARM64_SECREL
+      - VirtualAddress:  128
+        SymbolName:      .Lglobal5000
+        Type:            IMAGE_REL_ARM64_SECREL_LOW12A
+      - VirtualAddress:  132
+        SymbolName:      .Lglobal5000
+        Type:            IMAGE_REL_ARM64_SECREL_HIGH12A
+      - VirtualAddress:  136
+        SymbolName:      .Lglobal5000
+        Type:            IMAGE_REL_ARM64_SECREL_LOW12L
+      - VirtualAddress:  140
+        SymbolName:      .Lglobal
+        Type:            IMAGE_REL_ARM64_SECTION
+      - VirtualAddress:  144
+        SymbolName:      .Lglobal
+        Type:            IMAGE_REL_ARM64_REL21
+      - VirtualAddress:  148
+        SymbolName:      function
+        Type:            IMAGE_REL_ARM64_BRANCH19
+      - VirtualAddress:  152
+        SymbolName:      function
+        Type:            IMAGE_REL_ARM64_BRANCH14
   - Name:            .data
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
     Alignment:       4
@@ -240,4 +275,10 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            .Lglobal5000
+    Value:           5000
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
 ...

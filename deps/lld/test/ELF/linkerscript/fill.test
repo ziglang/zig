@@ -1,0 +1,20 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/fill.s -o %t.o
+# RUN: ld.lld -o %t --script %s %t.o
+# RUN: llvm-objdump -s %t | FileCheck %s
+
+SECTIONS {
+  .out : {
+   FILL(0x11111111)
+   . += 2;
+   *(.aaa)
+   . += 4;
+   *(.bbb)
+   . += 4;
+   FILL(0x22222222);
+   . += 4;
+  }
+}
+
+# CHECK:      Contents of section .out:
+# CHECK-NEXT: 2222aa22 222222bb 22222222 22222222

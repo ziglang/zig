@@ -15,9 +15,9 @@ RAW:                               Modules
 RAW-NEXT: ============================================================
 RAW-NEXT:   Mod 0000 | `foo.obj`:
 RAW-NEXT:              Obj: `{{.*}}1\foo.lib`:
-RAW-NEXT:              debug stream: 9, # files: 1, has ec info: false
+RAW-NEXT:              debug stream: 11, # files: 1, has ec info: false
 RAW-NEXT:              pdb file ni: 0 ``, src file ni: 0 ``
 RAW-NEXT:   Mod 0001 | `foo.obj`:
 RAW-NEXT:              Obj: `{{.*}}2\foo.lib`:
-RAW-NEXT:              debug stream: 10, # files: 1, has ec info: false
+RAW-NEXT:              debug stream: 12, # files: 1, has ec info: false
 RAW-NEXT:              pdb file ni: 0 ``, src file ni: 0 ``

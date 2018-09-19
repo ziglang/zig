@@ -1,5 +1,5 @@
 # RUN: yaml2obj %s -o %t
-# RUN: not ld.lld %t -o %tout 2>&1 | FileCheck %s
+# RUN: not ld.lld %t -o /dev/null 2>&1 | FileCheck %s
 
 !ELF
 FileHeader:

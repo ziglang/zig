@@ -1,5 +1,5 @@
-# RUN: lld -flavor darwin -arch x86_64 -r -print_atoms %s -o %t | FileCheck %s
-# RUN: lld -flavor darwin -arch x86_64 -r -print_atoms %t -o %t2 | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -r -print_atoms %s -o %t | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -r -print_atoms %t -o %t2 | FileCheck %s
 
 
 --- !mach-o

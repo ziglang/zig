@@ -2,9 +2,14 @@
 # RUN: lld-link /entry:foo /out:%t.exe /subsystem:console /include:bar \
 # RUN:   /verbose %t.obj > %t.log 2>&1
 # RUN: FileCheck %s < %t.log
+# RUN: llvm-objdump -s %t.exe | FileCheck --check-prefix=OBJDUMP %s
 
-# CHECK-NOT: Selected foo
-# CHECK-NOT:   Removed bar
+# CHECK: Selected foo
+# CHECK:   Removed bar
+
+# OBJDUMP: Contents of section .text:
+# OBJDUMP-NEXT: 140001000 00cccccc cccccccc cccccccc cccccccc
+# OBJDUMP-NEXT: 140001010 4883ec28 e8000000 004883c4 28c3
 
 --- !COFF
 header:
@@ -19,6 +24,10 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       16
     SectionData:     4883EC28E8000000004883C428C3
+  - Name:            '.text'
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     00
 symbols:
   - Name:            '.text$mn'
     Value:           0

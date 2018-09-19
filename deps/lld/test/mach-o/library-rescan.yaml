@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 %p/Inputs/libfoo.a %p/Inputs/libbar.a \
+# RUN: ld64.lld -arch x86_64 %p/Inputs/libfoo.a %p/Inputs/libbar.a \
 # RUN:    %s -o %t  %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-nm -m -n %t | FileCheck %s
 #

@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check R_MIPS_32 relocation calculation.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t-be.o
@@ -13,8 +14,6 @@
 # RUN:   | FileCheck -check-prefix=SYM -check-prefix=EL %s
 # RUN: llvm-readobj -r -dynamic-table -mips-plt-got %t-el.so \
 # RUN:   | FileCheck -check-prefix=REL %s
-
-# REQUIRES: mips
 
   .globl  __start
 __start:

@@ -1,0 +1,81 @@
+REQUIRES: diasdk
+
+Input object file reconstruction:
+
+; // foo.cpp
+; void LJPwNRh() {}
+; void HGfxvKdQO() {}
+; void wuN() {}
+; void tEo() {}
+; void VUo() {}
+; void teO() {}
+; void bqSuLGQgWa() {}
+; void SyJYcL() {}
+; void OUV() {}
+; void quH() {}
+; void rbEaPKrlrRwk() {}
+; void oet() {}
+; void tuM() {}
+; void LuU() {}
+; void loxueqJLH() {}
+; void QplRJuDs() {}
+; void rWDokkLG() {}
+; void sEH() {}
+; void pui() {}
+; void xoZvxw() {}
+; 
+; int main(int argc, char **argv) {
+;   return 0;
+; }
+
+clang-cl /Z7 /GS- /GR- /c main.cpp /Foglobals-dia-func-collision3.obj
+
+RUN: lld-link /debug /nodefaultlib /incremental:no /entry:main /out:%t.exe %S/Inputs/globals-dia-func-collision3.obj
+RUN: llvm-pdbutil pretty -with-name=LuU -with-name=oet -with-name=OUV -with-name=pui \
+RUN:                     -with-name=quH -with-name=sEH -with-name=teO -with-name=tEo \
+RUN:                     -with-name=tuM -with-name=VUo -with-name=wuN -with-name=SyJYcL \
+RUN:                     -with-name=xoZvxw -with-name=LJPwNRh -with-name=QplRJuDs -with-name=rWDokkLG \
+RUN:                     -with-name=HGfxvKdQO -with-name=loxueqJLH -with-name=bqSuLGQgWa -with-name=rbEaPKrlrRwk \
+RUN:                     %t.pdb | FileCheck %s
+
+
+CHECK:      [1 occurrences] - LuU
+CHECK-NEXT:   func [0x000010d0+ 0 - 0x000010d1- 1 | sizeof=  1] (FPO) void __cdecl LuU()
+CHECK-NEXT: [1 occurrences] - oet
+CHECK-NEXT:   func [0x000010b0+ 0 - 0x000010b1- 1 | sizeof=  1] (FPO) void __cdecl oet()
+CHECK-NEXT: [1 occurrences] - OUV
+CHECK-NEXT:   func [0x00001080+ 0 - 0x00001081- 1 | sizeof=  1] (FPO) void __cdecl OUV()
+CHECK-NEXT: [1 occurrences] - pui
+CHECK-NEXT:   func [0x00001120+ 0 - 0x00001121- 1 | sizeof=  1] (FPO) void __cdecl pui()
+CHECK-NEXT: [1 occurrences] - quH
+CHECK-NEXT:   func [0x00001090+ 0 - 0x00001091- 1 | sizeof=  1] (FPO) void __cdecl quH()
+CHECK-NEXT: [1 occurrences] - sEH
+CHECK-NEXT:   func [0x00001110+ 0 - 0x00001111- 1 | sizeof=  1] (FPO) void __cdecl sEH()
+CHECK-NEXT: [1 occurrences] - teO
+CHECK-NEXT:   func [0x00001050+ 0 - 0x00001051- 1 | sizeof=  1] (FPO) void __cdecl teO()
+CHECK-NEXT: [1 occurrences] - tEo
+CHECK-NEXT:   func [0x00001030+ 0 - 0x00001031- 1 | sizeof=  1] (FPO) void __cdecl tEo()
+CHECK-NEXT: [1 occurrences] - tuM
+CHECK-NEXT:   func [0x000010c0+ 0 - 0x000010c1- 1 | sizeof=  1] (FPO) void __cdecl tuM()
+CHECK-NEXT: [1 occurrences] - VUo
+CHECK-NEXT:   func [0x00001040+ 0 - 0x00001041- 1 | sizeof=  1] (FPO) void __cdecl VUo()
+CHECK-NEXT: [1 occurrences] - wuN
+CHECK-NEXT:   func [0x00001020+ 0 - 0x00001021- 1 | sizeof=  1] (FPO) void __cdecl wuN()
+CHECK-NEXT: [1 occurrences] - SyJYcL
+CHECK-NEXT:   func [0x00001070+ 0 - 0x00001071- 1 | sizeof=  1] (FPO) void __cdecl SyJYcL()
+CHECK-NEXT: [1 occurrences] - xoZvxw
+CHECK-NEXT:   func [0x00001130+ 0 - 0x00001131- 1 | sizeof=  1] (FPO) void __cdecl xoZvxw()
+CHECK-NEXT: [1 occurrences] - LJPwNRh
+CHECK-NEXT:   func [0x00001000+ 0 - 0x00001001- 1 | sizeof=  1] (FPO) void __cdecl LJPwNRh()
+CHECK-NEXT: [1 occurrences] - QplRJuDs
+CHECK-NEXT:   func [0x000010f0+ 0 - 0x000010f1- 1 | sizeof=  1] (FPO) void __cdecl QplRJuDs()
+CHECK-NEXT: [1 occurrences] - rWDokkLG
+CHECK-NEXT:   func [0x00001100+ 0 - 0x00001101- 1 | sizeof=  1] (FPO) void __cdecl rWDokkLG()
+CHECK-NEXT: [1 occurrences] - HGfxvKdQO
+CHECK-NEXT:   func [0x00001010+ 0 - 0x00001011- 1 | sizeof=  1] (FPO) void __cdecl HGfxvKdQO()
+CHECK-NEXT: [1 occurrences] - loxueqJLH
+CHECK-NEXT:   func [0x000010e0+ 0 - 0x000010e1- 1 | sizeof=  1] (FPO) void __cdecl loxueqJLH()
+CHECK-NEXT: [1 occurrences] - bqSuLGQgWa
+CHECK-NEXT:   func [0x00001060+ 0 - 0x00001061- 1 | sizeof=  1] (FPO) void __cdecl bqSuLGQgWa()
+CHECK-NEXT: [1 occurrences] - rbEaPKrlrRwk
+CHECK-NEXT:   func [0x000010a0+ 0 - 0x000010a1- 1 | sizeof=  1] (FPO) void __cdecl rbEaPKrlrRwk()

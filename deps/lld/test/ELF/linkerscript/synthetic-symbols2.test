@@ -1,0 +1,13 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/synthetic-symbols.s -o %t
+# RUN: ld.lld -o %t.exe --eh-frame-hdr --script %s %t
+
+SECTIONS {
+  .eh_frame_hdr : {
+    PROVIDE_HIDDEN(_begin_sec = .);
+    *(.eh_frame_hdr)
+    *(.eh_frame_hdr)
+    PROVIDE_HIDDEN(_end_sec_abs = ABSOLUTE(.));
+    PROVIDE_HIDDEN(_end_sec = .);
+  }
+}

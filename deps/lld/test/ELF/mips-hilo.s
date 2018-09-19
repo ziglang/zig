@@ -1,10 +1,9 @@
+# REQUIRES: mips
 # Check R_MIPS_HI16 / LO16 relocations calculation.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t.exe
 # RUN: llvm-objdump -d -t %t.exe | FileCheck %s
-
-# REQUIRES: mips
 
   .text
   .globl  __start

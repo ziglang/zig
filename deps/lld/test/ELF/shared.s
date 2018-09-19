@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %p/Inputs/shared.s -o %t2.o
 // RUN: ld.lld --hash-style=sysv -shared %t2.o -o %t2.so
@@ -6,7 +7,6 @@
 // RUN: llvm-readobj --program-headers --dynamic-table -t -s -dyn-symbols -section-data -hash-table %t | FileCheck %s
 // RUN: ld.lld --hash-style=sysv %t.o %t2.so %t2.so -o %t2
 // RUN: llvm-readobj -dyn-symbols %t2 | FileCheck --check-prefix=DONT_EXPORT %s
-// REQUIRES: x86
 
 // Make sure .symtab is properly aligned.
 // SO:      Name: .symtab
@@ -73,8 +73,8 @@
 // CHECK-NEXT:    Info: 0
 // CHECK-NEXT:    AddressAlignment: 4
 // CHECK-NEXT:    EntrySize: 4
-
-// CHECK:        Index: [[DYNSTR]]
+// CHECK:      Section {
+// CHECK-NEXT:   Index: [[DYNSTR]]
 // CHECK-NEXT:   Name: .dynstr
 // CHECK-NEXT:   Type: SHT_STRTAB
 // CHECK-NEXT:   Flags [
@@ -87,9 +87,6 @@
 // CHECK-NEXT:   Info: 0
 // CHECK-NEXT:   AddressAlignment: 1
 // CHECK-NEXT:   EntrySize: 0
-// CHECK-NEXT:   SectionData (
-// CHECK:        )
-// CHECK-NEXT: }
 
 // CHECK:      Name: .rel.dyn
 // CHECK-NEXT: Type: SHT_REL

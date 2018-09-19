@@ -1,8 +1,8 @@
-# RUN: lld -flavor darwin -arch x86_64 -dead_strip -export_dynamic %s -dylib %p/Inputs/x86_64/libSystem.yaml -o %t.dylib -print_atoms | FileCheck -check-prefix=CHECK1 %s
-# RUN: lld -flavor darwin -arch x86_64 -export_dynamic -dead_strip %s -dylib %p/Inputs/x86_64/libSystem.yaml -o %t.dylib -print_atoms | FileCheck -check-prefix=CHECK1 %s
-# RUN: lld -flavor darwin -arch x86_64 -dead_strip %s -dylib %p/Inputs/x86_64/libSystem.yaml -o %t2.dylib -print_atoms | FileCheck -check-prefix=CHECK2 %s
+# RUN: ld64.lld -arch x86_64 -dead_strip -export_dynamic %s -dylib %p/Inputs/x86_64/libSystem.yaml -o %t.dylib -print_atoms | FileCheck -check-prefix=CHECK1 %s
+# RUN: ld64.lld -arch x86_64 -export_dynamic -dead_strip %s -dylib %p/Inputs/x86_64/libSystem.yaml -o %t.dylib -print_atoms | FileCheck -check-prefix=CHECK1 %s
+# RUN: ld64.lld -arch x86_64 -dead_strip %s -dylib %p/Inputs/x86_64/libSystem.yaml -o %t2.dylib -print_atoms | FileCheck -check-prefix=CHECK2 %s
 
-# RUN: lld -flavor darwin -arch x86_64 -r %s -dylib %p/Inputs/x86_64/libSystem.yaml -o %t3.o
+# RUN: ld64.lld -arch x86_64 -r %s -dylib %p/Inputs/x86_64/libSystem.yaml -o %t3.o
 # RUN: llvm-nm -m %t3.o | FileCheck -check-prefix=RELOCATABLE_SYMBOLS %s
 
 #

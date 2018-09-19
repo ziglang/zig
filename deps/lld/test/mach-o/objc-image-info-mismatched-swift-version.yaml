@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -arch x86_64 -r %s %p/Inputs/swift-version-1.yaml 2>&1 | FileCheck %s
+# RUN: not ld64.lld -arch x86_64 -r %s %p/Inputs/swift-version-1.yaml 2>&1 | FileCheck %s
 
 --- !mach-o
 arch:            x86_64

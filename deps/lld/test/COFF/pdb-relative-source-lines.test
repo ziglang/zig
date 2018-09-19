@@ -1,0 +1,45 @@
+Test the linker line tables on roughly the following example:
+
+==> foo.h <==
+void bar(void);
+inline void foo(void) {
+  bar();
+}
+==> pdb_lines_1.c <==
+#include "foo.h"
+int main(void) {
+  foo();
+  return 42;
+}
+==> pdb_lines_2.c <==
+void bar(void) {
+}
+
+$ clang-cl -Xclang -fdebug-compilation-dir -Xclang . -c -Z7 pdb_lines*.c
+
+RUN: yaml2obj %S/Inputs/pdb_lines_1_relative.yaml -o %t.pdb_lines_1_relative.obj
+RUN: yaml2obj %S/Inputs/pdb_lines_2_relative.yaml -o %t.pdb_lines_2_relative.obj
+RUN: rm -f %t.exe %t.pdb
+RUN: lld-link -debug -pdbsourcepath:c:\\src -entry:main -nodefaultlib -out:%t.exe -pdb:%t.pdb %t.pdb_lines_1_relative.obj %t.pdb_lines_2_relative.obj
+RUN: llvm-pdbutil pdb2yaml -modules -module-files -subsections=lines,fc %t.pdb | FileCheck %s
+
+CHECK-LABEL:  - Module:          {{.*}}pdb_lines_1_relative.obj
+CHECK-NEXT:     ObjFile:         {{.*}}pdb_lines_1_relative.obj
+CHECK:          SourceFiles:
+CHECK-NEXT:       - 'c:{{[\\/]}}src{{[\\/]}}pdb_lines_1.c'
+CHECK-NEXT:       - 'c:{{[\\/]}}src{{[\\/]}}foo.h'
+CHECK:          Subsections:
+CHECK:                - FileName:        'c:{{[\\/]}}src{{[\\/]}}pdb_lines_1.c'
+CHECK:                - FileName:        'c:{{[\\/]}}src{{[\\/]}}foo.h'
+CHECK:            - !FileChecksums
+CHECK:                - FileName:        'c:{{[\\/]}}src{{[\\/]}}pdb_lines_1.c'
+CHECK:                - FileName:        'c:{{[\\/]}}src{{[\\/]}}foo.h'
+
+CHECK-LABEL:  - Module:          {{.*}}pdb_lines_2_relative.obj
+CHECK-NEXT:     ObjFile:         {{.*}}pdb_lines_2_relative.obj
+CHECK:          SourceFiles:
+CHECK-NEXT:       - 'c:{{[\\/]}}src{{[\\/]}}pdb_lines_2.c'
+CHECK:          Subsections:
+CHECK:                - FileName:        'c:{{[\\/]}}src{{[\\/]}}pdb_lines_2.c'
+CHECK:            - !FileChecksums
+CHECK:                - FileName:        'c:{{[\\/]}}src{{[\\/]}}pdb_lines_2.c'

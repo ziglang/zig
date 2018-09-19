@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check calculation of MIPS GOT page address entries number
 # when a linker script is provided.
 
@@ -7,8 +8,6 @@
 # RUN:          .data 0x10000 : { *(.data) } }" > %t.script
 # RUN: ld.lld -shared --script %t.script -o %t.so %t.o
 # RUN: llvm-readobj -t -mips-plt-got %t.so | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Name: foo1
 # CHECK-NEXT: Value: 0x10000

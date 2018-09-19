@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check creation of GOT entries for global symbols in case of executable
 # file linking. Symbols defined in DSO should get entries in the global part
 # of the GOT. Symbols defined in the executable itself should get local GOT
@@ -9,8 +10,6 @@
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o %t.so -o %t.exe
 # RUN: llvm-readobj -dt -t -mips-plt-got %t.exe | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Symbols [
 # CHECK:        Symbol {

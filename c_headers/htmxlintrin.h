@@ -214,7 +214,7 @@ __TM_failure_code(void* const __TM_buff)
 
 /* These intrinsics are being made available for compatibility with
    the IBM XL compiler.  For documentation please see the "z/OS XL
-   C/C++ Programming Guide" publically available on the web.  */
+   C/C++ Programming Guide" publicly available on the web.  */
 
 static __inline long __attribute__((__always_inline__, __nodebug__))
 __TM_simple_begin ()

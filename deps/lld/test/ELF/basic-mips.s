@@ -1,9 +1,8 @@
+# REQUIRES: mips
 # RUN: llvm-mc -filetype=obj -triple=mipsel-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t.exe
 # RUN: llvm-readobj -file-headers -sections -program-headers -symbols %t.exe \
 # RUN:   | FileCheck %s
-
-# REQUIRES: mips
 
 # Exits with return code 1 on Linux.
         .globl  __start
@@ -19,7 +18,7 @@ __start:
 # CHECK-NEXT:     DataEncoding: LittleEndian (0x1)
 # CHECK-NEXT:     FileVersion: 1
 # CHECK-NEXT:     OS/ABI: SystemV (0x0)
-# CHECK-NEXT:     ABIVersion: 0
+# CHECK-NEXT:     ABIVersion: 1
 # CHECK-NEXT:     Unused: (00 00 00 00 00 00 00)
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Type: Executable (0x2)

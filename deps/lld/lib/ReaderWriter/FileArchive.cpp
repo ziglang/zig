@@ -38,7 +38,7 @@ namespace lld {
 
 namespace {
 
-/// \brief The FileArchive class represents an Archive Library file
+/// The FileArchive class represents an Archive Library file
 class FileArchive : public lld::ArchiveLibraryFile {
 public:
   FileArchive(std::unique_ptr<MemoryBuffer> mb, const Registry &reg,
@@ -46,7 +46,7 @@ public:
       : ArchiveLibraryFile(path), _mb(std::shared_ptr<MemoryBuffer>(mb.release())),
         _registry(reg), _logLoading(logLoading) {}
 
-  /// \brief Check if any member of the archive contains an Atom with the
+  /// Check if any member of the archive contains an Atom with the
   /// specified name and return the File object for that member, or nullptr.
   File *find(StringRef name) override {
     auto member = _symbolMemberMap.find(name);
@@ -77,7 +77,7 @@ public:
     return file;
   }
 
-  /// \brief parse each member
+  /// parse each member
   std::error_code
   parseAllMembers(std::vector<std::unique_ptr<File>> &result) override {
     if (std::error_code ec = parse())

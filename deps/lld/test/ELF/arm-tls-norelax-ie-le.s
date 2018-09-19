@@ -1,9 +1,9 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %p/Inputs/arm-tls-get-addr.s -o %t1
 // RUN: ld.lld %t1 --shared -o %t1.so
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
 // RUN: ld.lld --hash-style=sysv %t1.so %t.o -o %t
 // RUN: llvm-objdump -s -triple=armv7a-linux-gnueabi %t | FileCheck %s
-// REQUIRES: arm
 
 // This tls Initial Exec sequence is with respect to a non-preemptible symbol
 // so a relaxation would normally be possible. This would result in an assertion

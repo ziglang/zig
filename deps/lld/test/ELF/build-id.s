@@ -7,6 +7,8 @@
 
 # RUN: ld.lld --build-id %t -o %t2 -threads
 # RUN: llvm-objdump -s %t2 | FileCheck -check-prefix=DEFAULT %s
+# RUN: ld.lld --build-id=fast %t -o %t2 -threads
+# RUN: llvm-objdump -s %t2 | FileCheck -check-prefix=DEFAULT %s
 # RUN: ld.lld --build-id %t -o %t2 -no-threads
 # RUN: llvm-objdump -s %t2 | FileCheck -check-prefix=DEFAULT %s
 

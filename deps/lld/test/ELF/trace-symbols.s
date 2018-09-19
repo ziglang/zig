@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # Test -y symbol and -trace-symbol=symbol
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
@@ -28,7 +29,7 @@
 # RUN: ld.lld -y foo -trace-symbol=common -trace-symbol=hsymbol \
 # RUN:   %t %t1 %t2 -o %t3 2>&1 | FileCheck -check-prefix=OBJECTD2FOO %s
 # RUN: ld.lld -y foo -y common --trace-symbol=hsymbol \
-# RUN:   %t %t2 %t1 -o %t4 2>&1 | FileCheck -check-prefix=OBJECTD2FOO %s
+# RUN:   %t %t2 %t1 -o /dev/null 2>&1 | FileCheck -check-prefix=OBJECTD2FOO %s
 # RUN: ld.lld -y foo -y common %t %t1.so %t2 -o %t3 2>&1 | \
 # RUN:   FileCheck -check-prefix=OBJECTD2FOO %s
 # OBJECTD2FOO: trace-symbols.s.tmp2: definition of foo
@@ -69,11 +70,14 @@
 
 # RUN: ld.lld -y foo -y bar %t %t1.so %t2.so -o %t3 | \
 # RUN:   FileCheck -check-prefix=SHLIBRBAR %s
-# SHLIBRBAR-NOT: trace-symbols.s.tmp1.so: reference to bar
+# SHLIBRBAR: trace-symbols.s.tmp1.so: reference to bar
 
 # RUN: ld.lld -y foo -y bar %t -u bar --start-lib %t1 %t2 --end-lib -o %t3 | \
 # RUN:   FileCheck -check-prefix=STARTLIB %s
 # STARTLIB: trace-symbols.s.tmp1: reference to bar
+
+## Check we do not crash when trying to trace special symbol.
+# RUN: not ld.lld -trace-symbol=_end %t -o /dev/null
 
 .hidden hsymbol
 .globl	_start

@@ -7,8 +7,8 @@
 
 # CHECK: .foobar           PROGBITS        00001000
 # CHECK: .got              PROGBITS        [[GOT:[0-9a-z]*]]
-# CHECK: [[GOT]]   00000008 R_386_RELATIVE
-# CHECK: 00001002  00000008 R_386_RELATIVE
+# CHECK-DAG: 00001002  00000008 R_386_RELATIVE
+# CHECK-DAG: [[GOT]]   00000008 R_386_RELATIVE
 foo:
 
 .section .foobar, "awx"

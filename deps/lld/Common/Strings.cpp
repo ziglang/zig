@@ -8,7 +8,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "lld/Common/Strings.h"
+#include "lld/Common/ErrorHandler.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/Demangle/Demangle.h"
+#include "llvm/Support/GlobPattern.h"
+#include <algorithm>
+#include <mutex>
+#include <vector>
+
+#if defined(_MSC_VER)
+#include <Windows.h>
+
+// DbgHelp.h must be included after Windows.h.
+#include <DbgHelp.h>
+#pragma comment(lib, "dbghelp.lib")
+#endif
 
 using namespace llvm;
 using namespace lld;
@@ -29,4 +43,67 @@ Optional<std::string> lld::demangleItanium(StringRef Name) {
   std::string S(Buf);
   free(Buf);
   return S;
+}
+
+Optional<std::string> lld::demangleMSVC(StringRef S) {
+#if defined(_MSC_VER)
+  // UnDecorateSymbolName is not thread-safe, so we need a mutex.
+  static std::mutex Mu;
+  std::lock_guard<std::mutex> Lock(Mu);
+
+  char Buf[4096];
+  if (S.startswith("?"))
+    if (size_t Len = UnDecorateSymbolName(S.str().c_str(), Buf, sizeof(Buf), 0))
+      return std::string(Buf, Len);
+#endif
+  return None;
+}
+
+StringMatcher::StringMatcher(ArrayRef<StringRef> Pat) {
+  for (StringRef S : Pat) {
+    Expected<GlobPattern> Pat = GlobPattern::create(S);
+    if (!Pat)
+      error(toString(Pat.takeError()));
+    else
+      Patterns.push_back(*Pat);
+  }
+}
+
+bool StringMatcher::match(StringRef S) const {
+  for (const GlobPattern &Pat : Patterns)
+    if (Pat.match(S))
+      return true;
+  return false;
+}
+
+// Converts a hex string (e.g. "deadbeef") to a vector.
+std::vector<uint8_t> lld::parseHex(StringRef S) {
+  std::vector<uint8_t> Hex;
+  while (!S.empty()) {
+    StringRef B = S.substr(0, 2);
+    S = S.substr(2);
+    uint8_t H;
+    if (!to_integer(B, H, 16)) {
+      error("not a hexadecimal value: " + B);
+      return {};
+    }
+    Hex.push_back(H);
+  }
+  return Hex;
+}
+
+// Returns true if S is valid as a C language identifier.
+bool lld::isValidCIdentifier(StringRef S) {
+  return !S.empty() && (isAlpha(S[0]) || S[0] == '_') &&
+         std::all_of(S.begin() + 1, S.end(),
+                     [](char C) { return C == '_' || isAlnum(C); });
+}
+
+// Write the contents of the a buffer to a file
+void lld::saveBuffer(StringRef Buffer, const Twine &Path) {
+  std::error_code EC;
+  raw_fd_ostream OS(Path.str(), EC, sys::fs::OpenFlags::F_None);
+  if (EC)
+    error("cannot create " + Path + ": " + EC.message());
+  OS << Buffer;
 }

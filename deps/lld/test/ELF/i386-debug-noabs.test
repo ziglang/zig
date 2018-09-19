@@ -1,7 +1,7 @@
 # REQUIRES: x86
 
 # RUN: yaml2obj %s -o %t.o
-# RUN: ld.lld %t.o -o %t.exe
+# RUN: ld.lld %t.o -o /dev/null --entry 0 --fatal-warnings
 
 ## This is for https://bugs.llvm.org//show_bug.cgi?id=34852. GCC 8.0 or
 ## earlier have a bug which creates non-absolute R_386_GOTPC relocations

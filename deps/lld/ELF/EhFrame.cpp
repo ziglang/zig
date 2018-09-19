@@ -20,18 +20,16 @@
 #include "Config.h"
 #include "InputSection.h"
 #include "Relocations.h"
-#include "Strings.h"
-
+#include "Target.h"
 #include "lld/Common/ErrorHandler.h"
+#include "lld/Common/Strings.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Object/ELF.h"
-#include "llvm/Support/Endian.h"
 
 using namespace llvm;
 using namespace llvm::ELF;
 using namespace llvm::dwarf;
 using namespace llvm::object;
-using namespace llvm::support::endian;
 
 using namespace lld;
 using namespace lld::elf;
@@ -73,7 +71,7 @@ size_t EhReader::readEhRecordSize() {
   // First 4 bytes of CIE/FDE is the size of the record.
   // If it is 0xFFFFFFFF, the next 8 bytes contain the size instead,
   // but we do not support that format yet.
-  uint64_t V = read32(D.data(), Config->Endianness);
+  uint64_t V = read32(D.data());
   if (V == UINT32_MAX)
     failOn(D.data(), "CIE/FDE too large");
   uint64_t Size = V + 4;

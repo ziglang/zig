@@ -125,29 +125,21 @@ sections:
               Type:            116
               Flags:           [ IsParameter ]
               VarName:         argc
-          - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
           - Kind:            S_LOCAL
             LocalSym:
               Type:            4099
               Flags:           [ IsParameter ]
               VarName:         argv
-          - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
           - Kind:            S_LOCAL
             LocalSym:
               Type:            4103
               Flags:           [  ]
               VarName:         P
-          - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
           - Kind:            S_LOCAL
             LocalSym:
               Type:            116
               Flags:           [  ]
               VarName:         N
-          - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
           - Kind:            S_PROC_ID_END
             ScopeEndSym:
           - Kind:            S_LPROC32_ID
@@ -408,8 +400,6 @@ sections:
               Type:            4108
               Flags:           [ IsParameter ]
               VarName:         this
-          - Kind:            S_DEFRANGE_REGISTER_REL
-            DefRangeRegisterRelSym:
           - Kind:            S_PROC_ID_END
             ScopeEndSym:
     Relocations:

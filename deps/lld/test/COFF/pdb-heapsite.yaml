@@ -69,7 +69,7 @@ sections:
             RegRelativeSym:
               Offset:          8
               Type:            35
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         __formal
           - Kind:            S_PROC_ID_END
             ScopeEndSym:

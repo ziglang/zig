@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: yaml2obj %s > %t.obj
 # RUN: llvm-as -o %t.lto.obj %S/Inputs/weak-external.ll
 # RUN: lld-link /out:%t1.exe /entry:g /subsystem:console %t.obj
@@ -5,6 +6,7 @@
 # RUN: FileCheck %s < %t2.map
 
 # CHECK: lto.tmp
+# CHECK-NEXT: lto.tmp
 # CHECK-NEXT: 0 g
 
 --- !COFF

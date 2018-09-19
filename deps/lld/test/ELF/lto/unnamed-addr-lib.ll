@@ -2,7 +2,7 @@
 ; RUN: llvm-as %s -o %t.o
 ; RUN: llvm-mc %p/Inputs/unnamed-addr-lib.s -o %t2.o -filetype=obj -triple=x86_64-pc-linux
 ; RUN: ld.lld %t2.o -shared -o %t2.so
-; RUN: ld.lld -m elf_x86_64 %t.o %t2.so -o %t.so -save-temps -shared
+; RUN: ld.lld %t.o %t2.so -o %t.so -save-temps -shared
 ; RUN: llvm-dis %t.so.0.2.internalize.bc -o - | FileCheck %s
 
 ; This documents a small limitation of lld's internalization logic. We decide

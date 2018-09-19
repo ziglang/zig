@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -ios_simulator_version_min 5.0 -arch x86_64 -r %s 2>&1 | FileCheck %s
+# RUN: not ld64.lld -ios_simulator_version_min 5.0 -arch x86_64 -r %s 2>&1 | FileCheck %s
 
 # The file is built for the simulator, but the objc image info flags are for
 # the host.

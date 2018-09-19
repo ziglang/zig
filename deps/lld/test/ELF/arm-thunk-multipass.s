@@ -5,7 +5,7 @@
 // parts we need to speed up the test and avoid a large output file
 // RUN: llvm-objdump -d %t2 -start-address=1048578 -stop-address=1048586 -triple=thumbv7a-linux-gnueabihf  | FileCheck -check-prefix=CHECK1 %s
 // RUN: llvm-objdump -d %t2 -start-address=16777224 -stop-address=16777254 -triple=thumbv7a-linux-gnueabihf  | FileCheck -check-prefix=CHECK2 %s
-// RUN: llvm-objdump -d %t2 -start-address=17825818 -stop-address=17825828 -triple=thumbv7a-linux-gnueabihf  | FileCheck -check-prefix=CHECK3 %s
+// RUN: llvm-objdump -d %t2 -start-address=17825812 -stop-address=17825826 -triple=thumbv7a-linux-gnueabihf  | FileCheck -check-prefix=CHECK3 %s
 // In this test case a branch that is in range and does not need its range
 // extended can be pushed out of range by another Thunk, necessitating another
 // pass
@@ -64,19 +64,15 @@ arm_target:
 // CHECK2-NEXT:  100000c:       c0 f2 00 1c     movt    r12, #256
 // CHECK2-NEXT:  1000010:       60 47   bx      r12
 // CHECK2: __Thumbv7ABSLongThunk_target:
-// CHECK2-NEXT:  1000012:       40 f2 1b 0c     movw    r12, #27
-// CHECK2-NEXT:  1000016:       c0 f2 10 1c     movt    r12, #272
-// CHECK2-NEXT:  100001a:       60 47   bx      r12
+// CHECK2-NEXT:  1000012:       ff f0 ff bf     b.w     #1048574 <target>
 // CHECK2: __Thumbv7ABSLongThunk_target2:
-// CHECK2-NEXT:  100001c:       40 f2 13 0c     movw    r12, #19
-// CHECK2-NEXT:  1000020:       c0 f2 10 0c     movt    r12, #16
-// CHECK2-NEXT:  1000024:       60 47   bx      r12
+// CHECK2-NEXT:  1000016:       ff f4 fc 97     b.w     #-15728648 <target2>
 
  .section .text.17, "ax", %progbits
 // Just enough space so that bl target is in range if no extension thunks are
 // generated.
 
- .space 0x100000 - 12
+ .space 0x100000 - 6
 
  .section .text.18, "ax", %progbits
  .thumb
@@ -90,7 +86,7 @@ target:
  nop
  bx lr
 // CHECK3: target:
-// CHECK3-NEXT:  110001a:       ff f6 ff ff     bl      #-1048578
-// CHECK3-NEXT:  110001e:       00 bf   nop
-// CHECK3-NEXT:  1100020:       00 bf   nop
-// CHECK3-NEXT:  1100022:       70 47   bx      lr
+// CHECK3-NEXT:  1100014:       ff f6 ff ff     bl      #-1048578
+// CHECK3-NEXT:  1100018:       00 bf   nop
+// CHECK3-NEXT:  110001a:       00 bf   nop
+// CHECK3-NEXT:  110001c:       70 47   bx      lr

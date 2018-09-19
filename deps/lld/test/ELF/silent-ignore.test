@@ -1,6 +1,5 @@
 RUN: ld.lld --version \
 RUN:   -allow-shlib-undefined \
-RUN:   -cref \
 RUN:   -g \
 RUN:   -no-add-needed \
 RUN:   -no-allow-shlib-undefined \

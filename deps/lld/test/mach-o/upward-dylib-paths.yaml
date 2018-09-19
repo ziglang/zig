@@ -1,6 +1,6 @@
 #
 #
-# RUN: lld -flavor darwin -arch x86_64 -r -test_file_usage -v \
+# RUN: ld64.lld -arch x86_64 -r -test_file_usage -v \
 # RUN:        -path_exists /Custom/Frameworks \
 # RUN:        -path_exists /Custom/Frameworks/Bar.framework/Bar \
 # RUN:        -path_exists /usr/lib \

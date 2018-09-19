@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc %s -o %t -filetype=obj -triple x86_64-pc-linux
 
 # RUN: not ld.lld %t %p/Inputs/data-encoding.a -o %t2 2>&1 | \

@@ -1,11 +1,10 @@
+# REQUIRES: mips
 # Check R_MIPS_GOT_HI16 / R_MIPS_GOT_LO16 relocations calculation.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -o %t.so
 # RUN: llvm-objdump -d %t.so | FileCheck %s
 # RUN: llvm-readobj -r -mips-plt-got %t.so | FileCheck -check-prefix=GOT %s
-
-# REQUIRES: mips
 
 # CHECK:      Disassembly of section .text:
 # CHECK-NEXT: foo:

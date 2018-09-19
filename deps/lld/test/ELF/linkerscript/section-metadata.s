@@ -10,14 +10,14 @@
 # RUN: llvm-objdump -s %t | FileCheck --check-prefix=INV %s
 
 
-# CHECK:      Contents of section .text:
-# CHECK-NEXT: 02000000 00000000 01000000 00000000
 # CHECK:      Contents of section .rodata:
 # CHECK-NEXT: 02000000 00000000 01000000 00000000
+# CHECK:      Contents of section .text:
+# CHECK-NEXT: 02000000 00000000 01000000 00000000
 
-# INV:      Contents of section .text:
-# INV-NEXT: 01000000 00000000 02000000 00000000
 # INV:      Contents of section .rodata:
+# INV-NEXT: 01000000 00000000 02000000 00000000
+# INV:      Contents of section .text:
 # INV-NEXT: 01000000 00000000 02000000 00000000
 
 .global _start

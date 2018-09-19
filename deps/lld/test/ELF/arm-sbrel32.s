@@ -1,7 +1,7 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t2 | FileCheck %s
-// REQUIRES: arm
 
 // Test the R_ARM_SBREL32 relocation which calculates the offset of the Symbol
 // from the static base. We define the static base to be the address of the

@@ -1,8 +1,8 @@
+// REQUIRES: x86
 // Check that local symbols are not inserted into dynamic table.
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 // RUN: ld.lld %t -shared -o %t1.so
 // RUN: llvm-readobj -t -dyn-symbols %t1.so | FileCheck %s
-// REQUIRES: x86
 
 // CHECK: Symbols [
 // CHECK-NEXT:   Symbol {

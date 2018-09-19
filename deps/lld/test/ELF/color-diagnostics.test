@@ -9,6 +9,9 @@
 # COLOR: {{ld.lld: .\[0;1;31merror: .\[0munknown argument: -xyz}}
 # COLOR: {{ld.lld: .\[0;1;31merror: .\[0mcannot open /nosuchfile}}
 
+# RUN: not ld.lld -color-diagnostics=foobar 2>&1 | FileCheck -check-prefix=ERR %s
+# ERR: unknown option: --color-diagnostics=foobar
+
 # RUN: not ld.lld /nosuchfile 2>&1 | FileCheck -check-prefix=NOCOLOR %s
 # RUN: not ld.lld -color-diagnostics=never /nosuchfile 2>&1 \
 # RUN:   | FileCheck -check-prefix=NOCOLOR %s

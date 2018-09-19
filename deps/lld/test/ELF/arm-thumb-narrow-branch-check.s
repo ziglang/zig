@@ -1,3 +1,4 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t
 // RUN: echo "SECTIONS { \
 // RUN:          . = SIZEOF_HEADERS; \
@@ -7,7 +8,6 @@
 // RUN:          .text : { *(.text) } } " > %t.script
 // RUN: ld.lld --script %t.script %t %S/Inputs/arm-thumb-narrow-branch.o -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=thumbv7a-none-linux-gnueabi %t2 | FileCheck %s
-// REQUIRES: arm
 
 // Test the R_ARM_PC11 relocation which is used with the narrow encoding of B.N
 // the source of these relocations is a binary file arm-thumb-narrow-branch.o

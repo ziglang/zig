@@ -86,6 +86,10 @@ SYMTAB: exportfn3 in export.test.tmp.DLL
 # RUN: lld-link /out:%t.dll /dll %t.obj /export:foo=kernel32.foobar
 # RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=FORWARDER %s
 
+# RUN: echo "EXPORTS foo=kernel32.foobar" > %t.def
+# RUN: lld-link /out:%t.dll /dll %t.obj /def:%t.def
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=FORWARDER %s
+
 FORWARDER: Export Table:
 FORWARDER:  DLL name: export.test.tmp.dll
 FORWARDER:  Ordinal base: 0

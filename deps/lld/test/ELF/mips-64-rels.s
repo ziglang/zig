@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check handling multiple MIPS N64 ABI relocations packed
 # into the single relocation record.
 
@@ -5,8 +6,6 @@
 # RUN: ld.lld %t.o -o %t.exe
 # RUN: llvm-objdump -d -s -t %t.exe | FileCheck %s
 # RUN: llvm-readobj -r %t.exe | FileCheck -check-prefix=REL %s
-
-# REQUIRES: mips
 
 # CHECK:      __start:
 # CHECK-NEXT:    20000:   3c 1c 00 01   lui     $gp, 1

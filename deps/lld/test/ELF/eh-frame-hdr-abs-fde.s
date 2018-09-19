@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check reading PC values of FDEs and writing lookup table in the .eh_frame_hdr
 # if CIE augmentation string has 'L' token and PC values are encoded using
 # absolute (not relative) format.
@@ -5,8 +6,6 @@
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld --eh-frame-hdr %t.o -o %t
 # RUN: llvm-objdump -s -dwarf=frames %t | FileCheck %s
-
-# REQUIRES: mips
 
 # CHECK:      Contents of section .eh_frame_hdr:
 # CHECK-NEXT:  10128 011b033b 00000010 00000001 0000fed8

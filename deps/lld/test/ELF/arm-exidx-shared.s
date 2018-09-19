@@ -1,8 +1,8 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld --hash-style=sysv %t --shared -o %t2 2>&1
 // RUN: llvm-readobj --relocations %t2 | FileCheck %s
 // RUN: llvm-objdump -s -triple=armv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-EXTAB %s
-// REQUIRES: arm
 
 // Check that the relative R_ARM_PREL31 relocation can access a PLT entry
 // for when the personality routine is referenced from a shared library.
@@ -37,9 +37,9 @@ __aeabi_unwind_cpp_pr0:
  bx lr
 
 // CHECK: Relocations [
-// CHECK-NEXT:   Section (6) .rel.plt {
+// CHECK-NEXT:   Section {{.*}} .rel.plt {
 // CHECK-NEXT:     0x200C R_ARM_JUMP_SLOT __gxx_personality_v0
 
 // CHECK-EXTAB: Contents of section .ARM.extab:
-// 014c + 0ee4 = 0x1030 = __gxx_personality_v0(PLT)
-// CHECK-EXTAB-NEXT:  014c e40e0000 b0b0b000 00000000
+// 0x0210 + 0x0e20 = 0x1030 = __gxx_personality_v0(PLT)
+// CHECK-EXTAB-NEXT:  0210 200e0000 b0b0b000 00000000

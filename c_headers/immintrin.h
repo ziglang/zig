@@ -68,55 +68,11 @@
 
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__AVX2__)
 #include <avx2intrin.h>
+#endif
 
-/* The 256-bit versions of functions in f16cintrin.h.
-   Intel documents these as being in immintrin.h, and
-   they depend on typedefs from avxintrin.h. */
-
-/// \brief Converts a 256-bit vector of [8 x float] into a 128-bit vector
-///    containing 16-bit half-precision float values.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// __m128i _mm256_cvtps_ph(__m256 a, const int imm);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> VCVTPS2PH </c> instruction.
-///
-/// \param a
-///    A 256-bit vector containing 32-bit single-precision float values to be
-///    converted to 16-bit half-precision float values.
-/// \param imm
-///    An immediate value controlling rounding using bits [2:0]: \n
-///    000: Nearest \n
-///    001: Down \n
-///    010: Up \n
-///    011: Truncate \n
-///    1XX: Use MXCSR.RC for rounding
-/// \returns A 128-bit vector containing the converted 16-bit half-precision
-///    float values.
-#define _mm256_cvtps_ph(a, imm) __extension__ ({ \
- (__m128i)__builtin_ia32_vcvtps2ph256((__v8sf)(__m256)(a), (imm)); })
-
-/// \brief Converts a 128-bit vector containing 16-bit half-precision float
-///    values into a 256-bit vector of [8 x float].
-///
-/// \headerfile <x86intrin.h>
-///
-/// This intrinsic corresponds to the <c> VCVTPH2PS </c> instruction.
-///
-/// \param __a
-///    A 128-bit vector containing 16-bit half-precision float values to be
-///    converted to 32-bit single-precision float values.
-/// \returns A vector of [8 x float] containing the converted 32-bit
-///    single-precision float values.
-static __inline __m256 __attribute__((__always_inline__, __nodebug__, __target__("f16c")))
-_mm256_cvtph_ps(__m128i __a)
-{
-  return (__m256)__builtin_ia32_vcvtph2ps256((__v8hi)__a);
-}
-#endif /* __AVX2__ */
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__F16C__)
+#include <f16cintrin.h>
+#endif
 
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__VPCLMULQDQ__)
 #include <vpclmulqdqintrin.h>
@@ -132,6 +88,10 @@ _mm256_cvtph_ps(__m128i __a)
 
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__LZCNT__)
 #include <lzcntintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__POPCNT__)
+#include <popcntintrin.h>
 #endif
 
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__FMA__)
@@ -247,6 +207,18 @@ _mm256_cvtph_ps(__m128i __a)
 #include <gfniintrin.h>
 #endif
 
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__RDPID__)
+/// Returns the value of the IA32_TSC_AUX MSR (0xc0000103).
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> RDPID </c> instruction.
+static __inline__ unsigned int __attribute__((__always_inline__, __nodebug__, __target__("rdpid")))
+_rdpid_u32(void) {
+  return __builtin_ia32_rdpid();
+}
+#endif // __RDPID__
+
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__RDRND__)
 static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
 _rdrand16_step(unsigned short *__p)
@@ -310,25 +282,25 @@ _readgsbase_u64(void)
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _writefsbase_u32(unsigned int __V)
 {
-  return __builtin_ia32_wrfsbase32(__V);
+  __builtin_ia32_wrfsbase32(__V);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _writefsbase_u64(unsigned long long __V)
 {
-  return __builtin_ia32_wrfsbase64(__V);
+  __builtin_ia32_wrfsbase64(__V);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _writegsbase_u32(unsigned int __V)
 {
-  return __builtin_ia32_wrgsbase32(__V);
+  __builtin_ia32_wrgsbase32(__V);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _writegsbase_u64(unsigned long long __V)
 {
-  return __builtin_ia32_wrgsbase64(__V);
+  __builtin_ia32_wrgsbase64(__V);
 }
 
 #endif
@@ -370,5 +342,126 @@ _writegsbase_u64(unsigned long long __V)
 /* Some intrinsics inside adxintrin.h are available only on processors with ADX,
  * whereas others are also available at all times. */
 #include <adxintrin.h>
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__RDSEED__)
+#include <rdseedintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__WBNOINVD__)
+#include <wbnoinvdintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__CLDEMOTE__)
+#include <cldemoteintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__WAITPKG__)
+#include <waitpkgintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || \
+  defined(__MOVDIRI__) || defined(__MOVDIR64B__)
+#include <movdirintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__PCONFIG__)
+#include <pconfigintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__SGX__)
+#include <sgxintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__PTWRITE__)
+#include <ptwriteintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__INVPCID__)
+#include <invpcidintrin.h>
+#endif
+
+#ifdef _MSC_VER
+/* Define the default attributes for these intrinsics */
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__))
+#ifdef __cplusplus
+extern "C" {
+#endif
+/*----------------------------------------------------------------------------*\
+|* Interlocked Exchange HLE
+\*----------------------------------------------------------------------------*/
+#if defined(__i386__) || defined(__x86_64__)
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedExchange_HLEAcquire(long volatile *_Target, long _Value) {
+  __asm__ __volatile__(".byte 0xf2 ; lock ; xchg %0, %1"
+                       : "+r" (_Value), "+m" (*_Target) :: "memory");
+  return _Value;
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedExchange_HLERelease(long volatile *_Target, long _Value) {
+  __asm__ __volatile__(".byte 0xf3 ; lock ; xchg %0, %1"
+                       : "+r" (_Value), "+m" (*_Target) :: "memory");
+  return _Value;
+}
+#endif
+#if defined(__x86_64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedExchange64_HLEAcquire(__int64 volatile *_Target, __int64 _Value) {
+  __asm__ __volatile__(".byte 0xf2 ; lock ; xchg %0, %1"
+                       : "+r" (_Value), "+m" (*_Target) :: "memory");
+  return _Value;
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedExchange64_HLERelease(__int64 volatile *_Target, __int64 _Value) {
+  __asm__ __volatile__(".byte 0xf3 ; lock ; xchg %0, %1"
+                       : "+r" (_Value), "+m" (*_Target) :: "memory");
+  return _Value;
+}
+#endif
+/*----------------------------------------------------------------------------*\
+|* Interlocked Compare Exchange HLE
+\*----------------------------------------------------------------------------*/
+#if defined(__i386__) || defined(__x86_64__)
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange_HLEAcquire(long volatile *_Destination,
+                              long _Exchange, long _Comparand) {
+  __asm__ __volatile__(".byte 0xf2 ; lock ; cmpxchg %2, %1"
+                       : "+a" (_Comparand), "+m" (*_Destination)
+                       : "r" (_Exchange) : "memory");
+  return _Comparand;
+}
+static __inline__ long __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange_HLERelease(long volatile *_Destination,
+                              long _Exchange, long _Comparand) {
+  __asm__ __volatile__(".byte 0xf3 ; lock ; cmpxchg %2, %1"
+                       : "+a" (_Comparand), "+m" (*_Destination)
+                       : "r" (_Exchange) : "memory");
+  return _Comparand;
+}
+#endif
+#if defined(__x86_64__)
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange64_HLEAcquire(__int64 volatile *_Destination,
+                              __int64 _Exchange, __int64 _Comparand) {
+  __asm__ __volatile__(".byte 0xf2 ; lock ; cmpxchg %2, %1"
+                       : "+a" (_Comparand), "+m" (*_Destination)
+                       : "r" (_Exchange) : "memory");
+  return _Comparand;
+}
+static __inline__ __int64 __DEFAULT_FN_ATTRS
+_InterlockedCompareExchange64_HLERelease(__int64 volatile *_Destination,
+                              __int64 _Exchange, __int64 _Comparand) {
+  __asm__ __volatile__(".byte 0xf3 ; lock ; cmpxchg %2, %1"
+                       : "+a" (_Comparand), "+m" (*_Destination)
+                       : "r" (_Exchange) : "memory");
+  return _Comparand;
+}
+#endif
+#ifdef __cplusplus
+}
+#endif
+
+#undef __DEFAULT_FN_ATTRS
+
+#endif /* _MSC_VER */
 
 #endif /* __IMMINTRIN_H */

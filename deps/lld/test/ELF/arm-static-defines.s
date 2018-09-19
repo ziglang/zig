@@ -1,7 +1,7 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld --no-merge-exidx-entries %t --static -o %t2 2>&1
 // RUN: llvm-readobj --symbols %t2 | FileCheck %s
-// REQUIRES: arm
 
 // Check that on ARM we don't get a multiply defined symbol for __tls_get_addr
 // and undefined symbols for references to __exidx_start and __exidx_end

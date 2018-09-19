@@ -38,6 +38,7 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils.h>
 
 #include <lld/Common/Driver.h>
 
@@ -165,7 +166,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
                 abort();
         }
 
-        if (target_machine->addPassesToEmitFile(MPM, dest, ft)) {
+        if (target_machine->addPassesToEmitFile(MPM, dest, nullptr, ft)) {
             *error_message = strdup("TargetMachine can't emit a file of this type");
             return true;
         }
@@ -212,6 +213,20 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
             break;
     }
     return wrap(unwrap(B)->Insert(call_inst));
+}
+
+LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
+        LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile)
+{
+    CallInst *call_inst = unwrap(B)->CreateMemCpy(unwrap(Dst), DstAlign, unwrap(Src), SrcAlign, unwrap(Size), isVolatile);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef Val, LLVMValueRef Size,
+        unsigned Align, bool isVolatile)
+{
+    CallInst *call_inst = unwrap(B)->CreateMemSet(unwrap(Ptr), unwrap(Val), unwrap(Size), Align, isVolatile);
+    return wrap(call_inst);
 }
 
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
@@ -704,6 +719,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     switch (sub_arch) {
         case ZigLLVM_NoSubArch:
             return "(none)";
+        case ZigLLVM_ARMSubArch_v8_4a:
+            return "v8_4a";
         case ZigLLVM_ARMSubArch_v8_3a:
             return "v8_3a";
         case ZigLLVM_ARMSubArch_v8_2a:
@@ -847,7 +864,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             return lld::elf::link(array_ref_args, false, diag);
 
         case ZigLLVM_MachO:
-            return lld::mach_o::link(array_ref_args, diag);
+            return lld::mach_o::link(array_ref_args, false, diag);
 
         case ZigLLVM_Wasm:
             return lld::wasm::link(array_ref_args, false, diag);

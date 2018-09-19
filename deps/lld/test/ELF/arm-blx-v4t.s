@@ -1,6 +1,6 @@
-// RUN: llvm-mc -filetype=obj -triple=arm-none-linux-gnueabi %s -o %t
-// RUN: ld.lld %t -o %t2 2>&1 | FileCheck %s
 // REQUIRES: arm
+// RUN: llvm-mc -filetype=obj -triple=arm-none-linux-gnueabi %s -o %t
+// RUN: ld.lld %t -o /dev/null 2>&1 | FileCheck %s
 
 // On Arm v4t there is no blx instruction so all interworking must go via
 // a thunk. At present we don't support v4t so we give a warning for unsupported

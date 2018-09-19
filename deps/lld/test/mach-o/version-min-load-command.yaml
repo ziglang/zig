@@ -1,11 +1,11 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml && llvm-objdump -private-headers %t | FileCheck %s
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml 2>&1 | FileCheck %s --check-prefix=WARNING
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -version_load_command && llvm-objdump -private-headers %t | FileCheck %s
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -no_version_load_command && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -version_load_command -no_version_load_command && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml && llvm-objdump -private-headers %t | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml 2>&1 | FileCheck %s --check-prefix=WARNING
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -version_load_command && llvm-objdump -private-headers %t | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -no_version_load_command && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -version_load_command -no_version_load_command && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
 
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 -sdk_version 10.9 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=SDK_VERSION
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 -sdk_version 10.9 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=SDK_VERSION
 
 --- !mach-o
 arch:            x86_64

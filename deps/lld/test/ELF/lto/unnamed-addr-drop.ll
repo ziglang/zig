@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t1.o
 ; RUN: llvm-as %S/Inputs/unnamed-addr-drop.ll -o %t2.o
-; RUN: ld.lld -m elf_x86_64 %t1.o %t2.o -o %t.so -save-temps -shared
+; RUN: ld.lld %t1.o %t2.o -o %t.so -save-temps -shared
 ; RUN: llvm-dis %t.so.0.2.internalize.bc -o - | FileCheck %s
 
 target triple = "x86_64-unknown-linux-gnu"

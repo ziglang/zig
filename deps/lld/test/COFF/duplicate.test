@@ -1,3 +1,4 @@
+# REQUIRES: x86
 RUN: llc -mtriple x86_64-windows-msvc -filetype obj -o alpha.obj %S/Inputs/alpha.ll
 RUN: llc -mtriple x86_64-windows-msvc -filetype obj -o beta.obj %S/Inputs/beta.ll
 RUN: lld-link /out:alpha.dll /dll alpha.obj /implib:alpha.lib

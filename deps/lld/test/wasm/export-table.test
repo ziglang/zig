@@ -1,0 +1,19 @@
+# RUN: llc -filetype=obj %p/Inputs/start.ll -o %t.start.o
+# RUN: wasm-ld --export-table -o %t.wasm %t.start.o
+# RUN: obj2yaml %t.wasm | FileCheck %s
+
+# Verify the --export-table flag creates a table export
+
+# CHECK:        - Type:            TABLE
+# CHECK-NEXT:     Tables:
+# CHECK-NEXT:       - ElemType:        ANYFUNC
+# CHECK-NEXT:         Limits:
+# CHECK-NEXT:           Flags:           [ HAS_MAX ]
+# CHECK-NEXT:           Initial:         0x00000001
+# CHECK-NEXT:           Maximum:         0x00000001
+# CHECK-NEXT:   - Type:
+# CHECK:        - Type:            EXPORT
+# CHECK-NEXT:     Exports:
+# CHECK:            - Name:            __indirect_function_table
+# CHECK-NEXT:         Kind:            TABLE
+# CHECK-NEXT:         Index:           0

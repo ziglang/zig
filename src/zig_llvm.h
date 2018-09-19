@@ -68,6 +68,12 @@ enum ZigLLVM_FnInline {
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, enum ZigLLVM_FnInline fn_inline, const char *Name);
 
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
+        LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile);
+
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef Val, LLVMValueRef Size,
+        unsigned Align, bool isVolatile);
+
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
         LLVMAtomicOrdering failure_ordering, bool is_weak);
@@ -267,6 +273,7 @@ enum ZigLLVM_ArchType {
 enum ZigLLVM_SubArchType {
     ZigLLVM_NoSubArch,
 
+    ZigLLVM_ARMSubArch_v8_4a,
     ZigLLVM_ARMSubArch_v8_3a,
     ZigLLVM_ARMSubArch_v8_2a,
     ZigLLVM_ARMSubArch_v8_1a,
@@ -311,8 +318,9 @@ enum ZigLLVM_VendorType {
     ZigLLVM_AMD,
     ZigLLVM_Mesa,
     ZigLLVM_SUSE,
+    ZigLLVM_OpenEmbedded,
 
-    ZigLLVM_LastVendorType = ZigLLVM_SUSE
+    ZigLLVM_LastVendorType = ZigLLVM_OpenEmbedded
 };
 
 enum ZigLLVM_OSType {
@@ -338,7 +346,6 @@ enum ZigLLVM_OSType {
     ZigLLVM_RTEMS,
     ZigLLVM_NaCl,       // Native Client
     ZigLLVM_CNK,        // BG/P Compute-Node Kernel
-    ZigLLVM_Bitrig,
     ZigLLVM_AIX,
     ZigLLVM_CUDA,       // NVIDIA CUDA
     ZigLLVM_NVCL,       // NVIDIA OpenCL
@@ -349,10 +356,12 @@ enum ZigLLVM_OSType {
     ZigLLVM_WatchOS,    // Apple watchOS
     ZigLLVM_Mesa3D,
     ZigLLVM_Contiki,
+    ZigLLVM_AMDPAL,     // AMD PAL Runtime
 
-    ZigLLVM_LastOSType = ZigLLVM_Contiki
+    ZigLLVM_LastOSType = ZigLLVM_AMDPAL
 };
 
+// Synchronize with target.cpp::environ_list
 enum ZigLLVM_EnvironmentType {
     ZigLLVM_UnknownEnvironment,
 
@@ -373,9 +382,7 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
-    ZigLLVM_AMDOpenCL,
     ZigLLVM_CoreCLR,
-    ZigLLVM_OpenCL,
     ZigLLVM_Simulator,
 
     ZigLLVM_LastEnvironmentType = ZigLLVM_Simulator

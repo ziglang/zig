@@ -1,27 +1,36 @@
+# REQUIRES: x86
 # RUN: llvm-mc -triple i686-windows-msvc %s -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj -safeseh -out:%t.exe -opt:noref -entry:main
+# RUN: llvm-readobj -coff-basereloc -coff-load-config -file-headers %t.exe | FileCheck %s --check-prefix=CHECK-NOGC
+# RUN: lld-link %t.obj -safeseh -out:%t.exe -opt:noref -entry:main -debug:dwarf
 # RUN: llvm-readobj -coff-basereloc -coff-load-config -file-headers %t.exe | FileCheck %s --check-prefix=CHECK-NOGC
 # RUN: lld-link %t.obj -safeseh -out:%t.exe -opt:ref -entry:main
 # RUN: llvm-readobj -coff-basereloc -coff-load-config -file-headers %t.exe | FileCheck %s --check-prefix=CHECK-GC
 
 # __safe_se_handler_table needs to be relocated against ImageBase.
 # check that the relocation is present.
+#
 # CHECK-NOGC-NOT: IMAGE_DLL_CHARACTERISTICS_NO_SEH
 # CHECK-NOGC: BaseReloc [
 # CHECK-NOGC:   Entry {
 # CHECK-NOGC:     Type: HIGHLOW
 # CHECK-NOGC: LoadConfig [
 # CHECK-NOGC:   Size: 0x48
-# CHECK-NOGC:   SEHandlerTable: 0x401048
+# CHECK-NOGC:   SEHandlerTable: 0x
 # CHECK-NOGC:   SEHandlerCount: 1
 # CHECK-NOGC: ]
 # CHECK-NOGC: SEHTable [
-# CHECK-NOGC-NEXT:   0x402006
+# CHECK-NOGC-NEXT:   0x401006
 # CHECK-NOGC-NEXT: ]
 
-# Without the SEH table, the address is absolute, so check that we do
-# not have a relocation for it.
-# CHECK-GC-NOT: IMAGE_DLL_CHARACTERISTICS_NO_SEH
+# If we enable GC, the exception handler should be removed, and we should add
+# the DLL characteristic flag that indicates that there are no exception
+# handlers in this DLL. The exception handler table in the load config should
+# be empty and there should be no relocations for it.
+#
+# CHECK-GC: Characteristics [
+# CHECK-GC:   IMAGE_DLL_CHARACTERISTICS_NO_SEH
+# CHECK-GC: ]
 # CHECK-GC: BaseReloc [
 # CHECK-GC-NEXT: ]
 # CHECK-GC: LoadConfig [
