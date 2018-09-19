@@ -50,6 +50,9 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
+# TODO fix https://github.com/ziglang/docker-zig/issues/7
+list(REMOVE_ITEM LLVM_LIBRARIES "-l/deps/local/lib/libxml2.a")
+
 if(NOT MSVC)
     find_library(LIBXML2 NAMES xml2 libxml2)
     if(${LIBXML2} STREQUAL "LIBXML2-NOTFOUND")
