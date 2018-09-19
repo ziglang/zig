@@ -28,6 +28,7 @@ else()
   find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
       PATHS
           /usr/lib/llvm/7/include
+          /usr/lib/llvm-7/include
           /usr/lib/llvm-7.0/include
           /mingw64/include)
 
@@ -37,6 +38,7 @@ else()
           PATHS
               ${CLANG_LIBDIRS}
               /usr/lib/llvm/7/lib
+              /usr/lib/llvm-7/lib
               /usr/lib/llvm-7.0/lib
               /mingw64/lib
               /c/msys64/mingw64/lib
