@@ -84,8 +84,8 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     bool is_const, ConstExprValue *init_value, Tld *src_tld);
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
-ZigFn *create_fn(AstNode *proto_node);
-ZigFn *create_fn_raw(FnInline inline_value, GlobalLinkageId linkage);
+ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
+ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
 AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
 bool type_requires_comptime(ZigType *type_entry);
@@ -93,25 +93,25 @@ Error ATTRIBUTE_MUST_USE ensure_complete_type(CodeGen *g, ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE type_resolve(CodeGen *g, ZigType *type_entry, ResolveStatus status);
 void complete_enum(CodeGen *g, ZigType *enum_type);
 bool ir_get_var_is_comptime(ZigVar *var);
-bool const_values_equal(ConstExprValue *a, ConstExprValue *b);
+bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b);
 void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_val, bool is_max);
 void eval_min_max_value_int(CodeGen *g, ZigType *int_type, BigInt *bigint, bool is_max);
 
 void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val);
 void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node);
 
-ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
-ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);
-ScopeDeferExpr *create_defer_expr_scope(AstNode *node, Scope *parent);
-Scope *create_var_scope(AstNode *node, Scope *parent, ZigVar *var);
-ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);
-ScopeLoop *create_loop_scope(AstNode *node, Scope *parent);
-ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent);
-ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, ZigFn *fn_entry);
-ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, ZigType *container_type, ImportTableEntry *import);
-Scope *create_comptime_scope(AstNode *node, Scope *parent);
-Scope *create_coro_prelude_scope(AstNode *node, Scope *parent);
-Scope *create_runtime_scope(AstNode *node, Scope *parent, IrInstruction *is_comptime);
+ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent);
+ScopeDefer *create_defer_scope(CodeGen *g, AstNode *node, Scope *parent);
+ScopeDeferExpr *create_defer_expr_scope(CodeGen *g, AstNode *node, Scope *parent);
+Scope *create_var_scope(CodeGen *g, AstNode *node, Scope *parent, ZigVar *var);
+ScopeCImport *create_cimport_scope(CodeGen *g, AstNode *node, Scope *parent);
+ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent);
+ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent);
+ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry);
+ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ImportTableEntry *import);
+Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
+Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent);
+Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);

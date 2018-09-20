@@ -400,7 +400,7 @@ test "single-item pointer of array to slice and to unknown length pointer" {
 }
 
 fn testCastPtrOfArrayToSliceAndPtr() void {
-    var array = "ao" ++ "eu"; // TODO https://github.com/ziglang/zig/issues/1076
+    var array = "aoeu";
     const x: [*]u8 = &array;
     x[0] += 1;
     assert(mem.eql(u8, array[0..], "boeu"));

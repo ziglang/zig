@@ -130,14 +130,18 @@ struct ConstUnionValue {
 enum ConstArraySpecial {
     ConstArraySpecialNone,
     ConstArraySpecialUndef,
+    ConstArraySpecialBuf,
 };
 
 struct ConstArrayValue {
     ConstArraySpecial special;
-    struct {
-        ConstExprValue *elements;
-        ConstParent parent;
-    } s_none;
+    union {
+        struct {
+            ConstExprValue *elements;
+            ConstParent parent;
+        } s_none;
+        Buf *s_buf;
+    } data;
 };
 
 enum ConstPtrSpecial {
@@ -983,6 +987,7 @@ struct FnTypeParamInfo {
 };
 
 struct GenericFnTypeId {
+    CodeGen *codegen;
     ZigFn *fn_entry;
     ConstExprValue *params;
     size_t param_count;
@@ -1291,6 +1296,7 @@ struct FnExport {
 };
 
 struct ZigFn {
+    CodeGen *codegen;
     LLVMValueRef llvm_value;
     const char *llvm_name;
     AstNode *proto_node;
@@ -1848,13 +1854,14 @@ enum ScopeId {
 };
 
 struct Scope {
-    ScopeId id;
+    CodeGen *codegen;
     AstNode *source_node;
 
     // if the scope has a parent, this is it
     Scope *parent;
 
     ZigLLVMDIScope *di_scope;
+    ScopeId id;
 };
 
 // This scope comes from global declarations or from

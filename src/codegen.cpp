@@ -5336,7 +5336,7 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent 
 
 static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *array_const_val, size_t index) {
     expand_undef_array(g, array_const_val);
-    ConstParent *parent = &array_const_val->data.x_array.s_none.parent;
+    ConstParent *parent = &array_const_val->data.x_array.data.s_none.parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, array_const_val, parent);
 
     LLVMTypeKind el_type = LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(base_ptr)));
@@ -5716,23 +5716,29 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case ZigTypeIdArray:
             {
                 uint64_t len = type_entry->data.array.len;
-                if (const_val->data.x_array.special == ConstArraySpecialUndef) {
-                    return LLVMGetUndef(type_entry->type_ref);
-                }
-
-                LLVMValueRef *values = allocate<LLVMValueRef>(len);
-                LLVMTypeRef element_type_ref = type_entry->data.array.child_type->type_ref;
-                bool make_unnamed_struct = false;
-                for (uint64_t i = 0; i < len; i += 1) {
-                    ConstExprValue *elem_value = &const_val->data.x_array.s_none.elements[i];
-                    LLVMValueRef val = gen_const_val(g, elem_value, "");
-                    values[i] = val;
-                    make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(elem_value->type, val);
-                }
-                if (make_unnamed_struct) {
-                    return LLVMConstStruct(values, len, true);
-                } else {
-                    return LLVMConstArray(element_type_ref, values, (unsigned)len);
+                switch (const_val->data.x_array.special) {
+                    case ConstArraySpecialUndef:
+                        return LLVMGetUndef(type_entry->type_ref);
+                    case ConstArraySpecialNone: {
+                        LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                        LLVMTypeRef element_type_ref = type_entry->data.array.child_type->type_ref;
+                        bool make_unnamed_struct = false;
+                        for (uint64_t i = 0; i < len; i += 1) {
+                            ConstExprValue *elem_value = &const_val->data.x_array.data.s_none.elements[i];
+                            LLVMValueRef val = gen_const_val(g, elem_value, "");
+                            values[i] = val;
+                            make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(elem_value->type, val);
+                        }
+                        if (make_unnamed_struct) {
+                            return LLVMConstStruct(values, len, true);
+                        } else {
+                            return LLVMConstArray(element_type_ref, values, (unsigned)len);
+                        }
+                    }
+                    case ConstArraySpecialBuf: {
+                        Buf *buf = const_val->data.x_array.data.s_buf;
+                        return LLVMConstString(buf_ptr(buf), (unsigned)buf_len(buf), true);
+                    }
                 }
             }
         case ZigTypeIdUnion:
@@ -7278,7 +7284,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     import->source_code = nullptr;
     import->path = full_path;
     g->root_import = import;
-    import->decls_scope = create_decls_scope(nullptr, nullptr, nullptr, import);
+    import->decls_scope = create_decls_scope(g, nullptr, nullptr, nullptr, import);
 
     init(g);
 
@@ -7352,12 +7358,12 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
     ConstExprValue *test_fn_array = create_const_vals(1);
     test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length);
     test_fn_array->special = ConstValSpecialStatic;
-    test_fn_array->data.x_array.s_none.elements = create_const_vals(g->test_fns.length);
+    test_fn_array->data.x_array.data.s_none.elements = create_const_vals(g->test_fns.length);
 
     for (size_t i = 0; i < g->test_fns.length; i += 1) {
         ZigFn *test_fn_entry = g->test_fns.at(i);
 
-        ConstExprValue *this_val = &test_fn_array->data.x_array.s_none.elements[i];
+        ConstExprValue *this_val = &test_fn_array->data.x_array.data.s_none.elements[i];
         this_val->special = ConstValSpecialStatic;
         this_val->type = struct_type;
         this_val->data.x_struct.parent.id = ConstParentIdArray;

@@ -92,62 +92,63 @@ ScopeDecls *get_container_scope(ZigType *type_entry) {
     return *get_container_scope_ptr(type_entry);
 }
 
-void init_scope(Scope *dest, ScopeId id, AstNode *source_node, Scope *parent) {
+void init_scope(CodeGen *g, Scope *dest, ScopeId id, AstNode *source_node, Scope *parent) {
+    dest->codegen = g;
     dest->id = id;
     dest->source_node = source_node;
     dest->parent = parent;
 }
 
-ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, ZigType *container_type, ImportTableEntry *import) {
+ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ImportTableEntry *import) {
     assert(node == nullptr || node->type == NodeTypeRoot || node->type == NodeTypeContainerDecl || node->type == NodeTypeFnCallExpr);
     ScopeDecls *scope = allocate<ScopeDecls>(1);
-    init_scope(&scope->base, ScopeIdDecls, node, parent);
+    init_scope(g, &scope->base, ScopeIdDecls, node, parent);
     scope->decl_table.init(4);
     scope->container_type = container_type;
     scope->import = import;
     return scope;
 }
 
-ScopeBlock *create_block_scope(AstNode *node, Scope *parent) {
+ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeBlock);
     ScopeBlock *scope = allocate<ScopeBlock>(1);
-    init_scope(&scope->base, ScopeIdBlock, node, parent);
+    init_scope(g, &scope->base, ScopeIdBlock, node, parent);
     scope->name = node->data.block.name;
     return scope;
 }
 
-ScopeDefer *create_defer_scope(AstNode *node, Scope *parent) {
+ScopeDefer *create_defer_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeDefer);
     ScopeDefer *scope = allocate<ScopeDefer>(1);
-    init_scope(&scope->base, ScopeIdDefer, node, parent);
+    init_scope(g, &scope->base, ScopeIdDefer, node, parent);
     return scope;
 }
 
-ScopeDeferExpr *create_defer_expr_scope(AstNode *node, Scope *parent) {
+ScopeDeferExpr *create_defer_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeDefer);
     ScopeDeferExpr *scope = allocate<ScopeDeferExpr>(1);
-    init_scope(&scope->base, ScopeIdDeferExpr, node, parent);
+    init_scope(g, &scope->base, ScopeIdDeferExpr, node, parent);
     return scope;
 }
 
-Scope *create_var_scope(AstNode *node, Scope *parent, ZigVar *var) {
+Scope *create_var_scope(CodeGen *g, AstNode *node, Scope *parent, ZigVar *var) {
     ScopeVarDecl *scope = allocate<ScopeVarDecl>(1);
-    init_scope(&scope->base, ScopeIdVarDecl, node, parent);
+    init_scope(g, &scope->base, ScopeIdVarDecl, node, parent);
     scope->var = var;
     return &scope->base;
 }
 
-ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent) {
+ScopeCImport *create_cimport_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeFnCallExpr);
     ScopeCImport *scope = allocate<ScopeCImport>(1);
-    init_scope(&scope->base, ScopeIdCImport, node, parent);
+    init_scope(g, &scope->base, ScopeIdCImport, node, parent);
     buf_resize(&scope->buf, 0);
     return scope;
 }
 
-ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
+ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent) {
     ScopeLoop *scope = allocate<ScopeLoop>(1);
-    init_scope(&scope->base, ScopeIdLoop, node, parent);
+    init_scope(g, &scope->base, ScopeIdLoop, node, parent);
     if (node->type == NodeTypeWhileExpr) {
         scope->name = node->data.while_expr.name;
     } else if (node->type == NodeTypeForExpr) {
@@ -158,37 +159,37 @@ ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
-Scope *create_runtime_scope(AstNode *node, Scope *parent, IrInstruction *is_comptime) {
+Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime) {
     ScopeRuntime *scope = allocate<ScopeRuntime>(1);
     scope->is_comptime = is_comptime;
-    init_scope(&scope->base, ScopeIdRuntime, node, parent);
+    init_scope(g, &scope->base, ScopeIdRuntime, node, parent);
     return &scope->base;
 }
 
-ScopeSuspend *create_suspend_scope(AstNode *node, Scope *parent) {
+ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
     ScopeSuspend *scope = allocate<ScopeSuspend>(1);
-    init_scope(&scope->base, ScopeIdSuspend, node, parent);
+    init_scope(g, &scope->base, ScopeIdSuspend, node, parent);
     return scope;
 }
 
-ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, ZigFn *fn_entry) {
+ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry) {
     ScopeFnDef *scope = allocate<ScopeFnDef>(1);
-    init_scope(&scope->base, ScopeIdFnDef, node, parent);
+    init_scope(g, &scope->base, ScopeIdFnDef, node, parent);
     scope->fn_entry = fn_entry;
     return scope;
 }
 
-Scope *create_comptime_scope(AstNode *node, Scope *parent) {
+Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeCompTime || node->type == NodeTypeSwitchExpr);
     ScopeCompTime *scope = allocate<ScopeCompTime>(1);
-    init_scope(&scope->base, ScopeIdCompTime, node, parent);
+    init_scope(g, &scope->base, ScopeIdCompTime, node, parent);
     return &scope->base;
 }
 
-Scope *create_coro_prelude_scope(AstNode *node, Scope *parent) {
+Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent) {
     ScopeCoroPrelude *scope = allocate<ScopeCoroPrelude>(1);
-    init_scope(&scope->base, ScopeIdCoroPrelude, node, parent);
+    init_scope(g, &scope->base, ScopeIdCoroPrelude, node, parent);
     return &scope->base;
 }
 
@@ -204,9 +205,9 @@ ImportTableEntry *get_scope_import(Scope *scope) {
     zig_unreachable();
 }
 
-static ZigType *new_container_type_entry(ZigTypeId id, AstNode *source_node, Scope *parent_scope) {
+static ZigType *new_container_type_entry(CodeGen *g, ZigTypeId id, AstNode *source_node, Scope *parent_scope) {
     ZigType *entry = new_type_table_entry(id);
-    *get_container_scope_ptr(entry) = create_decls_scope(source_node, parent_scope, entry, get_scope_import(parent_scope));
+    *get_container_scope_ptr(entry) = create_decls_scope(g, source_node, parent_scope, entry, get_scope_import(parent_scope));
     return entry;
 }
 
@@ -1245,7 +1246,7 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
         AstNode *decl_node, const char *name, ContainerLayout layout)
 {
     ZigTypeId type_id = container_to_type(kind);
-    ZigType *entry = new_container_type_entry(type_id, decl_node, scope);
+    ZigType *entry = new_container_type_entry(g, type_id, decl_node, scope);
 
     switch (kind) {
         case ContainerKindStruct:
@@ -1372,13 +1373,17 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
 
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
     ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
+    if (array_val->data.x_array.special == ConstArraySpecialBuf) {
+        *out_buffer = array_val->data.x_array.data.s_buf;
+        return true;
+    }
     expand_undef_array(g, array_val);
     size_t len = bigint_as_unsigned(&len_field->data.x_bigint);
     Buf *result = buf_alloc();
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
         size_t new_index = ptr_field->data.x_ptr.data.base_array.elem_index + i;
-        ConstExprValue *char_val = &array_val->data.x_array.s_none.elements[new_index];
+        ConstExprValue *char_val = &array_val->data.x_array.data.s_none.elements[new_index];
         if (char_val->special == ConstValSpecialUndef) {
             add_node_error(g, node, buf_sprintf("use of undefined value"));
             return false;
@@ -3093,9 +3098,10 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, uint8_t sep) {
     buf_append_buf(buf, tld->name);
 }
 
-ZigFn *create_fn_raw(FnInline inline_value) {
+ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
     ZigFn *fn_entry = allocate<ZigFn>(1);
 
+    fn_entry->codegen = g;
     fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
     fn_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
     fn_entry->analyzed_executable.fn_entry = fn_entry;
@@ -3105,12 +3111,12 @@ ZigFn *create_fn_raw(FnInline inline_value) {
     return fn_entry;
 }
 
-ZigFn *create_fn(AstNode *proto_node) {
+ZigFn *create_fn(CodeGen *g, AstNode *proto_node) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     FnInline inline_value = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
-    ZigFn *fn_entry = create_fn_raw(inline_value);
+    ZigFn *fn_entry = create_fn_raw(g, inline_value);
 
     fn_entry->proto_node = proto_node;
     fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :
@@ -3209,7 +3215,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         AstNode *fn_def_node = fn_proto->fn_def_node;
 
-        ZigFn *fn_table_entry = create_fn(source_node);
+        ZigFn *fn_table_entry = create_fn(g, source_node);
         get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
         if (fn_proto->is_export) {
@@ -3220,7 +3226,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         tld_fn->fn_entry = fn_table_entry;
 
         if (fn_table_entry->body_node) {
-            fn_table_entry->fndef_scope = create_fndef_scope(
+            fn_table_entry->fndef_scope = create_fndef_scope(g,
                 fn_table_entry->body_node, tld_fn->base.parent_scope, fn_table_entry);
 
             for (size_t i = 0; i < fn_proto->params.length; i += 1) {
@@ -3270,14 +3276,14 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             }
         }
     } else if (source_node->type == NodeTypeTestDecl) {
-        ZigFn *fn_table_entry = create_fn_raw(FnInlineAuto);
+        ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
 
         get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
         tld_fn->fn_entry = fn_table_entry;
 
         fn_table_entry->proto_node = source_node;
-        fn_table_entry->fndef_scope = create_fndef_scope(source_node, tld_fn->base.parent_scope, fn_table_entry);
+        fn_table_entry->fndef_scope = create_fndef_scope(g, source_node, tld_fn->base.parent_scope, fn_table_entry);
         fn_table_entry->type_entry = get_test_fn_type(g);
         fn_table_entry->body_node = source_node->data.test_decl.body;
         fn_table_entry->is_test = true;
@@ -3606,7 +3612,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
 
     Scope *child_scope;
     if (source_node && source_node->type == NodeTypeParamDecl) {
-        child_scope = create_var_scope(source_node, parent_scope, variable_entry);
+        child_scope = create_var_scope(g, source_node, parent_scope, variable_entry);
     } else {
         // it's already in the decls table
         child_scope = parent_scope;
@@ -4329,7 +4335,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *r
     g->import_table.put(resolved_path, import_entry);
     g->import_queue.append(import_entry);
 
-    import_entry->decls_scope = create_decls_scope(import_entry->root, nullptr, nullptr, import_entry);
+    import_entry->decls_scope = create_decls_scope(g, import_entry->root, nullptr, nullptr, import_entry);
 
 
     assert(import_entry->root->type == NodeTypeRoot);
@@ -4880,7 +4886,7 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
         if (a_val->special != ConstValSpecialRuntime && b_val->special != ConstValSpecialRuntime) {
             assert(a_val->special == ConstValSpecialStatic);
             assert(b_val->special == ConstValSpecialStatic);
-            if (!const_values_equal(a_val, b_val)) {
+            if (!const_values_equal(a->fn_entry->codegen, a_val, b_val)) {
                 return false;
             }
         } else {
@@ -4920,14 +4926,18 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
         case ZigTypeIdArray:
             if (value->type->data.array.len == 0)
                 return false;
-            if (value->data.x_array.special == ConstArraySpecialUndef)
-                return false;
-            for (uint32_t i = 0; i < value->type->data.array.len; i += 1) {
-                if (can_mutate_comptime_var_state(&value->data.x_array.s_none.elements[i]))
-                    return true;
+            switch (value->data.x_array.special) {
+                case ConstArraySpecialUndef:
+                case ConstArraySpecialBuf:
+                    return false;
+                case ConstArraySpecialNone:
+                    for (uint32_t i = 0; i < value->type->data.array.len; i += 1) {
+                        if (can_mutate_comptime_var_state(&value->data.x_array.data.s_none.elements[i]))
+                            return true;
+                    }
+                    return false;
             }
-            return false;
-
+            zig_unreachable();
         case ZigTypeIdStruct:
             for (uint32_t i = 0; i < value->type->data.structure.src_field_count; i += 1) {
                 if (can_mutate_comptime_var_state(&value->data.x_struct.fields[i]))
@@ -5039,6 +5049,8 @@ uint32_t fn_eval_hash(Scope* scope) {
 }
 
 bool fn_eval_eql(Scope *a, Scope *b) {
+    assert(a->codegen != nullptr);
+    assert(b->codegen != nullptr);
     while (a && b) {
         if (a->id != b->id)
             return false;
@@ -5048,7 +5060,7 @@ bool fn_eval_eql(Scope *a, Scope *b) {
             ScopeVarDecl *b_var_scope = (ScopeVarDecl *)b;
             if (a_var_scope->var->value->type != b_var_scope->var->value->type)
                 return false;
-            if (!const_values_equal(a_var_scope->var->value, b_var_scope->var->value))
+            if (!const_values_equal(a->codegen, a_var_scope->var->value, b_var_scope->var->value))
                 return false;
         } else if (a->id == ScopeIdFnDef) {
             ScopeFnDef *a_fn_scope = (ScopeFnDef *)a;
@@ -5130,14 +5142,8 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
-    const_val->data.x_array.s_none.elements = create_const_vals(buf_len(str));
-
-    for (size_t i = 0; i < buf_len(str); i += 1) {
-        ConstExprValue *this_char = &const_val->data.x_array.s_none.elements[i];
-        this_char->special = ConstValSpecialStatic;
-        this_char->type = g->builtin_types.entry_u8;
-        bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(str)[i]);
-    }
+    const_val->data.x_array.special = ConstArraySpecialBuf;
+    const_val->data.x_array.data.s_buf = str;
 
     g->string_literals_table.put(str, const_val);
 }
@@ -5154,14 +5160,15 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     ConstExprValue *array_val = create_const_vals(1);
     array_val->special = ConstValSpecialStatic;
     array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null);
-    array_val->data.x_array.s_none.elements = create_const_vals(len_with_null);
+    // TODO buf optimization
+    array_val->data.x_array.data.s_none.elements = create_const_vals(len_with_null);
     for (size_t i = 0; i < buf_len(str); i += 1) {
-        ConstExprValue *this_char = &array_val->data.x_array.s_none.elements[i];
+        ConstExprValue *this_char = &array_val->data.x_array.data.s_none.elements[i];
         this_char->special = ConstValSpecialStatic;
         this_char->type = g->builtin_types.entry_u8;
         bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(str)[i]);
     }
-    ConstExprValue *null_char = &array_val->data.x_array.s_none.elements[len_with_null - 1];
+    ConstExprValue *null_char = &array_val->data.x_array.data.s_none.elements[len_with_null - 1];
     null_char->special = ConstValSpecialStatic;
     null_char->type = g->builtin_types.entry_u8;
     bigint_init_unsigned(&null_char->data.x_bigint, 0);
@@ -5535,7 +5542,7 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
     zig_unreachable();
 }
 
-bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
+bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
     assert(a->type->id == b->type->id);
     assert(a->special == ConstValSpecialStatic);
     assert(b->special == ConstValSpecialStatic);
@@ -5593,13 +5600,20 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             assert(a->type->data.array.len == b->type->data.array.len);
             assert(a->data.x_array.special != ConstArraySpecialUndef);
             assert(b->data.x_array.special != ConstArraySpecialUndef);
+            if (a->data.x_array.special == ConstArraySpecialBuf &&
+                b->data.x_array.special == ConstArraySpecialBuf)
+            {
+                return buf_eql_buf(a->data.x_array.data.s_buf, b->data.x_array.data.s_buf);
+            }
+            expand_undef_array(g, a);
+            expand_undef_array(g, b);
 
             size_t len = a->type->data.array.len;
-            ConstExprValue *a_elems = a->data.x_array.s_none.elements;
-            ConstExprValue *b_elems = b->data.x_array.s_none.elements;
+            ConstExprValue *a_elems = a->data.x_array.data.s_none.elements;
+            ConstExprValue *b_elems = b->data.x_array.data.s_none.elements;
 
             for (size_t i = 0; i < len; ++i) {
-                if (!const_values_equal(&a_elems[i], &b_elems[i]))
+                if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
                     return false;
             }
 
@@ -5609,7 +5623,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
                 ConstExprValue *field_a = &a->data.x_struct.fields[i];
                 ConstExprValue *field_b = &b->data.x_struct.fields[i];
-                if (!const_values_equal(field_a, field_b))
+                if (!const_values_equal(g, field_a, field_b))
                     return false;
             }
             return true;
@@ -5623,7 +5637,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             if (a->data.x_optional == nullptr || b->data.x_optional == nullptr) {
                 return (a->data.x_optional == nullptr && b->data.x_optional == nullptr);
             } else {
-                return const_values_equal(a->data.x_optional, b->data.x_optional);
+                return const_values_equal(g, a->data.x_optional, b->data.x_optional);
             }
         case ZigTypeIdErrorUnion:
             zig_panic("TODO");
@@ -5808,26 +5822,15 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ZigTypeIdPointer:
             return render_const_val_ptr(g, buf, const_val, type_entry);
         case ZigTypeIdArray:
-            {
-                ZigType *child_type = type_entry->data.array.child_type;
-                uint64_t len = type_entry->data.array.len;
-
-                if (const_val->data.x_array.special == ConstArraySpecialUndef) {
+            switch (const_val->data.x_array.special) {
+                case ConstArraySpecialUndef:
                     buf_append_str(buf, "undefined");
                     return;
-                }
-
-                // if it's []u8, assume UTF-8 and output a string
-                if (child_type->id == ZigTypeIdInt &&
-                    child_type->data.integral.bit_count == 8 &&
-                    !child_type->data.integral.is_signed)
-                {
+                case ConstArraySpecialBuf: {
+                    Buf *array_buf = const_val->data.x_array.data.s_buf;
                     buf_append_char(buf, '"');
-                    for (uint64_t i = 0; i < len; i += 1) {
-                        ConstExprValue *child_value = &const_val->data.x_array.s_none.elements[i];
-                        uint64_t big_c = bigint_as_unsigned(&child_value->data.x_bigint);
-                        assert(big_c <= UINT8_MAX);
-                        uint8_t c = (uint8_t)big_c;
+                    for (size_t i = 0; i < buf_len(array_buf); i += 1) {
+                        uint8_t c = buf_ptr(array_buf)[i];
                         if (c == '"') {
                             buf_append_str(buf, "\\\"");
                         } else {
@@ -5837,17 +5840,20 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                     buf_append_char(buf, '"');
                     return;
                 }
-
-                buf_appendf(buf, "%s{", buf_ptr(&type_entry->name));
-                for (uint64_t i = 0; i < len; i += 1) {
-                    if (i != 0)
-                        buf_appendf(buf, ",");
-                    ConstExprValue *child_value = &const_val->data.x_array.s_none.elements[i];
-                    render_const_value(g, buf, child_value);
+                case ConstArraySpecialNone: {
+                    buf_appendf(buf, "%s{", buf_ptr(&type_entry->name));
+                    uint64_t len = type_entry->data.array.len;
+                    for (uint64_t i = 0; i < len; i += 1) {
+                        if (i != 0)
+                            buf_appendf(buf, ",");
+                        ConstExprValue *child_value = &const_val->data.x_array.data.s_none.elements[i];
+                        render_const_value(g, buf, child_value);
+                    }
+                    buf_appendf(buf, "}");
+                    return;
                 }
-                buf_appendf(buf, "}");
-                return;
             }
+            zig_unreachable();
         case ZigTypeIdNull:
             {
                 buf_appendf(buf, "null");
@@ -6102,24 +6108,49 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
     zig_unreachable();
 }
 
+// Canonicalize the array value as ConstArraySpecialNone
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == ZigTypeIdArray);
-    if (const_val->data.x_array.special == ConstArraySpecialUndef) {
-        const_val->data.x_array.special = ConstArraySpecialNone;
-        size_t elem_count = const_val->type->data.array.len;
-        const_val->data.x_array.s_none.elements = create_const_vals(elem_count);
-        for (size_t i = 0; i < elem_count; i += 1) {
-            ConstExprValue *element_val = &const_val->data.x_array.s_none.elements[i];
-            element_val->type = const_val->type->data.array.child_type;
-            init_const_undefined(g, element_val);
-            ConstParent *parent = get_const_val_parent(g, element_val);
-            if (parent != nullptr) {
-                parent->id = ConstParentIdArray;
-                parent->data.p_array.array_val = const_val;
-                parent->data.p_array.elem_index = i;
+    switch (const_val->data.x_array.special) {
+        case ConstArraySpecialNone:
+            return;
+        case ConstArraySpecialUndef: {
+            const_val->data.x_array.special = ConstArraySpecialNone;
+            size_t elem_count = const_val->type->data.array.len;
+            const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
+            for (size_t i = 0; i < elem_count; i += 1) {
+                ConstExprValue *element_val = &const_val->data.x_array.data.s_none.elements[i];
+                element_val->type = const_val->type->data.array.child_type;
+                init_const_undefined(g, element_val);
+                ConstParent *parent = get_const_val_parent(g, element_val);
+                if (parent != nullptr) {
+                    parent->id = ConstParentIdArray;
+                    parent->data.p_array.array_val = const_val;
+                    parent->data.p_array.elem_index = i;
+                }
             }
+            return;
+        }
+        case ConstArraySpecialBuf: {
+            Buf *buf = const_val->data.x_array.data.s_buf;
+            // If we're doing this it means that we are potentially modifying the data,
+            // so we can't have it be in the string literals table
+            g->string_literals_table.maybe_remove(buf);
+
+            const_val->data.x_array.special = ConstArraySpecialNone;
+            size_t elem_count = const_val->type->data.array.len;
+            assert(elem_count == buf_len(buf));
+            const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
+            for (size_t i = 0; i < elem_count; i += 1) {
+                ConstExprValue *this_char = &const_val->data.x_array.data.s_none.elements[i];
+                this_char->special = ConstValSpecialStatic;
+                this_char->type = g->builtin_types.entry_u8;
+                bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(buf)[i]);
+            }
+            return;
         }
     }
+    zig_unreachable();
 }
 
 ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
@@ -6127,7 +6158,7 @@ ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
     ZigType *type_entry = value->type;
     if (type_entry->id == ZigTypeIdArray) {
         expand_undef_array(g, value);
-        return &value->data.x_array.s_none.parent;
+        return &value->data.x_array.data.s_none.parent;
     } else if (type_entry->id == ZigTypeIdStruct) {
         return &value->data.x_struct.parent;
     } else if (type_entry->id == ZigTypeIdUnion) {

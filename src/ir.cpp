@@ -166,7 +166,7 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
             break;
         case ConstPtrSpecialBaseArray:
             expand_undef_array(g, const_val->data.x_ptr.data.base_array.array_val);
-            result = &const_val->data.x_ptr.data.base_array.array_val->data.x_array.s_none.elements[
+            result = &const_val->data.x_ptr.data.base_array.array_val->data.x_array.data.s_none.elements[
                 const_val->data.x_ptr.data.base_array.elem_index];
             break;
         case ConstPtrSpecialBaseStruct:
@@ -3360,7 +3360,7 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
     variable_entry->src_is_const = src_is_const;
     variable_entry->gen_is_const = gen_is_const;
     variable_entry->decl_node = node;
-    variable_entry->child_scope = create_var_scope(node, parent_scope, variable_entry);
+    variable_entry->child_scope = create_var_scope(codegen, node, parent_scope, variable_entry);
 
     return variable_entry;
 }
@@ -3388,7 +3388,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
     ZigList<IrInstruction *> incoming_values = {0};
     ZigList<IrBasicBlock *> incoming_blocks = {0};
 
-    ScopeBlock *scope_block = create_block_scope(block_node, parent_scope);
+    ScopeBlock *scope_block = create_block_scope(irb->codegen, block_node, parent_scope);
 
     Scope *outer_block_scope = &scope_block->base;
     Scope *child_scope = outer_block_scope;
@@ -5026,7 +5026,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
-    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
     IrInstruction *then_expr_result = ir_gen_node(irb, then_node, subexpr_scope);
     if (then_expr_result == irb->codegen->invalid_instruction)
         return then_expr_result;
@@ -5318,7 +5318,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ir_should_inline(irb->exec, scope) || node->data.while_expr.is_inline);
     ir_build_br(irb, scope, node, cond_block, is_comptime);
 
-    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
     Buf *var_symbol = node->data.while_expr.var_symbol;
     Buf *err_symbol = node->data.while_expr.err_symbol;
     if (err_symbol != nullptr) {
@@ -5359,7 +5359,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ZigList<IrInstruction *> incoming_values = {0};
         ZigList<IrBasicBlock *> incoming_blocks = {0};
 
-        ScopeLoop *loop_scope = create_loop_scope(node, payload_scope);
+        ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, payload_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
         loop_scope->is_comptime = is_comptime;
@@ -5415,7 +5415,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         return ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
     } else if (var_symbol != nullptr) {
         ir_set_cursor_at_end_and_append_block(irb, cond_block);
-        Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
+        Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
         // TODO make it an error to write to payload variable
         AstNode *symbol_node = node; // TODO make more accurate
 
@@ -5443,7 +5443,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ZigList<IrInstruction *> incoming_values = {0};
         ZigList<IrBasicBlock *> incoming_blocks = {0};
 
-        ScopeLoop *loop_scope = create_loop_scope(node, child_scope);
+        ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, child_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
         loop_scope->is_comptime = is_comptime;
@@ -5506,9 +5506,9 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ZigList<IrInstruction *> incoming_values = {0};
         ZigList<IrBasicBlock *> incoming_blocks = {0};
 
-        Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
+        Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
 
-        ScopeLoop *loop_scope = create_loop_scope(node, subexpr_scope);
+        ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, subexpr_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
         loop_scope->is_comptime = is_comptime;
@@ -5645,7 +5645,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     ZigList<IrInstruction *> incoming_values = {0};
     ZigList<IrBasicBlock *> incoming_blocks = {0};
-    ScopeLoop *loop_scope = create_loop_scope(node, child_scope);
+    ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, child_scope);
     loop_scope->break_block = end_block;
     loop_scope->continue_block = continue_block;
     loop_scope->is_comptime = is_comptime;
@@ -5855,7 +5855,7 @@ static IrInstruction *ir_gen_test_expr(IrBuilder *irb, Scope *scope, AstNode *no
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
-    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
     Scope *var_scope;
     if (var_symbol) {
         IrInstruction *var_type = nullptr;
@@ -5930,7 +5930,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
 
-    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
     Scope *var_scope;
     if (var_symbol) {
         IrInstruction *var_type = nullptr;
@@ -6066,8 +6066,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     ZigList<IrInstructionCheckSwitchProngsRange> check_ranges = {0};
 
     // First do the else and the ranges
-    Scope *subexpr_scope = create_runtime_scope(node, scope, is_comptime);
-    Scope *comptime_scope = create_comptime_scope(node, scope);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
+    Scope *comptime_scope = create_comptime_scope(irb->codegen, node, scope);
     AstNode *else_prong = nullptr;
     for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
@@ -6231,7 +6231,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeCompTime);
 
-    Scope *child_scope = create_comptime_scope(node, parent_scope);
+    Scope *child_scope = create_comptime_scope(irb->codegen, node, parent_scope);
     return ir_gen_node_extra(irb, node->data.comptime_expr.expr, child_scope, lval);
 }
 
@@ -6394,10 +6394,10 @@ static IrInstruction *ir_gen_error_type(IrBuilder *irb, Scope *scope, AstNode *n
 static IrInstruction *ir_gen_defer(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeDefer);
 
-    ScopeDefer *defer_child_scope = create_defer_scope(node, parent_scope);
+    ScopeDefer *defer_child_scope = create_defer_scope(irb->codegen, node, parent_scope);
     node->data.defer.child_scope = &defer_child_scope->base;
 
-    ScopeDeferExpr *defer_expr_scope = create_defer_expr_scope(node, parent_scope);
+    ScopeDeferExpr *defer_expr_scope = create_defer_expr_scope(irb->codegen, node, parent_scope);
     node->data.defer.expr_scope = &defer_expr_scope->base;
 
     return ir_build_const_void(irb, parent_scope, node);
@@ -7154,7 +7154,7 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
         suspend_code = ir_build_coro_suspend(irb, parent_scope, node, nullptr, const_bool_false);
     } else {
         Scope *child_scope;
-        ScopeSuspend *suspend_scope = create_suspend_scope(node, parent_scope);
+        ScopeSuspend *suspend_scope = create_suspend_scope(irb->codegen, node, parent_scope);
         suspend_scope->resume_block = resume_block;
         child_scope = &suspend_scope->base;
         IrInstruction *save_token = ir_build_coro_save(irb, child_scope, node, irb->exec->coro_handle);
@@ -7370,7 +7370,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     ZigVar *coro_size_var;
     if (is_async) {
         // create the coro promise
-        Scope *coro_scope = create_coro_prelude_scope(node, scope);
+        Scope *coro_scope = create_coro_prelude_scope(irb->codegen, node, scope);
         const_bool_false = ir_build_const_bool(irb, coro_scope, node, false);
         ZigVar *promise_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
 
@@ -10569,9 +10569,9 @@ static IrInstruction *ir_analyze_ptr_to_array(IrAnalyze *ira, IrInstruction *sou
             array_val->special = ConstValSpecialStatic;
             array_val->type = array_type;
             array_val->data.x_array.special = ConstArraySpecialNone;
-            array_val->data.x_array.s_none.elements = pointee;
-            array_val->data.x_array.s_none.parent.id = ConstParentIdScalar;
-            array_val->data.x_array.s_none.parent.data.p_scalar.scalar_val = pointee;
+            array_val->data.x_array.data.s_none.elements = pointee;
+            array_val->data.x_array.data.s_none.parent.id = ConstParentIdScalar;
+            array_val->data.x_array.data.s_none.parent.data.p_scalar.scalar_val = pointee;
 
             IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                     source_instr->scope, source_instr->source_node);
@@ -11391,13 +11391,16 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
 
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
     ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
+    if (array_val->data.x_array.special == ConstArraySpecialBuf) {
+        return array_val->data.x_array.data.s_buf;
+    }
     expand_undef_array(ira->codegen, array_val);
     size_t len = bigint_as_unsigned(&len_field->data.x_bigint);
     Buf *result = buf_alloc();
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
         size_t new_index = ptr_field->data.x_ptr.data.base_array.elem_index + i;
-        ConstExprValue *char_val = &array_val->data.x_array.s_none.elements[new_index];
+        ConstExprValue *char_val = &array_val->data.x_array.data.s_none.elements[new_index];
         if (char_val->special == ConstValSpecialUndef) {
             ir_add_error(ira, casted_value, buf_sprintf("use of undefined value"));
             return nullptr;
@@ -11750,7 +11753,7 @@ static ZigType *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op
             Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
             answer = resolve_cmp_op_id(op_id, cmp_result);
         } else {
-            bool are_equal = one_possible_value || const_values_equal(op1_val, op2_val);
+            bool are_equal = one_possible_value || const_values_equal(ira->codegen, op1_val, op2_val);
             if (op_id == IrBinOpCmpEq) {
                 answer = are_equal;
             } else if (op_id == IrBinOpCmpNotEq) {
@@ -12463,19 +12466,20 @@ static ZigType *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *instruc
         return result_type;
     }
 
-    out_array_val->data.x_array.s_none.elements = create_const_vals(new_len);
+    out_array_val->data.x_array.data.s_none.elements = create_const_vals(new_len);
+    // TODO handle the buf case here for an optimization
     expand_undef_array(ira->codegen, op1_array_val);
     expand_undef_array(ira->codegen, op2_array_val);
 
     size_t next_index = 0;
     for (size_t i = op1_array_index; i < op1_array_end; i += 1, next_index += 1) {
-        out_array_val->data.x_array.s_none.elements[next_index] = op1_array_val->data.x_array.s_none.elements[i];
+        out_array_val->data.x_array.data.s_none.elements[next_index] = op1_array_val->data.x_array.data.s_none.elements[i];
     }
     for (size_t i = op2_array_index; i < op2_array_end; i += 1, next_index += 1) {
-        out_array_val->data.x_array.s_none.elements[next_index] = op2_array_val->data.x_array.s_none.elements[i];
+        out_array_val->data.x_array.data.s_none.elements[next_index] = op2_array_val->data.x_array.data.s_none.elements[i];
     }
     if (next_index < new_len) {
-        ConstExprValue *null_byte = &out_array_val->data.x_array.s_none.elements[next_index];
+        ConstExprValue *null_byte = &out_array_val->data.x_array.data.s_none.elements[next_index];
         init_const_unsigned_negative(null_byte, child_type, 0, false);
         next_index += 1;
     }
@@ -12524,12 +12528,14 @@ static ZigType *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *instru
         return get_array_type(ira->codegen, child_type, new_array_len);
     }
 
-    out_val->data.x_array.s_none.elements = create_const_vals(new_array_len);
+    // TODO optimize the buf case
+    expand_undef_array(ira->codegen, array_val);
+    out_val->data.x_array.data.s_none.elements = create_const_vals(new_array_len);
 
     uint64_t i = 0;
     for (uint64_t x = 0; x < mult_amt; x += 1) {
         for (uint64_t y = 0; y < old_array_len; y += 1) {
-            out_val->data.x_array.s_none.elements[i] = array_val->data.x_array.s_none.elements[y];
+            out_val->data.x_array.data.s_none.elements[i] = array_val->data.x_array.data.s_none.elements[y];
             i += 1;
         }
     }
@@ -13502,10 +13508,10 @@ static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instr
 
         // Fork a scope of the function with known values for the parameters.
         Scope *parent_scope = fn_entry->fndef_scope->base.parent;
-        ZigFn *impl_fn = create_fn(fn_proto_node);
+        ZigFn *impl_fn = create_fn(ira->codegen, fn_proto_node);
         impl_fn->param_source_nodes = allocate<AstNode *>(new_fn_arg_count);
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
-        impl_fn->fndef_scope = create_fndef_scope(impl_fn->body_node, parent_scope, impl_fn);
+        impl_fn->fndef_scope = create_fndef_scope(ira->codegen, impl_fn->body_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
         FnTypeId inst_fn_type_id = {0};
         init_fn_type_id(&inst_fn_type_id, fn_proto_node, new_fn_arg_count);
@@ -16073,7 +16079,7 @@ static ZigType *ir_analyze_instruction_switch_br(IrAnalyze *ira,
             if (!case_val)
                 return ir_unreach_error(ira);
 
-            if (const_values_equal(target_val, case_val)) {
+            if (const_values_equal(ira->codegen, target_val, case_val)) {
                 old_dest_block = old_case->block;
                 break;
             }
@@ -16652,7 +16658,7 @@ static ZigType *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
             ConstExprValue const_val = {};
             const_val.special = ConstValSpecialStatic;
             const_val.type = fixed_size_array_type;
-            const_val.data.x_array.s_none.elements = create_const_vals(elem_count);
+            const_val.data.x_array.data.s_none.elements = create_const_vals(elem_count);
 
             bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->base.scope);
 
@@ -16677,7 +16683,7 @@ static ZigType *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
                         if (!elem_val)
                             return ira->codegen->builtin_types.entry_invalid;
 
-                        copy_const_val(&const_val.data.x_array.s_none.elements[i], elem_val, true);
+                        copy_const_val(&const_val.data.x_array.data.s_none.elements[i], elem_val, true);
                     } else {
                         first_non_const_instruction = casted_arg;
                         const_val.special = ConstValSpecialRuntime;
@@ -16689,7 +16695,7 @@ static ZigType *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
                 ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
                 *out_val = const_val;
                 for (size_t i = 0; i < elem_count; i += 1) {
-                    ConstExprValue *elem_val = &out_val->data.x_array.s_none.elements[i];
+                    ConstExprValue *elem_val = &out_val->data.x_array.data.s_none.elements[i];
                     ConstParent *parent = get_const_val_parent(ira->codegen, elem_val);
                     if (parent != nullptr) {
                         parent->id = ConstParentIdArray;
@@ -17146,8 +17152,8 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
     definition_array->special = ConstValSpecialStatic;
     definition_array->type = get_array_type(ira->codegen, type_info_definition_type, definition_count);
     definition_array->data.x_array.special = ConstArraySpecialNone;
-    definition_array->data.x_array.s_none.parent.id = ConstParentIdNone;
-    definition_array->data.x_array.s_none.elements = create_const_vals(definition_count);
+    definition_array->data.x_array.data.s_none.parent.id = ConstParentIdNone;
+    definition_array->data.x_array.data.s_none.elements = create_const_vals(definition_count);
     init_const_slice(ira->codegen, out_val, definition_array, 0, definition_count, false);
 
     // Loop through the definitions and generate info.
@@ -17164,7 +17170,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
                 continue;
         }
 
-        ConstExprValue *definition_val = &definition_array->data.x_array.s_none.elements[definition_index];
+        ConstExprValue *definition_val = &definition_array->data.x_array.data.s_none.elements[definition_index];
 
         definition_val->special = ConstValSpecialStatic;
         definition_val->type = type_info_definition_type;
@@ -17293,15 +17299,15 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
                     fn_arg_name_array->type = get_array_type(ira->codegen,
                             get_slice_type(ira->codegen, u8_ptr), fn_arg_count);
                     fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
-                    fn_arg_name_array->data.x_array.s_none.parent.id = ConstParentIdNone;
-                    fn_arg_name_array->data.x_array.s_none.elements = create_const_vals(fn_arg_count);
+                    fn_arg_name_array->data.x_array.data.s_none.parent.id = ConstParentIdNone;
+                    fn_arg_name_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
                     init_const_slice(ira->codegen, &fn_def_fields[8], fn_arg_name_array, 0, fn_arg_count, false);
 
                     for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++)
                     {
                         ZigVar *arg_var = fn_entry->variable_list.at(fn_arg_index);
-                        ConstExprValue *fn_arg_name_val = &fn_arg_name_array->data.x_array.s_none.elements[fn_arg_index];
+                        ConstExprValue *fn_arg_name_val = &fn_arg_name_array->data.x_array.data.s_none.elements[fn_arg_index];
                         ConstExprValue *arg_name = create_const_str_lit(ira->codegen, &arg_var->name);
                         init_const_slice(ira->codegen, fn_arg_name_val, arg_name, 0, buf_len(&arg_var->name), true);
                         fn_arg_name_val->data.x_struct.parent.id = ConstParentIdArray;
@@ -17593,15 +17599,15 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
                 enum_field_array->special = ConstValSpecialStatic;
                 enum_field_array->type = get_array_type(ira->codegen, type_info_enum_field_type, enum_field_count);
                 enum_field_array->data.x_array.special = ConstArraySpecialNone;
-                enum_field_array->data.x_array.s_none.parent.id = ConstParentIdNone;
-                enum_field_array->data.x_array.s_none.elements = create_const_vals(enum_field_count);
+                enum_field_array->data.x_array.data.s_none.parent.id = ConstParentIdNone;
+                enum_field_array->data.x_array.data.s_none.elements = create_const_vals(enum_field_count);
 
                 init_const_slice(ira->codegen, &fields[2], enum_field_array, 0, enum_field_count, false);
 
                 for (uint32_t enum_field_index = 0; enum_field_index < enum_field_count; enum_field_index++)
                 {
                     TypeEnumField *enum_field = &type_entry->data.enumeration.fields[enum_field_index];
-                    ConstExprValue *enum_field_val = &enum_field_array->data.x_array.s_none.elements[enum_field_index];
+                    ConstExprValue *enum_field_val = &enum_field_array->data.x_array.data.s_none.elements[enum_field_index];
                     make_enum_field_val(ira, enum_field_val, enum_field, type_info_enum_field_type);
                     enum_field_val->data.x_struct.parent.id = ConstParentIdArray;
                     enum_field_val->data.x_struct.parent.data.p_array.array_val = enum_field_array;
@@ -17632,13 +17638,13 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
                 error_array->special = ConstValSpecialStatic;
                 error_array->type = get_array_type(ira->codegen, type_info_error_type, error_count);
                 error_array->data.x_array.special = ConstArraySpecialNone;
-                error_array->data.x_array.s_none.parent.id = ConstParentIdNone;
-                error_array->data.x_array.s_none.elements = create_const_vals(error_count);
+                error_array->data.x_array.data.s_none.parent.id = ConstParentIdNone;
+                error_array->data.x_array.data.s_none.elements = create_const_vals(error_count);
 
                 init_const_slice(ira->codegen, &fields[0], error_array, 0, error_count, false);
                 for (uint32_t error_index = 0; error_index < error_count; error_index++) {
                     ErrorTableEntry *error = type_entry->data.error_set.errors[error_index];
-                    ConstExprValue *error_val = &error_array->data.x_array.s_none.elements[error_index];
+                    ConstExprValue *error_val = &error_array->data.x_array.data.s_none.elements[error_index];
 
                     error_val->special = ConstValSpecialStatic;
                     error_val->type = type_info_error_type;
@@ -17727,8 +17733,8 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
                 union_field_array->special = ConstValSpecialStatic;
                 union_field_array->type = get_array_type(ira->codegen, type_info_union_field_type, union_field_count);
                 union_field_array->data.x_array.special = ConstArraySpecialNone;
-                union_field_array->data.x_array.s_none.parent.id = ConstParentIdNone;
-                union_field_array->data.x_array.s_none.elements = create_const_vals(union_field_count);
+                union_field_array->data.x_array.data.s_none.parent.id = ConstParentIdNone;
+                union_field_array->data.x_array.data.s_none.elements = create_const_vals(union_field_count);
 
                 init_const_slice(ira->codegen, &fields[2], union_field_array, 0, union_field_count, false);
 
@@ -17736,7 +17742,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
 
                 for (uint32_t union_field_index = 0; union_field_index < union_field_count; union_field_index++) {
                     TypeUnionField *union_field = &type_entry->data.unionation.fields[union_field_index];
-                    ConstExprValue *union_field_val = &union_field_array->data.x_array.s_none.elements[union_field_index];
+                    ConstExprValue *union_field_val = &union_field_array->data.x_array.data.s_none.elements[union_field_index];
 
                     union_field_val->special = ConstValSpecialStatic;
                     union_field_val->type = type_info_union_field_type;
@@ -17800,14 +17806,14 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
                 struct_field_array->special = ConstValSpecialStatic;
                 struct_field_array->type = get_array_type(ira->codegen, type_info_struct_field_type, struct_field_count);
                 struct_field_array->data.x_array.special = ConstArraySpecialNone;
-                struct_field_array->data.x_array.s_none.parent.id = ConstParentIdNone;
-                struct_field_array->data.x_array.s_none.elements = create_const_vals(struct_field_count);
+                struct_field_array->data.x_array.data.s_none.parent.id = ConstParentIdNone;
+                struct_field_array->data.x_array.data.s_none.elements = create_const_vals(struct_field_count);
 
                 init_const_slice(ira->codegen, &fields[1], struct_field_array, 0, struct_field_count, false);
 
                 for (uint32_t struct_field_index = 0; struct_field_index < struct_field_count; struct_field_index++) {
                     TypeStructField *struct_field = &type_entry->data.structure.fields[struct_field_index];
-                    ConstExprValue *struct_field_val = &struct_field_array->data.x_array.s_none.elements[struct_field_index];
+                    ConstExprValue *struct_field_val = &struct_field_array->data.x_array.data.s_none.elements[struct_field_index];
 
                     struct_field_val->special = ConstValSpecialStatic;
                     struct_field_val->type = type_info_struct_field_type;
@@ -17906,15 +17912,15 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
                 fn_arg_array->special = ConstValSpecialStatic;
                 fn_arg_array->type = get_array_type(ira->codegen, type_info_fn_arg_type, fn_arg_count);
                 fn_arg_array->data.x_array.special = ConstArraySpecialNone;
-                fn_arg_array->data.x_array.s_none.parent.id = ConstParentIdNone;
-                fn_arg_array->data.x_array.s_none.elements = create_const_vals(fn_arg_count);
+                fn_arg_array->data.x_array.data.s_none.parent.id = ConstParentIdNone;
+                fn_arg_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
                 init_const_slice(ira->codegen, &fields[5], fn_arg_array, 0, fn_arg_count, false);
 
                 for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++)
                 {
                     FnTypeParamInfo *fn_param_info = &type_entry->data.fn.fn_type_id.param_info[fn_arg_index];
-                    ConstExprValue *fn_arg_val = &fn_arg_array->data.x_array.s_none.elements[fn_arg_index];
+                    ConstExprValue *fn_arg_val = &fn_arg_array->data.x_array.data.s_none.elements[fn_arg_index];
 
                     fn_arg_val->special = ConstValSpecialStatic;
                     fn_arg_val->type = type_info_fn_arg_type;
@@ -18059,7 +18065,7 @@ static ZigType *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstructionCIm
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *block_node = node->data.fn_call_expr.params.at(0);
 
-    ScopeCImport *cimport_scope = create_cimport_scope(node, instruction->base.scope);
+    ScopeCImport *cimport_scope = create_cimport_scope(ira->codegen, node, instruction->base.scope);
 
     // Execute the C import block like an inline function
     ZigType *void_type = ira->codegen->builtin_types.entry_void;
@@ -18072,7 +18078,7 @@ static ZigType *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstructionCIm
     find_libc_include_path(ira->codegen);
 
     ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
-    child_import->decls_scope = create_decls_scope(node, nullptr, nullptr, child_import);
+    child_import->decls_scope = create_decls_scope(ira->codegen, node, nullptr, nullptr, child_import);
     child_import->c_import_node = node;
     child_import->package = new_anonymous_package();
     child_import->package->package_table.put(buf_create_from_str("builtin"), ira->codegen->compile_var_package);
@@ -18826,7 +18832,7 @@ static ZigType *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructionMemse
                 {
                     ConstExprValue *array_val = dest_ptr_val->data.x_ptr.data.base_array.array_val;
                     expand_undef_array(ira->codegen, array_val);
-                    dest_elements = array_val->data.x_array.s_none.elements;
+                    dest_elements = array_val->data.x_array.data.s_none.elements;
                     start = dest_ptr_val->data.x_ptr.data.base_array.elem_index;
                     bound_end = array_val->type->data.array.len;
                     break;
@@ -18940,7 +18946,7 @@ static ZigType *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructionMemcp
                 {
                     ConstExprValue *array_val = dest_ptr_val->data.x_ptr.data.base_array.array_val;
                     expand_undef_array(ira->codegen, array_val);
-                    dest_elements = array_val->data.x_array.s_none.elements;
+                    dest_elements = array_val->data.x_array.data.s_none.elements;
                     dest_start = dest_ptr_val->data.x_ptr.data.base_array.elem_index;
                     dest_end = array_val->type->data.array.len;
                     break;
@@ -18976,7 +18982,7 @@ static ZigType *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructionMemcp
                 {
                     ConstExprValue *array_val = src_ptr_val->data.x_ptr.data.base_array.array_val;
                     expand_undef_array(ira->codegen, array_val);
-                    src_elements = array_val->data.x_array.s_none.elements;
+                    src_elements = array_val->data.x_array.data.s_none.elements;
                     src_start = src_ptr_val->data.x_ptr.data.base_array.elem_index;
                     src_end = array_val->type->data.array.len;
                     break;
@@ -20282,9 +20288,10 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case ZigTypeIdArray:
             {
                 size_t buf_i = 0;
+                // TODO optimize the buf case
                 expand_undef_array(codegen, val);
                 for (size_t elem_i = 0; elem_i < val->type->data.array.len; elem_i += 1) {
-                    ConstExprValue *elem = &val->data.x_array.s_none.elements[elem_i];
+                    ConstExprValue *elem = &val->data.x_array.data.s_none.elements[elem_i];
                     buf_write_value_bytes(codegen, &buf[buf_i], elem);
                     buf_i += type_size(codegen, elem->type);
                 }
