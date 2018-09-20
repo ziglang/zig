@@ -723,7 +723,9 @@ fn formatIntUnsigned(
     // max_int_digits accounts for the minus sign. when printing an unsigned
     // number we don't need to do that.
     var buf: [max_int_digits - 1]u8 = undefined;
-    var a = if (@sizeOf(@typeOf(value)) == 1) u8(value) else value;
+    const min_int_bits = comptime math.max(@typeOf(value).bit_count, @typeOf(base).bit_count);
+    const MinInt = @IntType(@typeOf(value).is_signed, min_int_bits);
+    var a: MinInt = value;
     var index: usize = buf.len;
 
     while (true) {
@@ -964,6 +966,14 @@ test "fmt.format" {
         const value = Struct{ .field = 42 };
         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", value);
         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", &value);
+    }
+    {
+        const Struct = struct {
+            a: u0,
+            b: u1,
+        };
+        const value = Struct{ .a = 0, .b = 1 };
+        try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", value);
     }
     {
         const Enum = enum {
