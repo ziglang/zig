@@ -10838,8 +10838,11 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     {
         ZigType *slice_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(slice_ptr_type->id == ZigTypeIdPointer);
-        if (types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
-            actual_type->data.pointer.child_type->data.array.child_type, source_node,
+        ZigType *array_type = actual_type->data.pointer.child_type;
+        bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
+                || !actual_type->data.pointer.is_const);
+        if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
+            array_type->data.array.child_type, source_node,
             !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
             return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_type);

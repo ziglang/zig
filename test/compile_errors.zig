@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "implicit cast const array to mutable slice",
+        \\export fn entry() void {
+        \\    const buffer: [1]u8 = []u8{8};
+        \\    const sliceA: []u8 = &buffer;
+        \\}
+    ,
+        ".tmp_source.zig:3:27: error: expected type '[]u8', found '*const [1]u8'",
+    );
+
+    cases.add(
         "deref slice and get len field",
         \\export fn entry() void {
         \\    var a: []u8 = undefined;
