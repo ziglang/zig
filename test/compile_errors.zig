@@ -3769,7 +3769,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:3:22: error: expected struct type, found 'i32'",
+        ".tmp_source.zig:3:26: error: expected struct type, found 'i32'",
     );
 
     cases.add(
@@ -3781,7 +3781,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:5:27: error: struct 'Foo' has no field 'a'",
+        ".tmp_source.zig:5:31: error: struct 'Foo' has no field 'a'",
     );
 
     cases.addExe(
@@ -5092,7 +5092,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const fieldOffset = @byteOffsetOf(Empty, "val",);
         \\}
     ,
-        ".tmp_source.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset",
+        ".tmp_source.zig:5:46: error: zero-bit field 'val' in struct 'Empty' has no offset",
     );
 
     cases.add(
@@ -5104,7 +5104,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const fieldOffset = @bitOffsetOf(Empty, "val",);
         \\}
     ,
-        ".tmp_source.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset",
+        ".tmp_source.zig:5:45: error: zero-bit field 'val' in struct 'Empty' has no offset",
     );
 
     cases.add(

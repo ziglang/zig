@@ -17088,30 +17088,36 @@ static ZigType *ir_analyze_instruction_byte_offset_of(IrAnalyze *ira,
         IrInstructionByteOffsetOf *instruction)
 {
     IrInstruction *type_value = instruction->type_value->other;
+    if (type_is_invalid(type_value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
     IrInstruction *field_name_value = instruction->field_name->other;
     size_t byte_offset = 0;
-    if (validate_byte_offset(ira, type_value, field_name_value, &byte_offset)) {
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        bigint_init_unsigned(&out_val->data.x_bigint, byte_offset);
-        return ira->codegen->builtin_types.entry_num_lit_int;
-    }
-    return ira->codegen->builtin_types.entry_invalid;
+    if (!validate_byte_offset(ira, type_value, field_name_value, &byte_offset))
+        return ira->codegen->builtin_types.entry_invalid;
+
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    bigint_init_unsigned(&out_val->data.x_bigint, byte_offset);
+    return ira->codegen->builtin_types.entry_num_lit_int;
 }
 
 static ZigType *ir_analyze_instruction_bit_offset_of(IrAnalyze *ira,
         IrInstructionBitOffsetOf *instruction)
 {
     IrInstruction *type_value = instruction->type_value->other;
+    if (type_is_invalid(type_value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
     IrInstruction *field_name_value = instruction->field_name->other;
     size_t byte_offset = 0;
     TypeStructField *field = nullptr;
-    if ((field = validate_byte_offset(ira, type_value, field_name_value, &byte_offset))) {
-        size_t bit_offset = byte_offset * 8 + field->packed_bits_offset;
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        bigint_init_unsigned(&out_val->data.x_bigint, bit_offset);
-        return ira->codegen->builtin_types.entry_num_lit_int;
-    }
-    return ira->codegen->builtin_types.entry_invalid;
+    if (!(field = validate_byte_offset(ira, type_value, field_name_value, &byte_offset)))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    size_t bit_offset = byte_offset * 8 + field->packed_bits_offset;
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    bigint_init_unsigned(&out_val->data.x_bigint, bit_offset);
+    return ira->codegen->builtin_types.entry_num_lit_int;
 }
 
 static void ensure_field_index(ZigType *type, const char *field_name, size_t index)

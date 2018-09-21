@@ -1947,6 +1947,15 @@ test "linked list" {
     assert(list2.first.?.data == 1234);
 }
       {#code_end#}
+      {#header_open|packed struct#}
+      <p>{#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout.</p>
+      <p>TODO bit fields</p>
+      <p>TODO alignment</p>
+      <p>TODO endianness</p>
+      <p>TODO @bitOffsetOf and @byteOffsetOf</p>
+      <p>TODO mention how volatile loads and stores of bit packed fields could be more efficient when
+      done by hand instead of with packed struct</p>
+      {#header_close#}
       {#header_open|struct Naming#}
       <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
       <ul>
@@ -5135,6 +5144,18 @@ fn seq(c: u8) void {
       Works at compile-time if {#syntax#}value{#endsyntax#} is known at compile time. It's a compile error to bitcast a struct to a scalar type of the same size since structs have undefined layout. However if the struct is packed then it works.
       </p>
       {#header_close#}
+      {#header_open|@bitOffsetOf#}
+      <pre>{#syntax#}@bitOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
+      <p>
+      Returns the bit offset of a field relative to its containing struct.
+      </p>
+      <p>
+      For non {#link|packed structs|packed struct#}, this will always be divisible by {#syntax#}8{#endsyntax#}.
+      For packed structs, non-byte-aligned fields will share a byte offset, but they will have different
+      bit offsets.
+      </p>
+      {#see_also|@byteOffsetOf#}
+      {#header_close#}
       {#header_open|@breakpoint#}
       <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
       <p>
@@ -5145,6 +5166,13 @@ fn seq(c: u8) void {
       This function is only valid within function scope.
       </p>
 
+      {#header_close#}
+      {#header_open|@byteOffsetOf#}
+      <pre>{#syntax#}@byteOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
+      <p>
+      Returns the byte offset of a field relative to its containing struct.
+      </p>
+      {#see_also|@bitOffsetOf#}
       {#header_close#}
       {#header_open|@alignCast#}
       <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: var) var{#endsyntax#}</pre>
@@ -5867,18 +5895,6 @@ fn add(a: i32, b: i32) i32 {
       will not be inlined. If the call must be inlined, a compile error is emitted.
       </p>
       {#see_also|@inlineCall#}
-      {#header_close#}
-      {#header_open|@offsetOf#}
-      <pre>{#syntax#}@byteOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
-      <p>
-      This function returns the byte offset of a field relative to its containing struct.
-      </p>
-      {#header_close#}
-      {#header_open|@bitOffsetOf#}
-      <pre><code class="zig">@bitOffsetOf(comptime T: type, comptime field_name: [] const u8) (number literal)</code></pre>
-      <p>
-      This function returns the bit offset of a field relative to its containing struct.
-      </p>
       {#header_close#}
       {#header_open|@OpaqueType#}
       <pre>{#syntax#}@OpaqueType() type{#endsyntax#}</pre>

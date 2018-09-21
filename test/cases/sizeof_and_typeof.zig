@@ -1,13 +1,14 @@
+const builtin = @import("builtin");
 const assert = @import("std").debug.assert;
 
-test "sizeofAndTypeOf" {
+test "@sizeOf and @typeOf" {
     const y: @typeOf(x) = 120;
     assert(@sizeOf(@typeOf(y)) == 2);
 }
 const x: u16 = 13;
 const z: @typeOf(x) = 19;
 
-const S = struct {
+const A = struct {
     a: u8,
     b: u32,
     c: u8,
@@ -27,24 +28,42 @@ const P = packed struct {
     g: u16,
 };
 
-test "byteOffsetOf" {
-    const p: P = undefined;
-    std.debug.assert(@byteOffsetOf(P, "a") == 0 and @byteOffsetOf(S, "a") == 0);
-    std.debug.assert(@byteOffsetOf(P, "b") == 1 and @byteOffsetOf(S, "b") == 4);
-    std.debug.assert(@byteOffsetOf(P, "c") == 5 and @byteOffsetOf(S, "c") == 8);
-    std.debug.assert(@byteOffsetOf(P, "d") == 6 and @byteOffsetOf(S, "d") == 9);
-    std.debug.assert(@byteOffsetOf(P, "e") == 6 and @byteOffsetOf(S, "e") == 10);
-    std.debug.assert(@byteOffsetOf(P, "f") == 7 and @byteOffsetOf(S, "f") == 12);
-    std.debug.assert(@byteOffsetOf(P, "g") == 9 and @byteOffsetOf(S, "g") == 14);
+test "@byteOffsetOf" {
+    // Packed structs have fixed memory layout
+    assert(@byteOffsetOf(P, "a") == 0);
+    assert(@byteOffsetOf(P, "b") == 1);
+    assert(@byteOffsetOf(P, "c") == 5);
+    assert(@byteOffsetOf(P, "d") == 6);
+    assert(@byteOffsetOf(P, "e") == 6);
+    assert(@byteOffsetOf(P, "f") == 7);
+    assert(@byteOffsetOf(P, "g") == 9);
+
+    // Normal struct fields can be moved/padded
+    var a: A = undefined;
+    assert(@ptrToInt(&a.a) - @ptrToInt(&a) == @byteOffsetOf(A, "a"));
+    assert(@ptrToInt(&a.b) - @ptrToInt(&a) == @byteOffsetOf(A, "b"));
+    assert(@ptrToInt(&a.c) - @ptrToInt(&a) == @byteOffsetOf(A, "c"));
+    assert(@ptrToInt(&a.d) - @ptrToInt(&a) == @byteOffsetOf(A, "d"));
+    assert(@ptrToInt(&a.e) - @ptrToInt(&a) == @byteOffsetOf(A, "e"));
+    assert(@ptrToInt(&a.f) - @ptrToInt(&a) == @byteOffsetOf(A, "f"));
+    assert(@ptrToInt(&a.g) - @ptrToInt(&a) == @byteOffsetOf(A, "g"));
 }
 
-test "bitOffsetOf" {
-    const p: P = undefined;
-    std.debug.assert(@bitOffsetOf(P, "a") == 0 and @bitOffsetOf(S, "a") == 0);
-    std.debug.assert(@bitOffsetOf(P, "b") == 8 and @bitOffsetOf(S, "b") == 32);
-    std.debug.assert(@bitOffsetOf(P, "c") == 40 and @bitOffsetOf(S, "c") == 64);
-    std.debug.assert(@bitOffsetOf(P, "d") == 48 and @bitOffsetOf(S, "d") == 72);
-    std.debug.assert(@bitOffsetOf(P, "e") == 51 and @bitOffsetOf(S, "e") == 80);
-    std.debug.assert(@bitOffsetOf(P, "f") == 56 and @bitOffsetOf(S, "f") == 96);
-    std.debug.assert(@bitOffsetOf(P, "g") == 72 and @bitOffsetOf(S, "g") == 112);
+test "@bitOffsetOf" {
+    // Packed structs have fixed memory layout
+    assert(@bitOffsetOf(P, "a") == 0);
+    assert(@bitOffsetOf(P, "b") == 8);
+    assert(@bitOffsetOf(P, "c") == 40);
+    assert(@bitOffsetOf(P, "d") == 48);
+    assert(@bitOffsetOf(P, "e") == 51);
+    assert(@bitOffsetOf(P, "f") == 56);
+    assert(@bitOffsetOf(P, "g") == 72);
+
+    assert(@byteOffsetOf(A, "a") * 8 == @bitOffsetOf(A, "a"));
+    assert(@byteOffsetOf(A, "b") * 8 == @bitOffsetOf(A, "b"));
+    assert(@byteOffsetOf(A, "c") * 8 == @bitOffsetOf(A, "c"));
+    assert(@byteOffsetOf(A, "d") * 8 == @bitOffsetOf(A, "d"));
+    assert(@byteOffsetOf(A, "e") * 8 == @bitOffsetOf(A, "e"));
+    assert(@byteOffsetOf(A, "f") * 8 == @bitOffsetOf(A, "f"));
+    assert(@byteOffsetOf(A, "g") * 8 == @bitOffsetOf(A, "g"));
 }
