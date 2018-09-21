@@ -720,8 +720,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFieldParentPtr *
     return IrInstructionIdFieldParentPtr;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionOffsetOf *) {
-    return IrInstructionIdOffsetOf;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionByteOffsetOf *) {
+    return IrInstructionIdByteOffsetOf;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBitOffsetOf *) {
+    return IrInstructionIdBitOffsetOf;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeInfo *) {
@@ -2628,10 +2632,23 @@ static IrInstruction *ir_build_field_parent_ptr(IrBuilder *irb, Scope *scope, As
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_offset_of(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstruction *ir_build_byte_offset_of(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *type_value, IrInstruction *field_name)
 {
-    IrInstructionOffsetOf *instruction = ir_build_instruction<IrInstructionOffsetOf>(irb, scope, source_node);
+    IrInstructionByteOffsetOf *instruction = ir_build_instruction<IrInstructionByteOffsetOf>(irb, scope, source_node);
+    instruction->type_value = type_value;
+    instruction->field_name = field_name;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+    ir_ref_instruction(field_name, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_bit_offset_of(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *type_value, IrInstruction *field_name)
+{
+    IrInstructionBitOffsetOf *instruction = ir_build_instruction<IrInstructionBitOffsetOf>(irb, scope, source_node);
     instruction->type_value = type_value;
     instruction->field_name = field_name;
 
@@ -4688,7 +4705,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *field_parent_ptr = ir_build_field_parent_ptr(irb, scope, node, arg0_value, arg1_value, arg2_value, nullptr);
                 return ir_lval_wrap(irb, scope, field_parent_ptr, lval);
             }
-        case BuiltinFnIdOffsetOf:
+        case BuiltinFnIdByteOffsetOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
@@ -4700,7 +4717,22 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *offset_of = ir_build_offset_of(irb, scope, node, arg0_value, arg1_value);
+                IrInstruction *offset_of = ir_build_byte_offset_of(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, offset_of, lval);
+            }
+        case BuiltinFnIdBitOffsetOf:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *offset_of = ir_build_bit_offset_of(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, offset_of, lval);
             }
         case BuiltinFnIdInlineCall:
@@ -17010,47 +17042,76 @@ static ZigType *ir_analyze_instruction_field_parent_ptr(IrAnalyze *ira,
     return result_type;
 }
 
-static ZigType *ir_analyze_instruction_offset_of(IrAnalyze *ira,
-        IrInstructionOffsetOf *instruction)
+static TypeStructField *validate_byte_offset(IrAnalyze *ira,
+        IrInstruction *type_value,
+        IrInstruction *field_name_value,
+        size_t *byte_offset) 
 {
-    Error err;
-    IrInstruction *type_value = instruction->type_value->other;
     ZigType *container_type = ir_resolve_type(ira, type_value);
     if (type_is_invalid(container_type))
-        return ira->codegen->builtin_types.entry_invalid;
+        return nullptr;
 
+    Error err;
     if ((err = ensure_complete_type(ira->codegen, container_type)))
-        return ira->codegen->builtin_types.entry_invalid;
+        return nullptr;
 
-    IrInstruction *field_name_value = instruction->field_name->other;
     Buf *field_name = ir_resolve_str(ira, field_name_value);
     if (!field_name)
-        return ira->codegen->builtin_types.entry_invalid;
+        return nullptr;
 
     if (container_type->id != ZigTypeIdStruct) {
         ir_add_error(ira, type_value,
                 buf_sprintf("expected struct type, found '%s'", buf_ptr(&container_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
+        return nullptr;
     }
 
     TypeStructField *field = find_struct_type_field(container_type, field_name);
     if (field == nullptr) {
         ir_add_error(ira, field_name_value,
                 buf_sprintf("struct '%s' has no field '%s'",
-                    buf_ptr(&container_type->name), buf_ptr(field_name)));
-        return ira->codegen->builtin_types.entry_invalid;
+                        buf_ptr(&container_type->name), buf_ptr(field_name)));
+        return nullptr;
     }
 
     if (!type_has_bits(field->type_entry)) {
         ir_add_error(ira, field_name_value,
-                     buf_sprintf("zero-bit field '%s' in struct '%s' has no offset",
-                                 buf_ptr(field_name), buf_ptr(&container_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
+                buf_sprintf("zero-bit field '%s' in struct '%s' has no offset",
+                        buf_ptr(field_name), buf_ptr(&container_type->name)));
+        return nullptr;
     }
-    size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, container_type->type_ref, field->gen_index);
-    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    bigint_init_unsigned(&out_val->data.x_bigint, byte_offset);
-    return ira->codegen->builtin_types.entry_num_lit_int;
+
+    *byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, container_type->type_ref, field->gen_index);
+    return field;
+}
+
+static ZigType *ir_analyze_instruction_byte_offset_of(IrAnalyze *ira,
+        IrInstructionByteOffsetOf *instruction)
+{
+    IrInstruction *type_value = instruction->type_value->other;
+    IrInstruction *field_name_value = instruction->field_name->other;
+    size_t byte_offset = 0;
+    if (validate_byte_offset(ira, type_value, field_name_value, &byte_offset)) {
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        bigint_init_unsigned(&out_val->data.x_bigint, byte_offset);
+        return ira->codegen->builtin_types.entry_num_lit_int;
+    }
+    return ira->codegen->builtin_types.entry_invalid;
+}
+
+static ZigType *ir_analyze_instruction_bit_offset_of(IrAnalyze *ira,
+        IrInstructionBitOffsetOf *instruction)
+{
+    IrInstruction *type_value = instruction->type_value->other;
+    IrInstruction *field_name_value = instruction->field_name->other;
+    size_t byte_offset = 0;
+    TypeStructField *field = nullptr;
+    if ((field = validate_byte_offset(ira, type_value, field_name_value, &byte_offset))) {
+        size_t bit_offset = byte_offset * 8 + field->packed_bits_offset;
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        bigint_init_unsigned(&out_val->data.x_bigint, bit_offset);
+        return ira->codegen->builtin_types.entry_num_lit_int;
+    }
+    return ira->codegen->builtin_types.entry_invalid;
 }
 
 static void ensure_field_index(ZigType *type, const char *field_name, size_t index)
@@ -21550,8 +21611,10 @@ static ZigType *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *ins
             return ir_analyze_instruction_enum_tag_name(ira, (IrInstructionTagName *)instruction);
         case IrInstructionIdFieldParentPtr:
             return ir_analyze_instruction_field_parent_ptr(ira, (IrInstructionFieldParentPtr *)instruction);
-        case IrInstructionIdOffsetOf:
-            return ir_analyze_instruction_offset_of(ira, (IrInstructionOffsetOf *)instruction);
+        case IrInstructionIdByteOffsetOf:
+            return ir_analyze_instruction_byte_offset_of(ira, (IrInstructionByteOffsetOf *)instruction);
+        case IrInstructionIdBitOffsetOf:
+            return ir_analyze_instruction_bit_offset_of(ira, (IrInstructionBitOffsetOf *)instruction);
         case IrInstructionIdTypeInfo:
             return ir_analyze_instruction_type_info(ira, (IrInstructionTypeInfo *) instruction);
         case IrInstructionIdTypeId:
@@ -21835,7 +21898,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTypeName:
         case IrInstructionIdTagName:
         case IrInstructionIdFieldParentPtr:
-        case IrInstructionIdOffsetOf:
+        case IrInstructionIdByteOffsetOf:
+        case IrInstructionIdBitOffsetOf:
         case IrInstructionIdTypeInfo:
         case IrInstructionIdTypeId:
         case IrInstructionIdAlignCast:
