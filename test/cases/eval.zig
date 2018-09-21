@@ -710,3 +710,16 @@ test "@bytesToslice on a packed struct" {
     var f = @bytesToSlice(F, b);
     assert(f[0].a == 9);
 }
+
+test "comptime pointer cast array and then slice" {
+    const array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+
+    const ptrA: [*]const u8 = @ptrCast([*]const u8, &array);
+    const sliceA: []const u8 = ptrA[0..2];
+
+    const ptrB: [*]const u8 = &array;
+    const sliceB: []const u8 = ptrB[0..2];
+
+    assert(sliceA[1] == 2);
+    assert(sliceB[1] == 2);
+}

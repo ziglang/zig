@@ -19073,11 +19073,7 @@ static ZigType *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructionSlice 
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else {
-            ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.pointer.child_type,
-                    array_type->data.pointer.is_const, array_type->data.pointer.is_volatile,
-                    PtrLenUnknown,
-                    array_type->data.pointer.explicit_alignment, 0, 0);
-            return_type = get_slice_type(ira->codegen, slice_ptr_type);
+            return_type = get_slice_type(ira->codegen, array_type);
             if (!end) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
                 return ira->codegen->builtin_types.entry_invalid;
@@ -19141,9 +19137,15 @@ static ZigType *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructionSlice 
                 case ConstPtrSpecialDiscard:
                     zig_unreachable();
                 case ConstPtrSpecialRef:
-                    array_val = nullptr;
-                    abs_offset = SIZE_MAX;
-                    rel_end = 1;
+                    if (parent_ptr->data.x_ptr.data.ref.pointee->type->id == ZigTypeIdArray) {
+                        array_val = parent_ptr->data.x_ptr.data.ref.pointee;
+                        abs_offset = 0;
+                        rel_end = array_val->type->data.array.len;
+                    } else {
+                        array_val = nullptr;
+                        abs_offset = SIZE_MAX;
+                        rel_end = 1;
+                    }
                     break;
                 case ConstPtrSpecialBaseArray:
                     array_val = parent_ptr->data.x_ptr.data.base_array.array_val;
