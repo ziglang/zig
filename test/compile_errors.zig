@@ -3763,25 +3763,25 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "@offsetOf - non struct",
+        "@byteOffsetOf - non struct",
         \\const Foo = i32;
         \\export fn foo() usize {
-        \\    return @offsetOf(Foo, "a",);
+        \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:3:22: error: expected struct type, found 'i32'",
+        ".tmp_source.zig:3:26: error: expected struct type, found 'i32'",
     );
 
     cases.add(
-        "@offsetOf - bad field name",
+        "@byteOffsetOf - bad field name",
         \\const Foo = struct {
         \\    derp: i32,
         \\};
         \\export fn foo() usize {
-        \\    return @offsetOf(Foo, "a",);
+        \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:5:27: error: struct 'Foo' has no field 'a'",
+        ".tmp_source.zig:5:31: error: struct 'Foo' has no field 'a'",
     );
 
     cases.addExe(
@@ -5084,15 +5084,27 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "taking offset of void field in struct",
+        "taking byte offset of void field in struct",
         \\const Empty = struct {
         \\    val: void,
         \\};
         \\export fn foo() void {
-        \\    const fieldOffset = @offsetOf(Empty, "val",);
+        \\    const fieldOffset = @byteOffsetOf(Empty, "val",);
         \\}
     ,
-        ".tmp_source.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset",
+        ".tmp_source.zig:5:46: error: zero-bit field 'val' in struct 'Empty' has no offset",
+    );
+
+    cases.add(
+        "taking bit offset of void field in struct",
+        \\const Empty = struct {
+        \\    val: void,
+        \\};
+        \\export fn foo() void {
+        \\    const fieldOffset = @bitOffsetOf(Empty, "val",);
+        \\}
+    ,
+        ".tmp_source.zig:5:45: error: zero-bit field 'val' in struct 'Empty' has no offset",
     );
 
     cases.add(
