@@ -2896,7 +2896,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a.*;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: attempt to dereference undefined value",
     );
 
     cases.add(

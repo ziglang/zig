@@ -153,6 +153,8 @@ static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_ali
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align);
 static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val);
 static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val);
+static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
+        ConstExprValue *out_val, ConstExprValue *ptr_val);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -11205,33 +11207,41 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Zig
 }
 
 static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr) {
+    Error err;
     ZigType *type_entry = ptr->value.type;
     if (type_is_invalid(type_entry)) {
         return ira->codegen->invalid_instruction;
     } else if (type_entry->id == ZigTypeIdPointer) {
         ZigType *child_type = type_entry->data.pointer.child_type;
-        if (instr_is_comptime(ptr)) {
-            if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst ||
-                ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
-            {
-                ConstExprValue *pointee = ir_const_ptr_pointee(ira, &ptr->value, source_instruction->source_node);
-                if (pointee == nullptr)
-                    return ira->codegen->invalid_instruction;
-                if (pointee->special != ConstValSpecialRuntime) {
-                    IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
-                        source_instruction->source_node, child_type);
-                    copy_const_val(&result->value, pointee, ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst);
-                    result->value.type = child_type;
-                    return result;
-                }
-            }
-        }
         // dereferencing a *u0 is comptime known to be 0
         if (child_type->id == ZigTypeIdInt && child_type->data.integral.bit_count == 0) {
             IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
                 source_instruction->source_node, child_type);
             init_const_unsigned_negative(&result->value, child_type, 0, false);
             return result;
+        }
+        if (instr_is_comptime(ptr)) {
+            if (ptr->value.special == ConstValSpecialUndef) {
+                ir_add_error(ira, ptr, buf_sprintf("attempt to dereference undefined value"));
+                return ira->codegen->invalid_instruction;
+            }
+            if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst ||
+                ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
+            {
+                ConstExprValue *pointee = const_ptr_pointee_unchecked(ira->codegen, &ptr->value);
+                if (pointee->special != ConstValSpecialRuntime) {
+                    IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
+                        source_instruction->source_node, child_type);
+
+                    if ((err = ir_read_const_ptr(ira, source_instruction->source_node, &result->value,
+                                    &ptr->value)))
+                    {
+                        return ira->codegen->invalid_instruction;
+                    }
+                    result->value.type = child_type;
+                    return result;
+                }
+            }
         }
         // TODO if the instruction is a const ref instruction we can skip it
         IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope,
@@ -13931,9 +13941,15 @@ static ZigType *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionCall *c
 static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
         ConstExprValue *out_val, ConstExprValue *ptr_val)
 {
+    Error err;
     assert(out_val->type != nullptr);
 
     ConstExprValue *pointee = const_ptr_pointee_unchecked(ira->codegen, ptr_val);
+
+    if ((err = type_resolve(ira->codegen, pointee->type, ResolveStatusSizeKnown)))
+        return ErrorSemanticAnalyzeFail;
+    if ((err = type_resolve(ira->codegen, out_val->type, ResolveStatusSizeKnown)))
+        return ErrorSemanticAnalyzeFail;
 
     size_t src_size = type_size(ira->codegen, pointee->type);
     size_t dst_size = type_size(ira->codegen, out_val->type);
@@ -13955,48 +13971,6 @@ static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
     buf_write_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), pointee);
     buf_read_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), out_val);
     return ErrorNone;
-}
-
-static ZigType *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
-    Error err;
-    IrInstruction *value = un_op_instruction->value->other;
-
-    ZigType *ptr_type = value->value.type;
-    ZigType *child_type;
-    if (type_is_invalid(ptr_type)) {
-        return ira->codegen->builtin_types.entry_invalid;
-    } else if (ptr_type->id == ZigTypeIdPointer) {
-        if (ptr_type->data.pointer.ptr_len == PtrLenUnknown) {
-            ir_add_error_node(ira, un_op_instruction->base.source_node,
-                buf_sprintf("index syntax required for unknown-length pointer type '%s'",
-                    buf_ptr(&ptr_type->name)));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-        child_type = ptr_type->data.pointer.child_type;
-    } else {
-        ir_add_error_node(ira, un_op_instruction->base.source_node,
-            buf_sprintf("attempt to dereference non-pointer type '%s'",
-                buf_ptr(&ptr_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    // this dereference is always an rvalue because in the IR gen we identify lvalue and emit
-    // one of the ptr instructions
-
-    if (instr_is_comptime(value)) {
-        ConstExprValue *comptime_value = ir_resolve_const(ira, value, UndefBad);
-        if (comptime_value == nullptr)
-            return ira->codegen->builtin_types.entry_invalid;
-
-        ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
-        out_val->type = child_type;
-        if ((err = ir_read_const_ptr(ira, un_op_instruction->base.source_node, out_val, comptime_value)))
-            return ira->codegen->builtin_types.entry_invalid;
-        return child_type;
-    }
-
-    ir_build_load_ptr_from(&ira->new_irb, &un_op_instruction->base, value);
-    return child_type;
 }
 
 static ZigType *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
@@ -14131,8 +14105,25 @@ static ZigType *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructionUnOp *
         case IrUnOpNegation:
         case IrUnOpNegationWrap:
             return ir_analyze_negation(ira, un_op_instruction);
-        case IrUnOpDereference:
-            return ir_analyze_dereference(ira, un_op_instruction);
+        case IrUnOpDereference: {
+            IrInstruction *ptr = un_op_instruction->value->other;
+            if (type_is_invalid(ptr->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+            ZigType *ptr_type = ptr->value.type;
+            if (ptr_type->id == ZigTypeIdPointer && ptr_type->data.pointer.ptr_len == PtrLenUnknown) {
+                ir_add_error_node(ira, un_op_instruction->base.source_node,
+                    buf_sprintf("index syntax required for unknown-length pointer type '%s'",
+                        buf_ptr(&ptr_type->name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+            // this dereference is always an rvalue because in the IR gen we identify lvalue and emit
+            // one of the ptr instructions
+            IrInstruction *result = ir_get_deref(ira, &un_op_instruction->base, ptr);
+            if (result == ira->codegen->invalid_instruction)
+                return ira->codegen->builtin_types.entry_invalid;
+            ir_link_new_instruction(result, &un_op_instruction->base);
+            return result->value.type;
+        }
         case IrUnOpOptional:
             return ir_analyze_maybe(ira, un_op_instruction);
     }
