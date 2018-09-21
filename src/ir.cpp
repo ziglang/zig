@@ -12399,7 +12399,8 @@ static ZigType *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *instruc
         assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
         op1_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op1_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
-        op1_array_end = op1_array_val->type->data.array.len;
+        ConstExprValue *len_val = &op1_val->data.x_struct.fields[slice_len_index];
+        op1_array_end = bigint_as_unsigned(&len_val->data.x_bigint);
     } else {
         ir_add_error(ira, op1,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->value.type->name)));
@@ -12446,6 +12447,8 @@ static ZigType *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *instruc
         op2_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op2_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
         op2_array_end = op2_array_val->type->data.array.len;
+        ConstExprValue *len_val = &op2_val->data.x_struct.fields[slice_len_index];
+        op2_array_end = bigint_as_unsigned(&len_val->data.x_bigint);
     } else {
         ir_add_error(ira, op2,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op2->value.type->name)));

@@ -723,3 +723,17 @@ test "comptime pointer cast array and then slice" {
     assert(sliceA[1] == 2);
     assert(sliceB[1] == 2);
 }
+
+test "slice bounds in comptime concatenation" {
+    const bs = comptime blk: {
+        const b = c"11";
+        break :blk b[0..1];
+    };
+    const str = "" ++ bs;
+    assert(str.len == 1);
+    assert(std.mem.eql(u8, str, "1"));
+
+    const str2 = bs ++ "";
+    assert(str2.len == 1);
+    assert(std.mem.eql(u8, str2, "1"));
+}
