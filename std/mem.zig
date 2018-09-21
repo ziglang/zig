@@ -410,8 +410,8 @@ test "mem.indexOf" {
 /// the result.
 /// See also ::readIntBE or ::readIntLE.
 pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
-    if (T.bit_count == 8) {
-        return bytes[0];
+    if (T.bit_count <= 8) {
+        return convertSmallInt(T, bytes[0]);
     }
     var result: T = 0;
     switch (endian) {
@@ -433,6 +433,9 @@ pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
 /// Reads a big-endian int of type T from bytes.
 /// bytes.len must be exactly @sizeOf(T).
 pub fn readIntBE(comptime T: type, bytes: []const u8) T {
+    if (T.bit_count <= 8) {
+        return convertSmallInt(T, bytes[0]);
+    }
     if (T.is_signed) {
         return @bitCast(T, readIntBE(@IntType(false, T.bit_count), bytes));
     }
@@ -450,6 +453,9 @@ pub fn readIntBE(comptime T: type, bytes: []const u8) T {
 /// Reads a little-endian int of type T from bytes.
 /// bytes.len must be exactly @sizeOf(T).
 pub fn readIntLE(comptime T: type, bytes: []const u8) T {
+    if (T.bit_count <= 8) {
+        return convertSmallInt(T, bytes[0]);
+    }
     if (T.is_signed) {
         return @bitCast(T, readIntLE(@IntType(false, T.bit_count), bytes));
     }
@@ -462,6 +468,17 @@ pub fn readIntLE(comptime T: type, bytes: []const u8) T {
         }
     }
     return result;
+}
+
+// Convert small integers with bit_count <= 8
+fn convertSmallInt(comptime T: type, byte: u8) T {
+    if (T.bit_count == 0) {
+        return 0;
+    } else if (T.is_signed) {
+        return @truncate(T, @bitCast(i8, byte));
+    } else {
+        return @truncate(T, byte);
+    }
 }
 
 /// Writes an integer to memory with size equal to bytes.len. Pads with zeroes
@@ -671,6 +688,140 @@ fn testReadIntImpl() void {
         assert(readIntBE(i16, bytes) == -0x0002);
         assert(readIntLE(u16, bytes) == 0xfeff);
         assert(readIntLE(i16, bytes) == -0x0101);
+    }
+    {
+        const buf = []u8{
+            0xa5,
+        };
+        const answer = readInt(buf, u8, builtin.Endian.Little);
+        assert(answer == 0xa5);
+    }
+    {
+        const buf = []u8{
+            0xa5,
+        };
+        const answer = readInt(buf, u8, builtin.Endian.Big);
+        assert(answer == 0xa5);
+    }
+    {
+        const bytes = []u8{
+            0xa5,
+        };
+        assert(readIntBE(u8, bytes) == 0xa5);
+        assert(readIntBE(i8, bytes) == -91);
+        assert(readIntLE(u8, bytes) == 0xa5);
+        assert(readIntLE(i8, bytes) == -91);
+    }
+    {
+        const buf = []u8{
+            0xa5,
+        };
+        const answer = readInt(buf, u7, builtin.Endian.Little);
+        assert(answer == 0x25);
+    }
+    {
+        const buf = []u8{
+            0xa5,
+        };
+        const answer = readInt(buf, u7, builtin.Endian.Big);
+        assert(answer == 0x25);
+    }
+    {
+        const bytes = []u8{
+            0xa5,
+        };
+        assert(readIntBE(u7, bytes) == 0x25);
+        assert(readIntBE(i7, bytes) == 37);
+        assert(readIntLE(u7, bytes) == 0x25);
+        assert(readIntLE(i7, bytes) == 37);
+    }
+    {
+        const buf = []u8{
+            0xa5,
+        };
+        const answer = readInt(buf, u6, builtin.Endian.Little);
+        assert(answer == 0x25);
+    }
+    {
+        const buf = []u8{
+            0xa5,
+        };
+        const answer = readInt(buf, u6, builtin.Endian.Big);
+        assert(answer == 0x25);
+    }
+    {
+        const bytes = []u8{
+            0xa5,
+        };
+        assert(readIntBE(u6, bytes) == 0x25);
+        assert(readIntBE(i6, bytes) == -0x1b); // ~0x25 + 1 == -0x1b
+        assert(readIntLE(u6, bytes) == 0x25);
+        assert(readIntLE(i6, bytes) == -0x1b); // ~0x25 + 1 == -0x1b
+    }
+    {
+        const buf = []u8{
+            0x05a,
+        };
+        const answer = readInt(buf, u2, builtin.Endian.Little);
+        assert(answer == 0x02);
+    }
+    {
+        const buf = []u8{
+            0x5a,
+        };
+        const answer = readInt(buf, u2, builtin.Endian.Big);
+        assert(answer == 0x02);
+    }
+    {
+        const bytes = []u8{
+            0x5a,
+        };
+        assert(readIntBE(u2, bytes) == 0x02);
+        assert(readIntBE(i2, bytes) == -0x02); // ~0x02 + 1 == -0x02
+        assert(readIntLE(u2, bytes) == 0x02);
+        assert(readIntLE(i2, bytes) == -0x02); // ~0x25 + 1 == -0x02
+    }
+    {
+        const buf = []u8{
+            0x0a5,
+        };
+        const answer = readInt(buf, u1, builtin.Endian.Little);
+        assert(answer == 0x01);
+    }
+    {
+        const buf = []u8{
+            0xa5,
+        };
+        const answer = readInt(buf, u1, builtin.Endian.Big);
+        assert(answer == 0x01);
+    }
+    {
+        const bytes = []u8{
+            0xa5,
+        };
+        assert(readIntBE(u1, bytes) == 0x01);
+        assert(readIntLE(u1, bytes) == 0x01);
+    }
+    {
+        const buf = []u8{
+            0x0a5,
+        };
+        const answer = readInt(buf, u0, builtin.Endian.Little);
+        assert(answer == 0x00);
+    }
+    {
+        const buf = []u8{
+            0xa5,
+        };
+        const answer = readInt(buf, u0, builtin.Endian.Big);
+        assert(answer == 0x00);
+    }
+    {
+        const bytes = []u8{
+            0xa5,
+        };
+        assert(readIntBE(u0, bytes) == 0x00);
+        assert(readIntLE(u0, bytes) == 0x00);
     }
 }
 
