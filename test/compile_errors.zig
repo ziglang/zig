@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "comptime slice of an undefined slice",
+        \\comptime {
+        \\    var a: []u8 = undefined;
+        \\    var b = a[0..10];
+        \\}
+    ,
+        ".tmp_source.zig:3:14: error: slice of undefined",
+    );
+
+    cases.add(
         "implicit cast const array to mutable slice",
         \\export fn entry() void {
         \\    const buffer: [1]u8 = []u8{8};

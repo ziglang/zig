@@ -19229,6 +19229,11 @@ static ZigType *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructionSlice 
                 return ira->codegen->builtin_types.entry_invalid;
 
             parent_ptr = &slice_ptr->data.x_struct.fields[slice_ptr_index];
+            if (parent_ptr->special == ConstValSpecialUndef) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("slice of undefined"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+
             ConstExprValue *len_val = &slice_ptr->data.x_struct.fields[slice_len_index];
 
             switch (parent_ptr->data.x_ptr.special) {
