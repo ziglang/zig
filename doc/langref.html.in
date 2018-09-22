@@ -6502,6 +6502,7 @@ pub fn build(b: *Builder) void {
         <li>Safety checks enabled</li>
         <li>Slow runtime performance</li>
         <li>Large binary size</li>
+        <li>No reproducible build requirement</li>
       </ul>
       {#header_close#}
       {#header_open|ReleaseFast#}
@@ -6511,6 +6512,7 @@ pub fn build(b: *Builder) void {
         <li>Safety checks disabled</li>
         <li>Slow compilation speed</li>
         <li>Large binary size</li>
+        <li>Reproducible build</li>
       </ul>
       {#header_close#}
       {#header_open|ReleaseSafe#}
@@ -6520,6 +6522,7 @@ pub fn build(b: *Builder) void {
         <li>Safety checks enabled</li>
         <li>Slow compilation speed</li>
         <li>Large binary size</li>
+        <li>Reproducible build</li>
       </ul>
       {#header_close#}
       {#header_open|ReleaseSmall#}
@@ -6529,6 +6532,7 @@ pub fn build(b: *Builder) void {
         <li>Safety checks disabled</li>
         <li>Slow compilation speed</li>
         <li>Small binary size</li>
+        <li>Reproducible build</li>
       </ul>
       {#header_close#}
       {#see_also|Compile Variables|Zig Build System|Undefined Behavior#}
