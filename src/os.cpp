@@ -1378,8 +1378,6 @@ int os_init(void) {
 #if defined(ZIG_OS_WINDOWS)
     _setmode(fileno(stdout), _O_BINARY);
     _setmode(fileno(stderr), _O_BINARY);
-#endif
-#if defined(ZIG_OS_WINDOWS)
     unsigned __int64 frequency;
     if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {
         win32_time_resolution = 1.0 / (double) frequency;
