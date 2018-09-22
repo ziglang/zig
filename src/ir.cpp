@@ -9874,6 +9874,7 @@ static ZigType *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
     if (!const_val)
         return ira->codegen->builtin_types.entry_invalid;
 
+    assert(const_val->data.x_type != nullptr);
     return const_val->data.x_type;
 }
 
@@ -16880,7 +16881,9 @@ static ZigType *ir_analyze_instruction_compile_log(IrAnalyze *ira, IrInstruction
     }
     fprintf(stderr, "\n");
 
-    ir_add_error(ira, &instruction->base, buf_sprintf("found compile log statement"));
+    // Here we bypass higher level functions such as ir_add_error because we do not want
+    // invalidate_exec to be called.
+    add_node_error(ira->codegen, instruction->base.source_node, buf_sprintf("found compile log statement"));
 
     ir_build_const_from(ira, &instruction->base);
     return ira->codegen->builtin_types.entry_void;

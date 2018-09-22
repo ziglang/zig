@@ -2,6 +2,20 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "compile log statement inside function which must be comptime evaluated",
+        \\fn Foo(comptime T: type) type {
+        \\    @compileLog(@typeName(T));
+        \\    return T;
+        \\}
+        \\export fn entry() void {
+        \\    _ = Foo(i32);
+        \\    _ = @typeName(Foo(i32));
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: found compile log statement",
+    );
+
+    cases.add(
         "comptime slice of an undefined slice",
         \\comptime {
         \\    var a: []u8 = undefined;
@@ -3472,11 +3486,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:5:5: error: found compile log statement",
-        ".tmp_source.zig:2:17: note: called from here",
         ".tmp_source.zig:6:5: error: found compile log statement",
-        ".tmp_source.zig:2:17: note: called from here",
         ".tmp_source.zig:7:5: error: found compile log statement",
-        ".tmp_source.zig:2:17: note: called from here",
     );
 
     cases.add(
