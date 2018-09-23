@@ -2022,7 +2022,7 @@ pub fn args() ArgIterator {
     return ArgIterator.init();
 }
 
-/// Caller must call freeArgs on result.
+/// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
     // TODO refactor to only make 1 allocation.
     var it = args();
