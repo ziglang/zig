@@ -211,7 +211,7 @@ pub const Error = union(enum) {
 
     pub const ExpectedToken = struct {
         token: TokenIndex,
-        expected_id: @TagType(Token.Id),
+        expected_id: Token.Id,
 
         pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
             const token_name = @tagName(tokens.at(self.token).id);
@@ -221,7 +221,7 @@ pub const Error = union(enum) {
 
     pub const ExpectedCommaOrEnd = struct {
         token: TokenIndex,
-        end_id: @TagType(Token.Id),
+        end_id: Token.Id,
 
         pub fn render(self: *const ExpectedCommaOrEnd, tokens: *Tree.TokenList, stream: var) !void {
             const token_name = @tagName(tokens.at(self.token).id);
