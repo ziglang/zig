@@ -2846,12 +2846,12 @@ const ContainerKindCtx = struct {
 };
 
 const ExpectTokenSave = struct {
-    id: @TagType(Token.Id),
+    id: Token.Id,
     ptr: *TokenIndex,
 };
 
 const OptionalTokenSave = struct {
-    id: @TagType(Token.Id),
+    id: Token.Id,
     ptr: *?TokenIndex,
 };
 
@@ -3066,9 +3066,9 @@ const State = union(enum) {
     Identifier: OptionalCtx,
     ErrorTag: **ast.Node,
 
-    IfToken: @TagType(Token.Id),
+    IfToken: Token.Id,
     IfTokenSave: ExpectTokenSave,
-    ExpectToken: @TagType(Token.Id),
+    ExpectToken: Token.Id,
     ExpectTokenSave: ExpectTokenSave,
     OptionalTokenSave: OptionalTokenSave,
 };
@@ -3243,7 +3243,7 @@ const ExpectCommaOrEndResult = union(enum) {
     parse_error: Error,
 };
 
-fn expectCommaOrEnd(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, end: @TagType(Token.Id)) ExpectCommaOrEndResult {
+fn expectCommaOrEnd(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, end: Token.Id) ExpectCommaOrEndResult {
     const token = nextToken(tok_it, tree);
     const token_index = token.index;
     const token_ptr = token.ptr;
@@ -3288,7 +3288,7 @@ fn tokenIdToAssignment(id: *const Token.Id) ?ast.Node.InfixOp.Op {
     };
 }
 
-fn tokenIdToUnwrapExpr(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
+fn tokenIdToUnwrapExpr(id: Token.Id) ?ast.Node.InfixOp.Op {
     return switch (id) {
         Token.Id.Keyword_catch => ast.Node.InfixOp.Op{ .Catch = null },
         Token.Id.Keyword_orelse => ast.Node.InfixOp.Op{ .UnwrapOptional = void{} },
@@ -3296,7 +3296,7 @@ fn tokenIdToUnwrapExpr(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
     };
 }
 
-fn tokenIdToComparison(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
+fn tokenIdToComparison(id: Token.Id) ?ast.Node.InfixOp.Op {
     return switch (id) {
         Token.Id.BangEqual => ast.Node.InfixOp.Op{ .BangEqual = void{} },
         Token.Id.EqualEqual => ast.Node.InfixOp.Op{ .EqualEqual = void{} },
@@ -3308,7 +3308,7 @@ fn tokenIdToComparison(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
     };
 }
 
-fn tokenIdToBitShift(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
+fn tokenIdToBitShift(id: Token.Id) ?ast.Node.InfixOp.Op {
     return switch (id) {
         Token.Id.AngleBracketAngleBracketLeft => ast.Node.InfixOp.Op{ .BitShiftLeft = void{} },
         Token.Id.AngleBracketAngleBracketRight => ast.Node.InfixOp.Op{ .BitShiftRight = void{} },
@@ -3316,7 +3316,7 @@ fn tokenIdToBitShift(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
     };
 }
 
-fn tokenIdToAddition(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
+fn tokenIdToAddition(id: Token.Id) ?ast.Node.InfixOp.Op {
     return switch (id) {
         Token.Id.Minus => ast.Node.InfixOp.Op{ .Sub = void{} },
         Token.Id.MinusPercent => ast.Node.InfixOp.Op{ .SubWrap = void{} },
@@ -3327,7 +3327,7 @@ fn tokenIdToAddition(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
     };
 }
 
-fn tokenIdToMultiply(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
+fn tokenIdToMultiply(id: Token.Id) ?ast.Node.InfixOp.Op {
     return switch (id) {
         Token.Id.Slash => ast.Node.InfixOp.Op{ .Div = void{} },
         Token.Id.Asterisk => ast.Node.InfixOp.Op{ .Mult = void{} },
@@ -3339,7 +3339,7 @@ fn tokenIdToMultiply(id: @TagType(Token.Id)) ?ast.Node.InfixOp.Op {
     };
 }
 
-fn tokenIdToPrefixOp(id: @TagType(Token.Id)) ?ast.Node.PrefixOp.Op {
+fn tokenIdToPrefixOp(id: Token.Id) ?ast.Node.PrefixOp.Op {
     return switch (id) {
         Token.Id.Bang => ast.Node.PrefixOp.Op{ .BoolNot = void{} },
         Token.Id.Tilde => ast.Node.PrefixOp.Op{ .BitNot = void{} },
@@ -3374,7 +3374,7 @@ fn createToCtxLiteral(arena: *mem.Allocator, opt_ctx: *const OptionalCtx, compti
     return node;
 }
 
-fn eatToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, id: @TagType(Token.Id)) ?TokenIndex {
+fn eatToken(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, id: Token.Id) ?TokenIndex {
     const token = tok_it.peek().?;
 
     if (token.id == id) {
