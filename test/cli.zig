@@ -107,6 +107,10 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) !void {
         \\export fn square(num: i32) i32 {
         \\    return num * num;
         \\}
+        \\extern fn zig_panic() noreturn;
+        \\pub inline fn panic(msg: []const u8, error_return_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    zig_panic();
+        \\}
     );
 
     const args = [][]const u8{
