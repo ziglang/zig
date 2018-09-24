@@ -746,7 +746,11 @@ test "comptime bitwise operators" {
         assert(3 | -1 == -1);
         assert(-3 | -1 == -1);
         assert(3 ^ -1 == -4);
+        assert(-3 ^ -1 == 2);
         assert(~i8(-1) == 0);
         assert(~i128(-1) == 0);
+        assert(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
+        assert(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
+        assert(~u128(0) == 0xffffffffffffffffffffffffffffffff);
     }
 }
