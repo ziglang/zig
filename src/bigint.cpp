@@ -133,9 +133,7 @@ static void from_twos_complement(BigInt *dest, const BigInt *src, size_t bit_cou
 
         bigint_negate(dest, &inverted);
         return;
-
     }
-
     bigint_init_bigint(dest, src);
 }
 
@@ -436,6 +434,21 @@ bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
             (unsigned long long *)result);
 }
 #endif
+
+static void twos_complement(BigInt *bn) {
+    if (bn->digit_count == 1) {
+        bn->data.digit = ~bn->data.digit + 1;
+    } else {
+        size_t i = 0;
+        bool increment = true;
+        for (; i < bn->digit_count; i += 1) {
+            bn->data.digits[i] = ~bn->data.digits[i];
+            if (increment) {
+                increment = add_u64_overflow(bn->data.digits[i], 1, &bn->data.digits[i]);
+            }
+        }
+    }
+}
 
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     if (op1->digit_count == 0) {
@@ -1181,140 +1194,86 @@ void bigint_mod(BigInt *dest, const BigInt *op1, const BigInt *op2) {
 }
 
 void bigint_or(BigInt *dest, const BigInt *op1, const BigInt *op2) {
+    size_t i = 0;
     if (op1->digit_count == 0) {
         return bigint_init_bigint(dest, op2);
     }
     if (op2->digit_count == 0) {
         return bigint_init_bigint(dest, op1);
     }
-    if (op1->is_negative || op2->is_negative) {
-        // TODO this code path is untested
-        size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
-
-        BigInt twos_comp_op1 = {0};
-        to_twos_complement(&twos_comp_op1, op1, big_bit_count);
-
-        BigInt twos_comp_op2 = {0};
-        to_twos_complement(&twos_comp_op2, op2, big_bit_count);
-
-        BigInt twos_comp_dest = {0};
-        bigint_or(&twos_comp_dest, &twos_comp_op1, &twos_comp_op2);
-
-        from_twos_complement(dest, &twos_comp_dest, big_bit_count, true);
+    dest->is_negative = false;
+    const uint64_t *op1_digits = bigint_ptr(op1);
+    const uint64_t *op2_digits = bigint_ptr(op2);
+    if (op1->digit_count == 1 && op2->digit_count == 1) {
+        dest->digit_count = 1;
+        dest->data.digit = (op1->is_negative ? (~(op1_digits[0]))+1 : op1_digits[0]);
+        dest->data.digit |= (op2->is_negative ? (~(op2_digits[0]))+1 : op2_digits[0]);
     } else {
-        dest->is_negative = false;
-        const uint64_t *op1_digits = bigint_ptr(op1);
-        const uint64_t *op2_digits = bigint_ptr(op2);
-        if (op1->digit_count == 1 && op2->digit_count == 1) {
-            dest->digit_count = 1;
-            dest->data.digit = op1_digits[0] | op2_digits[0];
-            bigint_normalize(dest);
-            return;
-        }
-        // TODO this code path is untested
-        uint64_t first_digit = dest->data.digit;
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
-        dest->data.digits[0] = first_digit;
-        size_t i = 1;
-        for (; i < dest->digit_count; i += 1) {
-            uint64_t digit = 0;
-            if (i < op1->digit_count) {
-                digit |= op1_digits[i];
-            }
-            if (i < op2->digit_count) {
-                digit |= op2_digits[i];
-            }
-            dest->data.digits[i] = digit;
+        for (; i < op1->digit_count && i < op2->digit_count; i += 1) {
+            dest->data.digits[i] = (op1->is_negative ? (~(op1_digits[i]))+1 : op1_digits[i]);
+            dest->data.digits[i] |= (op2->is_negative ? (~(op2_digits[i]))+1 : op2_digits[i]);
         }
-        bigint_normalize(dest);
     }
+    if (op1->is_negative || op2->is_negative) {
+        twos_complement(dest);
+        dest->is_negative = true;
+    }
+    bigint_normalize(dest);
 }
 
 void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
+    size_t i = 0;
     if (op1->digit_count == 0 || op2->digit_count == 0) {
         return bigint_init_unsigned(dest, 0);
     }
-    if (op1->is_negative || op2->is_negative) {
-        // TODO this code path is untested
-        size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
-
-        BigInt twos_comp_op1 = {0};
-        to_twos_complement(&twos_comp_op1, op1, big_bit_count);
-
-        BigInt twos_comp_op2 = {0};
-        to_twos_complement(&twos_comp_op2, op2, big_bit_count);
-
-        BigInt twos_comp_dest = {0};
-        bigint_and(&twos_comp_dest, &twos_comp_op1, &twos_comp_op2);
-
-        from_twos_complement(dest, &twos_comp_dest, big_bit_count, true);
+    dest->is_negative = false;
+    const uint64_t *op1_digits = bigint_ptr(op1);
+    const uint64_t *op2_digits = bigint_ptr(op2);
+    if (op1->digit_count == 1 && op2->digit_count == 1) {
+        dest->digit_count = 1;
+        dest->data.digit = (op1->is_negative ? (~(op1_digits[0]))+1 : op1_digits[0]);
+        dest->data.digit &= (op2->is_negative ? (~(op2_digits[0]))+1 : op2_digits[0]);
     } else {
-        dest->is_negative = false;
-        const uint64_t *op1_digits = bigint_ptr(op1);
-        const uint64_t *op2_digits = bigint_ptr(op2);
-        if (op1->digit_count == 1 && op2->digit_count == 1) {
-            dest->digit_count = 1;
-            dest->data.digit = op1_digits[0] & op2_digits[0];
-            bigint_normalize(dest);
-            return;
-        }
-
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
-
-        size_t i = 0;
         for (; i < op1->digit_count && i < op2->digit_count; i += 1) {
-            dest->data.digits[i] = op1_digits[i] & op2_digits[i];
+            dest->data.digits[i] = (op1->is_negative ? (~(op1_digits[i]))+1 : op1_digits[i]);
+            dest->data.digits[i] &= (op2->is_negative ? (~(op2_digits[i]))+1 : op2_digits[i]);
         }
         for (; i < dest->digit_count; i += 1) {
             dest->data.digits[i] = 0;
         }
-        bigint_normalize(dest);
     }
+    if (op1->is_negative && op2->is_negative) {
+        twos_complement(dest);
+        dest->is_negative = true;
+    }
+    bigint_normalize(dest);
 }
 
 void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
+    size_t i = 0;
     if (op1->digit_count == 0) {
         return bigint_init_bigint(dest, op2);
     }
     if (op2->digit_count == 0) {
         return bigint_init_bigint(dest, op1);
     }
-    if (op1->is_negative || op2->is_negative) {
-        // TODO this code path is untested
-        size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
-
-        BigInt twos_comp_op1 = {0};
-        to_twos_complement(&twos_comp_op1, op1, big_bit_count);
-
-        BigInt twos_comp_op2 = {0};
-        to_twos_complement(&twos_comp_op2, op2, big_bit_count);
-
-        BigInt twos_comp_dest = {0};
-        bigint_xor(&twos_comp_dest, &twos_comp_op1, &twos_comp_op2);
-
-        from_twos_complement(dest, &twos_comp_dest, big_bit_count, true);
+    dest->is_negative = false;
+    const uint64_t *op1_digits = bigint_ptr(op1);
+    const uint64_t *op2_digits = bigint_ptr(op2);
+    if (op1->digit_count == 1 && op2->digit_count == 1) {
+        dest->digit_count = 1;
+        dest->data.digit = (op1->is_negative ? (~(op1_digits[0]))+1 : op1_digits[0]);
+        dest->data.digit ^= (op2->is_negative ? (~(op2_digits[0]))+1 : op2_digits[0]);
     } else {
-        dest->is_negative = false;
-        const uint64_t *op1_digits = bigint_ptr(op1);
-        const uint64_t *op2_digits = bigint_ptr(op2);
-
-        assert(op1->digit_count > 0 && op2->digit_count > 0);
-        uint64_t first_digit = op1_digits[0] ^ op2_digits[0];
-        if (op1->digit_count == 1 && op2->digit_count == 1) {
-            dest->digit_count = 1;
-            dest->data.digit = first_digit;
-            bigint_normalize(dest);
-            return;
-        }
-        // TODO this code path is untested
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
-        dest->data.digits[0] = first_digit;
-        size_t i = 1;
         for (; i < op1->digit_count && i < op2->digit_count; i += 1) {
-            dest->data.digits[i] = op1_digits[i] ^ op2_digits[i];
+            dest->data.digits[i] = (op1->is_negative ? (~(op1_digits[i]))+1 : op1_digits[i]);
+            dest->data.digits[i] ^= (op2->is_negative ? (~(op2_digits[i]))+1 : op2_digits[i]);
         }
         for (; i < dest->digit_count; i += 1) {
             if (i < op1->digit_count) {
@@ -1324,8 +1283,12 @@ void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
                 dest->data.digits[i] = op2_digits[i];
             }
         }
-        bigint_normalize(dest);
     }
+    if (op1->is_negative != op2->is_negative) {
+        twos_complement(dest);
+        dest->is_negative = true;
+    }
+    bigint_normalize(dest);
 }
 
 void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2) {
@@ -1446,10 +1409,18 @@ void bigint_negate_wrap(BigInt *dest, const BigInt *op, size_t bit_count) {
     bigint_sub_wrap(dest, &zero, op, bit_count, true);
 }
 
+/// Does a binary not operation on `op` which is placed into `dest`
+/// If `bit_count` is zero, this function will operate on the exact number of bits stored inside of the `BigInt`
+/// If `bit_count` is non zero, this function will operate only on `bit_count` bits.
 void bigint_not(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed) {
     if (bit_count == 0) {
-        bigint_init_unsigned(dest, 0);
-        return;
+        bit_count = (op->digit_count * 64) - bigint_clz(op, op->digit_count * 64) + (is_signed ? 1 : 0);
+        // If no bits are stored in `op`;
+        // return a `BigInt` of value 0
+        if (bit_count == 0) {
+            bigint_init_unsigned(dest, 0);
+            return;
+        }
     }
 
     if (is_signed) {
