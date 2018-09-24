@@ -50,7 +50,7 @@ size_t bigint_bits_needed(const BigInt *op) {
     size_t full_bits = op->digit_count * 64;
     size_t leading_zero_count = bigint_clz(op, full_bits);
     size_t bits_needed = full_bits - leading_zero_count;
-    return bits_needed + op->is_negative;
+    return bits_needed;
 }
 
 static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count) {

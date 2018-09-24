@@ -737,3 +737,16 @@ test "slice bounds in comptime concatenation" {
     assert(str2.len == 1);
     assert(std.mem.eql(u8, str2, "1"));
 }
+
+test "comptime bitwise operators" {
+    comptime {
+        assert(3 & 1 == 1);
+        assert(3 & -1 == 3);
+        assert(-3 & -1 == -3);
+        assert(3 | -1 == -1);
+        assert(-3 | -1 == -1);
+        assert(3 ^ -1 == -4);
+        assert(~i8(-1) == 0);
+        assert(~i128(-1) == 0);
+    }
+}
