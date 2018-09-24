@@ -458,7 +458,13 @@ static const char *decl_name(const Decl *decl) {
 static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int) {
     AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
-    bigint_init_data(node->data.int_literal.bigint, aps_int.getRawData(), aps_int.getNumWords(), aps_int.isNegative());
+    bool is_negative = aps_int.isNegative(); 
+    if (!is_negative) {
+        bigint_init_data(node->data.int_literal.bigint, aps_int.getRawData(), aps_int.getNumWords(), false);
+        return node;
+    }
+    llvm::APSInt negated = -aps_int;
+    bigint_init_data(node->data.int_literal.bigint, negated.getRawData(), negated.getNumWords(), true);
     return node;
 
 }
