@@ -393,7 +393,7 @@ pub fn main() void {
 
         <tr>
             <td>{#syntax#}f16{#endsyntax#}</td>
-          <td><code class="c">float</code></td>
+          <td><code class="c">_Float16</code></td>
           <td>16-bit floating point (10-bit mantissa) IEEE-754-2008 binary16</td>
         </tr>
         <tr>
@@ -408,7 +408,7 @@ pub fn main() void {
         </tr>
         <tr>
             <td>{#syntax#}f128{#endsyntax#}</td>
-          <td>(none)</td>
+            <td><code class="c">_Float128</code></td>
           <td>128-bit floating point (112-bit mantissa) IEEE-754-2008 binary128</td>
         </tr>
         <tr>
@@ -480,7 +480,7 @@ pub fn main() void {
         </tr>
       </table>
       </div>
-      {#see_also|Optionals#}
+      {#see_also|Optionals|undefined#}
       {#header_close#}
       {#header_open|String Literals#}
       {#code_begin|test#}
