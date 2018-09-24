@@ -15,6 +15,11 @@
 
 #include "zig_llvm.h"
 
+#if __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/IR/DIBuilder.h>
@@ -41,6 +46,10 @@
 #include <llvm/Transforms/Utils.h>
 
 #include <lld/Common/Driver.h>
+
+#if __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
 
 #include <new>
 

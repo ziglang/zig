@@ -15,9 +15,18 @@
 #include "parser.hpp"
 
 
+#if __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/AST/Expr.h>
+
+#if __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
 
 #include <string.h>
 
