@@ -14640,6 +14640,12 @@ static ZigType *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionEle
 
     } else {
         // runtime known element index
+        if (type_requires_comptime(return_type)) {
+            ir_add_error(ira, elem_index,
+                buf_sprintf("values of type '%s' must be comptime known, but index value is runtime known",
+                    buf_ptr(&return_type->data.pointer.child_type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
         if (ptr_align < abi_align) {
             if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
                 return_type = adjust_ptr_align(ira->codegen, return_type, ptr_align);

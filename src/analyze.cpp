@@ -1187,8 +1187,11 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
                 return g->builtin_types.entry_invalid;
 
-            if (is_c_abi)
+            if (is_c_abi) {
+                if ((err = type_resolve(g, type_entry, ResolveStatusSizeKnown)))
+                    return g->builtin_types.entry_invalid;
                 continue;
+            }
 
             if (type_has_bits(type_entry)) {
                 ZigType *gen_type;
@@ -4464,7 +4467,7 @@ bool handle_is_ptr(ZigType *type_entry) {
              return type_has_bits(type_entry->data.maybe.child_type) &&
                     !type_is_codegen_pointer(type_entry->data.maybe.child_type);
         case ZigTypeIdUnion:
-             assert(type_entry->data.unionation.complete);
+             assert(type_entry->data.unionation.zero_bits_known);
              if (type_entry->data.unionation.gen_field_count == 0)
                  return false;
              if (!type_has_bits(type_entry))

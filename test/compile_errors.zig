@@ -2,6 +2,22 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "runtime index into comptime type slice",
+        \\const Struct = struct {
+        \\    a: u32,
+        \\};
+        \\fn getIndex() usize {
+        \\    return 2;
+        \\}
+        \\export fn entry() void {
+        \\    const index = getIndex();
+        \\    const field = @typeInfo(Struct).Struct.fields[index];
+        \\}
+    ,
+        ".tmp_source.zig:9:51: error: values of type 'StructField' must be comptime known, but index value is runtime known",
+    );
+
+    cases.add(
         "compile log statement inside function which must be comptime evaluated",
         \\fn Foo(comptime T: type) type {
         \\    @compileLog(@typeName(T));
