@@ -699,3 +699,18 @@ test "equality compare fn ptrs" {
     var a = emptyFn;
     assert(a == a);
 }
+
+test "self reference through fn ptr field" {
+    const S = struct {
+        const A = struct {
+            f: fn (A) u8,
+        };
+
+        fn foo(a: A) u8 {
+            return 12;
+        }
+    };
+    var a: S.A = undefined;
+    a.f = S.foo;
+    assert(a.f(a) == 12);
+}

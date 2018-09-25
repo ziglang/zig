@@ -1184,7 +1184,7 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_param_info->src_index = i;
             gen_param_info->gen_index = SIZE_MAX;
 
-            if ((err = ensure_complete_type(g, type_entry)))
+            if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
                 return g->builtin_types.entry_invalid;
 
             if (is_c_abi)
