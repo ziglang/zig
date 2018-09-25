@@ -92,10 +92,9 @@
     case 'c'
 
 #define SYMBOL_CHAR \
-    ALPHA_EXCEPT_C: \
+    ALPHA: \
     case DIGIT: \
-    case '_': \
-    case 'c'
+    case '_'
 
 #define SYMBOL_START \
     ALPHA: \
