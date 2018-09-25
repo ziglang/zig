@@ -1963,7 +1963,7 @@ test "linked list" {
           that variable.</li>
           <li>If the struct is in the {#syntax#}return{#endsyntax#} expression, it gets named after
           the function it is returning from, with the parameter values serialized.</li>
-          <li>Otherwise, the struct gets a same such as {#syntax#}(anonymous struct at file.zig:7:38){#endsyntax#}.</li>
+          <li>Otherwise, the struct gets a name such as <code>(anonymous struct at file.zig:7:38)</code>.</li>
       </ul>
       {#code_begin|exe|struct_name#}
 const std = @import("std");

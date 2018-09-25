@@ -295,7 +295,7 @@ const Link = struct {
 const Node = union(enum) {
     Content: []const u8,
     Nav,
-    Builtin,
+    Builtin: Token,
     HeaderOpen: HeaderOpen,
     SeeAlso: []const SeeAlsoItem,
     Code: Code,
@@ -355,7 +355,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     try nodes.append(Node.Nav);
                 } else if (mem.eql(u8, tag_name, "builtin")) {
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    try nodes.append(Node.Builtin);
+                    try nodes.append(Node{ .Builtin = tag_token });
                 } else if (mem.eql(u8, tag_name, "header_open")) {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const content_token = try eatToken(tokenizer, Token.Id.TagContent);
@@ -718,8 +718,7 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-fn tokenizeAndPrint(allocator: *mem.Allocator, docgen_tokenizer: *Tokenizer, out: var, source_token: Token) !void {
-    const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
+fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Token, raw_src: []const u8) !void {
     const src = mem.trim(u8, raw_src, " \n");
     try out.write("<code class=\"zig\">");
     var tokenizer = std.zig.Tokenizer.init(src);
@@ -928,13 +927,18 @@ fn tokenizeAndPrint(allocator: *mem.Allocator, docgen_tokenizer: *Tokenizer, out
     try out.write("</code>");
 }
 
+fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: var, source_token: Token) !void {
+    const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
+    return tokenizeAndPrintRaw(docgen_tokenizer, out, source_token, raw_src);
+}
+
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
 
     var env_map = try os.getEnvMap(allocator);
     try env_map.set("ZIG_DEBUG_COLOR", "1");
 
-    const builtin_code = try escapeHtml(allocator, try getBuiltinCode(allocator, &env_map, zig_exe));
+    const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 
     for (toc.nodes) |node| {
         switch (node) {
@@ -950,8 +954,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
             Node.Nav => {
                 try out.write(toc.toc);
             },
-            Node.Builtin => {
-                try out.print("<pre><code class=\"zig\">{}</code></pre>", builtin_code);
+            Node.Builtin => |tok| {
+                try out.write("<pre>");
+                try tokenizeAndPrintRaw(tokenizer, out, tok, builtin_code);
+                try out.write("</pre>");
             },
             Node.HeaderOpen => |info| {
                 try out.print("<h{} id=\"{}\">{}</h{}>\n", info.n, info.url, info.name, info.n);
@@ -968,7 +974,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 try out.write("</ul>\n");
             },
             Node.Syntax => |content_tok| {
-                try tokenizeAndPrint(allocator, tokenizer, out, content_tok);
+                try tokenizeAndPrint(tokenizer, out, content_tok);
             },
             Node.Code => |code| {
                 code_progress_index += 1;
@@ -980,7 +986,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                     try out.print("<p class=\"file\">{}.zig</p>", code.name);
                 }
                 try out.write("<pre>");
-                try tokenizeAndPrint(allocator, tokenizer, out, code.source_token);
+                try tokenizeAndPrint(tokenizer, out, code.source_token);
                 try out.write("</pre>");
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
                 const tmp_source_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_ext);
