@@ -1094,6 +1094,7 @@ pub const in_port_t = u16;
 pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
+/// This intentionally only has ip4 and ip6
 pub const sockaddr = extern union {
     in: sockaddr_in,
     in6: sockaddr_in6,
@@ -1112,6 +1113,11 @@ pub const sockaddr_in6 = extern struct {
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
+};
+
+pub const sockaddr_un = extern struct {
+    family: sa_family_t,
+    path: [108]u8,
 };
 
 pub const iovec = extern struct {
@@ -1148,8 +1154,8 @@ pub fn sendmsg(fd: i32, msg: *const msghdr, flags: u32) usize {
     return syscall3(SYS_sendmsg, @intCast(usize, fd), @ptrToInt(msg), flags);
 }
 
-pub fn connect(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
-    return syscall3(SYS_connect, @intCast(usize, fd), @ptrToInt(addr), @intCast(usize, len));
+pub fn connect(fd: i32, addr: *const c_void, len: socklen_t) usize {
+    return syscall3(SYS_connect, @intCast(usize, fd), @ptrToInt(addr), len);
 }
 
 pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {

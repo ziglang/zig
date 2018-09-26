@@ -2677,9 +2677,9 @@ pub fn posixConnect(sockfd: i32, sockaddr: *const posix.sockaddr) PosixConnectEr
 
 /// Same as posixConnect except it is for blocking socket file descriptors.
 /// It expects to receive EINPROGRESS.
-pub fn posixConnectAsync(sockfd: i32, sockaddr: *const posix.sockaddr) PosixConnectError!void {
+pub fn posixConnectAsync(sockfd: i32, sockaddr: *const c_void, len: u32) PosixConnectError!void {
     while (true) {
-        const rc = posix.connect(sockfd, sockaddr, @sizeOf(posix.sockaddr));
+        const rc = posix.connect(sockfd, sockaddr, len);
         const err = posix.getErrno(rc);
         switch (err) {
             0, posix.EINPROGRESS => return,

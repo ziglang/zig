@@ -587,7 +587,7 @@ const c_string_literal =
 ;
       {#code_end#}
       <p>
-      In this example the variable {#syntax#}c_string_literal{#endsyntax#} has type {#syntax#}[*]const char{#endsyntax#} and
+      In this example the variable {#syntax#}c_string_literal{#endsyntax#} has type {#syntax#}[*]const u8{#endsyntax#} and
       has a terminating null byte.
       </p>
       {#see_also|@embedFile#}

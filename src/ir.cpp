@@ -155,6 +155,8 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
 static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val);
 static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
         ConstExprValue *out_val, ConstExprValue *ptr_val);
+static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *ptr,
+        ZigType *dest_type, IrInstruction *dest_type_src);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -8573,17 +8575,6 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         return result;
     }
 
-    // *T and [*]T can always cast to *c_void
-    if (wanted_type->id == ZigTypeIdPointer &&
-        wanted_type->data.pointer.ptr_len == PtrLenSingle &&
-        wanted_type->data.pointer.child_type == g->builtin_types.entry_c_void &&
-        actual_type->id == ZigTypeIdPointer &&
-        (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
-        (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile))
-    {
-        return result;
-    }
-
     // pointer const
     if (wanted_type->id == ZigTypeIdPointer && actual_type->id == ZigTypeIdPointer) {
         ConstCastOnly child = types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
@@ -11153,6 +11144,33 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
             }
             return ir_analyze_ptr_to_array(ira, source_instr, value, wanted_type);
+        }
+    }
+
+    // cast from *T and [*]T to *c_void and ?*c_void
+    // but don't do it if the actual type is a double pointer
+    if (actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.child_type->id != ZigTypeIdPointer) {
+        ZigType *dest_ptr_type = nullptr;
+        if (wanted_type->id == ZigTypeIdPointer &&
+            wanted_type->data.pointer.ptr_len == PtrLenSingle &&
+            wanted_type->data.pointer.child_type == ira->codegen->builtin_types.entry_c_void)
+        {
+            dest_ptr_type = wanted_type;
+        } else if (wanted_type->id == ZigTypeIdOptional &&
+            wanted_type->data.maybe.child_type->id == ZigTypeIdPointer &&
+            wanted_type->data.maybe.child_type->data.pointer.ptr_len == PtrLenSingle &&
+            wanted_type->data.maybe.child_type->data.pointer.child_type == ira->codegen->builtin_types.entry_c_void)
+        {
+            dest_ptr_type = wanted_type->data.maybe.child_type;
+        }
+        if (dest_ptr_type != nullptr &&
+            (!actual_type->data.pointer.is_const || dest_ptr_type->data.pointer.is_const) &&
+            (!actual_type->data.pointer.is_volatile || dest_ptr_type->data.pointer.is_volatile) &&
+            actual_type->data.pointer.bit_offset == dest_ptr_type->data.pointer.bit_offset &&
+            actual_type->data.pointer.unaligned_bit_count == dest_ptr_type->data.pointer.unaligned_bit_count &&
+            get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, dest_ptr_type))
+        {
+            return ir_analyze_ptr_cast(ira, source_instr, value, wanted_type, source_instr);
         }
     }
 
@@ -20234,9 +20252,91 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
     return result;
 }
 
-static ZigType *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtrCast *instruction) {
+static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *ptr,
+        ZigType *dest_type, IrInstruction *dest_type_src)
+{
     Error err;
 
+    ZigType *src_type = ptr->value.type;
+    assert(!type_is_invalid(src_type));
+
+    // We have a check for zero bits later so we use get_src_ptr_type to
+    // validate src_type and dest_type.
+
+    if (get_src_ptr_type(src_type) == nullptr) {
+        ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (get_src_ptr_type(dest_type) == nullptr) {
+        ir_add_error(ira, dest_type_src,
+                buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (get_ptr_const(src_type) && !get_ptr_const(dest_type)) {
+        ir_add_error(ira, source_instr, buf_sprintf("cast discards const qualifier"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (instr_is_comptime(ptr)) {
+        ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope, source_instr->source_node,
+                dest_type);
+        copy_const_val(&result->value, val, false);
+        result->value.type = dest_type;
+        return result;
+    }
+
+    uint32_t src_align_bytes;
+    if ((err = resolve_ptr_align(ira, src_type, &src_align_bytes)))
+        return ira->codegen->invalid_instruction;
+
+    uint32_t dest_align_bytes;
+    if ((err = resolve_ptr_align(ira, dest_type, &dest_align_bytes)))
+        return ira->codegen->invalid_instruction;
+
+    if (dest_align_bytes > src_align_bytes) {
+        ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("cast increases pointer alignment"));
+        add_error_note(ira->codegen, msg, ptr->source_node,
+                buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&src_type->name), src_align_bytes));
+        add_error_note(ira->codegen, msg, dest_type_src->source_node,
+                buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&dest_type->name), dest_align_bytes));
+        return ira->codegen->invalid_instruction;
+    }
+
+    IrInstruction *casted_ptr = ir_build_ptr_cast(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, nullptr, ptr);
+    casted_ptr->value.type = dest_type;
+
+    if (type_has_bits(dest_type) && !type_has_bits(src_type)) {
+        ErrorMsg *msg = ir_add_error(ira, source_instr,
+            buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
+                buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
+        add_error_note(ira->codegen, msg, ptr->source_node,
+                buf_sprintf("'%s' has no in-memory bits", buf_ptr(&src_type->name)));
+        add_error_note(ira->codegen, msg, dest_type_src->source_node,
+                buf_sprintf("'%s' has in-memory bits", buf_ptr(&dest_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    // Keep the bigger alignment, it can only help-
+    // unless the target is zero bits.
+    IrInstruction *result;
+    if (src_align_bytes > dest_align_bytes && type_has_bits(dest_type)) {
+        result = ir_align_cast(ira, casted_ptr, src_align_bytes, false);
+        if (type_is_invalid(result->value.type))
+            return ira->codegen->invalid_instruction;
+    } else {
+        result = casted_ptr;
+    }
+    return result;
+}
+
+static ZigType *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtrCast *instruction) {
     IrInstruction *dest_type_value = instruction->dest_type->other;
     ZigType *dest_type = ir_resolve_type(ira, dest_type_value);
     if (type_is_invalid(dest_type))
@@ -20247,78 +20347,10 @@ static ZigType *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtr
     if (type_is_invalid(src_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    // We have a check for zero bits later so we use get_src_ptr_type to
-    // validate src_type and dest_type.
-
-    if (get_src_ptr_type(src_type) == nullptr) {
-        ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    if (get_src_ptr_type(dest_type) == nullptr) {
-        ir_add_error(ira, dest_type_value,
-                buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    if (get_ptr_const(src_type) && !get_ptr_const(dest_type)) {
-        ir_add_error(ira, &instruction->base, buf_sprintf("cast discards const qualifier"));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    if (instr_is_comptime(ptr)) {
-        ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
-        if (!val)
-            return ira->codegen->builtin_types.entry_invalid;
-
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        copy_const_val(out_val, val, false);
-        out_val->type = dest_type;
-        return dest_type;
-    }
-
-    uint32_t src_align_bytes;
-    if ((err = resolve_ptr_align(ira, src_type, &src_align_bytes)))
+    IrInstruction *result = ir_analyze_ptr_cast(ira, &instruction->base, ptr, dest_type, dest_type_value);
+    if (type_is_invalid(result->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    uint32_t dest_align_bytes;
-    if ((err = resolve_ptr_align(ira, dest_type, &dest_align_bytes)))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    if (dest_align_bytes > src_align_bytes) {
-        ErrorMsg *msg = ir_add_error(ira, &instruction->base, buf_sprintf("cast increases pointer alignment"));
-        add_error_note(ira->codegen, msg, ptr->source_node,
-                buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&src_type->name), src_align_bytes));
-        add_error_note(ira->codegen, msg, dest_type_value->source_node,
-                buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&dest_type->name), dest_align_bytes));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    IrInstruction *casted_ptr = ir_build_ptr_cast(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, nullptr, ptr);
-    casted_ptr->value.type = dest_type;
-
-    if (type_has_bits(dest_type) && !type_has_bits(src_type)) {
-        ErrorMsg *msg = ir_add_error(ira, &instruction->base,
-            buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
-                buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
-        add_error_note(ira->codegen, msg, ptr->source_node,
-                buf_sprintf("'%s' has no in-memory bits", buf_ptr(&src_type->name)));
-        add_error_note(ira->codegen, msg, dest_type_value->source_node,
-                buf_sprintf("'%s' has in-memory bits", buf_ptr(&dest_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    // Keep the bigger alignment, it can only help-
-    // unless the target is zero bits.
-    IrInstruction *result;
-    if (src_align_bytes > dest_align_bytes && type_has_bits(dest_type)) {
-        result = ir_align_cast(ira, casted_ptr, src_align_bytes, false);
-        if (type_is_invalid(result->value.type))
-            return ira->codegen->builtin_types.entry_invalid;
-    } else {
-        result = casted_ptr;
-    }
     ir_link_new_instruction(result, &instruction->base);
     return result->value.type;
 }

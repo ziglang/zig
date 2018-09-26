@@ -2,6 +2,18 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "don't implicit cast double pointer to *c_void",
+        \\export fn entry() void {
+        \\    var a: u32 = 1;
+        \\    var ptr: *c_void = &a;
+        \\    var b: *u32 = @ptrCast(*u32, ptr);
+        \\    var ptr2: *c_void = &b;
+        \\}
+    ,
+        ".tmp_source.zig:5:26: error: expected type '*c_void', found '**u32'",
+    );
+
+    cases.add(
         "runtime index into comptime type slice",
         \\const Struct = struct {
         \\    a: u32,

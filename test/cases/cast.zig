@@ -537,3 +537,13 @@ pub const PFN_void = extern fn (*c_void) void;
 fn foobar(func: PFN_void) void {
     std.debug.assert(@ptrToInt(func) == @maxValue(usize));
 }
+
+test "implicit ptr to *c_void" {
+    var a: u32 = 1;
+    var ptr: *c_void = &a;
+    var b: *u32 = @ptrCast(*u32, ptr);
+    assert(b.* == 1);
+    var ptr2: ?*c_void = &a;
+    var c: *u32 = @ptrCast(*u32, ptr2.?);
+    assert(c.* == 1);
+}

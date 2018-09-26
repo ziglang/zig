@@ -110,13 +110,61 @@ pub const Server = struct {
     }
 };
 
+pub async fn connectUnixSocket(loop: *Loop, path: []const u8) !i32 {
+    const sockfd = try std.os.posixSocket(
+        posix.AF_UNIX,
+        posix.SOCK_STREAM | posix.SOCK_CLOEXEC | posix.SOCK_NONBLOCK,
+        0,
+    );
+    errdefer std.os.close(sockfd);
+
+    var sock_addr = posix.sockaddr{
+        .un = posix.sockaddr_un{
+            .family = posix.AF_UNIX,
+            .path = undefined,
+        },
+    };
+
+    if (path.len > @typeOf(sock_addr.un.path).len) return error.NameTooLong;
+    mem.copy(u8, sock_addr.un.path[0..], path);
+    const size = @intCast(u32, @sizeOf(posix.sa_family_t) + path.len);
+    try std.os.posixConnectAsync(sockfd, &sock_addr, size);
+    try await try async loop.linuxWaitFd(sockfd, posix.EPOLLIN | posix.EPOLLOUT | posix.EPOLLET);
+    try std.os.posixGetSockOptConnectError(sockfd);
+
+    return sockfd;
+}
+
+pub async fn socketRead(loop: *std.event.Loop, fd: i32, buffer: []u8) !void {
+    while (true) {
+        return std.os.posixRead(fd, buffer) catch |err| switch (err) {
+            error.WouldBlock => {
+                try await try async loop.linuxWaitFd(fd, std.os.posix.EPOLLET | std.os.posix.EPOLLIN);
+                continue;
+            },
+            else => return err,
+        };
+    }
+}
+pub async fn socketWrite(loop: *std.event.Loop, fd: i32, buffer: []const u8) !void {
+    while (true) {
+        return std.os.posixWrite(fd, buffer) catch |err| switch (err) {
+            error.WouldBlock => {
+                try await try async loop.linuxWaitFd(fd, std.os.posix.EPOLLET | std.os.posix.EPOLLOUT);
+                continue;
+            },
+            else => return err,
+        };
+    }
+}
+
 pub async fn connect(loop: *Loop, _address: *const std.net.Address) !std.os.File {
     var address = _address.*; // TODO https://github.com/ziglang/zig/issues/733
 
     const sockfd = try std.os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC | posix.SOCK_NONBLOCK, posix.PROTO_tcp);
     errdefer std.os.close(sockfd);
 
-    try std.os.posixConnectAsync(sockfd, &address.os_addr);
+    try std.os.posixConnectAsync(sockfd, &address.os_addr, @sizeOf(posix.sockaddr_in));
     try await try async loop.linuxWaitFd(sockfd, posix.EPOLLIN | posix.EPOLLOUT | posix.EPOLLET);
     try std.os.posixGetSockOptConnectError(sockfd);
 
