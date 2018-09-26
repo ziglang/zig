@@ -40,7 +40,7 @@ const blah: packed struct {
 } = undefined;
 
 test "bit field alignment" {
-    assert(@typeOf(&blah.b) == *align(1:3:6) const u3);
+    assert(@typeOf(&blah.b) == *align(1:3:1) const u3);
 }
 
 test "default alignment allows unspecified in type syntax" {

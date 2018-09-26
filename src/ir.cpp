@@ -1296,7 +1296,7 @@ static IrInstruction *ir_build_br_from(IrBuilder *irb, IrInstruction *old_instru
 
 static IrInstruction *ir_build_ptr_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *child_type, bool is_const, bool is_volatile, PtrLen ptr_len,
-        IrInstruction *align_value, uint32_t bit_offset_start, uint32_t bit_offset_end)
+        IrInstruction *align_value, uint32_t bit_offset_start, uint32_t host_int_bytes)
 {
     IrInstructionPtrType *ptr_type_of_instruction = ir_build_instruction<IrInstructionPtrType>(irb, scope, source_node);
     ptr_type_of_instruction->align_value = align_value;
@@ -1305,7 +1305,7 @@ static IrInstruction *ir_build_ptr_type(IrBuilder *irb, Scope *scope, AstNode *s
     ptr_type_of_instruction->is_volatile = is_volatile;
     ptr_type_of_instruction->ptr_len = ptr_len;
     ptr_type_of_instruction->bit_offset_start = bit_offset_start;
-    ptr_type_of_instruction->bit_offset_end = bit_offset_end;
+    ptr_type_of_instruction->host_int_bytes = host_int_bytes;
 
     if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(child_type, irb->current_basic_block);
@@ -5154,26 +5154,26 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
         bit_offset_start = bigint_as_unsigned(node->data.pointer_type.bit_offset_start);
     }
 
-    uint32_t bit_offset_end = 0;
-    if (node->data.pointer_type.bit_offset_end != nullptr) {
-        if (!bigint_fits_in_bits(node->data.pointer_type.bit_offset_end, 32, false)) {
+    uint32_t host_int_bytes = 0;
+    if (node->data.pointer_type.host_int_bytes != nullptr) {
+        if (!bigint_fits_in_bits(node->data.pointer_type.host_int_bytes, 32, false)) {
             Buf *val_buf = buf_alloc();
-            bigint_append_buf(val_buf, node->data.pointer_type.bit_offset_end, 10);
+            bigint_append_buf(val_buf, node->data.pointer_type.host_int_bytes, 10);
             exec_add_error_node(irb->codegen, irb->exec, node,
-                    buf_sprintf("value %s too large for u32 bit offset", buf_ptr(val_buf)));
+                    buf_sprintf("value %s too large for u32 byte count", buf_ptr(val_buf)));
             return irb->codegen->invalid_instruction;
         }
-        bit_offset_end = bigint_as_unsigned(node->data.pointer_type.bit_offset_end);
+        host_int_bytes = bigint_as_unsigned(node->data.pointer_type.host_int_bytes);
     }
 
-    if ((bit_offset_start != 0 || bit_offset_end != 0) && bit_offset_start >= bit_offset_end) {
+    if (host_int_bytes != 0 && bit_offset_start >= host_int_bytes * 8) {
         exec_add_error_node(irb->codegen, irb->exec, node,
-                buf_sprintf("bit offset start must be less than bit offset end"));
+                buf_sprintf("bit offset starts after end of host integer"));
         return irb->codegen->invalid_instruction;
     }
 
     return ir_build_ptr_type(irb, scope, node, child_type, is_const, is_volatile,
-            ptr_len, align_value, bit_offset_start, bit_offset_end);
+            ptr_len, align_value, bit_offset_start, host_int_bytes);
 }
 
 static IrInstruction *ir_gen_err_assert_ok(IrBuilder *irb, Scope *scope, AstNode *source_node, AstNode *expr_node,
@@ -8600,8 +8600,8 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         if ((actual_type->data.pointer.ptr_len == wanted_type->data.pointer.ptr_len) &&
             (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
             (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile) &&
-            actual_type->data.pointer.bit_offset == wanted_type->data.pointer.bit_offset &&
-            actual_type->data.pointer.unaligned_bit_count == wanted_type->data.pointer.unaligned_bit_count &&
+            actual_type->data.pointer.bit_offset_in_host == wanted_type->data.pointer.bit_offset_in_host &&
+            actual_type->data.pointer.host_int_bytes == wanted_type->data.pointer.host_int_bytes &&
             get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, wanted_type))
         {
             return result;
@@ -8622,8 +8622,8 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         }
         if ((!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
             (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile) &&
-            actual_ptr_type->data.pointer.bit_offset == wanted_ptr_type->data.pointer.bit_offset &&
-            actual_ptr_type->data.pointer.unaligned_bit_count == wanted_ptr_type->data.pointer.unaligned_bit_count &&
+            actual_ptr_type->data.pointer.bit_offset_in_host == wanted_ptr_type->data.pointer.bit_offset_in_host &&
+            actual_ptr_type->data.pointer.host_int_bytes == wanted_ptr_type->data.pointer.host_int_bytes &&
             get_ptr_align(g, actual_ptr_type) >= get_ptr_align(g, wanted_ptr_type))
         {
             ConstCastOnly child = types_match_const_cast_only(ira, wanted_ptr_type->data.pointer.child_type,
@@ -11166,8 +11166,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         if (dest_ptr_type != nullptr &&
             (!actual_type->data.pointer.is_const || dest_ptr_type->data.pointer.is_const) &&
             (!actual_type->data.pointer.is_volatile || dest_ptr_type->data.pointer.is_volatile) &&
-            actual_type->data.pointer.bit_offset == dest_ptr_type->data.pointer.bit_offset &&
-            actual_type->data.pointer.unaligned_bit_count == dest_ptr_type->data.pointer.unaligned_bit_count &&
+            actual_type->data.pointer.bit_offset_in_host == dest_ptr_type->data.pointer.bit_offset_in_host &&
+            actual_type->data.pointer.host_int_bytes == dest_ptr_type->data.pointer.host_int_bytes &&
             get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, dest_ptr_type))
         {
             return ir_analyze_ptr_cast(ira, source_instr, value, wanted_type, source_instr);
@@ -14359,7 +14359,7 @@ static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_ali
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
             ptr_type->data.pointer.ptr_len,
             new_align,
-            ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
+            ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes);
 }
 
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align) {
@@ -14376,7 +14376,7 @@ static ZigType *adjust_ptr_len(CodeGen *g, ZigType *ptr_type, PtrLen ptr_len) {
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
             ptr_len,
             ptr_type->data.pointer.explicit_alignment,
-            ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
+            ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes);
 }
 
 static ZigType *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {
@@ -14423,7 +14423,7 @@ static ZigType *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionEle
             return ira->codegen->builtin_types.entry_invalid;
         }
         ZigType *child_type = array_type->data.array.child_type;
-        if (ptr_type->data.pointer.unaligned_bit_count == 0) {
+        if (ptr_type->data.pointer.host_int_bytes == 0) {
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
                     ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
                     elem_ptr_instruction->ptr_len,
@@ -14439,7 +14439,7 @@ static ZigType *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionEle
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
                     ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
                     elem_ptr_instruction->ptr_len,
-                    1, (uint32_t)bit_offset, (uint32_t)bit_width);
+                    1, (uint32_t)bit_offset, ptr_type->data.pointer.host_int_bytes);
         }
     } else if (array_type->id == ZigTypeIdPointer) {
         if (array_type->data.pointer.ptr_len == PtrLenSingle) {
@@ -14740,10 +14740,10 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
         if (field) {
             bool is_packed = (bare_type->data.structure.layout == ContainerLayoutPacked);
             uint32_t align_bytes = is_packed ? 1 : get_abi_alignment(ira->codegen, field->type_entry);
-            size_t ptr_bit_offset = container_ptr->value.type->data.pointer.bit_offset;
-            size_t ptr_unaligned_bit_count = container_ptr->value.type->data.pointer.unaligned_bit_count;
-            size_t unaligned_bit_count_for_result_type = (ptr_unaligned_bit_count == 0) ?
-                field->unaligned_bit_count : type_size_bits(ira->codegen, field->type_entry);
+            uint32_t ptr_bit_offset = container_ptr->value.type->data.pointer.bit_offset_in_host;
+            uint32_t ptr_host_int_bytes = container_ptr->value.type->data.pointer.host_int_bytes;
+            uint32_t host_int_bytes_for_result_type = (ptr_host_int_bytes == 0) ?
+                get_host_int_bytes(ira->codegen, bare_type, field) : ptr_host_int_bytes;
             if (instr_is_comptime(container_ptr)) {
                 ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
                 if (!ptr_val)
@@ -14758,8 +14758,8 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
                     ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
                             is_const, is_volatile, PtrLenSingle, align_bytes,
-                            (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
-                            (uint32_t)unaligned_bit_count_for_result_type);
+                            (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
+                            (uint32_t)host_int_bytes_for_result_type);
                     IrInstruction *result = ir_get_const(ira, source_instr);
                     ConstExprValue *const_val = &result->value;
                     const_val->data.x_ptr.special = ConstPtrSpecialBaseStruct;
@@ -14775,8 +14775,8 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
             result->value.type = get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
                     PtrLenSingle,
                     align_bytes,
-                    (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
-                    (uint32_t)unaligned_bit_count_for_result_type);
+                    (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
+                    host_int_bytes_for_result_type);
             return result;
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
@@ -17135,7 +17135,7 @@ static ZigType *ir_analyze_instruction_bit_offset_of(IrAnalyze *ira,
     if (!(field = validate_byte_offset(ira, type_value, field_name_value, &byte_offset)))
         return ira->codegen->builtin_types.entry_invalid;
 
-    size_t bit_offset = byte_offset * 8 + field->packed_bits_offset;
+    size_t bit_offset = byte_offset * 8 + field->bit_offset_in_host;
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     bigint_init_unsigned(&out_val->data.x_bigint, bit_offset);
     return ira->codegen->builtin_types.entry_num_lit_int;
@@ -20758,7 +20758,7 @@ static ZigType *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstructionPtr
     out_val->data.x_type = get_pointer_to_type_extra(ira->codegen, child_type,
             instruction->is_const, instruction->is_volatile,
             instruction->ptr_len, align_bytes,
-            instruction->bit_offset_start, instruction->bit_offset_end - instruction->bit_offset_start);
+            instruction->bit_offset_start, instruction->host_int_bytes);
 
     return ira->codegen->builtin_types.entry_type;
 }

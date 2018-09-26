@@ -419,7 +419,7 @@ ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
 }
 
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
-        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count)
+        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset_in_host, uint32_t host_int_bytes)
 {
     assert(!type_is_invalid(child_type));
     assert(ptr_len == PtrLenSingle || child_type->id != ZigTypeIdOpaque);
@@ -430,23 +430,31 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
             byte_alignment = 0;
     }
 
+    if (host_int_bytes != 0) {
+        uint32_t child_type_bits = type_size_bits(g, child_type);
+        if (host_int_bytes * 8 == child_type_bits) {
+            assert(bit_offset_in_host == 0);
+            host_int_bytes = 0;
+        }
+    }
+
     TypeId type_id = {};
     ZigType **parent_pointer = nullptr;
-    if (unaligned_bit_count != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle) {
+    if (host_int_bytes != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle) {
         type_id.id = ZigTypeIdPointer;
         type_id.data.pointer.child_type = child_type;
         type_id.data.pointer.is_const = is_const;
         type_id.data.pointer.is_volatile = is_volatile;
         type_id.data.pointer.alignment = byte_alignment;
-        type_id.data.pointer.bit_offset = bit_offset;
-        type_id.data.pointer.unaligned_bit_count = unaligned_bit_count;
+        type_id.data.pointer.bit_offset_in_host = bit_offset_in_host;
+        type_id.data.pointer.host_int_bytes = host_int_bytes;
         type_id.data.pointer.ptr_len = ptr_len;
 
         auto existing_entry = g->type_table.maybe_get(type_id);
         if (existing_entry)
             return existing_entry->value;
     } else {
-        assert(bit_offset == 0);
+        assert(bit_offset_in_host == 0);
         parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)];
         if (*parent_pointer) {
             assert((*parent_pointer)->data.pointer.explicit_alignment == 0);
@@ -463,17 +471,17 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     const char *const_str = is_const ? "const " : "";
     const char *volatile_str = is_volatile ? "volatile " : "";
     buf_resize(&entry->name, 0);
-    if (unaligned_bit_count == 0 && byte_alignment == 0) {
+    if (host_int_bytes == 0 && byte_alignment == 0) {
         buf_appendf(&entry->name, "%s%s%s%s", star_str, const_str, volatile_str, buf_ptr(&child_type->name));
-    } else if (unaligned_bit_count == 0) {
+    } else if (host_int_bytes == 0) {
         buf_appendf(&entry->name, "%salign(%" PRIu32 ") %s%s%s", star_str, byte_alignment,
                 const_str, volatile_str, buf_ptr(&child_type->name));
     } else if (byte_alignment == 0) {
         buf_appendf(&entry->name, "%salign(:%" PRIu32 ":%" PRIu32 ") %s%s%s", star_str,
-                bit_offset, bit_offset + unaligned_bit_count, const_str, volatile_str, buf_ptr(&child_type->name));
+                bit_offset_in_host, host_int_bytes, const_str, volatile_str, buf_ptr(&child_type->name));
     } else {
         buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s", star_str, byte_alignment,
-                bit_offset, bit_offset + unaligned_bit_count, const_str, volatile_str, buf_ptr(&child_type->name));
+                bit_offset_in_host, host_int_bytes, const_str, volatile_str, buf_ptr(&child_type->name));
     }
 
     assert(child_type->id != ZigTypeIdInvalid);
@@ -481,7 +489,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     entry->zero_bits = !type_has_bits(child_type);
 
     if (!entry->zero_bits) {
-        if (is_const || is_volatile || unaligned_bit_count != 0 || byte_alignment != 0 ||
+        if (is_const || is_volatile || host_int_bytes != 0 || byte_alignment != 0 ||
             ptr_len != PtrLenSingle)
         {
             ZigType *peer_type = get_pointer_to_type(g, child_type, false);
@@ -506,8 +514,8 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     entry->data.pointer.is_const = is_const;
     entry->data.pointer.is_volatile = is_volatile;
     entry->data.pointer.explicit_alignment = byte_alignment;
-    entry->data.pointer.bit_offset = bit_offset;
-    entry->data.pointer.unaligned_bit_count = unaligned_bit_count;
+    entry->data.pointer.bit_offset_in_host = bit_offset_in_host;
+    entry->data.pointer.host_int_bytes = host_int_bytes;
 
     if (parent_pointer) {
         *parent_pointer = entry;
@@ -2007,12 +2015,9 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             size_t field_size_in_bits = type_size_bits(g, field_type);
             size_t next_packed_bits_offset = packed_bits_offset + field_size_in_bits;
 
-            type_struct_field->packed_bits_size = field_size_in_bits;
-
             if (first_packed_bits_offset_misalign != SIZE_MAX) {
                 // this field is not byte-aligned; it is part of the previous field with a bit offset
-                type_struct_field->packed_bits_offset = packed_bits_offset - first_packed_bits_offset_misalign;
-                type_struct_field->unaligned_bit_count = field_size_in_bits;
+                type_struct_field->bit_offset_in_host = packed_bits_offset - first_packed_bits_offset_misalign;
 
                 size_t full_bit_count = next_packed_bits_offset - first_packed_bits_offset_misalign;
                 LLVMTypeRef int_type_ref = LLVMIntType((unsigned)(full_bit_count));
@@ -2025,13 +2030,11 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
                 }
             } else if (8 * LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref) != field_size_in_bits) {
                 first_packed_bits_offset_misalign = packed_bits_offset;
-                type_struct_field->packed_bits_offset = 0;
-                type_struct_field->unaligned_bit_count = field_size_in_bits;
+                type_struct_field->bit_offset_in_host = 0;
             } else {
                 // This is a byte-aligned field (both start and end) in a packed struct.
                 element_types[gen_field_index] = field_type->type_ref;
-                type_struct_field->packed_bits_offset = 0;
-                type_struct_field->unaligned_bit_count = 0;
+                type_struct_field->bit_offset_in_host = 0;
                 gen_field_index += 1;
             }
             packed_bits_offset = next_packed_bits_offset;
@@ -2124,10 +2127,10 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
         uint64_t debug_align_in_bits;
         uint64_t debug_offset_in_bits;
         if (packed) {
-            debug_size_in_bits = type_struct_field->packed_bits_size;
+            debug_size_in_bits = type_size_bits(g, type_struct_field->type_entry);
             debug_align_in_bits = 1;
             debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref,
-                    (unsigned)gen_field_index) + type_struct_field->packed_bits_offset;
+                    (unsigned)gen_field_index) + type_struct_field->bit_offset_in_host;
         } else {
             debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
             debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
@@ -6007,8 +6010,8 @@ uint32_t type_id_hash(TypeId x) {
                 (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
                 (x.data.pointer.is_volatile ? (uint32_t)536730450 : (uint32_t)1685612214) +
                 (((uint32_t)x.data.pointer.alignment) ^ (uint32_t)0x777fbe0e) +
-                (((uint32_t)x.data.pointer.bit_offset) ^ (uint32_t)2639019452) +
-                (((uint32_t)x.data.pointer.unaligned_bit_count) ^ (uint32_t)529908881);
+                (((uint32_t)x.data.pointer.bit_offset_in_host) ^ (uint32_t)2639019452) +
+                (((uint32_t)x.data.pointer.host_int_bytes) ^ (uint32_t)529908881);
         case ZigTypeIdArray:
             return hash_ptr(x.data.array.child_type) +
                 ((uint32_t)x.data.array.size ^ (uint32_t)2122979968);
@@ -6055,8 +6058,8 @@ bool type_id_eql(TypeId a, TypeId b) {
                 a.data.pointer.is_const == b.data.pointer.is_const &&
                 a.data.pointer.is_volatile == b.data.pointer.is_volatile &&
                 a.data.pointer.alignment == b.data.pointer.alignment &&
-                a.data.pointer.bit_offset == b.data.pointer.bit_offset &&
-                a.data.pointer.unaligned_bit_count == b.data.pointer.unaligned_bit_count;
+                a.data.pointer.bit_offset_in_host == b.data.pointer.bit_offset_in_host &&
+                a.data.pointer.host_int_bytes == b.data.pointer.host_int_bytes;
         case ZigTypeIdArray:
             return a.data.array.child_type == b.data.array.child_type &&
                 a.data.array.size == b.data.array.size;
@@ -6534,3 +6537,13 @@ bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
         ty->id == ZigTypeIdUnreachable ||
         get_codegen_ptr_type(ty) != nullptr);
 }
+
+uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *field) {
+    assert(struct_type->id == ZigTypeIdStruct);
+    if (struct_type->data.structure.layout != ContainerLayoutPacked) {
+        return 0;
+    }
+    LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(struct_type->type_ref, field->gen_index);
+    return LLVMStoreSizeOfType(g->target_data_ref, field_type);
+}
+

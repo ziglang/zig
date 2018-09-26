@@ -664,7 +664,7 @@ struct AstNodePointerType {
     Token *star_token;
     AstNode *align_expr;
     BigInt *bit_offset_start;
-    BigInt *bit_offset_end;
+    BigInt *host_int_bytes;
     bool is_const;
     bool is_volatile;
     AstNode *op_expr;
@@ -1020,8 +1020,8 @@ struct ZigTypePointer {
     ZigType *slice_parent;
     PtrLen ptr_len;
     uint32_t explicit_alignment; // 0 means use ABI alignment
-    uint32_t bit_offset;
-    uint32_t unaligned_bit_count;
+    uint32_t bit_offset_in_host;
+    uint32_t host_int_bytes; // size of host integer. 0 means no host integer; this field is aligned
     bool is_const;
     bool is_volatile;
 };
@@ -1045,10 +1045,7 @@ struct TypeStructField {
     ZigType *type_entry;
     size_t src_index;
     size_t gen_index;
-    // offset from the memory at gen_index
-    size_t packed_bits_offset;
-    size_t packed_bits_size;
-    size_t unaligned_bit_count;
+    uint32_t bit_offset_in_host; // offset from the memory at gen_index
     AstNode *decl_node;
 };
 
@@ -1470,8 +1467,8 @@ struct TypeId {
             bool is_const;
             bool is_volatile;
             uint32_t alignment;
-            uint32_t bit_offset;
-            uint32_t unaligned_bit_count;
+            uint32_t bit_offset_in_host;
+            uint32_t host_int_bytes;
         } pointer;
         struct {
             ZigType *child_type;
@@ -2510,7 +2507,7 @@ struct IrInstructionPtrType {
     IrInstruction *align_value;
     IrInstruction *child_type;
     uint32_t bit_offset_start;
-    uint32_t bit_offset_end;
+    uint32_t host_int_bytes;
     PtrLen ptr_len;
     bool is_const;
     bool is_volatile;

@@ -1015,7 +1015,7 @@ static void ir_print_ptr_type(IrPrint *irp, IrInstructionPtrType *instruction) {
     }
     const char *const_str = instruction->is_const ? "const " : "";
     const char *volatile_str = instruction->is_volatile ? "volatile " : "";
-    fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->bit_offset_end,
+    fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->host_int_bytes,
             const_str, volatile_str);
     ir_print_other_instruction(irp, instruction->child_type);
 }

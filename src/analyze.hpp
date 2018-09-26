@@ -216,4 +216,6 @@ X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty);
 bool type_is_c_abi_int(CodeGen *g, ZigType *ty);
 bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id);
 
+uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *field);
+
 #endif

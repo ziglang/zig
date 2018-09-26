@@ -635,7 +635,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "align(");
                     render_node_grouped(ar, node->data.pointer_type.align_expr);
                     if (node->data.pointer_type.bit_offset_start != nullptr) {
-                        assert(node->data.pointer_type.bit_offset_end != nullptr);
+                        assert(node->data.pointer_type.host_int_bytes != nullptr);
 
                         Buf offset_start_buf = BUF_INIT;
                         buf_resize(&offset_start_buf, 0);
@@ -643,7 +643,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
 
                         Buf offset_end_buf = BUF_INIT;
                         buf_resize(&offset_end_buf, 0);
-                        bigint_append_buf(&offset_end_buf, node->data.pointer_type.bit_offset_end, 10);
+                        bigint_append_buf(&offset_end_buf, node->data.pointer_type.host_int_bytes, 10);
 
                         fprintf(ar->f, ":%s:%s ", buf_ptr(&offset_start_buf), buf_ptr(&offset_end_buf));
                     }

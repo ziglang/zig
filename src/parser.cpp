@@ -1161,10 +1161,10 @@ static AstNode *ast_parse_pointer_type(ParseContext *pc, size_t *token_index, To
             *token_index += 1;
             Token *bit_offset_start_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
             ast_eat_token(pc, token_index, TokenIdColon);
-            Token *bit_offset_end_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
+            Token *host_int_bytes_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
 
             node->data.pointer_type.bit_offset_start = token_bigint(bit_offset_start_tok);
-            node->data.pointer_type.bit_offset_end = token_bigint(bit_offset_end_tok);
+            node->data.pointer_type.host_int_bytes = token_bigint(host_int_bytes_tok);
         }
         ast_eat_token(pc, token_index, TokenIdRParen);
         token = &pc->tokens->at(*token_index);

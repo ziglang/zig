@@ -754,3 +754,11 @@ test "comptime bitwise operators" {
         assert(~u128(0) == 0xffffffffffffffffffffffffffffffff);
     }
 }
+
+test "*align(1) u16 is the same as *align(1:0:2) u16" {
+    comptime {
+        assert(*align(1:0:2) u16 == *align(1) u16);
+        // TODO add parsing support for this syntax
+        //assert(*align(:0:2) u16 == *u16);
+    }
+}

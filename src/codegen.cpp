@@ -1795,8 +1795,8 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
         return nullptr;
     }
 
-    uint32_t unaligned_bit_count = ptr_type->data.pointer.unaligned_bit_count;
-    if (unaligned_bit_count == 0) {
+    uint32_t host_int_bytes = ptr_type->data.pointer.host_int_bytes;
+    if (host_int_bytes == 0) {
         gen_store(g, value, ptr, ptr_type);
         return nullptr;
     }
@@ -1804,10 +1804,12 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
     bool big_endian = g->is_big_endian;
 
     LLVMValueRef containing_int = gen_load(g, ptr, ptr_type, "");
-
-    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
-    uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - unaligned_bit_count : bit_offset;
+    assert(host_bit_count == host_int_bytes * 8);
+    uint32_t size_in_bits = type_size_bits(g, child_type);
+
+    uint32_t bit_offset = ptr_type->data.pointer.bit_offset_in_host;
+    uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - size_in_bits : bit_offset;
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
 
     LLVMValueRef mask_val = LLVMConstAllOnes(child_type->type_ref);
@@ -3209,18 +3211,20 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     ZigType *ptr_type = instruction->ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
 
-    uint32_t unaligned_bit_count = ptr_type->data.pointer.unaligned_bit_count;
-    if (unaligned_bit_count == 0)
+    uint32_t host_int_bytes = ptr_type->data.pointer.host_int_bytes;
+    if (host_int_bytes == 0)
         return get_handle_value(g, ptr, child_type, ptr_type);
 
     bool big_endian = g->is_big_endian;
 
     assert(!handle_is_ptr(child_type));
     LLVMValueRef containing_int = gen_load(g, ptr, ptr_type, "");
-
-    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
-    uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - unaligned_bit_count : bit_offset;
+    assert(host_bit_count == host_int_bytes * 8);
+    uint32_t size_in_bits = type_size_bits(g, child_type);
+
+    uint32_t bit_offset = ptr_type->data.pointer.bit_offset_in_host;
+    uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - size_in_bits : bit_offset;
 
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
     LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
@@ -3276,20 +3280,22 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
                     array_type->data.array.len, false);
             add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
         }
-        if (array_ptr_type->data.pointer.unaligned_bit_count != 0) {
+        if (array_ptr_type->data.pointer.host_int_bytes != 0) {
             return array_ptr_ptr;
         }
         ZigType *child_type = array_type->data.array.child_type;
         if (child_type->id == ZigTypeIdStruct &&
             child_type->data.structure.layout == ContainerLayoutPacked)
         {
-            size_t unaligned_bit_count = instruction->base.value.type->data.pointer.unaligned_bit_count;
-            if (unaligned_bit_count != 0) {
+            ZigType *ptr_type = instruction->base.value.type;
+            size_t host_int_bytes = ptr_type->data.pointer.host_int_bytes;
+            if (host_int_bytes != 0) {
+                uint32_t size_in_bits = type_size_bits(g, ptr_type->data.pointer.child_type);
                 LLVMTypeRef ptr_u8_type_ref = LLVMPointerType(LLVMInt8Type(), 0);
                 LLVMValueRef u8_array_ptr = LLVMBuildBitCast(g->builder, array_ptr, ptr_u8_type_ref, "");
-                assert(unaligned_bit_count % 8 == 0);
+                assert(size_in_bits % 8 == 0);
                 LLVMValueRef elem_size_bytes = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                        unaligned_bit_count / 8, false);
+                        size_in_bits / 8, false);
                 LLVMValueRef byte_offset = LLVMBuildNUWMul(g->builder, subscript_value, elem_size_bytes, "");
                 LLVMValueRef indices[] = {
                     byte_offset
@@ -3505,7 +3511,7 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
         return nullptr;
 
     if (struct_ptr_type->id == ZigTypeIdPointer &&
-        struct_ptr_type->data.pointer.unaligned_bit_count != 0)
+        struct_ptr_type->data.pointer.host_int_bytes != 0)
     {
         return struct_ptr;
     }
@@ -4671,10 +4677,11 @@ static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, 
         LLVMValueRef value = ir_llvm_value(g, field->value);
 
         uint32_t field_align_bytes = get_abi_alignment(g, type_struct_field->type_entry);
+        uint32_t host_int_bytes = get_host_int_bytes(g, instruction->struct_type, type_struct_field);
 
         ZigType *ptr_type = get_pointer_to_type_extra(g, type_struct_field->type_entry,
                 false, false, PtrLenSingle, field_align_bytes,
-                (uint32_t)type_struct_field->packed_bits_offset, (uint32_t)type_struct_field->unaligned_bit_count);
+                (uint32_t)type_struct_field->bit_offset_in_host, host_int_bytes);
 
         gen_assign_raw(g, field_ptr, ptr_type, value);
     }
@@ -5459,15 +5466,16 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
                         continue;
                     }
                     LLVMValueRef child_val = pack_const_int(g, big_int_type_ref, &const_val->data.x_struct.fields[i]);
+                    uint32_t packed_bits_size = type_size_bits(g, field->type_entry);
                     if (is_big_endian) {
-                        LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, field->packed_bits_size, false);
+                        LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, packed_bits_size, false);
                         val = LLVMConstShl(val, shift_amt);
                         val = LLVMConstOr(val, child_val);
                     } else {
                         LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, used_bits, false);
                         LLVMValueRef child_val_shifted = LLVMConstShl(child_val, shift_amt);
                         val = LLVMConstOr(val, child_val_shifted);
-                        used_bits += field->packed_bits_size;
+                        used_bits += packed_bits_size;
                     }
                 }
                 return val;
@@ -5677,16 +5685,17 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                                 }
                                 LLVMValueRef child_val = pack_const_int(g, big_int_type_ref,
                                         &const_val->data.x_struct.fields[i]);
+                                uint32_t packed_bits_size = type_size_bits(g, it_field->type_entry);
                                 if (is_big_endian) {
                                     LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref,
-                                            it_field->packed_bits_size, false);
+                                            packed_bits_size, false);
                                     val = LLVMConstShl(val, shift_amt);
                                     val = LLVMConstOr(val, child_val);
                                 } else {
                                     LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, used_bits, false);
                                     LLVMValueRef child_val_shifted = LLVMConstShl(child_val, shift_amt);
                                     val = LLVMConstOr(val, child_val_shifted);
-                                    used_bits += it_field->packed_bits_size;
+                                    used_bits += packed_bits_size;
                                 }
                             }
                             fields[type_struct_field->gen_index] = val;
