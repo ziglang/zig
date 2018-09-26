@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "compile error when evaluating return type of inferred error set",
+        \\const Car = struct {
+        \\    foo: *SymbolThatDoesNotExist,
+        \\    pub fn init() !Car {}
+        \\};
+        \\export fn entry() void {
+        \\    const car = Car.init();
+        \\}
+    ,
+        ".tmp_source.zig:2:11: error: use of undeclared identifier 'SymbolThatDoesNotExist'",
+    );
+
+    cases.add(
         "don't implicit cast double pointer to *c_void",
         \\export fn entry() void {
         \\    var a: u32 = 1;

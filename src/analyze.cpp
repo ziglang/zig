@@ -673,7 +673,7 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
     ZigType *entry = new_type_table_entry(ZigTypeIdErrorUnion);
     entry->is_copyable = true;
     assert(payload_type->di_type);
-    assertNoError(ensure_complete_type(g, payload_type));
+    assert(type_is_complete(payload_type));
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "%s!%s", buf_ptr(&err_set_type->name), buf_ptr(&payload_type->name));
@@ -1684,6 +1684,8 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
     if (fn_proto->auto_err_set) {
         ZigType *inferred_err_set_type = get_auto_err_set_type(g, fn_entry);
+        if ((err = type_resolve(g, specified_return_type, ResolveStatusSizeKnown)))
+            return g->builtin_types.entry_invalid;
         fn_type_id.return_type = get_error_union_type(g, inferred_err_set_type, specified_return_type);
     } else {
         fn_type_id.return_type = specified_return_type;

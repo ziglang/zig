@@ -9344,9 +9344,15 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         if (prev_inst->value.type->id == ZigTypeIdErrorSet) {
             return err_set_type;
         } else if (prev_inst->value.type->id == ZigTypeIdErrorUnion) {
-            return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type->data.error_union.payload_type);
+            ZigType *payload_type = prev_inst->value.type->data.error_union.payload_type;
+            if ((err = type_resolve(ira->codegen, payload_type, ResolveStatusSizeKnown)))
+                return ira->codegen->builtin_types.entry_invalid;
+            return get_error_union_type(ira->codegen, err_set_type, payload_type);
         } else if (expected_type != nullptr && expected_type->id == ZigTypeIdErrorUnion) {
-            return get_error_union_type(ira->codegen, err_set_type, expected_type->data.error_union.payload_type);
+            ZigType *payload_type = expected_type->data.error_union.payload_type;
+            if ((err = type_resolve(ira->codegen, payload_type, ResolveStatusSizeKnown)))
+                return ira->codegen->builtin_types.entry_invalid;
+            return get_error_union_type(ira->codegen, err_set_type, payload_type);
         } else {
             if (prev_inst->value.type->id == ZigTypeIdComptimeInt ||
                 prev_inst->value.type->id == ZigTypeIdComptimeFloat)
@@ -9359,6 +9365,8 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                     buf_sprintf("unable to make error union out of null literal"));
                 return ira->codegen->builtin_types.entry_invalid;
             } else {
+                if ((err = type_resolve(ira->codegen, prev_inst->value.type, ResolveStatusSizeKnown)))
+                    return ira->codegen->builtin_types.entry_invalid;
                 return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type);
             }
         }
@@ -13053,6 +13061,8 @@ static ZigType *ir_analyze_instruction_error_return_trace(IrAnalyze *ira,
 static ZigType *ir_analyze_instruction_error_union(IrAnalyze *ira,
         IrInstructionErrorUnion *instruction)
 {
+    Error err;
+
     ZigType *err_set_type = ir_resolve_type(ira, instruction->err_set->other);
     if (type_is_invalid(err_set_type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -13068,6 +13078,8 @@ static ZigType *ir_analyze_instruction_error_union(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    if ((err = type_resolve(ira->codegen, payload_type, ResolveStatusSizeKnown)))
+        return ira->codegen->builtin_types.entry_invalid;
     ZigType *result_type = get_error_union_type(ira->codegen, err_set_type, payload_type);
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
@@ -13486,6 +13498,8 @@ static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instr
         ZigType *inferred_err_set_type = nullptr;
         if (fn_proto_node->data.fn_proto.auto_err_set) {
             inferred_err_set_type = get_auto_err_set_type(ira->codegen, fn_entry);
+            if ((err = type_resolve(ira->codegen, specified_return_type, ResolveStatusSizeKnown)))
+                return ira->codegen->builtin_types.entry_invalid;
             return_type = get_error_union_type(ira->codegen, inferred_err_set_type, specified_return_type);
         } else {
             return_type = specified_return_type;
@@ -13713,6 +13727,8 @@ static ZigType *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instr
                 return ira->codegen->builtin_types.entry_invalid;
             if (fn_proto_node->data.fn_proto.auto_err_set) {
                 ZigType *inferred_err_set_type = get_auto_err_set_type(ira->codegen, impl_fn);
+                if ((err = type_resolve(ira->codegen, specified_return_type, ResolveStatusSizeKnown)))
+                    return ira->codegen->builtin_types.entry_invalid;
                 inst_fn_type_id.return_type = get_error_union_type(ira->codegen, inferred_err_set_type, specified_return_type);
             } else {
                 inst_fn_type_id.return_type = specified_return_type;
