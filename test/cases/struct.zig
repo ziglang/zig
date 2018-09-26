@@ -453,3 +453,16 @@ test "implicit cast packed struct field to const ptr" {
     const res = LevelUpMove.toInt(lup.level);
     assert(res == 12);
 }
+
+test "pointer to packed struct member in a stack variable" {
+    const S = packed struct {
+        a: u2,
+        b: u2,
+    };
+
+    var s = S{ .a = 2, .b = 0 };
+    var b_ptr = &s.b;
+    assert(s.b == 0);
+    b_ptr.* = 2;
+    assert(s.b == 2);
+}

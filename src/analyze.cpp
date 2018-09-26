@@ -489,20 +489,27 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     entry->zero_bits = !type_has_bits(child_type);
 
     if (!entry->zero_bits) {
-        if (is_const || is_volatile || host_int_bytes != 0 || byte_alignment != 0 ||
-            ptr_len != PtrLenSingle)
-        {
-            ZigType *peer_type = get_pointer_to_type(g, child_type, false);
+        if (is_const || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle || bit_offset_in_host != 0) {
+            ZigType *peer_type = get_pointer_to_type_extra(g, child_type, false, false,
+                    PtrLenSingle, 0, 0, host_int_bytes);
             entry->type_ref = peer_type->type_ref;
             entry->di_type = peer_type->di_type;
         } else {
-            entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
-
-            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-            uint64_t debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, entry->type_ref);
-            assert(child_type->di_type);
-            entry->di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, child_type->di_type,
-                    debug_size_in_bits, debug_align_in_bits, buf_ptr(&entry->name));
+            if (host_int_bytes == 0) {
+                entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
+                uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+                uint64_t debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, entry->type_ref);
+                assert(child_type->di_type);
+                entry->di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, child_type->di_type,
+                        debug_size_in_bits, debug_align_in_bits, buf_ptr(&entry->name));
+            } else {
+                ZigType *host_int_type = get_int_type(g, false, host_int_bytes * 8);
+                entry->type_ref = LLVMPointerType(host_int_type->type_ref, 0);
+                uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, host_int_type->type_ref);
+                uint64_t debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, host_int_type->type_ref);
+                entry->di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, host_int_type->di_type,
+                        debug_size_in_bits, debug_align_in_bits, buf_ptr(&entry->name));
+            }
         }
     } else {
         assert(byte_alignment == 0);
