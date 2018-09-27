@@ -1,10 +1,19 @@
-const std = @import("index.zig");
+const builtin = @import("builtin");
+const Os = builtin.Os;
+const std = @import("std");
 const mem = std.mem;
 const elf = std.elf;
 const cstr = std.cstr;
 const linux = std.os.linux;
+const windows = std.os.windows;
 
-pub const DynLib = struct {
+pub const DynLib = switch (builtin.os) {
+    Os.linux => LinuxDynLib,
+    Os.windows => WindowsDynLib,
+    else => void,
+};
+
+pub const LinuxDynLib = struct {
     allocator: *mem.Allocator,
     elf_lib: ElfLib,
     fd: i32,
@@ -107,7 +116,7 @@ pub const ElfLib = struct {
             }
         }
 
-        return ElfLib{
+        return ElfLib {
             .base = base,
             .strings = maybe_strings orelse return error.ElfStringSectionNotFound,
             .syms = maybe_syms orelse return error.ElfSymSectionNotFound,
@@ -154,3 +163,27 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
     const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
     return mem.eql(u8, vername, cstr.toSliceConst(strings + aux.vda_name));
 }
+
+pub const WindowsDynLib = struct {
+    allocator: *mem.Allocator,
+    dll: windows.HMODULE,
+
+    pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
+        const wpath = try std.unicode.utf8ToUtf16LeWithNull(allocator, path);
+        defer allocator.free(wpath);
+        
+        return WindowsDynLib {
+            .allocator = allocator,
+            .dll = windows.LoadLibraryW(wpath[0..].ptr) orelse return error.FileNotFound
+        };
+    }
+
+    pub fn close(self: *WindowsDynLib) void {
+        _ = windows.FreeLibrary(self.dll);
+        self.* = undefined;
+    }
+
+    pub fn lookup(self: *WindowsDynLib, name: []const u8) ?usize {
+        return @ptrToInt(windows.GetProcAddress(self.dll, name.ptr));
+    }
+};
