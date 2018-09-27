@@ -1,11 +1,15 @@
 const builtin = @import("builtin");
 const Os = builtin.Os;
-const std = @import("std");
+
+const std = @import("index.zig");
 const mem = std.mem;
-const elf = std.elf;
 const cstr = std.cstr;
-const linux = std.os.linux;
-const windows = std.os.windows;
+const os = std.os;
+const assert = std.debug.assert;
+const elf = std.elf;
+const linux = os.linux;
+const windows = os.windows;
+const win_util = @import("os/windows/util.zig");
 
 pub const DynLib = switch (builtin.os) {
     Os.linux => LinuxDynLib,
@@ -169,17 +173,24 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
-        const wpath = try std.unicode.utf8ToUtf16LeWithNull(allocator, path);
-        defer allocator.free(wpath);
+        const wpath = try win_util.sliceToPrefixedFileW(path);
         
         return WindowsDynLib {
             .allocator = allocator,
-            .dll = windows.LoadLibraryW(wpath[0..].ptr) orelse return error.FileNotFound
+            .dll = windows.LoadLibraryW(&wpath) orelse {
+                const err = windows.GetLastError();
+                switch (err) {
+                    windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+                    windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+                    windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
+                    else => return os.unexpectedErrorWindows(err),
+                }
+            },
         };
     }
 
     pub fn close(self: *WindowsDynLib) void {
-        _ = windows.FreeLibrary(self.dll);
+        assert(windows.FreeLibrary(self.dll) != 0);
         self.* = undefined;
     }
 
@@ -187,3 +198,17 @@ pub const WindowsDynLib = struct {
         return @ptrToInt(windows.GetProcAddress(self.dll, name.ptr));
     }
 };
+
+test "dynamic_library" {
+    const libname = switch (builtin.os) {
+        Os.linux => "invalid_so.so",
+        Os.windows => "invalid_dll.dll",
+        else => return;,
+    };
+
+    const dynlib = DynLib.open(std.debug.global_allocator, libname) catch |err| {
+        assert(err == error.FileNotFound);
+        return;
+    };
+    @panic("Expected error from function");
+}

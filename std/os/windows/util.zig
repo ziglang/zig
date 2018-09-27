@@ -188,37 +188,6 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
     return allocator.shrink(u16, result, i);
 }
 
-pub fn windowsLoadDllW(dll_path_w: [*]const u16) !windows.HMODULE {
-    return windows.LoadLibraryW(dll_path_w) orelse {
-        const err = windows.GetLastError();
-        switch (err) {
-            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
-            else => return os.unexpectedErrorWindows(err),
-        }
-    };
-}
-
-pub fn windowsLoadDll(dll_path: []const u8) !windows.HMODULE {
-    const dll_path_w = try sliceToPrefixedFileW(dll_path);
-    return windowsLoadDllW(&dll_path_w);
-}
-
-pub fn windowsUnloadDll(hModule: windows.HMODULE) void {
-    assert(windows.FreeLibrary(hModule) != 0);
-}
-
-test "InvalidDll" {
-    if (builtin.os != builtin.Os.windows) return error.SkipZigTest;
-
-    const handle = os.windowsLoadDll("asdf.dll") catch |err| {
-        assert(err == error.FileNotFound);
-        return;
-    };
-    @panic("Expected error from function");
-}
-
 pub fn windowsFindFirstFile(
     dir_path: []const u8,
     find_file_data: *windows.WIN32_FIND_DATAW,
