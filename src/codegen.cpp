@@ -446,6 +446,21 @@ static uint32_t get_err_ret_trace_arg_index(CodeGen *g, ZigFn *fn_table_entry) {
     return first_arg_ret ? 1 : 0;
 }
 
+static void maybe_export_dll(CodeGen *g, LLVMValueRef global_value, GlobalLinkageId linkage) {
+    if (linkage != GlobalLinkageIdInternal && g->zig_target.os == OsWindows) {
+        LLVMSetDLLStorageClass(global_value, LLVMDLLExportStorageClass);
+    }
+}
+
+static void maybe_import_dll(CodeGen *g, LLVMValueRef global_value, GlobalLinkageId linkage) {
+    if (linkage != GlobalLinkageIdInternal && g->zig_target.os == OsWindows) {
+        // TODO come up with a good explanation/understanding for why we never do
+        // DLLImportStorageClass. Empirically it only causes problems. But let's have
+        // this documented and then clean up the code accordingly.
+        //LLVMSetDLLStorageClass(global_value, LLVMDLLImportStorageClass);
+    }
+}
+
 static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
@@ -539,6 +554,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     }
 
     if (fn_table_entry->body_node != nullptr) {
+        maybe_export_dll(g, fn_table_entry->llvm_value, linkage);
+
         bool want_fn_safety = g->build_mode != BuildModeFastRelease &&
                               g->build_mode != BuildModeSmallRelease &&
                               !fn_table_entry->def_scope->safety_off;
@@ -548,6 +565,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
                 addLLVMFnAttrStr(fn_table_entry->llvm_value, "stack-protector-buffer-size", "4");
             }
         }
+    } else {
+        maybe_import_dll(g, fn_table_entry->llvm_value, linkage);
     }
 
     if (fn_table_entry->alignstack_value != 0) {
@@ -6107,6 +6126,7 @@ static void do_code_gen(CodeGen *g) {
                 // TODO debug info for the extern variable
 
                 LLVMSetLinkage(global_value, LLVMExternalLinkage);
+                maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
                 LLVMSetAlignment(global_value, var->align_bytes);
                 LLVMSetGlobalConstant(global_value, var->gen_is_const);
             }
@@ -6119,6 +6139,7 @@ static void do_code_gen(CodeGen *g) {
 
             if (exported) {
                 LLVMSetLinkage(global_value, LLVMExternalLinkage);
+                maybe_export_dll(g, global_value, GlobalLinkageIdStrong);
             }
             if (tld_var->section_name) {
                 LLVMSetSection(global_value, buf_ptr(tld_var->section_name));
