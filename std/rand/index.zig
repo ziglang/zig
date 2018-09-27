@@ -56,75 +56,16 @@ pub const Random = struct {
         return @bitCast(T, unsigned_result);
     }
 
-    /// Return a random unsigned integer `i < less_than`.
-    /// `less_than` must be at least `1`.
-    /// The higher `retry_limit` is, the more evenly distributed `i` is.
-    /// The lower `retry_limit` is, the more biased `i` is toward smaller values.
-    /// If `less_than` is a power of 2, `i` is always evenly distributed, and `retry_limit` is effectively ignored.
-    /// If your `less_than` is a comptime-known power of 2, consider using ::int instead.
-    /// For example, if your `less_than` is always `1024`, then instead use `int(u10)`.
-    /// This function requests `@sizeOf(T)` bytes from ::fillFn
-    /// regardless of the value of `less_than`.
-    pub fn uintLessThan(r: *Random, comptime T: type, less_than: T, retry_limit: usize) T {
-        return r.uintLessThanMaybeRetry(T, less_than, true, retry_limit);
-    }
-
-    /// Return an evenly distributed random unsigned integer `i < less_than`.
-    /// `less_than` must be at least `1`.
-    /// This function effectively calls ::uintLessThan with a `retry_limit` of infinity.
-    /// The runtime of this function is exponentially distributed with a worst case runtime of infinity.
-    /// A degenerate `fillFn` backend can cause this function to run forever.
-    pub fn uintLessThanRetryForever(r: *Random, comptime T: type, less_than: T) T {
-        return r.uintLessThanMaybeRetry(T, less_than, false, 0);
-    }
-
-    /// Return a random integer `i` such that `at_least <= i < less_than`.
-    /// See ::uintLessThan for the meaning of `retry_limit`.
-    pub fn intRangeLessThan(r: *Random, comptime T: type, at_least: T, less_than: T, retry_limit: usize) T {
-        return r.intRangeLessThanMaybeRetry(T, at_least, less_than, true, retry_limit);
-    }
-    /// Return an evenly distributed random integer `i` such that `at_least <= i < less_than`.
-    /// This function effectively calls ::intRangeLessThan with a `retry_limit` of infinity.
-    /// The runtime of this function is exponentially distributed with a worst case runtime of infinity.
-    /// A degenerate `fillFn` backend can cause this function to run forever.
-    pub fn intRangeLessThanRetryForever(r: *Random, comptime T: type, at_least: T, less_than: T) T {
-        return r.intRangeLessThanMaybeRetry(T, at_least, less_than, false, 0);
-    }
-
-    /// Return a random unsigned integer `i <= at_most`.
-    /// The higher `retry_limit` is, the more evenly distributed `i` is.
-    /// The lower `retry_limit` is, the more biased `i` is toward smaller values.
-    /// If `at_most + 1` is a power of 2, `i` is always evenly distributed, and `retry_limit` is effectively ignored.
-    /// If your `at_most + 1` is a comptime-known power of 2, consider using ::int instead.
-    /// For example, if your `at_most` is always `1023`, then instead use `int(u10)`.
-    /// This function requests `@sizeOf(T)` bytes from ::fillFn
-    /// regardless of the value of `at_most`.
-    pub fn uintAtMost(r: *Random, comptime T: type, at_most: T, retry_limit: usize) T {
-        return r.uintAtMostMaybeRetry(T, at_most, true, retry_limit);
-    }
-
-    /// Return an evenly distributed random unsigned integer `i <= at_most`.
-    /// This function effectively calls ::uintAtMost with a `retry_limit` of infinity.
-    /// The runtime of this function is exponentially distributed with a worst case runtime of infinity.
-    /// A degenerate `fillFn` backend can cause this function to run forever.
-    pub fn uintAtMostRetryForever(r: *Random, comptime T: type, less_than: T) T {
-        return r.uintAtMostMaybeRetry(T, less_than, false, 0);
-    }
-
-    /// Return a random integer `i` such that `at_least <= i < at_most`.
-    /// See ::uintAtMost for the meaning of `retry_limit`.
-    pub fn intRangeAtMost(r: *Random, comptime T: type, at_least: T, at_most: T, retry_limit: usize) T {
-        return r.intRangeAtMostMaybeRetry(T, at_least, at_most, true, retry_limit);
-    }
-    /// Return an evenly distributed random integer `i` such that `at_least <= i <= at_most`.
-    /// This function effectively calls ::intRangeAtMost with a `retry_limit` of infinity.
-    /// The runtime of this function is exponentially distributed with a worst case runtime of infinity.
-    /// A degenerate `fillFn` backend can cause this function to run forever.
-    pub fn intRangeAtMostRetryForever(r: *Random, comptime T: type, at_least: T, at_most: T) T {
-        return r.intRangeAtMostMaybeRetry(T, at_least, at_most, false, 0);
-    }
-
-    fn uintLessThanMaybeRetry(r: *Random, comptime T: type, less_than: T, comptime use_retry_limit: bool, retry_limit: usize) T {
+    /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
+    /// This function assumes that the underlying ::fillFn produces evenly distributed values.
+    /// Within this assumption, the runtime of this function is exponentially distributed.
+    /// If ::fillFn were backed by a true random generator,
+    /// the runtime of this function would technically be unbounded.
+    /// However, if ::fillFn is backed by any evenly distributed pseudo random number generator,
+    /// this function is guaranteed to return.
+    /// If you need deterministic runtime bounds, consider instead using `r.int(T) % less_than`,
+    /// which will usually be biased toward smaller values.
+    pub fn uintLessThan(r: *Random, comptime T: type, less_than: T) T {
         assert(T.is_signed == false);
         assert(0 < less_than);
 
@@ -137,58 +78,59 @@ pub const Random = struct {
         }
         const retry_zone_start = @maxValue(T) - last_group_size_minus_one;
 
-        var i: usize = 0;
         while (true) {
             const rand_val = r.int(T);
             if (rand_val < retry_zone_start) {
                 return rand_val % less_than;
             }
-            if (use_retry_limit) {
-                if (i >= retry_limit) {
-                    // good enough
-                    return rand_val % less_than;
-                }
-                i += 1;
-            }
         }
     }
 
-    fn uintAtMostMaybeRetry(r: *Random, comptime T: type, at_most: T, comptime use_retry_limit: bool, retry_limit: usize) T {
+    /// Returns an evenly distributed random unsigned integer `0 <= i <= at_most`.
+    /// See ::uintLessThan, which this function uses in most cases,
+    /// for commentary on the runtime of this function.
+    pub fn uintAtMost(r: *Random, comptime T: type, at_most: T) T {
         assert(T.is_signed == false);
         if (at_most == @maxValue(T)) {
             // have the full range
             return r.int(T);
         }
-        return r.uintLessThanMaybeRetry(T, at_most + 1, use_retry_limit, retry_limit);
+        return r.uintLessThan(T, at_most + 1);
     }
 
-    fn intRangeLessThanMaybeRetry(r: *Random, comptime T: type, at_least: T, less_than: T, comptime use_retry_limit: bool, retry_limit: usize) T {
+    /// Returns an evenly distributed random integer `at_least <= i < less_than`.
+    /// See ::uintLessThan, which this function uses in most cases,
+    /// for commentary on the runtime of this function.
+    pub fn intRangeLessThan(r: *Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
         if (T.is_signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = @IntType(false, T.bit_count);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, less_than);
-            const result = lo +% r.uintLessThanMaybeRetry(UnsignedT, hi -% lo, use_retry_limit, retry_limit);
+            const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
             return @bitCast(T, result);
         } else {
-            // The signed implemented would work fine, but we can use stricter arithmetic operators here.
-            return at_least + r.uintLessThanMaybeRetry(T, less_than - at_least, use_retry_limit, retry_limit);
+            // The signed implementation would work fine, but we can use stricter arithmetic operators here.
+            return at_least + r.uintLessThan(T, less_than - at_least);
         }
     }
 
-    fn intRangeAtMostMaybeRetry(r: *Random, comptime T: type, at_least: T, at_most: T, comptime use_retry_limit: bool, retry_limit: usize) T {
+    /// Returns an evenly distributed random integer `at_least <= i <= at_most`.
+    /// See ::uintLessThan, which this function uses in most cases,
+    /// for commentary on the runtime of this function.
+    pub fn intRangeAtMost(r: *Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
         if (T.is_signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = @IntType(false, T.bit_count);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, at_most);
-            const result = lo +% r.uintAtMostMaybeRetry(UnsignedT, hi -% lo, use_retry_limit, retry_limit);
+            const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
             return @bitCast(T, result);
         } else {
-            // The signed implemented would work fine, but we can use stricter arithmetic operators here.
-            return at_least + r.uintAtMostMaybeRetry(T, at_most - at_least, use_retry_limit, retry_limit);
+            // The signed implementation would work fine, but we can use stricter arithmetic operators here.
+            return at_least + r.uintAtMost(T, at_most - at_least);
         }
     }
 
@@ -201,9 +143,9 @@ pub const Random = struct {
 
     /// Return a random integer with even distribution between `start`
     /// inclusive and `end` exclusive.  `start` must be less than `end`.
-    /// TODO: deprecated. use ::intRangeLessThan or ::intRangeLessThanRetryForever
+    /// TODO: deprecated. renamed to ::intRangeLessThan
     pub fn range(r: *Random, comptime T: type, start: T, end: T) T {
-        return r.intRangeLessThanRetryForever(T, start, end);
+        return r.intRangeLessThan(T, start, end);
     }
 
     /// Return a floating point value evenly distributed in the range [0, 1).
@@ -257,35 +199,13 @@ pub const Random = struct {
 
         var i: usize = 0;
         while (i < buf.len - 1) : (i += 1) {
-            const j = r.range(usize, i, buf.len);
+            const j = r.intRangeLessThan(usize, i, buf.len);
             mem.swap(T, &buf[i], &buf[j]);
         }
     }
 };
 
-/// This prng will always produce the same byte every time.
-/// Useful for testing. https://xkcd.com/221/
-pub const DegenerateConstantPrng = struct {
-    const Self = @This();
-    random: Random,
-    value: u8,
-
-    pub fn init(value: u8) Self {
-        return Self{
-            .random = Random{ .fillFn = fill },
-            .value = value,
-        };
-    }
-
-    fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Self, "random", r);
-        mem.set(u8, buf, self.value);
-    }
-};
-
-/// This prng will produce sequentially increasing bytes starting with 0.
-/// Useful for testing.
-pub const DegenerateSequentialPrng = struct {
+const SequentialPrng = struct {
     const Self = @This();
     random: Random,
     next_value: u8,
@@ -301,112 +221,143 @@ pub const DegenerateSequentialPrng = struct {
         const self = @fieldParentPtr(Self, "random", r);
         for (buf) |*b| {
             b.* = self.next_value;
-            self.next_value +%= 1;
         }
+        self.next_value +%= 1;
     }
 };
 
-test "Random.int" {
+test "Random int" {
     testRandomInt();
     comptime testRandomInt();
 }
 fn testRandomInt() void {
-    var r = DegenerateConstantPrng.init(0xff);
-    assert(r.random.int(u8) == 0xff);
-    assert(r.random.int(u32) == 0xffffffff);
-    assert(r.random.int(i32) == -1);
-    assert(r.random.int(i8) == -1);
+    var r = SequentialPrng.init();
+
     assert(r.random.int(u0) == 0);
+
+    r.next_value = 0;
+    assert(r.random.int(u1) == 0);
     assert(r.random.int(u1) == 1);
+    assert(r.random.int(u2) == 2);
     assert(r.random.int(u2) == 3);
+    assert(r.random.int(u2) == 0);
+
+    r.next_value = 0xff;
+    assert(r.random.int(u8) == 0xff);
+    r.next_value = 0x11;
+    assert(r.random.int(u8) == 0x11);
+
+    r.next_value = 0xff;
+    assert(r.random.int(u32) == 0xffffffff);
+    r.next_value = 0x11;
+    assert(r.random.int(u32) == 0x11111111);
+
+    r.next_value = 0xff;
+    assert(r.random.int(i32) == -1);
+    r.next_value = 0x11;
+    assert(r.random.int(i32) == 0x11111111);
+
+    r.next_value = 0xff;
+    assert(r.random.int(i8) == -1);
+    r.next_value = 0x11;
+    assert(r.random.int(i8) == 0x11);
+
+    r.next_value = 0xff;
     assert(r.random.int(u33) == 0x1ffffffff);
+    r.next_value = 0xff;
     assert(r.random.int(i1) == -1);
+    r.next_value = 0xff;
     assert(r.random.int(i2) == -1);
+    r.next_value = 0xff;
     assert(r.random.int(i33) == -1);
 }
 
-test "Random.boolean" {
+test "Random boolean" {
     testRandomBoolean();
     comptime testRandomBoolean();
 }
 fn testRandomBoolean() void {
-    var f = DegenerateConstantPrng.init(0);
-    assert(f.random.boolean() == false);
-    var t = DegenerateConstantPrng.init(1);
-    assert(t.random.boolean() == true);
+    var r = SequentialPrng.init();
+    assert(r.random.boolean() == false);
+    assert(r.random.boolean() == true);
+    assert(r.random.boolean() == false);
+    assert(r.random.boolean() == true);
 }
 
-test "Random.intLessThan" {
-    // the retries need a lot of execution
+test "Random intLessThan" {
     @setEvalBranchQuota(10000);
     testRandomIntLessThan();
     comptime testRandomIntLessThan();
 }
 fn testRandomIntLessThan() void {
-    var ff = DegenerateConstantPrng.init(0xff);
-    assert(ff.random.uintLessThan(u8, 4, 0) == 3);
-    assert(ff.random.uintLessThan(u8, 3, 0) == 0);
+    var r = SequentialPrng.init();
+    r.next_value = 0xff;
+    assert(r.random.uintLessThan(u8, 4) == 3);
+    r.next_value = 0xff;
+    assert(r.random.uintLessThan(u8, 3) == 0);
+    assert(r.next_value == 1);
 
-    assert(ff.random.uintLessThanRetryForever(u8, 4) == 3);
-    // This would run forever.
-    //assert(ff.random.uintLessThanRetryForever(u8, 3) == 0);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
 
-    // these all have to have a range that is a power of 2.
-    assert(ff.random.uintLessThanRetryForever(u8, 0x80) == 0x7f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i8, -0x80, 0) == -1);
 
-    assert(ff.random.intRangeLessThanRetryForever(u8, 0, 0x80) == 0x7f);
-    assert(ff.random.intRangeLessThanRetryForever(u8, 0x7f, 0xff) == 0xfe);
-
-    assert(ff.random.intRangeLessThanRetryForever(i8, 0, 0x40) == 0x3f);
-    assert(ff.random.intRangeLessThanRetryForever(i8, -0x40, 0x40) == 0x3f);
-    assert(ff.random.intRangeLessThanRetryForever(i8, -0x80, 0) == -1);
-
-    assert(ff.random.intRangeLessThanRetryForever(i64, -0x8000000000000000, 0) == -1);
-    assert(ff.random.intRangeLessThanRetryForever(i3, -4, 0) == -1);
-    assert(ff.random.intRangeLessThanRetryForever(i3, -2, 2) == 1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i64, -0x8000000000000000, 0) == -1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i3, -4, 0) == -1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i3, -2, 2) == 1);
 
     // test retrying and eventually getting a good value
-    var inc = DegenerateSequentialPrng.init();
     // start just out of bounds
-    inc.next_value = 0x81;
-    assert(inc.random.uintLessThan(u8, 0x81, 0x7f) == 0);
+    r.next_value = 0x81;
+    assert(r.random.uintLessThan(u8, 0x81) == 0);
 }
 
-test "Random.intAtMost" {
-    // the retries need a lot of execution
+test "Random intAtMost" {
     @setEvalBranchQuota(10000);
     testRandomIntAtMost();
     comptime testRandomIntAtMost();
 }
 fn testRandomIntAtMost() void {
-    var ff = DegenerateConstantPrng.init(0xff);
-    assert(ff.random.uintAtMost(u8, 3, 0) == 3);
-    assert(ff.random.uintAtMost(u8, 2, 0) == 0);
+    var r = SequentialPrng.init();
+    r.next_value = 0xff;
+    assert(r.random.uintAtMost(u8, 3) == 3);
+    r.next_value = 0xff;
+    assert(r.random.uintAtMost(u8, 2) == 0);
+    assert(r.next_value == 1);
 
-    assert(ff.random.uintAtMostRetryForever(u8, 3) == 3);
-    // This would run forever.
-    //assert(ff.random.uintAtMostRetryForever(u8, 2) == 0);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
 
-    // these all have to have a range that is a mersenne number.
-    assert(ff.random.uintAtMostRetryForever(u8, 0x7f) == 0x7f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i8, -0x80, -1) == -1);
 
-    assert(ff.random.intRangeAtMostRetryForever(u8, 0, 0x7f) == 0x7f);
-    assert(ff.random.intRangeAtMostRetryForever(u8, 0x80, 0xff) == 0xff);
-
-    assert(ff.random.intRangeAtMostRetryForever(i8, 0, 0x3f) == 0x3f);
-    assert(ff.random.intRangeAtMostRetryForever(i8, -0x40, 0x3f) == 0x3f);
-    assert(ff.random.intRangeAtMostRetryForever(i8, -0x80, -1) == -1);
-
-    assert(ff.random.intRangeAtMostRetryForever(i64, -0x8000000000000000, -1) == -1);
-    assert(ff.random.intRangeAtMostRetryForever(i3, -4, -1) == -1);
-    assert(ff.random.intRangeAtMostRetryForever(i3, -2, 1) == 1);
-    assert(ff.random.uintAtMostRetryForever(u0, 0) == 0);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i64, -0x8000000000000000, -1) == -1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i3, -4, -1) == -1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i3, -2, 1) == 1);
 
     // test retrying and eventually getting a good value
-    var inc = DegenerateSequentialPrng.init();
     // start just out of bounds
-    inc.next_value = 0x81;
-    assert(inc.random.uintAtMost(u8, 0x80, 0x7f) == 0);
+    r.next_value = 0x81;
+    assert(r.random.uintAtMost(u8, 0x80) == 0);
 }
 
 // Generator to extend 64-bit seed values into longer sequences.
@@ -883,17 +834,6 @@ test "Random float" {
     }
 }
 
-test "Random scalar" {
-    var prng = DefaultPrng.init(0);
-    const s = prng.random.scalar(u64);
-}
-
-test "Random bytes" {
-    var prng = DefaultPrng.init(0);
-    var buf: [2048]u8 = undefined;
-    prng.random.bytes(buf[0..]);
-}
-
 test "Random shuffle" {
     var prng = DefaultPrng.init(0);
 
@@ -926,7 +866,6 @@ test "Random range" {
     testRange(&prng.random, -4, -1);
     testRange(&prng.random, 10, 14);
     testRange(&prng.random, -0x80, 0x7f);
-    // TODO: test that prng.random.range(1, 1) causes an assertion error
 }
 
 fn testRange(r: *Random, start: i8, end: i8) void {
@@ -935,7 +874,7 @@ fn testRange(r: *Random, start: i8, end: i8) void {
     const values = values_buffer[0..count];
     var i: usize = 0;
     while (i < count) {
-        const value: i32 = r.range(i8, start, end);
+        const value: i32 = r.intRangeLessThan(i8, start, end);
         const index = @intCast(usize, value - start);
         if (!values[index]) {
             i += 1;
