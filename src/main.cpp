@@ -394,7 +394,12 @@ int main(int argc, char **argv) {
     bool no_rosegment_workaround = false;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
-        const char *zig_exe_path = arg0;
+        Buf zig_exe_path_buf = BUF_INIT;
+        if ((err = os_self_exe_path(&zig_exe_path_buf))) {
+            fprintf(stderr, "Unable to determine path to zig's own executable\n");
+            return EXIT_FAILURE;
+        }
+        const char *zig_exe_path = buf_ptr(&zig_exe_path_buf);
         const char *build_file = "build.zig";
         bool asked_for_help = false;
 
