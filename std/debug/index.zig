@@ -13,7 +13,7 @@ const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
 pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
-pub const failing_allocator = FailingAllocator.init(global_allocator, 0);
+pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
 
 pub const runtime_safety = switch (builtin.mode) {
     builtin.Mode.Debug, builtin.Mode.ReleaseSafe => true,
